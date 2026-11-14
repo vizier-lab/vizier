@@ -199,7 +199,6 @@ mod tests {
             background_depth: 0,
             subagent_depth: 0,
             loaded_images: Default::default(),
-            recalled: Default::default(),
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(Default::default()),

@@ -62,7 +62,8 @@ pub enum SessionHistoryContent {
         state: Option<serde_json::Value>,
     },
     /// Memory passages the agent was given or went looking for during a turn
-    /// (`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.
+    /// (`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can
+    /// still be read (#82). Never part of the model's input.
     Recall {
         origin: RecallOrigin,
         passages: Vec<RecalledPassage>,
@@ -162,23 +163,6 @@ pub struct RecalledPassage {
     pub score: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-}
-
-/// One entry per `(bundle, path, ordinal)`, keeping the highest score, best first.
-pub fn dedupe_passages(passages: Vec<RecalledPassage>) -> Vec<RecalledPassage> {
-    let mut out: Vec<RecalledPassage> = Vec::new();
-    for p in passages {
-        match out
-            .iter_mut()
-            .find(|o| o.bundle == p.bundle && o.path == p.path && o.ordinal == p.ordinal)
-        {
-            Some(o) if p.score > o.score => *o = p,
-            Some(_) => {}
-            None => out.push(p),
-        }
-    }
-    out.sort_by(|a, b| b.score.total_cmp(&a.score));
-    out
 }
 
 /// How a client tool call ended, or `Pending` while it is in flight.
@@ -1330,20 +1314,5 @@ mod tests {
             SessionHistoryContent::AssistantMessage("hello".into()),
         )]);
         assert_eq!(with.len(), without.len());
-    }
-
-    #[test]
-    fn duplicate_passages_keep_the_highest_score() {
-        let p = |ordinal, score| RecalledPassage {
-            bundle: "infra".into(),
-            path: "qdrant.md".into(),
-            ordinal,
-            score,
-            title: None,
-        };
-        let out = dedupe_passages(vec![p(1, 0.4), p(2, 0.9), p(1, 0.7)]);
-        assert_eq!(out.len(), 2);
-        assert_eq!((out[0].ordinal, out[0].score), (2, 0.9));
-        assert_eq!((out[1].ordinal, out[1].score), (1, 0.7));
     }
 }

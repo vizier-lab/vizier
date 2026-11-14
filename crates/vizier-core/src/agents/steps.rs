@@ -201,7 +201,7 @@ impl StepRecorder {
         }
     }
 
-    /// Records one entry that is not a model message (a `Recall`). It does not count toward
+    /// Records one entry that is not a model message (a background delivery). It does not count toward
     /// `recorded`, which indexes the turn's messages.
     pub async fn record_entry(
         &mut self,

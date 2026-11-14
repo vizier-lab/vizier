@@ -678,7 +678,6 @@ async fn refresh_session_detail(
     );
     let ctx = ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
             crate::questions::Questions::new().into(),
@@ -1160,7 +1159,6 @@ async fn run_checkpoint(
     let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
     let ctx = ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
             crate::questions::Questions::new().into(),

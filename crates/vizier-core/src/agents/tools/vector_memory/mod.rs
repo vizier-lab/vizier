@@ -350,18 +350,6 @@ impl VizierTool for MemorySearch {
             }
         }
 
-        // The agent loop turns these into a `Recall { Search }` entry for the WebUI.
-        ctx.recalled
-            .lock()
-            .await
-            .extend(res.iter().map(|p| crate::schema::RecalledPassage {
-                bundle: p.bundle.clone(),
-                path: p.path.clone(),
-                ordinal: p.ordinal as u32,
-                score: p.score as f32,
-                title: Some(p.title.clone()).filter(|t| !t.is_empty()),
-            }));
-
         Ok(res
             .into_iter()
             .map(|p| MemorySearchHit {

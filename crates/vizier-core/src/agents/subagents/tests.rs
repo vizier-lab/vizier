@@ -132,7 +132,6 @@ mod service {
     fn ctx(session: VizierSession, wait_secs: u64) -> ToolContext {
         ToolContext {
             loaded_images: Default::default(),
-            recalled: Default::default(),
             client: None,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
             interactive: true,
@@ -428,7 +427,6 @@ fn who_is_offered_which_subagent_tool() {
     use crate::schema::{VizierChannelId, VizierSession};
     let base = |session: VizierSession, depth: u8| ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(Default::default()),
         interactive: false,

@@ -49,7 +49,6 @@ fn chat() -> VizierSession {
 fn ctx(session: VizierSession, depth: u8) -> ToolContext {
     ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(Default::default()),
         interactive: true,

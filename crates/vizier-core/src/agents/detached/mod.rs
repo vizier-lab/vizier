@@ -335,7 +335,6 @@ fn detached_context(ctx: &ToolContext, script: &DetachedScript) -> ToolContext {
     task.parent_detached_id = Some(script.id.clone());
     task.pending_attachments = Default::default();
     task.loaded_images = Default::default();
-    task.recalled = Default::default();
     task.deadline = Some(tokio::time::Instant::now() + Duration::from_secs(script.timeout_secs));
     task
 }

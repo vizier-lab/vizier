@@ -284,9 +284,6 @@ pub struct ToolContext {
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
     pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
-    /// Memory passages a tool returned during the round (`memory_search`), drained by the
-    /// agent loop into a `Recall { Search }` history entry (`specs/024-webui-rewrite`, FR-018e).
-    pub recalled: Arc<Mutex<Vec<crate::schema::RecalledPassage>>>,
     /// The moment at which the agent loop's `tools.timeout` will cut the current direct
     /// tool call off. Script calls inherit the deadline of their `execute_python` call.
     pub deadline: Option<tokio::time::Instant>,
@@ -2381,7 +2378,6 @@ mod tests {
             subagent_depth: 0,
             deadline: None,
             loaded_images: Default::default(),
-            recalled: Default::default(),
             client,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
             interactive: false,

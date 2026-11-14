@@ -257,7 +257,6 @@ fn env() -> Env {
         subagent_depth: 0,
         deadline: None,
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(Default::default()),
         interactive: false,
