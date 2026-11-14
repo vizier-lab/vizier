@@ -1014,6 +1014,7 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             deadline: None,
             loaded_images: Default::default(),
             recalled: Default::default(),
