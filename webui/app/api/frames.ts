@@ -1,4 +1,4 @@
-// The wire types of a chat topic: requests, replies, history entries, jobs, client tools and
+// The wire types of a chat topic: requests, replies, history entries, detached scripts, client tools and
 // the frames the socket carries (specs/024-webui-rewrite/contracts/websocket.md). Hand-typed:
 // the socket protocol is not in the OpenAPI document. Carried over from the previous WebUI,
 // plus the `Recall` entry and the `session_file` frame.
@@ -14,78 +14,57 @@ export interface Topic {
   agent_id: string
   channel: string
   is_thinking?: boolean
-  // Background jobs launched from this topic that are still in flight.
-  running_jobs?: number
+  // Detached scripts launched from this topic that are still running (spec 058).
+  running_scripts?: number
 }
 
 // ============================================================================
-// BACKGROUND JOBS (specs/012-background-subagent-results/contracts/http-api.md)
+// DETACHED SCRIPTS (specs/058-detached-tool-calls/contracts/http-and-frames.md)
 // ============================================================================
 
-export type BackgroundJobKind = 'batch' | 'delegation'
-
-// `running` and `reporting` are in flight.
-export type BackgroundJobState =
+export type DetachedScriptState =
   | 'running'
-  | 'reporting'
-  | 'reported'
-  | 'undelivered'
-  | 'cancelled'
-  | 'interrupted'
-
-export type BackgroundPieceState =
-  | 'running'
-  | 'answered'
+  | 'succeeded'
   | 'failed'
   | 'timed_out'
   | 'cancelled'
   | 'interrupted'
 
-export type BackgroundCanceller = { agent: string } | { person: string }
-
-export interface BackgroundPieceSnapshot {
-  ordinal: number
-  prompt: string
-  state: BackgroundPieceState
-  reason: string | null
-  agent_id: string
-  topic: string | null
-  started_at: string
-  finished_at: string | null
-}
-
-export interface BackgroundJobSnapshot {
+/** The list route's rows and the `detached_script` frame. */
+export interface DetachedScriptSnapshot {
   id: string
-  kind: BackgroundJobKind
-  delegated_to: string | null
-  state: BackgroundJobState
+  intent: string
+  state: DetachedScriptState
   created_at: string
   finished_at: string | null
   timeout_secs: number
-  cancelled_by?: BackgroundCanceller | null
-  reason?: string | null
-  pieces: BackgroundPieceSnapshot[]
+  parent_id: string | null
+  delivered: boolean
+  tool_call_count: number
 }
 
-export interface ReportEntry {
-  ordinal: number
-  prompt: string
-  state: BackgroundPieceState
-  text: string
-  truncated: boolean
+/** One nested call, as the bridge recorded it (arguments redacted, previews cut). */
+export interface DetachedToolCall {
+  seq: number
+  name: string
+  arguments: unknown
+  ok: boolean
+  error?: string | null
+  duration_ms: number
 }
 
-export interface BackgroundReport {
-  job_id: string
-  kind: BackgroundJobKind
-  delegated_to: string | null
-  entries: ReportEntry[]
+/** One script with its code, its calls and, once final, its report. */
+export interface DetachedScriptDetail extends DetachedScriptSnapshot {
+  code: string
+  tool_calls: DetachedToolCall[]
+  /** The `ExecutionReport` (without its calls), or why it stopped as a string. */
+  report: Record<string, unknown> | string | null
 }
 
-// A WebSocket frame announcing a background job change. Every other frame is a bare
-// `WebSocketResponse`, which has no top-level `background_job` key.
-export interface WebSocketJobFrame {
-  background_job: BackgroundJobSnapshot
+/** A pre-058 background report, kept so old conversations still draw (#82). */
+export interface LegacyBackgroundReport {
+  job_id?: string
+  entries?: { prompt: string; state: string; text: string }[]
 }
 
 // VizierRequestContent - matches backend VizierRequestContent enum with serde rename_all = "snake_case"
@@ -100,8 +79,11 @@ export type VizierRequestContent =
   | { command: string }
   | { audio_chat: [VizierAttachment, string | null] }
   | { audio_prompt: [VizierAttachment, string | null] }
-  // The outcome of background work this conversation started. Not a message from a person.
-  | { background_report: BackgroundReport }
+  // Finished detached scripts, delivered as a turn or mid-turn (spec 058). Not a message
+  // from a person.
+  | { detached_delivery: string }
+  // A report saved before spec 058; never sent any more (#82).
+  | { background_report: LegacyBackgroundReport }
   // A message a client sent on the person's behalf, e.g. a click in a page the agent drew.
   // `text` is the person's bubble; `data` is for the agent only and is never shown.
   | { client_event: ClientEventContent }
@@ -365,7 +347,7 @@ export type TrailEvent =
   // Prose the agent wrote between tool rounds: kept inside the work it belongs to rather than
   // drawn as a message, since it is the agent thinking out loud, not something said to anyone.
   | { kind: 'narration'; id: string; text: string }
-  // `jobId` is set on the `background_subagents`/`delegate_agent` call that launched a
+  // `jobId` is set on a pre-058 `background_subagents`/`delegate_agent` call (#82) that launched a
   // background job, read from its tool result, so the job tray can jump back to it. The
   // retired `paralel_subtasks` name is kept for saved history.
   | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string; stopped?: boolean }
@@ -376,6 +358,9 @@ export type TrailEvent =
       code: string | null
       report: ExecutionReport | null
       stopped?: boolean
+      /** Set when the run was detached (spec 058): its handle, `d_…`. It has no report here;
+       * the result arrives later as a delivery. */
+      detachedId?: string
     }
 
 // One part of a turn, in the order it happened: a stretch of work, or something the agent said
@@ -581,7 +566,7 @@ export interface SessionFileFrame {
 /** Every frame the topic socket sends, once told apart by `classifyFrame`. */
 export type Frame =
     | { kind: 'response'; response: WebSocketResponse }
-    | { kind: 'job'; snapshot: BackgroundJobSnapshot }
+    | { kind: 'detached_script'; script: DetachedScriptSnapshot }
     | { kind: 'history_entry'; entry: ChatMessage }
     | { kind: 'reactions'; messageUid: string; reactions: ReactionEntry[] }
     | { kind: 'reaction_error'; messageUid: string; message: string }
@@ -606,7 +591,7 @@ const CLIENT_KEYS = [
 /** Tells a parsed socket message apart by its top-level key; anything else is a response. */
 export function classifyFrame(raw: unknown): Frame | null {
     if (!isObj(raw)) return null
-    if ('background_job' in raw) return { kind: 'job', snapshot: raw.background_job as BackgroundJobSnapshot }
+    if ('detached_script' in raw) return { kind: 'detached_script', script: raw.detached_script as DetachedScriptSnapshot }
     if ('history_entry' in raw) return { kind: 'history_entry', entry: raw.history_entry as ChatMessage }
     if ('session_title' in raw && isObj(raw.session_title)) return { kind: 'title', title: String(raw.session_title.title) }
     if ('session_file' in raw) return { kind: 'session_file', file: (raw as unknown as SessionFileFrame).session_file.file }

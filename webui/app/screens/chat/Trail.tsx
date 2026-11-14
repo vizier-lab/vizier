@@ -48,6 +48,8 @@ function pythonState(
     live: boolean
 ) {
     if (event.stopped) return 'failed' as const
+    // Detached: it handed back a handle at once, and its own outcome arrives later.
+    if (event.detachedId) return 'done' as const
     if (!event.report) return live ? ('running' as const) : ('failed' as const)
     if (event.report.error?.kind === 'limit') return 'limit' as const
     return event.report.ok ? ('done' as const) : ('failed' as const)
@@ -69,7 +71,7 @@ function miniDot(
     return event.kind === 'tool' && event.stopped ? 'failed' : 'done'
 }
 
-function Run({
+export function Run({
     report,
     code,
     intent,
@@ -153,12 +155,18 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
                     intent={event.intent ?? undefined}
                     state={state}
                     duration={
-                        event.report
-                            ? duration(event.report.duration_ms)
-                            : undefined
+                        event.detachedId
+                            ? `in the background · ${event.detachedId}`
+                            : event.report
+                              ? duration(event.report.duration_ms)
+                              : undefined
                     }
                 >
-                    {event.stopped ? (
+                    {event.detachedId ? (
+                        <Notice compact>
+                            Running in the background as {event.detachedId}. Its result arrives in a later step; see Background work below.
+                        </Notice>
+                    ) : event.stopped ? (
                         <Notice compact tone="failed">
                             Stopped before it finished.
                         </Notice>

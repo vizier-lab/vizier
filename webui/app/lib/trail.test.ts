@@ -439,7 +439,7 @@ test('an ordinary chat request is still adopted as its turn request', () => {
   assert.equal(turns[0].request?.uid, asked.uid)
 })
 
-// Background jobs: the call that launched a job is tagged with the job id its result quotes,
+// Background jobs (saved before spec 058, #82): the call that launched a job is tagged with the job id its result quotes,
 // so the job tray can jump back to it.
 test('a launching call in history is tagged with the job id from its result', () => {
   const turns = groupHistory([
@@ -668,4 +668,28 @@ test('a turn ended by a turn-ending call keeps the call and its empty reply toge
   assert.equal(turns[0].clientCalls.length, 1)
   assert.ok(turns[0].outcome)
   assert.equal(turns[0].anchorUid, turns[0].outcome?.uid)
+})
+
+test('a detached run reads as running in the background, from history and live', () => {
+  const handle = { detached: true, id: 'd_k3x9a1b2', state: 'running', timeout_secs: 600 }
+  const turns = groupHistory([
+    request('slow'),
+    python('c-d', { intent: 'run the tests', code: 'x', detached: true }),
+    toolResult('c-d', JSON.stringify(handle)),
+    response('started'),
+  ])
+  const event = turnEvents(turns[0])[0]
+  assert.equal(event.kind, 'python')
+  if (event.kind === 'python') {
+    assert.equal(event.detachedId, 'd_k3x9a1b2')
+    assert.equal(event.report, null)
+  }
+
+  const live = appendLiveEvent(
+    appendLiveEvent([], { tool_choice: { name: 'execute_python', args: { intent: 'x', code: 'y' } } }, 'l1'),
+    { tool_response: { response: handle } },
+    'l2',
+  )
+  const run = live.find((e) => e.kind === 'python')
+  assert.ok(run && run.kind === 'python' && run.detachedId === 'd_k3x9a1b2')
 })

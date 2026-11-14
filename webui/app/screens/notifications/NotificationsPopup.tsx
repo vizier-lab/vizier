@@ -19,7 +19,7 @@ const EMPTY_STATES = {
     all: {
         icon: 'bell' as const,
         title: 'Nothing yet',
-        message: 'Task runs, dreams, background jobs and integration changes will show up here.',
+        message: 'Task runs, dreams, background work and integration changes will show up here.',
     },
     unread: {
         icon: 'circle-check' as const,

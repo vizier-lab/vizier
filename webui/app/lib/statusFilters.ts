@@ -1,13 +1,13 @@
-import type { BackgroundJobSnapshot, SessionFileRecord } from '../api/frames'
+import type { DetachedScriptSnapshot, SessionFileRecord } from '../api/frames'
 import type { Recalled } from './recall'
 
 /** The sections the chat's status strip holds. */
-export type StatusSection = 'memory' | 'jobs' | 'files'
+export type StatusSection = 'memory' | 'work' | 'files'
 
 /** A row in a section's list, flattened for the shared row renderer. */
 export type StatusRow =
   | { kind: 'memory'; key: string; passage: Recalled; href: string }
-  | { kind: 'job'; key: string; job: BackgroundJobSnapshot }
+  | { kind: 'script'; key: string; script: DetachedScriptSnapshot }
   | { kind: 'file'; key: string; file: SessionFileRecord }
 
 /** How many rows a section shows at once; the panel scrolls for the rest. */
@@ -44,27 +44,31 @@ export function filterMemory(
   return rows
 }
 
-/** The job states the jobs tabs count. */
-export function jobCounts(jobs: BackgroundJobSnapshot[]) {
-  const running = jobs.filter((j) => j.state === 'running' || j.state === 'reporting')
-  const done = jobs.filter((j) => j.state === 'reported' || j.state === 'undelivered')
-  const stopped = jobs.filter((j) => j.state === 'cancelled' || j.state === 'interrupted')
-  return { running: running.length, done: done.length, stopped: stopped.length, total: jobs.length }
+export type WorkTab = 'all' | 'running' | 'done' | 'stopped'
+
+/** Which tab a script falls under: done is ended on its own, stopped is cut short. */
+export function workTab(state: DetachedScriptSnapshot['state']): Exclude<WorkTab, 'all'> {
+  if (state === 'running') return 'running'
+  if (state === 'succeeded' || state === 'failed') return 'done'
+  return 'stopped'
 }
 
-/** The jobs a section shows: the query narrows them, the tab picks a state. */
-export function filterJobs(
-  jobs: BackgroundJobSnapshot[],
-  query: string,
-  tab: 'all' | 'running' | 'done' | 'stopped',
-): StatusRow[] {
+/** The counts the Background work tabs show. */
+export function workCounts(scripts: DetachedScriptSnapshot[]) {
+  const counts = { running: 0, done: 0, stopped: 0, total: scripts.length }
+  for (const s of scripts) counts[workTab(s.state)] += 1
+  return counts
+}
+
+/** The scripts the Background work panel shows, newest first: the query narrows them by intent
+ * or handle, the tab picks a state. */
+export function filterWork(scripts: DetachedScriptSnapshot[], query: string, tab: WorkTab): StatusRow[] {
   const rows: StatusRow[] = []
-  for (const j of jobs) {
-    if (tab === 'running' && !(j.state === 'running' || j.state === 'reporting')) continue
-    if (tab === 'done' && !(j.state === 'reported' || j.state === 'undelivered')) continue
-    if (tab === 'stopped' && !(j.state === 'cancelled' || j.state === 'interrupted')) continue
-    if (!matches(query, j.kind, j.delegated_to, j.pieces[0]?.prompt)) continue
-    rows.push({ kind: 'job', key: j.id, job: j })
+  const newest = [...scripts].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+  for (const s of newest) {
+    if (tab !== 'all' && workTab(s.state) !== tab) continue
+    if (!matches(query, s.intent, s.id)) continue
+    rows.push({ kind: 'script', key: s.id, script: s })
   }
   return rows
 }

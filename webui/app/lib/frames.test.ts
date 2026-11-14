@@ -230,11 +230,25 @@ describe('history and reopening', () => {
 })
 
 describe('side frames', () => {
-    it('keeps jobs by id and replaces a changed one', () => {
-        const job = (state: string) => ({ id: 'j1', kind: 'batch', state, pieces: [] }) as never
-        const s = run(start(), frame({ kind: 'job', snapshot: job('running') }), frame({ kind: 'job', snapshot: job('reported') }))
-        expect(Object.keys(s.jobs)).toEqual(['j1'])
-        expect(s.jobs.j1.state).toBe('reported')
+    it('keeps detached scripts by id and replaces a changed one', () => {
+        const script = (state: string, calls: number) =>
+            ({ id: 'd_1', intent: 'check', state, tool_call_count: calls, delivered: false }) as never
+        const s = run(
+            start(),
+            frame({ kind: 'detached_script', script: script('running', 0) }),
+            frame({ kind: 'detached_script', script: script('running', 2) }),
+            frame({ kind: 'detached_script', script: script('succeeded', 2) }),
+        )
+        expect(Object.keys(s.scripts)).toEqual(['d_1'])
+        expect(s.scripts.d_1.state).toBe('succeeded')
+        expect(s.scripts.d_1.tool_call_count).toBe(2)
+    })
+
+    it('replaces the scripts with a fresh read', () => {
+        const script = (id: string) => ({ id, intent: id, state: 'running' }) as never
+        let s = run(start(), frame({ kind: 'detached_script', script: script('d_old') }))
+        s = run(s, { type: 'scripts', scripts: [script('d_a'), script('d_b')] })
+        expect(Object.keys(s.scripts)).toEqual(['d_a', 'd_b'])
     })
 
     it('prepends a new session file and replaces a relabelled one', () => {

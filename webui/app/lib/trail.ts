@@ -27,6 +27,13 @@ import type {
 // response.
 const REPORT_KEYS = ['ok', 'stdout', 'tool_calls', 'duration_ms'] as const
 
+/** The handle a detached `execute_python` returns in place of a report (spec 058), if it is one. */
+export function parseDetachedHandle(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  return v.detached === true && typeof v.id === 'string' ? v.id : null
+}
+
 export function parseExecutionReport(value: unknown): ExecutionReport | null {
   if (!value || typeof value !== 'object') return null
   return REPORT_KEYS.every((key) => key in value) ? (value as ExecutionReport) : null
@@ -238,7 +245,10 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       const waiting = pendingPython.get(content.ToolResult.call_id)
       if (waiting && waiting.kind === 'python') {
         try {
-          waiting.report = parseExecutionReport(JSON.parse(content.ToolResult.content))
+          const parsed = JSON.parse(content.ToolResult.content)
+          waiting.report = parseExecutionReport(parsed)
+          const handle = parseDetachedHandle(parsed)
+          if (handle) waiting.detachedId = handle
         } catch {
           waiting.report = null
         }
@@ -437,13 +447,14 @@ export function liveEvent(content: VizierResponseContent, id: string): TrailEven
  */
 export function attachReport(trail: TrailEvent[], response: unknown): TrailEvent[] {
   const report = parseExecutionReport(response)
-  if (!report) return trail
+  const handle = report ? null : parseDetachedHandle(response)
+  if (!report && !handle) return trail
 
   for (let i = trail.length - 1; i >= 0; i -= 1) {
     const event = trail[i]
-    if (event.kind === 'python' && event.report === null) {
+    if (event.kind === 'python' && event.report === null && !event.detachedId) {
       const next = trail.slice()
-      next[i] = { ...event, report }
+      next[i] = report ? { ...event, report } : { ...event, detachedId: handle ?? undefined }
       return next
     }
   }

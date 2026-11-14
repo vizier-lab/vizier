@@ -20,6 +20,7 @@ import {
     isAudioReply,
     isAudioRequest,
     isBackgroundReport,
+    isDetachedDelivery,
     replyAttachments,
     replyError,
     replyStats,
@@ -29,6 +30,7 @@ import {
     statsLine,
     time,
 } from '../../lib/messages'
+import { deliveredHandles, deliveryBody } from '../../lib/detached'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
@@ -241,21 +243,40 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         if (c.Request) {
             const content = c.Request.content
             if ('unattended' in content) continue
-            if (isBackgroundReport(content)) {
-                const r = content.background_report
+            if (isDetachedDelivery(content)) {
+                const handles = deliveredHandles(content.detached_delivery)
                 arrive(
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
-                        meta={`${r.kind === 'delegation' ? `delegate_agent → ${r.delegated_to ?? ''}` : 'background_subagents'} · ${r.entries.length} piece${r.entries.length === 1 ? '' : 's'}`}
+                        title="Background work finished"
+                        meta={handles.length > 1 ? `${handles.length} scripts` : (handles[0] ?? '')}
+                        linkLabel="What it returned"
+                        details={
+                            <pre className="whitespace-pre-wrap break-words type-code-block text-soft">
+                                {deliveryBody(content.detached_delivery)}
+                            </pre>
+                        }
+                    />,
+                    e.uid
+                )
+                continue
+            }
+            if (isBackgroundReport(content)) {
+                const r = content.background_report
+                const found = r.entries ?? []
+                arrive(
+                    <BackgroundReportCard
+                        key={e.uid}
+                        agentId={agent.id}
+                        meta={`${found.length} piece${found.length === 1 ? '' : 's'}`}
                         linkLabel="What each piece found"
-                        details={r.entries.map((en) => (
-                            <div key={en.ordinal} className="flex flex-col gap-4">
+                        details={found.map((en, i) => (
+                            <div key={i} className="flex flex-col gap-4">
                                 <p className="type-small text-faint">
-                                    {en.ordinal + 1}. {en.prompt} · {en.state}
+                                    {i + 1}. {en.prompt} · {en.state}
                                 </p>
                                 <Markdown size="document">{en.text || '_No answer._'}</Markdown>
-                                {en.truncated && <p className="type-small text-faint">The answer was cut short here.</p>}
                             </div>
                         ))}
                     />,
