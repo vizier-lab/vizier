@@ -20,6 +20,7 @@ import { detachedScript } from '../../api/endpoints/chat'
 import type { DetachedScriptDetail } from '../../api/frames'
 import { detachedReport, type DeliveredScript } from '../../lib/detached'
 import { DetachedSource } from './detachedSource'
+import type { WorkerUpdate } from '../../lib/subagents'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
@@ -39,6 +40,8 @@ function counts(trail: TrailEvent[], recalled: number): string {
     const delivered = trail.filter((e) => e.kind === 'delivery').length
     if (delivered)
         parts.push(`${delivered} background result${delivered === 1 ? '' : 's'}`)
+    const updates = trail.filter((e) => e.kind === 'worker_update').length
+    if (updates) parts.push(`${updates} subagent update${updates === 1 ? '' : 's'}`)
     if (recalled)
         parts.push(`${recalled} passage${recalled === 1 ? '' : 's'} recalled`)
     return parts.join(' · ')
@@ -76,6 +79,7 @@ function miniDot(
               : 'failed'
     }
     if (event.kind === 'delivery') return deliveryState(event.state) === 'done' ? 'done' : 'failed'
+    if (event.kind === 'worker_update') return workerUpdateState(event.state) === 'failed' ? 'failed' : 'done'
     return event.kind === 'tool' && event.stopped ? 'failed' : 'done'
 }
 
@@ -84,6 +88,29 @@ function deliveryState(state: string) {
     if (state === 'succeeded') return 'done' as const
     if (state === 'timed out') return 'limit' as const
     return 'failed' as const
+}
+
+/** A worker update's dot: answered, asking (amber: it waits on the agent), or failed. */
+function workerUpdateState(state: string) {
+    if (state === 'answered') return 'done' as const
+    if (state === 'asking') return 'limit' as const
+    return 'failed' as const
+}
+
+/** One worker's answer, question or failure on the trail, or in the card of an update that woke the agent. */
+export function WorkerUpdateRow({ update }: { update: WorkerUpdate }) {
+    return (
+        <TrailCall
+            name="subagent"
+            intent={`${update.position} · ${update.title}`}
+            state={workerUpdateState(update.state)}
+            duration={`${update.handle} · ${update.state.replace('_', ' ')}`}
+        >
+            {update.body ? (
+                <pre className="whitespace-pre-wrap break-words type-code-block text-soft">{update.body}</pre>
+            ) : null}
+        </TrailCall>
+    )
 }
 
 /** A delivered script's own record (code, calls, result), read when its row opens. */
@@ -199,6 +226,8 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
             )
         case 'delivery':
             return <DeliveryRow script={event} />
+        case 'worker_update':
+            return <WorkerUpdateRow update={event} />
         case 'python': {
             const state = pythonState(event, live)
             return (
@@ -298,7 +327,8 @@ export function Trail({
                                       (e) =>
                                           e.kind === 'python' ||
                                           e.kind === 'tool' ||
-                                          e.kind === 'delivery'
+                                          e.kind === 'delivery' ||
+                                          e.kind === 'worker_update'
                                   )
                                   .map((e) => miniDot(e, live || !!turnRunning))
                           ),

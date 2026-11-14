@@ -5,6 +5,7 @@ import {
     topicFiles,
     topicHistory,
     topicDetachedScripts,
+    topicSubagents,
 } from '../api/endpoints/chat'
 import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, reduce, type Action, type TopicState } from '../lib/frames'
@@ -135,11 +136,12 @@ export const useTurns = create<TurnStore>()((set, get) => {
             channels.set(key, channel)
             update(key, (s) => (s.session.agent_id ? s : emptyTopic({ agent_id: agentId, channel, topic: topicId })))
 
-            const [history, detail, files, scripts] = await Promise.allSettled([
+            const [history, detail, files, scripts, workers] = await Promise.allSettled([
                 topicHistory(agentId, topicId, { limit: PAGE, channel }),
                 topicDetail(agentId, topicId, channel),
                 topicFiles(agentId, topicId, 0, 100, channel),
                 topicDetachedScripts(agentId, topicId, channel),
+                topicSubagents(agentId, topicId, channel),
             ])
             if (history.status === 'fulfilled') {
                 const entries = history.value ?? []
@@ -154,6 +156,9 @@ export const useTurns = create<TurnStore>()((set, get) => {
             }
             if (scripts.status === 'fulfilled') {
                 update(key, (s) => reduce(s, { type: 'scripts', scripts: scripts.value ?? [] }))
+            }
+            if (workers.status === 'fulfilled') {
+                update(key, (s) => reduce(s, { type: 'workers', workers: workers.value ?? [] }))
             }
             setMeta(key, { loaded: true })
 
@@ -197,6 +202,9 @@ export const useTurns = create<TurnStore>()((set, get) => {
                         .catch(() => {})
                     topicDetachedScripts(agentId, topicId, channelOf(agentId, topicId))
                         .then((scripts) => update(key, (s) => reduce(s, { type: 'scripts', scripts: scripts ?? [] })))
+                        .catch(() => {})
+                    topicSubagents(agentId, topicId, channelOf(agentId, topicId))
+                        .then((workers) => update(key, (s) => reduce(s, { type: 'workers', workers: workers ?? [] })))
                         .catch(() => {})
                 },
             }, channelOf(agentId, topicId))

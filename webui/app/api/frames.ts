@@ -61,6 +61,39 @@ export interface DetachedScriptDetail extends DetachedScriptSnapshot {
   report: Record<string, unknown> | string | null
 }
 
+// ============================================================================
+// SUBAGENT WORKERS (specs/059-subagent-workers, Story 7)
+// ============================================================================
+
+export type SubagentState = 'running' | 'asking' | 'answered' | 'failed' | 'timed_out' | 'stopped'
+
+export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted'
+
+/** The list route's rows and the `subagent` frame. The detail route sends the same shape, uncut. */
+export interface SubagentSnapshot {
+  id: string
+  position: number
+  group_size: number
+  task: string
+  state: SubagentState
+  stop_reason: SubagentStopReason | null
+  /** The open question, only while asking. */
+  question: string | null
+  result: string | null
+  truncated: boolean
+  error: string | null
+  started_at: string
+  ended_at: string | null
+  /** The worker's own conversation topic. */
+  topic: string
+  /** The spawn that hired it. */
+  group: string
+  parent_detached_id: string | null
+  /** The main agent has the newest outcome. */
+  handed_over: boolean
+  updated_at: string
+}
+
 /** A pre-058 background report, kept so old conversations still draw (#82). */
 export interface LegacyBackgroundReport {
   job_id?: string
@@ -366,6 +399,9 @@ export type TrailEvent =
   // script, at the round it reached the agent. `body` is the delivered text, shown when the
   // script's own record cannot be read.
   | { kind: 'delivery'; id: string; handle: string; state: string; took: string; intent: string; body: string }
+  // A worker's answer, question or failure delivered while the turn ran (spec 059), one event per
+  // worker. `body` is the delivered question, result or error.
+  | { kind: 'worker_update'; id: string; handle: string; position: number; size: number; title: string; state: string; body: string }
 
 // One part of a turn, in the order it happened: a stretch of work, or something the agent said
 // on the way (specs/053-workspace-channel/contracts/turn-rendering.md). A trail is never empty.
@@ -571,6 +607,7 @@ export interface SessionFileFrame {
 export type Frame =
     | { kind: 'response'; response: WebSocketResponse }
     | { kind: 'detached_script'; script: DetachedScriptSnapshot }
+    | { kind: 'subagent'; worker: SubagentSnapshot }
     | { kind: 'history_entry'; entry: ChatMessage }
     | { kind: 'reactions'; messageUid: string; reactions: ReactionEntry[] }
     | { kind: 'reaction_error'; messageUid: string; message: string }
@@ -596,6 +633,7 @@ const CLIENT_KEYS = [
 export function classifyFrame(raw: unknown): Frame | null {
     if (!isObj(raw)) return null
     if ('detached_script' in raw) return { kind: 'detached_script', script: raw.detached_script as DetachedScriptSnapshot }
+    if ('subagent' in raw && isObj(raw.subagent)) return { kind: 'subagent', worker: raw.subagent as unknown as SubagentSnapshot }
     if ('history_entry' in raw) return { kind: 'history_entry', entry: raw.history_entry as ChatMessage }
     if ('session_title' in raw && isObj(raw.session_title)) return { kind: 'title', title: String(raw.session_title.title) }
     if ('session_file' in raw) return { kind: 'session_file', file: (raw as unknown as SessionFileFrame).session_file.file }
