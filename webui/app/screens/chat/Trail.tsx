@@ -8,7 +8,7 @@ import {
     TrailCall,
     TrailItem,
 } from '@vizier/design'
-import { useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { highlightCode } from '../../lib/highlight'
 import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
@@ -16,6 +16,10 @@ import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
 import { miniDots, trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
+import { detachedScript } from '../../api/endpoints/chat'
+import type { DetachedScriptDetail } from '../../api/frames'
+import { detachedReport, type DeliveredScript } from '../../lib/detached'
+import { DetachedSource } from './detachedSource'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
@@ -32,6 +36,9 @@ function counts(trail: TrailEvent[], recalled: number): string {
         )
     const tools = trail.filter((e) => e.kind === 'tool').length
     if (tools) parts.push(`${tools} tool${tools === 1 ? '' : 's'}`)
+    const delivered = trail.filter((e) => e.kind === 'delivery').length
+    if (delivered)
+        parts.push(`${delivered} background result${delivered === 1 ? '' : 's'}`)
     if (recalled)
         parts.push(`${recalled} passage${recalled === 1 ? '' : 's'} recalled`)
     return parts.join(' · ')
@@ -68,7 +75,50 @@ function miniDot(
               ? 'done'
               : 'failed'
     }
+    if (event.kind === 'delivery') return deliveryState(event.state) === 'done' ? 'done' : 'failed'
     return event.kind === 'tool' && event.stopped ? 'failed' : 'done'
+}
+
+/** A delivered script's dot: done on its own, failed, or stopped by its time limit. */
+function deliveryState(state: string) {
+    if (state === 'succeeded') return 'done' as const
+    if (state === 'timed out') return 'limit' as const
+    return 'failed' as const
+}
+
+/** A delivered script's own record (code, calls, result), read when its row opens. */
+function DeliveredRun({ handle, body }: { handle: string; body: string }) {
+    const source = useContext(DetachedSource)
+    const [detail, setDetail] = useState<DetachedScriptDetail | null>(null)
+    const [failed, setFailed] = useState(false)
+    useEffect(() => {
+        if (!source) return
+        let live = true
+        detachedScript(source.agentId, source.topicId, handle)
+            .then((d) => live && setDetail(d))
+            .catch(() => live && setFailed(true))
+        return () => {
+            live = false
+        }
+    }, [source, handle])
+    if (detail) return <Run report={detachedReport(detail)} code={detail.code} intent={null} />
+    if (!source || failed)
+        return body ? <pre className="whitespace-pre-wrap break-words type-code-block text-soft">{body}</pre> : null
+    return <p className="type-small text-faint">Loading...</p>
+}
+
+/** One delivered script on the trail, or in the card of a delivery that woke the agent. */
+export function DeliveryRow({ script }: { script: DeliveredScript }) {
+    return (
+        <TrailCall
+            name="background"
+            intent={script.intent}
+            state={deliveryState(script.state)}
+            duration={`${script.handle} · ${script.state} in ${script.took}`}
+        >
+            <DeliveredRun handle={script.handle} body={script.body} />
+        </TrailCall>
+    )
 }
 
 export function Run({
@@ -147,6 +197,8 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
                     intent={previewArgs(event.args)}
                 />
             )
+        case 'delivery':
+            return <DeliveryRow script={event} />
         case 'python': {
             const state = pythonState(event, live)
             return (
@@ -164,7 +216,7 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
                 >
                     {event.detachedId ? (
                         <Notice compact>
-                            Running in the background as {event.detachedId}. Its result arrives in a later step; see Background work below.
+                            Running in the background as {event.detachedId}. Its result arrives as a later step.
                         </Notice>
                     ) : event.stopped ? (
                         <Notice compact tone="failed">
@@ -245,7 +297,8 @@ export function Trail({
                                   .filter(
                                       (e) =>
                                           e.kind === 'python' ||
-                                          e.kind === 'tool'
+                                          e.kind === 'tool' ||
+                                          e.kind === 'delivery'
                                   )
                                   .map((e) => miniDot(e, live || !!turnRunning))
                           ),

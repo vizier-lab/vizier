@@ -693,3 +693,45 @@ test('a detached run reads as running in the background, from history and live',
   const run = live.find((e) => e.kind === 'python')
   assert.ok(run && run.kind === 'python' && run.detachedId === 'd_k3x9a1b2')
 })
+
+// Spec 058: a detached script's delivery is saved as a request, but mid-turn it is a step.
+const delivery = (text: string) =>
+  entry({ Request: { timestamp: '2026-10-03T00:00:00Z', user: 'a', content: { detached_delivery: text } } })
+const DELIVERED = `[Background work finished]
+d_aaaaaaaa  succeeded in 6s  — check vendor A
+result: 3
+d_bbbbbbbb  timed out in 10m 0s  — fetch the changelog
+reason: the script's time limit (600s) was reached`
+
+test('a mid-turn delivery is a step of its turn, which stays one turn', () => {
+  const turns = groupHistory([
+    request('check both'),
+    python('p1', { intent: 'launch', code: '1' }),
+    toolResult('p1', JSON.stringify({ detached: true, id: 'd_aaaaaaaa', state: 'running', timeout_secs: 600 })),
+    delivery(DELIVERED),
+    python('p2', { intent: 'compare', code: '2' }),
+    toolResult('p2', JSON.stringify({ ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 })),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1)
+  assert.equal(openTurn(turns), undefined)
+  const events = turnEvents(turns[0])
+  assert.deepEqual(kinds(events), ['python', 'delivery', 'delivery', 'python'])
+  const first = events[1]
+  assert.ok(first.kind === 'delivery')
+  assert.equal(first.handle, 'd_aaaaaaaa')
+  assert.equal(first.state, 'succeeded')
+  assert.equal(first.took, '6s')
+  assert.equal(first.intent, 'check vendor A')
+  assert.equal(first.body, 'result: 3')
+  const second = events[2]
+  assert.ok(second.kind === 'delivery' && second.took === '10m 0s' && second.state === 'timed out')
+})
+
+test('a delivery that wakes an idle agent starts its own turn', () => {
+  const wake = delivery(DELIVERED)
+  const turns = groupHistory([request('hi'), response('hello'), wake, python('p3', { intent: 'x', code: '3' }), response('noted')])
+  assert.equal(turns.length, 2)
+  assert.equal(turns[1].request?.uid, wake.uid)
+  assert.deepEqual(kinds(turnEvents(turns[1])), ['python'])
+})

@@ -30,7 +30,7 @@ import {
     statsLine,
     time,
 } from '../../lib/messages'
-import { deliveredHandles, deliveryBody } from '../../lib/detached'
+import { parseDelivery } from '../../lib/detached'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
@@ -39,12 +39,15 @@ import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
-import { Trail } from './Trail'
+import { DeliveryRow, Trail } from './Trail'
+import { DetachedSource } from './detachedSource'
 import { mentionsAsCode } from '../../lib/mentions'
 import { planActionsVisible, planOf } from '../../lib/plans'
 import { PlanCard } from './client/PlanCard'
 
 type Props = {
+    /** The conversation, so a delivered script's row can read its record (spec 058). */
+    topicId?: string
     state: TopicState
     /** `live`: the agent is up (live or running), which lights its sigil's dot. */
     agent: { id: string; name: string; live?: boolean }
@@ -109,7 +112,7 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
@@ -139,6 +142,8 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         else if (!t.outcome && !t.aborted) open = t
     }
     const running = state.phase !== 'idle'
+    // The deliveries that started a turn of their own, while the agent was idle.
+    const wakers = new Set(turns.flatMap((t) => (t.request ? [t.request.uid] : [])))
 
     const reply = (turn: Turn) => {
         const outcome = turn.outcome
@@ -244,20 +249,23 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             const content = c.Request.content
             if ('unattended' in content) continue
             if (isDetachedDelivery(content)) {
-                const handles = deliveredHandles(content.detached_delivery)
+                // Delivered mid-turn, it is a step of that turn's trail (`groupHistory`); only a
+                // delivery that woke an idle agent is drawn here, as the card its turn answers.
+                if (!wakers.has(e.uid)) continue
+                const scripts = parseDelivery(content.detached_delivery)
                 arrive(
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
                         title="Background work finished"
-                        meta={handles.length > 1 ? `${handles.length} scripts` : (handles[0] ?? '')}
-                        linkLabel="What it returned"
-                        details={
-                            <pre className="whitespace-pre-wrap break-words type-code-block text-soft">
-                                {deliveryBody(content.detached_delivery)}
-                            </pre>
-                        }
-                    />,
+                        meta={scripts.length === 1 ? '1 script' : `${scripts.length} scripts`}
+                    >
+                        <ul className="flex flex-col gap-8">
+                            {scripts.map((script) => (
+                                <DeliveryRow key={script.handle} script={script} />
+                            ))}
+                        </ul>
+                    </BackgroundReportCard>,
                     e.uid
                 )
                 continue
@@ -361,7 +369,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     )
     if (error) arrive(<div key="error">{error}</div>, 'error')
 
+    const source = useMemo(() => (topicId ? { agentId: agent.id, topicId } : null), [agent.id, topicId])
     return (
+        <DetachedSource.Provider value={source}>
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
@@ -409,6 +419,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 )}
             </Presence>
         </div>
+        </DetachedSource.Provider>
     )
 }
 

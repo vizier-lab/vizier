@@ -21,6 +21,7 @@ import type {
   TurnBlock,
   VizierResponseContent,
 } from '../api/frames'
+import { parseDelivery } from './detached'
 
 // Same key set as the server's `ExecutionReport::looks_like`. The live stream carries no
 // correlation id, so shape is the only way to tell a python report from any other tool
@@ -191,6 +192,23 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     }
 
     if (content.Request !== undefined) {
+      // A detached script that finished while a turn ran is delivered at a round boundary
+      // (spec 058) and saved as a request, but it is a step of that turn, not a new one:
+      // splitting there left the work before it with no reply and no place in the
+      // conversation. Only a delivery that woke an idle agent starts a turn of its own.
+      const delivered = content.Request.content
+      if (open && 'detached_delivery' in delivered) {
+        let block = open.blocks[open.blocks.length - 1]
+        if (block?.kind !== 'trail') {
+          block = { kind: 'trail', events: [], startedAt: entry.timestamp }
+          open.blocks.push(block)
+        }
+        for (const s of parseDelivery(delivered.detached_delivery)) {
+          push(block.events, { kind: 'delivery', id: `${entry.uid}:${s.handle}`, ...s })
+        }
+        if (entry.timestamp) block.endedAt = entry.timestamp
+        continue
+      }
       // An unattended request — a scheduled task run, a dream cycle — opens a turn without
       // becoming its request. That is what the comment above `newTurn` has always claimed,
       // and it held only because no such history had ever reached this function. A run's
@@ -497,7 +515,7 @@ export function appendLiveEvent(
 export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
   // A narration is the agent's prose between rounds, counted with its reasoning: the head says
   // what the work was, not that it spoke.
-  const counts = { thought: 0, tool: 0, python: 0 }
+  const counts = { thought: 0, tool: 0, python: 0, delivery: 0 }
   for (const event of trail) counts[event.kind === 'narration' ? 'thought' : event.kind] += 1
 
   const parts: string[] = []
@@ -505,6 +523,7 @@ export function trailSummary(trail: TrailEvent[], durationMs?: number): string {
   if (counts.thought) parts.push(plural(counts.thought, 'thought', 'thoughts'))
   if (counts.tool) parts.push(plural(counts.tool, 'tool', 'tools'))
   if (counts.python) parts.push(plural(counts.python, 'python run', 'python runs'))
+  if (counts.delivery) parts.push(plural(counts.delivery, 'background result', 'background results'))
 
   const label = parts.length > 0 ? parts.join(', ') : 'no activity'
   return durationMs === undefined

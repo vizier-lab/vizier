@@ -362,6 +362,10 @@ export type TrailEvent =
        * the result arrives later as a delivery. */
       detachedId?: string
     }
+  // A detached script that finished while the turn ran (spec 058): its delivery, one event per
+  // script, at the round it reached the agent. `body` is the delivered text, shown when the
+  // script's own record cannot be read.
+  | { kind: 'delivery'; id: string; handle: string; state: string; took: string; intent: string; body: string }
 
 // One part of a turn, in the order it happened: a stretch of work, or something the agent said
 // on the way (specs/053-workspace-channel/contracts/turn-rendering.md). A trail is never empty.
