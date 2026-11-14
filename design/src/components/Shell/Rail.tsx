@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type HTMLAttributes, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, Reorder } from "motion/react";
-import { Mark } from "../../brand/Mark/Mark";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
@@ -311,8 +310,8 @@ export function Rail({
     );
   return (
     <nav aria-label="Agents" className={cx("flex h-full w-66 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
-      <RailLink label="Home" href={homeHref} active={homeActive} marker={marker} className={cx("rounded-lg", homeActive ? "bg-surface" : "hover:bg-surface")}>
-        <Mark size={26} title="" />
+      <RailLink label="Home" href={homeHref} active={homeActive} marker={marker} className={cx("rounded-lg", homeActive ? "bg-surface text-fg" : "text-muted hover:bg-surface hover:text-fg")}>
+        <Icon name="home" size={20} />
       </RailLink>
       <span aria-hidden className="h-px w-22 bg-border-hover" />
       {/* The list clips where it scrolls: this room keeps a first tile's badge, which stands 6px
