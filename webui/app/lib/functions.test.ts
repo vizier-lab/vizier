@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
-import { authorLabel, currentVersionOf, isOutOfDate, missingCalls, offNote, parseSchema, problemText, problemsOf } from './functions'
+import { authorLabel, currentVersionOf, isOutOfDate, missingCalls, nameTaken, offNote, parseSchema, problemText, problemsOf } from './functions'
 
 describe('functions', () => {
     it('names who made a version', () => {
@@ -35,6 +35,8 @@ describe('functions', () => {
     it('reads missing calls and the schema text', () => {
         expect(missingCalls({ missing: ['stripe_list_charges'] })).toEqual(['stripe_list_charges'])
         expect(missingCalls(null)).toEqual([])
+        expect(nameTaken({ missing: [], name_taken: true })).toBe(true)
+        expect(nameTaken({ missing: ['x'] })).toBe(false)
         expect(parseSchema('{"type":"object"}')).toEqual({ ok: true, value: { type: 'object' } })
         expect(parseSchema('{').ok).toBe(false)
     })

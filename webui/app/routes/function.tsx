@@ -40,6 +40,7 @@ import {
     authorLabel,
     isOutOfDate,
     missingCalls,
+    nameTaken,
     offNote,
     parseSchema,
     problemText,
@@ -181,6 +182,11 @@ export default function FunctionPage() {
                     <div className="flex flex-col gap-20 p-16">
                         {fn ? (
                             <>
+                                {nameTaken(fn.needs_attention) && (
+                                    <Notice tone="failed" title="Its name is taken">
+                                        A tool attached after it has the name {fn.name}, so the agent can’t call this function until it is renamed.
+                                    </Notice>
+                                )}
                                 {attention.length > 0 && (
                                     <Notice tone="failed" title="Needs attention">
                                         It calls {attention.join(', ')}, which the agent no longer has. A call fails at that step.
@@ -189,7 +195,7 @@ export default function FunctionPage() {
                                 <KeyValueList
                                     items={[
                                         { label: 'Calls', value: fn.calls.length ? fn.calls.join(', ') : 'no tools' },
-                                        { label: 'Called by', value: fn.callers.length ? fn.callers.map((c) => `custom_${c}`).join(', ') : 'no other function' },
+                                        { label: 'Called by', value: fn.callers.length ? fn.callers.join(', ') : 'no other function' },
                                         { label: 'Model-backed', value: fn.model_backed ? 'yes' : 'no' },
                                         { label: 'Last called', value: fn.last_called_at ? relativeTime(fn.last_called_at) : 'never' },
                                     ]}
@@ -290,7 +296,7 @@ export default function FunctionPage() {
                 open={deleting}
                 title={`Delete ${fn?.call_as ?? ''}?`}
                 message={`Its ${fn?.current_version ?? ''} version(s) are deleted. The deletion stays in the agent’s activity.`}
-                removes={fn?.callers.length ? fn.callers.map((c) => `custom_${c} calls it and will need attention`) : undefined}
+                removes={fn?.callers.length ? fn.callers.map((c) => `${c} calls it and will need attention`) : undefined}
                 confirmLabel="Delete function"
                 busy={deleteBusy}
                 onConfirm={() => void remove()}
@@ -397,7 +403,7 @@ function EditForm({ agentId, fn, onCancel, onReload, onSaved }: EditFormProps) {
                 value={name}
                 autoComplete="off"
                 spellCheck={false}
-                helper={nameOk ? `The agent calls it as custom_${name}.` : 'Lower-case letters, digits and _, starting with a letter.'}
+                helper={nameOk ? 'The agent calls it by this name; it can’t be the name of another tool the agent has.' : 'Lower-case letters, digits and _, starting with a letter.'}
                 invalid={!nameOk}
                 onChange={(e) => setName(e.target.value)}
             />

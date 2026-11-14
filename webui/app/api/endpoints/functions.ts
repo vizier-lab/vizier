@@ -20,9 +20,12 @@ export type FunctionSummary = {
     last_called_at: number | null
     enabled: boolean
     disabled_by: FunctionAuthor | null
-    needs_attention: { missing: string[] } | null
+    needs_attention: FunctionAttention | null
     model_backed: boolean
 }
+
+/** Tools a function calls that are gone, and its name taken by a tool attached after it. */
+export type FunctionAttention = { missing: string[]; name_taken?: boolean }
 
 export type FunctionCategory = {
     name: string
@@ -51,7 +54,7 @@ export type FunctionDetail = {
     calls: string[]
     callers: string[]
     model_backed: boolean
-    needs_attention: { missing: string[] } | null
+    needs_attention: FunctionAttention | null
     updated_at: number
     last_called_at: number | null
 }

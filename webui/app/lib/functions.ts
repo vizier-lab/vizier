@@ -1,5 +1,5 @@
 import { ApiError } from '../api/client'
-import type { FunctionAuthor, FunctionProblem } from '../api/endpoints/functions'
+import type { FunctionAttention, FunctionAuthor, FunctionProblem } from '../api/endpoints/functions'
 
 // How an agent's functions read on the page (spec 061). Pure, so the rules are tested.
 
@@ -22,8 +22,13 @@ export function offNote(disabledBy: FunctionAuthor | null | undefined, agentName
 }
 
 /** The functions a definition calls that the agent no longer has, or none. */
-export function missingCalls(attention: { missing: string[] } | null | undefined): string[] {
+export function missingCalls(attention: FunctionAttention | null | undefined): string[] {
     return attention?.missing ?? []
+}
+
+/** A tool attached after the function was saved took its name: it is not offered until renamed. */
+export function nameTaken(attention: FunctionAttention | null | undefined): boolean {
+    return attention?.name_taken === true
 }
 
 /** The edit was refused because the function changed since the person opened it. */

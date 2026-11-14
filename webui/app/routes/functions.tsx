@@ -11,7 +11,7 @@ import {
     type FunctionSummary,
 } from '../api/endpoints/functions'
 import { relativeTime } from '../lib/format'
-import { NAME_PATTERN, authorLabel, missingCalls, offNote } from '../lib/functions'
+import { NAME_PATTERN, authorLabel, missingCalls, nameTaken, offNote } from '../lib/functions'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { useAgents } from '../stores/agents'
 import { useSession } from '../stores/session'
@@ -110,6 +110,7 @@ export default function Functions() {
                                     offNote={offNote(fn.disabled_by, agentName)}
                                     modelBacked={fn.model_backed}
                                     missing={missingCalls(fn.needs_attention)}
+                                    nameTaken={nameTaken(fn.needs_attention)}
                                     onEnabledChange={canEdit ? (on) => void toggle(fn, on) : undefined}
                                     href={`/${agentId}/functions/${encodeURIComponent(fn.name)}`}
                                 />
