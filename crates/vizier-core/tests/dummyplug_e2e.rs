@@ -1113,9 +1113,14 @@ fn run_python(code: &str, detached: bool, timeout_secs: Option<u64>) -> String {
     serde_json::json!({ "tool": "execute_python", "arguments": arguments }).to_string()
 }
 
-/// The id in a reply that echoes a detached handle.
+/// The id in a reply that echoes a detached handle. The script must still be running when the
+/// launching round ends: one that has already finished is delivered at that round boundary, and
+/// dummyplug then answers the delivery instead of echoing the handle.
 fn handle_id(reply: &str) -> String {
-    let start = reply.find("\"d_").expect("a handle id in the reply") + 1;
+    let start = reply
+        .find("\"d_")
+        .unwrap_or_else(|| panic!("a handle id in the reply: {reply}"))
+        + 1;
     reply[start..start + 10].to_string()
 }
 
@@ -1309,7 +1314,8 @@ async fn a_detached_scripts_secret_is_stored_nowhere() {
     let session = web_session("secret");
     let set = run_python(&format!("set_secret(name='TOKEN', value='{VALUE}')"), false, None);
     chat(runtime.transport(), &session, &set).await;
-    let get = run_python("get_secret(name='TOKEN')", true, None);
+    let get = run_python("shell_exec(commands='sleep 1')
+get_secret(name='TOKEN')", true, None);
     let id = handle_id(&chat(runtime.transport(), &session, &get).await);
     eventually(30, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
 
@@ -1466,7 +1472,8 @@ async fn the_agent_inspects_and_cancels_its_background_work() {
     assert!(deliveries(&history_of(&runtime, &session).await).is_empty(), "a cancelled script is never delivered");
 
     // Inside a detached script the question tools do not exist.
-    let id = handle_id(&chat(runtime.transport(), &session, &run_python("ask_question(questions=[])", true, None)).await);
+    let id = handle_id(&chat(runtime.transport(), &session, &run_python("shell_exec(commands='sleep 1')
+ask_question(questions=[])", true, None)).await);
     eventually(20, || async { script(&runtime, &id).await.state.is_final() }).await;
     let row = script(&runtime, &id).await;
     assert!(serde_json::to_string(&row.outcome).unwrap().contains("NameError"), "{:?}", row.outcome);
