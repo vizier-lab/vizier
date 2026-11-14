@@ -6,7 +6,7 @@ import { ListItem } from "../ListItem/ListItem";
 import { Switch } from "../Switch/Switch";
 
 export type FunctionRowProps = {
-  /** What a script calls: `custom_weekly_digest`. */
+  /** What a script calls: `weekly_digest`. */
   callAs: string;
   description?: ReactNode;
   version: number;
@@ -19,6 +19,8 @@ export type FunctionRowProps = {
   modelBacked?: boolean;
   /** The functions it calls that the agent no longer has. */
   missing?: string[];
+  /** A tool attached after it took its name: it is not offered until renamed. */
+  nameTaken?: boolean;
   /** "switched off by alice". */
   offNote?: ReactNode;
   href?: string;
@@ -38,6 +40,7 @@ export function FunctionRow({
   onEnabledChange,
   modelBacked,
   missing,
+  nameTaken,
   offNote,
   href,
   onSelect,
@@ -58,6 +61,11 @@ export function FunctionRow({
           {attention && (
             <span className="inline-flex w-fit items-center gap-4 rounded-pill border border-dashed border-border-strong px-6 type-small text-fg">
               Needs attention: missing {missing.join(", ")}
+            </span>
+          )}
+          {nameTaken && (
+            <span className="inline-flex w-fit items-center gap-4 rounded-pill border border-dashed border-border-strong px-6 type-small text-fg">
+              Needs attention: another tool now has this name
             </span>
           )}
         </span>

@@ -7,7 +7,7 @@ const meta = {
   component: FunctionRow,
   parameters: { vizier: { id: "061-function-row" } },
   args: {
-    callAs: "custom_weekly_digest",
+    callAs: "weekly_digest",
     description: "Summarise a topic's notes from the last week into the digests bundle",
     version: 3,
     meta: "a dream · 2 h ago",
@@ -25,7 +25,10 @@ export const Default: Story = {};
 
 export const ModelBacked: Story = { args: { modelBacked: true } };
 
-export const NeedsAttention: Story = { args: { callAs: "custom_send_report", version: 1, missing: ["stripe_list_charges"] } };
+export const NeedsAttention: Story = { args: { callAs: "send_report", version: 1, missing: ["stripe_list_charges"] } };
+
+/** A tool attached after it took its name. */
+export const NameTaken: Story = { args: { callAs: "search_issues", version: 2, nameTaken: true } };
 
 export const SwitchedOff: Story = { args: { enabled: false, offNote: "switched off by alice" } };
 
@@ -39,11 +42,11 @@ export const Groups: Story = {
     return (
       <div className="flex flex-col gap-14">
         <FunctionGroup name="reports" description="Pull and send the weekly status reports" onEdit={() => {}}>
-          <FunctionRow callAs="custom_weekly_digest" description="Summarise a topic's notes" version={3} meta="a dream · 2 h ago" modelBacked enabled={on.digest} onEnabledChange={(v) => setOn({ ...on, digest: v })} href="#" />
-          <FunctionRow callAs="custom_send_report" description="Post the digest to the team channel" version={1} meta="you · yesterday" missing={["stripe_list_charges"]} enabled={on.send} onEnabledChange={(v) => setOn({ ...on, send: v })} href="#" />
+          <FunctionRow callAs="weekly_digest" description="Summarise a topic's notes" version={3} meta="a dream · 2 h ago" modelBacked enabled={on.digest} onEnabledChange={(v) => setOn({ ...on, digest: v })} href="#" />
+          <FunctionRow callAs="send_report" description="Post the digest to the team channel" version={1} meta="you · yesterday" missing={["stripe_list_charges"]} enabled={on.send} onEnabledChange={(v) => setOn({ ...on, send: v })} href="#" />
         </FunctionGroup>
         <FunctionGroup name="maths" description="Small arithmetic helpers" onEdit={() => {}}>
-          <FunctionRow callAs="custom_echo_sum" description="Add two integers" version={4} meta="alice · 3 d ago" offNote="switched off by alice" enabled={on.sum} onEnabledChange={(v) => setOn({ ...on, sum: v })} href="#" />
+          <FunctionRow callAs="echo_sum" description="Add two integers" version={4} meta="alice · 3 d ago" offNote="switched off by alice" enabled={on.sum} onEnabledChange={(v) => setOn({ ...on, sum: v })} href="#" />
         </FunctionGroup>
       </div>
     );
