@@ -7,7 +7,7 @@
 // mid-turn, or a second tab, draw the same trail as the tab that sent the message.
 
 import type {
-    BackgroundJobSnapshot,
+    DetachedScriptSnapshot,
     ChatMessage,
     Frame,
     QuestionRefusal,
@@ -51,7 +51,8 @@ export interface TopicState {
     label: string | null
     /** Sent while a turn ran, waiting for the agent to store it as a request. */
     queued: QueuedMessage[]
-    jobs: Record<string, BackgroundJobSnapshot>
+    /** Detached scripts of the topic by id; a final one stays for the panel's Done tab. */
+    scripts: Record<string, DetachedScriptSnapshot>
     /** Newest first. */
     files: SessionFileRecord[]
     /** From the latest reply's stats: feeds the context ring. */
@@ -82,7 +83,7 @@ export type Action =
     /** `/checkpoint` or `/lobotomy`, drawn where it was run; the turn carries on behind it. */
     | { type: 'command'; command: 'checkpoint' | 'lobotomy'; now?: string }
     | { type: 'files'; files: SessionFileRecord[] }
-    | { type: 'jobs'; jobs: BackgroundJobSnapshot[] }
+    | { type: 'scripts'; scripts: DetachedScriptSnapshot[] }
 
 export const isLive = (entry: ChatMessage) => entry.uid.startsWith('live-')
 
@@ -92,7 +93,7 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         phase: 'idle',
         label: null,
         queued: [],
-        jobs: {},
+        scripts: {},
         files: [],
         context: null,
         error: null,
@@ -259,8 +260,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                         entries: mergeEntries(base, [frame.entry]),
                     }
                 }
-                case 'job':
-                    return { ...state, jobs: { ...state.jobs, [frame.snapshot.id]: frame.snapshot } }
+                case 'detached_script':
+                    return { ...state, scripts: { ...state.scripts, [frame.script.id]: frame.script } }
                 case 'reactions':
                     return {
                         ...state,
@@ -418,8 +419,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'files':
             return { ...state, files: action.files }
 
-        case 'jobs':
-            return { ...state, jobs: Object.fromEntries(action.jobs.map((j) => [j.id, j])) }
+        case 'scripts':
+            return { ...state, scripts: Object.fromEntries(action.scripts.map((s) => [s.id, s])) }
     }
 }
 

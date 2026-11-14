@@ -196,70 +196,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_jobs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_job"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["cancel_job"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/pieces/{ordinal}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_piece_history"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/agents/{agent_id}/channel/{channel_id}/topics": {
         parameters: {
             query?: never;
@@ -1901,6 +1837,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_detached_scripts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_detached_script"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2099,27 +2067,6 @@ export interface components {
                 total: number;
                 /** Format: int64 */
                 total_bytes: number;
-            };
-            message?: string | null;
-            /** Format: int32 */
-            status: number;
-        };
-        APIResponse_BackgroundJobSnapshot: {
-            /** @description The WebUI wire shape (`contracts/http-api.md`). */
-            data?: {
-                cancelled_by?: components["schemas"]["Canceller"] | null;
-                /** Format: date-time */
-                created_at: string;
-                delegated_to?: components["schemas"]["String"] | null;
-                /** Format: date-time */
-                finished_at?: string | null;
-                id: components["schemas"]["String"];
-                kind: components["schemas"]["JobKind"];
-                pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-                reason?: string | null;
-                state: components["schemas"]["JobState"];
-                /** Format: int64 */
-                timeout_secs: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2989,10 +2936,10 @@ export interface components {
                 agent_id: string;
                 channel: string;
                 is_thinking: boolean;
-                /** @description Background jobs launched from this topic that are still in flight. */
-                running_jobs: number;
                 title: string;
                 topic_id: string;
+                /** @description Detached scripts launched from this topic that are still running (spec 058). */
+                running_scripts: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -3095,26 +3042,6 @@ export interface components {
                 name: string;
                 /** @description The first characters of the key; empty for a key made before they were kept. */
                 prefix?: string | null;
-            }[];
-            message?: string | null;
-            /** Format: int32 */
-            status: number;
-        };
-        APIResponse_Vec_BackgroundJobSnapshot: {
-            data?: {
-                cancelled_by?: components["schemas"]["Canceller"] | null;
-                /** Format: date-time */
-                created_at: string;
-                delegated_to?: components["schemas"]["String"] | null;
-                /** Format: date-time */
-                finished_at?: string | null;
-                id: components["schemas"]["String"];
-                kind: components["schemas"]["JobKind"];
-                pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-                reason?: string | null;
-                state: components["schemas"]["JobState"];
-                /** Format: int64 */
-                timeout_secs: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3540,10 +3467,10 @@ export interface components {
                 agent_id: string;
                 channel: string;
                 is_thinking: boolean;
-                /** @description Background jobs launched from this topic that are still in flight. */
-                running_jobs: number;
                 title: string;
                 topic_id: string;
+                /** @description Detached scripts launched from this topic that are still running (spec 058). */
+                running_scripts: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3966,43 +3893,6 @@ export interface components {
             kind: string;
             name: string;
         };
-        /** @description The WebUI wire shape (`contracts/http-api.md`). */
-        BackgroundJobSnapshot: {
-            cancelled_by?: components["schemas"]["Canceller"] | null;
-            /** Format: date-time */
-            created_at: string;
-            delegated_to?: components["schemas"]["String"] | null;
-            /** Format: date-time */
-            finished_at?: string | null;
-            id: components["schemas"]["String"];
-            kind: components["schemas"]["JobKind"];
-            pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-            reason?: string | null;
-            state: components["schemas"]["JobState"];
-            /** Format: int64 */
-            timeout_secs: number;
-        };
-        BackgroundPieceSnapshot: {
-            agent_id: components["schemas"]["String"];
-            /** Format: date-time */
-            finished_at?: string | null;
-            /** Format: int32 */
-            ordinal: number;
-            prompt: string;
-            reason?: string | null;
-            /** Format: date-time */
-            started_at: string;
-            state: components["schemas"]["PieceState"];
-            topic?: components["schemas"]["String"] | null;
-        };
-        /** @description What `VizierRequestContent::BackgroundReport` carries; rendered for the model by `Display`. */
-        BackgroundReport: {
-            delegated_to?: components["schemas"]["String"] | null;
-            /** @description One per piece, in ordinal order. */
-            entries: components["schemas"]["ReportEntry"][];
-            job_id: components["schemas"]["String"];
-            kind: components["schemas"]["JobKind"];
-        };
         BranchHolder: {
             name: string;
             /** @description `None` for the project's own folder. */
@@ -4067,14 +3957,6 @@ export interface components {
             /** Format: int32 */
             round?: number | null;
             served_model?: string | null;
-        };
-        CancelJobBody: {
-            reason?: string | null;
-        };
-        Canceller: {
-            agent: components["schemas"]["String"];
-        } | {
-            person: string;
         };
         CandidateGroup_AgentCandidate: {
             items: {
@@ -4961,15 +4843,6 @@ export interface components {
             name: string;
             settings: Record<string, never>;
         };
-        /** @enum {string} */
-        JobKind: "batch" | "delegation";
-        /**
-         * @description `running` and `reporting` are the in-flight states. Cancel and the runner race on one
-         *     guarded transition out of `running`, which is what makes a job end exactly once: either
-         *     reported or cancelled, never both.
-         * @enum {string}
-         */
-        JobState: "running" | "reporting" | "reported" | "undelivered" | "cancelled" | "interrupted";
         KindField: {
             default?: Record<string, never> | null;
             key: string;
@@ -5277,7 +5150,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "chat_reply" | "workspace_message";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_work" | "integration" | "chat_reply" | "workspace_message";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */
@@ -5387,8 +5260,6 @@ export interface components {
             name: string;
             username: string;
         };
-        /** @enum {string} */
-        PieceState: "running" | "answered" | "failed" | "timed_out" | "cancelled" | "interrupted";
         PlatformMessageId: {
             /** Format: int64 */
             discord: number;
@@ -5769,16 +5640,6 @@ export interface components {
         };
         RenameTopicRequest: {
             title: string;
-        };
-        ReportEntry: {
-            /** Format: int32 */
-            ordinal: number;
-            prompt: string;
-            /** @description Never `Running`/`Interrupted`; `Cancelled` only in a cancel's tool result. */
-            state: components["schemas"]["PieceState"];
-            /** @description The answer (truncated) or the reason it did not answer. */
-            text: string;
-            truncated: boolean;
         };
         /**
          * @description Who wanted a task to exist.
@@ -6337,10 +6198,10 @@ export interface components {
             agent_id: string;
             channel: string;
             is_thinking: boolean;
-            /** @description Background jobs launched from this topic that are still in flight. */
-            running_jobs: number;
             title: string;
             topic_id: string;
+            /** @description Detached scripts launched from this topic that are still running (spec 058). */
+            running_scripts: number;
         };
         TopicSummary: {
             id: string;
@@ -6629,10 +6490,19 @@ export interface components {
             audio_prompt: Record<string, never>[];
         } | {
             /**
-             * @description The outcome of background work this conversation started (`background_subagents`,
-             *     `delegate_agent`), delivered as a turn of its own. Not a message from a person.
+             * @description A background-job report saved before spec 058, read so old conversations keep their
+             *     history; never sent any more. Its text is rendered from the stored JSON. Tracked for
+             *     removal in #82.
              */
-            background_report: components["schemas"]["BackgroundReport"];
+            background_report: unknown;
+        } | {
+            /**
+             * @description Finished detached scripts of this conversation (spec 058). Sent empty by a script's
+             *     task as a poke; whoever handles it claims the deliverable rows and, only if it got
+             *     some, runs a turn whose request carries the rendered delivery (`[Background work
+             *     finished] …`). Never journaled: the rows are the durable part, and recovery pokes again.
+             */
+            detached_delivery: string;
         } | {
             /**
              * @description A message a client sent on the person's behalf, such as a click inside a page the
@@ -6773,6 +6643,72 @@ export interface components {
              */
             offset: string;
         };
+        APIResponse_DetachedScriptDetail: {
+            /** @description One script as the panel draws it: the activity trail's run detail. */
+            data?: components["schemas"]["DetachedScriptSnapshot"] & {
+                code: string;
+                /** @description The `ExecutionReport` once final (or the failure message as a string). */
+                report?: Record<string, never> | null;
+                /** @description `[{seq, name, arguments, ok, error?, duration_ms}]`. */
+                tool_calls: Record<string, never>[];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_DetachedScriptSnapshot: {
+            data?: {
+                /** Format: date-time */
+                created_at: string;
+                delivered: boolean;
+                /** Format: date-time */
+                finished_at?: string | null;
+                id: components["schemas"]["String"];
+                intent: string;
+                parent_id?: components["schemas"]["String"] | null;
+                state: components["schemas"]["DetachedScriptState"];
+                /** Format: int64 */
+                timeout_secs: number;
+                /** Format: int32 */
+                tool_call_count: number;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        /** @description One script as the panel draws it: the activity trail's run detail. */
+        DetachedScriptDetail: components["schemas"]["DetachedScriptSnapshot"] & {
+            code: string;
+            /** @description The `ExecutionReport` once final (or the failure message as a string). */
+            report?: Record<string, never> | null;
+            /** @description `[{seq, name, arguments, ok, error?, duration_ms}]`. */
+            tool_calls: Record<string, never>[];
+        };
+        /**
+         * @description The list route's rows and the `detached_script` session frame. Small enough to push on
+         *     every change.
+         */
+        DetachedScriptSnapshot: {
+            /** Format: date-time */
+            created_at: string;
+            delivered: boolean;
+            /** Format: date-time */
+            finished_at?: string | null;
+            id: components["schemas"]["String"];
+            intent: string;
+            parent_id?: components["schemas"]["String"] | null;
+            state: components["schemas"]["DetachedScriptState"];
+            /** Format: int64 */
+            timeout_secs: number;
+            /** Format: int32 */
+            tool_call_count: number;
+        };
+        /**
+         * @description Every transition out of `running` is one guarded update, so of two racing causes
+         *     (a cancel and the script finishing, say) exactly one wins.
+         * @enum {string}
+         */
+        DetachedScriptState: "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "interrupted";
     };
     responses: never;
     parameters: never;
@@ -7566,175 +7502,6 @@ export interface operations {
                 };
             };
             /** @description Agent or topic not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-        };
-    };
-    list_jobs: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Channel ID */
-                channel_id: string;
-                /** @description Topic ID */
-                topic_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description In-flight background jobs launched from this topic, oldest first */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_Vec_BackgroundJobSnapshot"];
-                };
-            };
-            /** @description Agent not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-        };
-    };
-    get_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Channel ID */
-                channel_id: string;
-                /** @description Topic ID */
-                topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The job, in any state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
-                };
-            };
-            /** @description No job with that id was launched from this topic */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-        };
-    };
-    cancel_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Channel ID */
-                channel_id: string;
-                /** @description Topic ID */
-                topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CancelJobBody"];
-            };
-        };
-        responses: {
-            /** @description The job, now cancelled */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
-                };
-            };
-            /** @description No job with that id was launched from this topic */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-            /** @description The job already finished; its final state */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
-                };
-            };
-        };
-    };
-    get_piece_history: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Channel ID */
-                channel_id: string;
-                /** @description Topic ID */
-                topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
-                /** @description 0-based piece position */
-                ordinal: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HistoryQuery"];
-            };
-        };
-        responses: {
-            /** @description The piece's own conversation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_Vec_SessionHistory"];
-                };
-            };
-            /** @description Unknown job or piece */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13127,6 +12894,80 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_detached_scripts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The topic's detached scripts: the running ones, then the last 50 that ended, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_DetachedScriptSnapshot"];
+                };
+            };
+            /** @description Conversation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    get_detached_script: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+                /** @description Script ID, e.g. d_k3x9a1b2 */
+                script_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One script with its code, the calls it made and, once final, its report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_DetachedScriptDetail"];
+                };
+            };
+            /** @description Script not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
             };
         };
     };

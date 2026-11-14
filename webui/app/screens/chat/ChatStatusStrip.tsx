@@ -1,5 +1,5 @@
 import {
-  BackgroundJob,
+  BackgroundWork,
   EmptyState,
   FileRow,
   FileTypeTag,
@@ -14,8 +14,10 @@ import {
 } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router'
-import type { BackgroundJobSnapshot, SessionFileRecord } from '../../api/frames'
-import { cancelJob } from '../../api/endpoints/chat'
+import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord } from '../../api/frames'
+import { detachedScript } from '../../api/endpoints/chat'
+import { detachedReport, scriptElapsed } from '../../lib/detached'
+import { Run } from './Trail'
 import { clearTopicFiles, promoteTopicFile } from '../../api/endpoints/artifacts'
 import { docFromChat } from '../../lib/memoryTree'
 import type { Recalled } from '../../lib/recall'
@@ -25,9 +27,10 @@ import {
   PAGE,
   fileKinds,
   filterFiles,
-  filterJobs,
   filterMemory,
-  jobCounts,
+  filterWork,
+  workCounts,
+  type WorkTab,
   memoryBundles,
 } from '../../lib/statusFilters'
 import { readyCount, stripLabel, worstDot } from '../../lib/lsp'
@@ -41,7 +44,8 @@ type Props = {
   agentId: string
   topicId: string
   recalled: Recalled[]
-  jobs: BackgroundJobSnapshot[]
+  /** The topic's detached scripts (spec 058). */
+  scripts: DetachedScriptSnapshot[]
   files: SessionFileRecord[]
   canPromote: boolean
   onFilesCleared: () => void
@@ -56,14 +60,54 @@ type Props = {
   className?: string
 }
 
-function elapsed(job: BackgroundJobSnapshot, now: number): string {
-  const end = job.finished_at ? Date.parse(job.finished_at) : now
-  const s = Math.max(0, Math.round((end - Date.parse(job.created_at)) / 1000))
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+/**
+ * One detached script in the Background work panel: collapsed to a line, expanded to the
+ * activity trail's run detail. The detail is read on first expand and again whenever a frame
+ * says the script changed. No cancel control: only the agent cancels (spec 058).
+ */
+function WorkEntry({
+  agentId,
+  topicId,
+  script,
+  now,
+}: {
+  agentId: string
+  topicId: string
+  script: DetachedScriptSnapshot
+  now: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [detail, setDetail] = useState<DetachedScriptDetail | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    let live = true
+    detachedScript(agentId, topicId, script.id)
+      .then((d) => live && (setDetail(d), setFailed(false)))
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+    }
+  }, [expanded, agentId, topicId, script.id, script.state, script.tool_call_count, script.delivered])
+  return (
+    <BackgroundWork
+      intent={script.intent}
+      handle={script.id}
+      state={script.state}
+      elapsed={scriptElapsed(script, now)}
+      callCount={script.tool_call_count}
+      delivered={script.delivered}
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+    >
+      {detail ? (
+        <Run report={detachedReport(detail)} code={detail.code} intent={null} />
+      ) : (
+        <p className="type-small text-faint">{failed ? "Couldn't load this script." : 'Loading...'}</p>
+      )}
+    </BackgroundWork>
+  )
 }
-
-const jobTitle = (job: BackgroundJobSnapshot) =>
-  job.kind === 'delegation' ? `delegate_agent -> ${job.delegated_to ?? ''}` : 'background_subagents'
 
 /**
  * The chat's status strip (D62): the counts of what the agent recalled, what it is
@@ -74,7 +118,7 @@ export function ChatStatusStrip({
   agentId,
   topicId,
   recalled,
-  jobs,
+  scripts,
   files,
   canPromote,
   onFilesCleared,
@@ -94,8 +138,8 @@ export function ChatStatusStrip({
   const [clearing, setClearing] = useState(false)
   const { pathname } = useLocation()
 
-  const running = jobs.filter((j) => j.state === 'running' || j.state === 'reporting')
-  const counts = jobCounts(jobs)
+  const running = scripts.filter((s) => s.state === 'running')
+  const counts = workCounts(scripts)
 
   // The elapsed times tick while work runs, and stop when nothing does.
   useEffect(() => {
@@ -107,9 +151,9 @@ export function ChatStatusStrip({
   const items: StatusStripItem[] = [
     { id: 'memory', icon: 'memory', label: 'recalled passages', count: recalled.length },
     {
-      id: 'jobs',
+      id: 'work',
       icon: 'layers',
-      label: 'background jobs running',
+      label: 'background work running',
       count: running.length,
       busy: running.length > 0,
     },
@@ -152,10 +196,7 @@ export function ChatStatusStrip({
       filterMemory(recalled, query, tab, (p) => docFromChat(agentId, p.bundle, p.path, pathname)),
     [recalled, query, tab, agentId, pathname]
   )
-  const jobRows = useMemo(
-    () => filterJobs(jobs, query, tab as 'all' | 'running' | 'done' | 'stopped'),
-    [jobs, query, tab]
-  )
+  const workRows = useMemo(() => filterWork(scripts, query, (tab ?? 'running') as WorkTab), [scripts, query, tab])
   const fileRows = useMemo(() => filterFiles(files, query, tab), [files, query, tab])
 
   const doClear = async () => {
@@ -241,65 +282,51 @@ export function ChatStatusStrip({
     </StatusPanel>
   )
 
-  const jobsPanel = (close: () => void) => (
+  const WORK_EMPTY: Record<WorkTab, string> = { running: 'running', done: 'done yet', stopped: 'stopped' }
+
+  const workPanel = (close: () => void) => (
     <StatusPanel
-      title="Background jobs"
+      title="Background work"
       meta={counts.running ? `${counts.running} running` : `${counts.total}`}
       onClose={close}
       search={
         <SearchField
           value={query}
           onValueChange={setQuery}
-          aria-label="Search background jobs"
-          placeholder="Search jobs..."
-          count={jobRows.length}
+          aria-label="Search background work"
+          placeholder="Search calls..."
+          count={workRows.length}
         />
       }
       tabs={
         <FilterTabs
-          aria-label="Filter background jobs by state"
-          value={tab ?? 'all'}
-          onChange={(v) => setTab(v === 'all' ? null : v)}
+          aria-label="Filter background work by state"
+          value={tab ?? 'running'}
+          onChange={(v) => setTab(v === 'running' ? null : v)}
           options={[
-            { value: 'all', label: 'All', count: counts.total },
             { value: 'running', label: 'Running', count: counts.running, tone: 'live' },
             { value: 'done', label: 'Done', count: counts.done },
             { value: 'stopped', label: 'Stopped', count: counts.stopped },
           ]}
         />
       }
-      footer={<span className="type-small text-faint">Running first, then newest</span>}
+      footer={<span className="type-small text-faint">Newest first</span>}
     >
-      {jobRows.length === 0 ? (
+      {workRows.length === 0 ? (
         <EmptyState
           kind="empty"
           icon="layers"
-          title="No background jobs"
-          message="Work the agent hands off appears here."
+          title={
+            scripts.length === 0 ? 'No background work' : `Nothing ${WORK_EMPTY[(tab ?? 'running') as WorkTab]}`
+          }
+          message="Scripts the agent runs in the background appear here."
         />
       ) : (
         <ul className="flex flex-col gap-6 py-6">
-          {jobRows.slice(0, PAGE).map((row) =>
-            row.kind === 'job' ? (
+          {workRows.slice(0, PAGE).map((row) =>
+            row.kind === 'script' ? (
               <li key={row.key}>
-                <BackgroundJob
-                  title={jobTitle(row.job)}
-                  goal={row.job.pieces[0]?.prompt ?? ''}
-                  state={row.job.state}
-                  elapsed={elapsed(row.job, now)}
-                  pieces={{
-                    done: row.job.pieces.filter((p) => p.state !== 'running').length,
-                    total: row.job.pieces.length,
-                  }}
-                  onCancel={
-                    row.job.state === 'running'
-                      ? () =>
-                          void cancelJob(agentId, topicId, row.job.id).catch((e) =>
-                            toast.error("Couldn't cancel the job", e.message)
-                          )
-                      : undefined
-                  }
-                />
+                <WorkEntry agentId={agentId} topicId={topicId} script={row.script} now={now} />
               </li>
             ) : null
           )}
@@ -394,8 +421,8 @@ export function ChatStatusStrip({
   const panelFor = (id: StatusStripItem['id'], close: () => void) =>
     id === 'memory' ? (
       memoryPanel(close)
-    ) : id === 'jobs' ? (
-      jobsPanel(close)
+    ) : id === 'work' ? (
+      workPanel(close)
     ) : id === 'lsp' && lsp ? (
       <LspPanel agentId={agentId} projectId={lsp.projectId} onClose={close} />
     ) : (
