@@ -34,7 +34,8 @@
 - The spec uses Vizier's product vocabulary (tool category, detached script, sandbox, operating
   doctrine) because the readers are the agent framework's maintainers; tool names, storage tables,
   frames and code locations are deliberately left to the plan.
-- Two decisions not explicitly confirmed during brainstorming are recorded as assumptions rather
-  than clarification markers: workers die with their hirer, and a waiting "asking" worker does not
-  consume its own time limit. Revisit in `/speckit-clarify` if either is wrong.
+- Lifetime confirmed after the first draft: workers live as long as their conversation, aborting
+  a turn stops only the main agent, an asking worker waits indefinitely, and outcomes the main
+  agent has not seen are delivered once (Story 6, FR-017–FR-017c, FR-024–FR-026). The first draft's
+  "workers die with their hirer" assumption is gone.
 - The WebUI peek view is a separate spec and depends on FR-016 and FR-019.

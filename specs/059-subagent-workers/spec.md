@@ -149,23 +149,64 @@ spawn and wait tools, and neither points at another retired name.
 2. **Given** the name the fan-out tool itself replaced, **When** an agent calls it, **Then** the
    guidance names the new tools, not the retired fan-out tool.
 
+---
+
+### User Story 6 - Work survives the turn that started it (Priority: P1)
+
+The main agent spawns a long-running worker. The person interrupts the main agent's turn, or the
+turn simply ends, or the agent restarts. The worker keeps going, and when it finishes or needs an
+answer, its outcome arrives in the conversation and the main agent picks it up, either in the step
+it is on or in a new turn if it was idle.
+
+**Why this priority**: Without it, an interruption throws away a worker's progress and the agent
+has to start the work again, which is the main cost of long-running workers.
+
+**Independent Test**: With an offline test agent, spawn a slow worker, abort the main turn, and let
+the worker finish: the worker's state is "answered", the main agent receives one delivery naming
+the worker and carrying its result, and a second delivery never arrives. Repeat with a restart of
+the agent mid-work: the worker resumes and its result is still delivered once.
+
+**Acceptance Scenarios**:
+
+1. **Given** a running worker, **When** the person aborts the main agent's turn, **Then** the
+   worker keeps running and its state is unchanged.
+2. **Given** a worker that settles while the main agent is idle, **When** it settles, **Then** the
+   main agent is started with one delivery carrying the worker's task, position and result.
+3. **Given** a worker that settles while the main agent is mid-turn, **When** the main agent reaches
+   its next step boundary, **Then** the delivery is added there and no new turn is started.
+4. **Given** a worker that starts asking after the main turn ended, **Then** the question is
+   delivered the same way, and the main agent can reply to it.
+5. **Given** a worker whose outcome the main agent already read or waited on, **Then** that outcome
+   is not delivered.
+6. **Given** a running worker, **When** the agent is updated or restarted, **Then** the worker
+   resumes on the next instance and its outcome is delivered once.
+
 ### Edge Cases
 
-- **The hirer ends first.** When the main agent's turn (or the detached script that spawned the
-  workers) ends, is aborted or stops for a restart, every unfinished worker is stopped with the
-  reason "the hirer ended", including workers waiting in "asking".
+- **The main turn ends first.** When the turn that spawned workers ends, or the person aborts it,
+  the workers keep running; their results and questions are delivered into the conversation later
+  (Story 6). Aborting stops only the main agent's turn, never a worker.
+- **The agent is updated or restarted** while workers run: the workers resume on the next instance
+  and are not lost.
 - **A worker times out** while running: state "timed out". A worker in "asking" does not consume
-  its own time limit while it waits for a reply; only the hirer's lifetime bounds that wait.
+  its time limit and waits indefinitely, until it is replied to, stopped, or its conversation or
+  agent is deleted.
+- **The conversation or the agent is deleted**: every unfinished worker in it is stopped with the
+  matching reason, and nothing is delivered.
+- **The main agent already saw a result** through a wait or a read: that result is not delivered
+  again. A worker the main agent stopped is never delivered.
 - **Unknown or foreign handle.** Waiting on, replying to, stopping or reading a handle that does not
   exist or belongs to another conversation is refused as data the agent can act on, never a crash.
 - **Stopping a settled worker** is a no-op that reports the worker's final state.
 - **A worker writes the main agent's identity or schedules a task.** Allowed, exactly as if the main
   agent did it, and attributed to the main agent. Several workers writing the same memory is not
   guarded: the last write wins, as for any two writes today.
-- **A worker asks while the main agent is not waiting.** The question waits in the worker's record
-  until the main agent next waits, lists or reads.
-- **Workers spawned from a detached script** live as long as that script, and a script cancelled or
-  timed out stops them with "the hirer ended".
+- **A worker asks while the main agent is not waiting.** The question is delivered into the
+  conversation (Story 6) and also stays readable on the worker's record.
+- **Workers spawned in a scheduled run** deliver into that run's conversation, waking the agent
+  there, since no person is in it.
+- **Workers spawned from a detached script** belong to the script's conversation like any other
+  worker: the script ending, being cancelled or timing out does not stop them.
 - **A worker launches a detached script.** Allowed (it acts with the main agent's tools); that
   script cannot spawn workers under the default setting, because it inherits the worker's depth.
 - **A worker tries to ask the person.** The person-facing question tools stay unavailable to
@@ -180,8 +221,9 @@ spawn and wait tools, and neither points at another retired name.
 **What a worker is**
 
 - **FR-001**: A subagent MUST be a temporary worker for exactly one task, with no stored
-  configuration of its own; it exists only for the lifetime of the turn or detached script that
-  spawned it.
+  configuration of its own. "Temporary" refers to its configuration, not its lifetime: a worker
+  lives as long as the conversation it was spawned in, independent of the turn or detached script
+  that spawned it.
 - **FR-002**: A worker MUST act on behalf of the main agent with the main agent's full tool set,
   memory and permissions, minus the restrictions in FR-014 and FR-018; actions it takes MUST be
   attributed to the main agent exactly as today. No additional protection is placed on what it may
@@ -226,18 +268,36 @@ spawn and wait tools, and neither points at another retired name.
 **Lifecycle and states**
 
 - **FR-016**: A worker MUST be in exactly one of: running, asking, answered, failed, timed out,
-  stopped. A stopped worker MUST carry a stop reason: stopped by the main agent, the hirer ended,
-  or the agent restarted.
-- **FR-017**: When the turn or detached script that spawned workers ends, is aborted or is stopped,
-  every unfinished worker MUST be stopped with the reason "the hirer ended" (or "the agent
-  restarted" when the agent instance itself stops).
+  stopped. A stopped worker MUST carry a stop reason: stopped by the main agent, conversation
+  deleted, or agent deleted.
+- **FR-017**: A worker MUST keep running when the turn or detached script that spawned it ends, is
+  aborted by a person, is cancelled or times out. Aborting a turn MUST stop only the main agent's
+  turn.
+- **FR-017a**: A worker MUST survive an update or restart of its agent: running workers resume on
+  the next instance from their last step, and asking workers keep their question.
+- **FR-017b**: A worker in "asking" MUST wait indefinitely and MUST NOT consume its time limit
+  while waiting.
+- **FR-017c**: Deleting a conversation or an agent MUST stop its unfinished workers with the
+  matching stop reason.
+
+**Delivery**
+
+- **FR-024**: When a worker settles (answered, failed, timed out) or starts asking, and the main
+  agent has not already seen that outcome through a wait or a read, the outcome MUST be delivered
+  into the worker's conversation exactly once: at the next step boundary if the main agent is
+  mid-turn, otherwise by starting a new turn of the main agent.
+- **FR-025**: A delivery MUST identify the worker (its task and position) and carry its result or
+  question; several outcomes ready at the same moment MAY be delivered together.
+- **FR-026**: An outcome the main agent saw through a wait or a read MUST NOT be delivered again, and
+  a worker the main agent stopped MUST NOT be delivered.
 - **FR-018**: By default only the main agent MAY spawn workers: the spawning, waiting, replying,
   stopping, listing and reading tools MUST NOT be offered inside a worker or inside work a worker
   started. The allowed nesting depth MUST be a backend setting (default: workers cannot spawn),
   independent of the existing background-work nesting limit.
 - **FR-019**: Each worker MUST have a record holding its task, its hiring conversation and turn, its
-  own conversation, its state, its stop reason, its question and result, and its start and end
-  times, readable for at least as long as the hiring conversation exists.
+  own conversation, its state, its stop reason, its question and result, whether its outcome has
+  been seen or delivered, and its start and end times, readable for as long as the hiring
+  conversation exists.
 
 **Retirement and guidance**
 
@@ -256,11 +316,15 @@ spawn and wait tools, and neither points at another retired name.
 
 - **Worker (subagent)**: one temporary task performed on behalf of the main agent. Holds its task,
   its hiring conversation and turn, its own conversation, its position among the tasks spawned with
-  it, its state, its stop reason, its pending question, its result, and start and end times.
+  it, its state, its stop reason, its pending question, its result, whether its outcome was seen or
+  delivered, and start and end times.
 - **Spawn group**: the set of workers created by one spawn call; gives each worker its position
   ("task 2 of 4") and is what the future WebUI view groups by.
-- **Hirer**: the main agent's turn, or the detached script, that spawned a group and bounds its
-  workers' lifetime.
+- **Hiring conversation**: the main agent's conversation a worker was spawned in. It bounds the
+  worker's lifetime, receives its deliveries, and its deletion stops the worker. The turn or
+  detached script that issued the spawn is recorded for reference but does not bound the worker.
+- **Delivery**: one message into the hiring conversation carrying one or more worker outcomes
+  (results or questions) the main agent has not yet seen; each outcome is delivered at most once.
 
 ## Success Criteria *(mandatory)*
 
@@ -276,13 +340,18 @@ spawn and wait tools, and neither points at another retired name.
 - **SC-004**: A worker that asks a question and is replied to completes its task in the same
   conversation, with its earlier steps intact, in 100% of test runs.
 - **SC-005**: Under the default setting, 0 workers are able to spawn workers.
-- **SC-006**: After the turn or script that hired them ends, 0 workers remain running.
+- **SC-006**: When the main turn is aborted or ends, or the agent restarts, 0 worker results are
+  lost: every worker outcome the main agent had not already seen reaches it exactly once.
+- **SC-008**: After a conversation or agent is deleted, 0 of its workers remain running.
 - **SC-007**: Calling a retired name always yields guidance that names a tool that exists.
 
 ## Assumptions
 
-- Workers do not outlive their hirer. Long-lived workers are obtained by spawning them inside a
-  detached script; results are never delivered into a later turn by this feature.
+- Workers outlive the turn that spawned them and live as long as their conversation; aborting a
+  turn stops only the main agent. Delivery reuses the same "claimed exactly once" behaviour that
+  background work already has, so a worker's outcome reaches the main agent once whether it was
+  mid-turn or idle.
+- A worker in "asking" waits indefinitely; there is no expiry for an unanswered question.
 - No guard is added against concurrent writes by workers (to memory, the identity or elsewhere):
   workers act exactly as the main agent would, and the last write wins.
 - Per-call worker definitions (a role, a tool subset or a different model per worker) are out of
