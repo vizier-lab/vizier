@@ -53,8 +53,6 @@ name that is taken and confirm each is refused with a specific reason and nothin
 4. **Given** a definition with a sample input, **When** the agent saves it, **Then** the tool is run
    once with that input, the save happens only if that run succeeds, and the result says the run
    was real (any tool calls it made took effect).
-5. **Given** a script containing a value from the agent's secret store, **When** the agent tries to
-   save it, **Then** the save is refused and the value never appears in storage, the result or logs.
 
 ---
 
@@ -92,30 +90,24 @@ value and the failure shape.
 
 ---
 
-### User Story 3 - A custom tool never widens what the caller may do (Priority: P1)
+### User Story 3 - A custom tool runs as part of the calling turn (Priority: P1)
 
-A custom tool runs with the rights of the turn that calls it, not of the turn that wrote it. Each
-tool call inside it is checked exactly as if the caller had made it directly: a tool not offered in
-this turn is refused, secrets are redacted the same way, and timeouts still apply.
+A custom tool runs inside the turn that calls it. Its own tool calls go through the same path as
+the caller's direct calls, so they see the same tools that turn has, and the call ends within the
+calling script's time limit.
 
-**Why this priority**: A custom tool is generated code with tool access; it must not become a way
-around an agent's toolset, a conversation's availability rules or secret handling. This is a
-safety requirement for the whole feature.
+**Why this priority**: This is how a custom tool executes at all; reusing the existing call path is
+what keeps the feature small.
 
 **Independent Test**: Save a custom tool that calls an interactive-only tool; call it from an
-unattended turn (a scheduled task) and confirm the inner call is refused exactly as a direct call
-would be; call one that reads a secret and confirm the value is redacted from the report.
+unattended turn (a scheduled task) and confirm the inner call gets the same answer a direct call
+would; call a slow custom tool and confirm it stops at the calling script's time limit.
 
 **Acceptance Scenarios**:
 
 1. **Given** a custom tool that calls a tool unavailable in the current turn, **When** it is called
-   in that turn, **Then** that inner call is refused with the same answer a direct call gets.
-2. **Given** a custom tool that reads a secret, **When** it is called, **Then** the secret value is
-   scrubbed from its result, its recorded calls, history and telemetry as for any script.
-3. **Given** a custom tool whose script tries to call a turn-ending tool or to ask a person for
-   input, **When** it is saved, **Then** the save is refused, because a custom tool returns a value
-   to its caller and cannot end the turn or wait on a person.
-4. **Given** a custom tool, **When** it is called, **Then** its run counts against the calling
+   in that turn, **Then** that inner call gets the same answer a direct call gets.
+2. **Given** a custom tool, **When** it is called, **Then** its run counts against the calling
    script's time limit; it cannot outlive the call that started it.
 
 ---
@@ -293,13 +285,13 @@ confirm it updates rather than duplicates.
 - **FR-005**: Before a custom tool is saved (created, updated or rolled back), the system MUST check:
   the name follows the naming rule and is free; the input schema is a valid object schema; the
   script parses and declares the entry it is called through; every tool the script calls exists for
-  the agent; it calls no turn-ending or person-waiting tool; it creates no cycle with other custom
+  the agent; it creates no cycle with other custom
   tools; the sample input, if given, matches the schema. Every problem MUST be
   reported at once, as data the agent can act on.
 - **FR-006**: When a sample input is supplied, the system MUST run the tool once with it before
   saving, save only on success, and say in the result that the run took effect.
-- **FR-007**: The system MUST refuse to save a script that contains any value currently in the
-  agent's secret store, without storing, echoing or logging that value.
+- **FR-007**: *(Removed: refusing scripts that hold secret values or call turn-ending / person-waiting
+  tools is deferred to a later security pass; see Assumptions.)*
 - **FR-008**: A custom tool or version that passes validation MUST be callable at once, with no
   approval step; oversight is after the fact (FR-021–FR-025), which is sound because a custom tool
   runs with the caller's own rights (FR-013) and can do nothing a script in the same turn could not.
@@ -307,7 +299,7 @@ confirm it updates rather than duplicates.
   update custom tools, so a custom tool, like a skill, is one of a dream's outputs. A dream MUST NOT
   delete, disable or enable a custom tool, and MUST NOT call one (a custom tool acts through the
   agent's full toolset, which an unattended dream does not have).
-- **FR-009a**: A save made in a dream MUST pass every check of FR-005 and FR-007, judged against the
+- **FR-009a**: A save made in a dream MUST pass every check of FR-005, judged against the
   agent's full toolset (where the tool will run), not the dream's; the sample run of FR-006 is not
   performed in a dream. The version MUST be recorded as authored by the agent during a dream cycle,
   naming the cycle, and the cycle's report MUST list the custom tools it created or updated.
@@ -334,9 +326,9 @@ confirm it updates rather than duplicates.
   client tool can take, and the custom tools category name MUST be reserved.
 - **FR-012**: A call MUST validate its input against the schema before running and fail with every
   mismatch, by path, if it does not match.
-- **FR-013**: A custom tool MUST run inside the calling script's call, with the calling turn's tool
-  availability, permissions, secret redaction and per-tool timeouts applied to each of its inner
-  calls exactly as for a direct call; its run MUST count against the calling script's time limit.
+- **FR-013**: A custom tool MUST run inside the calling script's call, making its inner tool calls
+  through the same dispatch path as the caller's direct calls; its run MUST count against the
+  calling script's time limit.
 - **FR-014**: A custom tool MUST return a value to its caller; a failure MUST be returned as data
   naming the custom tool, the failing step, the error and the calls already made — never as a crash
   of the calling script.
@@ -369,7 +361,7 @@ confirm it updates rather than duplicates.
 - **FR-022**: People who may view the agent MUST be able to read the page; people who may edit the
   agent MUST be able to enable, disable, roll back and delete (with confirmation), and edit an
   existing tool's description, input schema, output description and script.
-- **FR-022a**: A person's edit MUST pass the same checks as an agent's save (FR-005, FR-007) except
+- **FR-022a**: A person's edit MUST pass the same checks as an agent's save (FR-005) except
   the sample run, which is not performed from the WebUI; it MUST be saved as a new version authored
   by that person, and the agent MUST see that authorship in the tool's history and description.
 - **FR-023**: A tool disabled by a person MUST be hidden from the agent's listings and refused on
@@ -412,10 +404,10 @@ confirm it updates rather than duplicates.
   workflow.
 - **SC-002**: Calling the same custom tool with the same input runs the same sequence of tool calls
   every time, in 100% of runs whose inner tools are not model-backed.
-- **SC-003**: No custom tool call ever reaches a tool that a direct call in the same turn could not
-  reach: 0 bypasses across the availability, permission and secret-redaction checks pinned by tests.
-- **SC-004**: 100% of invalid definitions (bad schema, bad script, unknown tool, cycle, secret in
-  source, turn-ending call) are refused with a reason naming the problem, and none are stored.
+- **SC-003**: A custom tool's inner calls get the same answers as the same calls made directly in
+  the calling turn.
+- **SC-004**: 100% of invalid definitions (bad schema, bad script, unknown tool, cycle) are refused
+  with a reason naming the problem, and none are stored.
 - **SC-005**: A person can find, read and disable any of an agent's custom tools in under 30 seconds
   from the agent's page, and the agent stops seeing it on its next lookup.
 - **SC-006**: After any update, the previous working version can be restored in one action by the
@@ -445,5 +437,10 @@ confirm it updates rather than duplicates.
   are per agent with no sharing, copying or export; people get an editor in the WebUI. Creating a
   brand-new tool from the WebUI and running a tool from the WebUI are out of scope — the agent
   creates tools, people inspect, edit and govern them.
+- **Security is deferred** (requester, 2026-11-15, third pass): make the feature work first. This
+  version adds no security checks of its own: it does not refuse scripts that contain secret
+  values, nor scripts that call turn-ending or person-waiting tools; what such a call does inside a
+  custom tool is whatever the existing call path does. A later pass will look at secrets in saved
+  source, turn-ending and asking tools, and policy around generated code.
 - Decided with the requester (2026-11-15, second pass): dreams write custom tools as one of their
   outputs, the dream prompts change to look for them, and there are no limits for now.

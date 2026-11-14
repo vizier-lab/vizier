@@ -39,3 +39,6 @@
   extraction/consolidation prompts change to look for reusable workflows, and all limits are
   removed (FR-015, FR-015a); cycles stay refused and the calling script's time limit bounds a call.
   Re-validated: every item still passes.
+- Third pass (2026-11-15): security checks removed (old FR-007 secret refusal, the turn-ending /
+  person-waiting refusal, Story 3's redaction and refusal scenarios, SC-003's bypass metric) and
+  deferred to a later pass, recorded in Assumptions. Re-validated: every item still passes.
