@@ -18,7 +18,7 @@ use anyhow::Result;
 
 use crate::{
     schema::{
-        EventAction, InsertedNotification, IntegrationFamily, JobKind, JobState,
+        EventAction, InsertedNotification, IntegrationFamily,
         NotificationCategory, NotificationDraft, NotificationTone, Requester, TaskRunState,
         SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
     },
@@ -170,37 +170,26 @@ impl Notifications {
         .await;
     }
 
-    /// One background job at a terminal state; a job still in flight records nothing. `origin`
-    /// is the conversation the job was launched from: one on Discord or Telegram notifies
-    /// nobody (the report still posts in the channel), and any other is kept as the row's
-    /// source so its title can be shown to the person it belongs to.
-    pub async fn job_ended(
-        &self,
-        job_id: &str,
-        origin: &VizierSession,
-        kind: JobKind,
-        state: JobState,
-        reason: Option<&str>,
-        at: Timestamp,
-    ) {
-        // Discord, Telegram and Workspace topics do not notify about jobs: a Workspace notifies
-        // about its messages instead (spec 053).
+    /// One notification per final, non-cancelled detached script (spec 058). Discord, Telegram
+    /// and Workspace conversations get none, as for every agent-side event.
+    pub async fn detached_finished(&self, script: &crate::schema::DetachedScript) {
+        let origin = &script.session;
         if origin.1.platform().is_some()
             || matches!(origin.1, crate::schema::VizierChannelId::Workspace(_))
         {
             return;
         }
-        let Some((summary, tone)) = text::background_job(kind, state, reason) else {
+        let Some((summary, tone)) = text::background_work(&script.intent, script.state) else {
             return;
         };
         let mut draft = draft(
-            format!("job:{job_id}"),
+            format!("detached:{}", script.id),
             &origin.0,
-            NotificationCategory::BackgroundJob,
+            NotificationCategory::BackgroundWork,
             tone,
             summary,
-            text::chat_href(&origin.0),
-            at,
+            conversation_href(origin),
+            script.finished_at.unwrap_or_else(crate::time::now),
         );
         draft.source_session = Some(origin.clone());
         self.record(draft).await;
@@ -294,14 +283,7 @@ impl Notifications {
         let Some(audience) = audience else {
             return;
         };
-        let href = match (&session.2, session.1.project_id()) {
-            // A project reply opens its project route, not the ordinary chat route.
-            (Some(topic), Some(project_id)) => {
-                format!("/{}/projects/{}/chat/{}", session.0, project_id, topic)
-            }
-            (Some(topic), None) => format!("/{}/chat/{}", session.0, topic),
-            (None, _) => text::chat_href(&session.0),
-        };
+        let href = conversation_href(session);
         let mut draft = draft(
             format!("chat:{history_uid}"),
             &session.0,
@@ -547,20 +529,39 @@ mod tests {
         assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 1);
     }
 
+    fn finished(origin: VizierSession) -> crate::schema::DetachedScript {
+        let now = crate::time::now();
+        crate::schema::DetachedScript {
+            id: "d_k3x9a1b2".into(),
+            agent_id: origin.0.clone(),
+            session: origin,
+            parent_id: None,
+            depth: 0,
+            intent: "check the pages".into(),
+            state: crate::schema::DetachedScriptState::Succeeded,
+            timeout_secs: 600,
+            code: String::new(),
+            tool_calls: serde_json::json!([]),
+            created_at: now,
+            finished_at: Some(now),
+            outcome: None,
+            delivered_at: None,
+            cancelled_by: None,
+        }
+    }
+
     #[tokio::test]
-    async fn a_job_launched_from_discord_or_telegram_notifies_nobody() {
+    async fn a_script_launched_from_discord_or_telegram_notifies_nobody() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
         for channel in [VizierChannelId::DiscordChanel(1), VizierChannelId::TelegramChannel(2)] {
-            let origin = VizierSession("a".into(), channel, None);
-            n.job_ended("j-ext", &origin, JobKind::Batch, JobState::Reported, None, crate::time::now())
-                .await;
+            n.detached_finished(&finished(VizierSession("a".into(), channel, None))).await;
         }
         assert_eq!(n.storage.notification_counts("u", &["a".into()]).await.unwrap().all, 0);
     }
 
     #[tokio::test]
-    async fn a_job_launched_from_the_webui_keeps_its_session_as_the_source() {
+    async fn a_script_launched_from_the_webui_links_its_conversation() {
         let (n, conn, _d) = setup();
         agent(&conn, "a");
         let origin = VizierSession(
@@ -568,15 +569,17 @@ mod tests {
             VizierChannelId::HTTP("ana".into(), "vizier-webui".into()),
             Some("topic-1".into()),
         );
-        n.job_ended("j-web", &origin, JobKind::Delegation, JobState::Reported, None, crate::time::now())
-            .await;
+        n.detached_finished(&finished(origin.clone())).await;
+        // Exactly once: the same script again is the same row.
+        n.detached_finished(&finished(origin.clone())).await;
         let items = n
             .storage
             .list_notifications("u", &["a".into()], NotificationFilter::All, None, 10)
             .await
             .unwrap();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].category, NotificationCategory::BackgroundJob);
+        assert_eq!(items[0].category, NotificationCategory::BackgroundWork);
+        assert_eq!(items[0].href, "/a/chat/topic-1");
         assert_eq!(items[0].source_session.as_ref(), Some(&origin));
     }
 
@@ -751,5 +754,16 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+}
+
+/// The WebUI route of one conversation: a project chat opens its project route.
+fn conversation_href(session: &VizierSession) -> String {
+    match (&session.2, session.1.project_id()) {
+        (Some(topic), Some(project_id)) => {
+            format!("/{}/projects/{}/chat/{}", session.0, project_id, topic)
+        }
+        (Some(topic), None) => format!("/{}/chat/{}", session.0, topic),
+        (None, _) => text::chat_href(&session.0),
     }
 }

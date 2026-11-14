@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod artifact;
-pub mod background;
 mod commands;
+pub mod detached;
 pub mod dream_journal;
 mod file;
 mod global_config;
@@ -34,10 +34,9 @@ pub use artifact::{
     ArtifactFilters, ArtifactId, ArtifactKind, ArtifactOrigin, ArtifactPage, ArtifactReference,
     ArtifactStats, validate_artifact_name,
 };
-pub use background::{
-    BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece,
-    BackgroundPieceSnapshot, BackgroundReport, Canceller, JobKind, JobState, PieceState,
-    ReportEntry,
+pub use detached::{
+    Canceller, DetachedScript, DetachedScriptDetail, DetachedScriptId, DetachedScriptSnapshot,
+    DetachedScriptState, new_detached_id,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,

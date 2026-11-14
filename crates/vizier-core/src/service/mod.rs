@@ -8,7 +8,7 @@ pub mod core;
 pub mod memory;
 pub mod tasks;
 pub mod dream;
-pub mod jobs;
+pub mod detached;
 pub mod conversations;
 pub mod artifacts;
 pub mod secrets;

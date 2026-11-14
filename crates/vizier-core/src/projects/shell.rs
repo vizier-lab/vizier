@@ -170,6 +170,8 @@ mod tests {
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             dream_sources: vec![],
             project: project.map(Arc::new),
+            detached: false,
+            parent_detached_id: None,
         }
     }
 

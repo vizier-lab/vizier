@@ -156,7 +156,7 @@ pub async fn agent_process(
             result = recv.recv_request() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
-                let request = envelope.request;
+                let mut request = envelope.request;
                 let response_tx = envelope.response_tx;
                 let turn = TurnRef { id: envelope.turn_id, resumed: envelope.resumed };
                 tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
@@ -181,12 +181,30 @@ pub async fn agent_process(
                     }
                 }
 
+                // Finished background work (spec 058). An idle conversation claims at once, so a
+                // poke that finds nothing (a round boundary took the rows first) leaves no trace;
+                // a busy one queues it and claims when it comes up (`handle_request`).
+                if let VizierRequestContent::DetachedDelivery(text) = &request.content
+                    && text.is_empty()
+                    && !session_is_busy(&turns, &session_queues, &session)
+                {
+                    let claimed = deps.detached.claim(&session).await;
+                    if claimed.is_empty() {
+                        tracing::debug!(agent_id = %agent_id, session = %session.to_slug(), "detached delivery: nothing to deliver");
+                        continue;
+                    }
+                    request.content = VizierRequestContent::DetachedDelivery(
+                        crate::agents::detached::render_delivery(&claimed),
+                    );
+                }
+
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
                 // on-the-record decision lives in one testable predicate (research R2).
                 // A Workspace topic is titled by its name, so it never spends a model call on one.
                 if records_session_activity(&request.content)
                     && !matches!(session.1, VizierChannelId::Workspace(_))
+                    && !matches!(request.content, VizierRequestContent::DetachedDelivery(_))
                 {
                     detail_tasks.spawn(refresh_session_detail(
                         agent.clone(),
@@ -365,6 +383,14 @@ pub async fn agent_process(
     // An update or restart resumes what it stopped on the next instance (`specs/023`), and
     // says nothing to the sender; a delete tells the sender, as before.
     let replacing = !deleting.load(std::sync::atomic::Ordering::SeqCst);
+    // Detached scripts are not part of the instance but run on its tools, so they stop with it
+    // (spec 058): an update or restart interrupts them and the next instance is told; a delete
+    // forgets them.
+    if replacing {
+        deps.detached.interrupt_agent(&agent_id).await;
+    } else {
+        deps.detached.delete_agent(&agent_id).await;
+    }
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
         seal_open_calls(
@@ -660,6 +686,8 @@ async fn refresh_session_detail(
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         project: None,
+        detached: false,
+        parent_detached_id: None,
     };
     let Ok((title, _, _, _)) = agent
         .prompt(
@@ -939,7 +967,8 @@ fn start_session_job(
                 | VizierRequestContent::BackgroundReport(_)
                 | VizierRequestContent::ClientEvent(_)
                 | VizierRequestContent::QuestionAnswer(_)
-        ) {
+        ) || matches!(&thinking_request.content, VizierRequestContent::DetachedDelivery(text) if !text.is_empty())
+        {
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
@@ -1135,6 +1164,8 @@ async fn run_checkpoint(
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         // The handover is a summary, not a project turn; the rebuilt prompt gets the section.
         project: None,
+        detached: false,
+        parent_detached_id: None,
     };
 
     // Generate handover
@@ -1464,10 +1495,25 @@ pub async fn handle_request(
 
     let hooks = Arc::new(hooks);
 
+    // A delivery poke that waited behind a turn claims now; the turn's own round boundary may
+    // already have taken everything (spec 058).
+    if let VizierRequestContent::DetachedDelivery(text) = &request.content
+        && text.is_empty()
+    {
+        let claimed = deps.detached.claim(&session).await;
+        if claimed.is_empty() {
+            tracing::debug!(agent_id = %session.0, session = %session.to_slug(), "detached delivery: nothing to deliver");
+            return Ok(());
+        }
+        request.content =
+            VizierRequestContent::DetachedDelivery(crate::agents::detached::render_delivery(&claimed));
+    }
+
     match &request.content {
         VizierRequestContent::Chat(_)
         | VizierRequestContent::AudioChat(_, _)
         | VizierRequestContent::BackgroundReport(_)
+        | VizierRequestContent::DetachedDelivery(_)
         | VizierRequestContent::ClientEvent(_)
         // An answer starts a turn the way a typed message does (FR-015): same queue, same
         // history, same hooks.
@@ -1571,7 +1617,7 @@ pub async fn handle_request(
             // A report is a poor retrieval query — it is mostly other turns' answers — so it
             // gets no automatic passages. Skill recommendation still sees its text.
             let passage_budget = match &request.content {
-                VizierRequestContent::BackgroundReport(_) => 0,
+                VizierRequestContent::BackgroundReport(_) | VizierRequestContent::DetachedDelivery(_) => 0,
                 _ => agent_config.auto_context.chat_passages,
             };
             let (history, checkpoint_handover) = storage
@@ -2009,6 +2055,7 @@ fn chat_turn_prompt(
         VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
         VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
         VizierRequestContent::BackgroundReport(report) => report.to_string(),
+        VizierRequestContent::DetachedDelivery(text) => text.clone(),
         // The person's summary of their answers: what retrieval and skill matching read.
         VizierRequestContent::QuestionAnswer(answer) => answer.text.clone(),
         _ => return None,
@@ -2431,8 +2478,7 @@ mod btw_tests {
     };
     use crate::tests_support::agent_config;
     use crate::storage::usage::UsageStorage;
-    use crate::schema::{BackgroundReport, ClientEvent, SideChat};
-    use crate::schema::background::JobKind;
+    use crate::schema::{ClientEvent, SideChat};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Answers every completion with the next scripted side, so a side chat runs without a
@@ -2764,12 +2810,7 @@ mod btw_tests {
             VizierRequestContent::SilentRead("hi".into()),
             VizierRequestContent::Unattended("hi".into()),
             VizierRequestContent::Command("checkpoint".into()),
-            VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "job-1".into(),
-                kind: JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             VizierRequestContent::ClientEvent(ClientEvent {
                 text: "click".into(),
                 data: None,

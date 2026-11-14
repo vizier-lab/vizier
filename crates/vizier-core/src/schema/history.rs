@@ -1277,6 +1277,46 @@ mod tests {
         assert_eq!(calls.len(), results.len());
     }
 
+    /// A detached script that finished mid-turn is saved after its round's results (spec 058),
+    /// and replays at that point: call, result, delivery, call, result, reply.
+    #[test]
+    fn a_mid_turn_delivery_replays_between_rounds() {
+        let delivery = entry(SessionHistoryContent::Request(crate::schema::VizierRequest {
+            content: crate::schema::VizierRequestContent::DetachedDelivery(
+                "[Background work finished]\nd_aaaaaaaa  succeeded in 2s  — x\nresult: 1".into(),
+            ),
+            ..Default::default()
+        }));
+        let reply = entry(SessionHistoryContent::Response(VizierResponse {
+            timestamp: crate::time::now(),
+            content: VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            },
+            attachments: vec![],
+            ..Default::default()
+        }));
+        let entries = vec![
+            call_entry("a"),
+            result_entry("a", "handle"),
+            delivery,
+            call_entry("b"),
+            result_entry("b", "ok"),
+            reply,
+        ];
+        let kinds: Vec<&str> = history_entries_to_messages(&entries)
+            .iter()
+            .map(|m| match m {
+                Message::Assistant(parts) if parts.iter().any(|p| matches!(p, AssistantPart::ToolCall { .. })) => "call",
+                Message::Assistant(_) => "reply",
+                Message::ToolResult { .. } => "result",
+                Message::User(_) => "delivery",
+                Message::System(_) => "system",
+            })
+            .collect();
+        assert_eq!(kinds, ["call", "result", "delivery", "call", "result", "reply"]);
+    }
+
     #[test]
     fn recall_entries_are_not_model_input() {
         let with = history_entries_to_messages(&[

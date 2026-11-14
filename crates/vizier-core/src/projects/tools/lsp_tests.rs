@@ -77,6 +77,8 @@ fn world(script: &str, extra: &[&str], mode: ProjectMode, lsp_enabled: bool) -> 
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         dream_sources: vec![],
         project: Some(Arc::new(project)),
+        detached: false,
+        parent_detached_id: None,
     };
     World { dir, ctx, log }
 }

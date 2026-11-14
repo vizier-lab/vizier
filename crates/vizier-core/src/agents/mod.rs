@@ -23,8 +23,8 @@ use std::sync::{
 };
 
 pub mod agent;
-pub mod background;
 pub mod client;
+pub mod detached;
 pub mod hook;
 pub mod mcp;
 pub mod memory_ops;
@@ -33,6 +33,7 @@ pub mod views;
 pub mod process;
 pub mod shell;
 pub mod skill;
+pub mod subagents;
 pub mod steps;
 pub mod supervisor;
 pub mod tools;

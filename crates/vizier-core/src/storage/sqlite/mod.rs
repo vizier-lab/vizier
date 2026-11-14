@@ -10,7 +10,7 @@ use crate::utils::build_path;
 
 mod agent;
 pub mod artifact;
-mod background_job;
+mod detached_script;
 mod catalogue;
 mod client_call;
 pub(crate) mod core_revision;
@@ -463,7 +463,6 @@ impl SqlStorage {
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
-        init_background_job_schema(conn)?;
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
@@ -474,6 +473,7 @@ impl SqlStorage {
         init_secret_schema(conn)?;
         init_media_catalogue_schema(conn)?;
         init_notification_schema(conn)?;
+        init_detached_script_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
         // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
@@ -508,8 +508,8 @@ pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
             |row| row.get::<_, i64>(0),
         )? > 0)
     };
-    // The recovery predicates, per agent (`background_job (origin_agent, state)` is already
-    // `idx_bg_job_agent`).
+    // The recovery predicates, per agent (`detached_script (agent_id, state)` is
+    // `idx_detached_agent_state`).
     if has("client_tool_call")? {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_client_call_agent_status ON client_tool_call(agent_id, status);",
@@ -523,8 +523,63 @@ pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Detached scripts (`specs/058-detached-tool-calls/data-model.md`): one row per detached
+/// `execute_python` run, owned like the other in-flight tables (spec 057). Split out so the
+/// tests in `src/storage/sqlite/detached_script.rs` can build just this table.
+pub fn init_detached_script_schema(conn: &Connection) -> Result<()> {
+    // Spec 058 replaced background jobs: their tables and notifications go, with no data
+    // migration (an old job has nothing to resume). Tracked for removal in #82.
+    conn.execute_batch(
+        "
+        DROP TABLE IF EXISTS background_piece;
+        DROP TABLE IF EXISTS background_job;
+        ",
+    )?;
+    if conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'notification'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?
+        > 0
+    {
+        conn.execute("DELETE FROM notification WHERE category = 'background_job'", [])?;
+    }
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS detached_script (
+            id              TEXT PRIMARY KEY,
+            agent_id        TEXT NOT NULL,
+            session_channel TEXT NOT NULL,
+            session_topic   TEXT,
+            parent_id       TEXT,
+            depth           INTEGER NOT NULL,
+            intent          TEXT NOT NULL,
+            state           TEXT NOT NULL,
+            timeout_secs    INTEGER NOT NULL,
+            code            TEXT NOT NULL,
+            tool_calls      TEXT NOT NULL DEFAULT '[]',
+            created_at      INTEGER NOT NULL,
+            finished_at     INTEGER,
+            outcome         TEXT,
+            delivered_at    INTEGER,
+            cancelled_by    TEXT,
+            owner_node      TEXT,
+            owner_token     INTEGER
+        );
+        -- recovery and the running list
+        CREATE INDEX IF NOT EXISTS idx_detached_agent_state ON detached_script(agent_id, state);
+        -- the delivery claim and the panel
+        CREATE INDEX IF NOT EXISTS idx_detached_session ON detached_script(agent_id, session_channel, session_topic, state, delivered_at);
+        -- the cancel cascade
+        CREATE INDEX IF NOT EXISTS idx_detached_parent ON detached_script(parent_id);
+        ",
+    )?;
+    Ok(())
+}
+
 /// The `owner_node`/`owner_token` columns of a table of in-flight work (`session_turn`,
-/// `task_run`, `background_job`, `client_tool_call`, `sensitive_ask`), called by that table's own
+/// `task_run`, `client_tool_call`, `sensitive_ask`), called by that table's own
 /// `init_*_schema`. A null `owner_token` is a row written before 057, read as owned by an expired
 /// owner; the ten `add_column_if_missing` calls and that rule are tracked for removal in #82.
 fn add_owner_columns(conn: &Connection, table: &str) -> Result<()> {
@@ -999,57 +1054,6 @@ pub fn init_integration_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "integration", "creator", "TEXT")
         .map_err(|e| anyhow::anyhow!(e.0))?;
 
-    Ok(())
-}
-
-/// The background-job tables (`specs/012-background-subagent-results/data-model.md`), split
-/// out like [`init_task_run_schema`] so the tests in `src/storage/sqlite/background_job.rs` can
-/// stand them up against an in-memory connection.
-///
-/// There is no result column: an answered piece's text is the last message in its own
-/// session's history.
-pub fn init_background_job_schema(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS background_job (
-            id             TEXT PRIMARY KEY,
-            kind           TEXT NOT NULL,
-            origin_agent   TEXT NOT NULL,
-            origin_channel TEXT NOT NULL,
-            origin_topic   TEXT,
-            depth          INTEGER NOT NULL,
-            timeout_secs   INTEGER NOT NULL,
-            created_at     INTEGER NOT NULL,
-            finished_at    INTEGER,
-            state          TEXT NOT NULL,
-            cancelled_by   TEXT,
-            reason         TEXT
-        );
-        -- the tray read, the topic-list badge, and the cancel cascade
-        CREATE INDEX IF NOT EXISTS idx_bg_job_origin ON background_job(origin_agent, origin_channel, origin_topic, state);
-        -- list_background_jobs
-        CREATE INDEX IF NOT EXISTS idx_bg_job_agent ON background_job(origin_agent, state);
-        -- the startup sweep
-        CREATE INDEX IF NOT EXISTS idx_bg_job_state ON background_job(state);
-
-        CREATE TABLE IF NOT EXISTS background_piece (
-            job_id          TEXT NOT NULL REFERENCES background_job(id) ON DELETE CASCADE,
-            ordinal         INTEGER NOT NULL,
-            prompt          TEXT NOT NULL,
-            executor_agent  TEXT NOT NULL,
-            session_channel TEXT NOT NULL,
-            session_topic   TEXT NOT NULL,
-            started_at      INTEGER NOT NULL,
-            finished_at     INTEGER,
-            state           TEXT NOT NULL,
-            reason          TEXT,
-            PRIMARY KEY (job_id, ordinal)
-        );
-        CREATE INDEX IF NOT EXISTS idx_bg_piece_state ON background_piece(state);
-        ",
-    )?;
-
-    add_owner_columns(conn, "background_job")?;
     Ok(())
 }
 

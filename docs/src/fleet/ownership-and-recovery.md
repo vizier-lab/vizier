@@ -32,7 +32,7 @@ writes already in progress and none commits after the claim that replaced it.
 
 | Scope | Fenced writes |
 |---|---|
-| `agent:{id}` | history saves and checkpoints; every `session_turn` transition except accepting a request; client tool calls (open, finish, defer, state); sensitive asks (open, close); background jobs and pieces launched by the agent |
+| `agent:{id}` | history saves and checkpoints; every `session_turn` transition except accepting a request; client tool calls (open, finish, defer, state); sensitive asks (open, close); detached scripts of the agent (open, progress, finish, cancel, the delivery claim, interrupt) |
 | `control` | task runs (open, close) |
 
 The first refusal of a scope flips a signal. The agent host watches it and releases the agent, so the
@@ -54,13 +54,13 @@ For `agent:{id}`:
 2. Open sensitive asks are abandoned.
 3. Thinking marks are reset and scratch files cleared for the agent's conversations that have no
    pending turn.
-4. Background jobs the agent launched: a job a pending turn still backs is picked up again (its
-   runner restarts, or a job already reporting is marked reported); every other open job is
-   interrupted, with one notification.
-5. Pending turns are re-sent in the order they were accepted, a turn that had begun marked
+4. Pending turns are re-sent in the order they were accepted, a turn that had begun marked
    `resumed`. The new owner claims each turn when it receives it, and drops a delivery of a turn it
    already holds, so a turn runs once. The resume counter lives in the turn's row, so the limit on
    resumes without progress holds across owners.
+5. Detached scripts the previous owner left running become `interrupted` (with one notification
+   each), and every conversation with a script waiting to be delivered is poked once. The delivery
+   claim takes each script exactly once, however many pokes arrive.
 
 For `control`: task runs that no pending turn backs become interrupted, with one notification each;
 the rest are re-owned and left running for the scheduler to close when their turn ends.

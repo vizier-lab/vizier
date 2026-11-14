@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{error::VizierError, schema::BackgroundReport, utils::get_mime_type};
+use crate::{error::VizierError, utils::get_mime_type};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -51,9 +51,15 @@ pub enum VizierRequestContent {
     Command(String),
     AudioChat(VizierAttachment, Option<String>),
     AudioPrompt(VizierAttachment, Option<String>),
-    /// The outcome of background work this conversation started (`background_subagents`,
-    /// `delegate_agent`), delivered as a turn of its own. Not a message from a person.
-    BackgroundReport(BackgroundReport),
+    /// A background-job report saved before spec 058, read so old conversations keep their
+    /// history; never sent any more. Its text is rendered from the stored JSON. Tracked for
+    /// removal in #82.
+    BackgroundReport(serde_json::Value),
+    /// Finished detached scripts of this conversation (spec 058). Sent empty by a script's
+    /// task as a poke; whoever handles it claims the deliverable rows and, only if it got
+    /// some, runs a turn whose request carries the rendered delivery (`[Background work
+    /// finished] …`). Never journaled: the rows are the durable part, and recovery pokes again.
+    DetachedDelivery(String),
     /// A message a client sent on the person's behalf, such as a click inside a page the
     /// agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
     ClientEvent(ClientEvent),
@@ -119,6 +125,7 @@ impl VizierRequestContent {
             Self::AudioChat(..) => "audio_chat",
             Self::AudioPrompt(..) => "audio_prompt",
             Self::BackgroundReport(_) => "background_report",
+            Self::DetachedDelivery(_) => "detached_delivery",
             Self::ClientEvent(_) => "client_event",
             Self::Btw(_) => "btw",
             Self::QuestionAnswer(_) => "question_answer",
@@ -154,7 +161,8 @@ impl Display for VizierRequestContent {
                 Some(text) => write!(f, "{}", text),
                 None => write!(f, "Voice message ({})", att.filename),
             },
-            Self::BackgroundReport(report) => write!(f, "{}", report),
+            Self::BackgroundReport(report) => f.write_str(&legacy_report_text(report)),
+            Self::DetachedDelivery(text) => f.write_str(text),
             Self::ClientEvent(event) => write!(f, "{}", event),
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
             // The readable summary, then the answers as data the agent can read without
@@ -342,6 +350,13 @@ pub struct VizierRequest {
     #[schemars(skip)]
     #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub trace: crate::telemetry::RequestTrace,
+    /// The detached script whose sub-agent turn this is (spec 058), so a script that turn
+    /// launches records its parent. Set only by `parallel_subagents` inside a detached script;
+    /// in-process only and never accepted from a client.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
+    pub parent_detached_id: Option<String>,
     /// Tools the sending client offers for this one turn (`specs/019-client-tools`). Read
     /// off the WebSocket frame and moved into `client` once checked, so they never reach a
     /// stored request.
@@ -388,6 +403,10 @@ impl VizierRequest {
     /// instruction about the present, and a dream cycle is rescheduled on its own.
     pub fn is_durable(&self, session: &crate::schema::VizierSession) -> bool {
         if self.transient {
+            return false;
+        }
+        // The `detached_script` rows are the durable part of a delivery (spec 058).
+        if matches!(self.content, VizierRequestContent::DetachedDelivery(_)) {
             return false;
         }
         if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream")
@@ -452,13 +471,13 @@ impl VizierRequest {
             }))?);
         }
 
-        // A background report is machine-written too, and is attributed as such for the same
-        // reason: its `user` is the agent's own id, and nobody sent it.
-        if let VizierRequestContent::BackgroundReport(report) = &self.content {
+        // Finished background work is machine-written too: its `user` is the agent's own id, and
+        // nobody sent it (spec 058; a pre-058 report reads the same way).
+        if let VizierRequestContent::DetachedDelivery(_) | VizierRequestContent::BackgroundReport(_) =
+            &self.content
+        {
             return Ok(serde_yaml::to_string(&json!({
                 "sender": "background",
-                "job": report.job_id,
-                "job_kind": report.kind.as_str(),
                 "sent_at": self.sent_at(),
                 "metadata": self.shown_metadata(),
             }))?);
@@ -586,12 +605,7 @@ mod tests {
             VizierRequestContent::SilentRead("s".into()),
             VizierRequestContent::Unattended("u".into()),
             VizierRequestContent::Command("checkpoint".into()),
-            VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "j".into(),
-                kind: crate::schema::JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             VizierRequestContent::ClientEvent(ClientEvent {
                 text: "x".into(),
                 data: None,
@@ -775,19 +789,14 @@ mod tests {
         assert!(!frontmatter.contains("requested_by"), "{frontmatter}");
     }
 
-    /// A background report is sent by the background machinery, never by a person — its
-    /// `user` is the agent's own id and must not appear as the sender.
+    /// A delivery is sent by the background machinery, never by a person: its `user` is the
+    /// agent's own id and must not appear as the sender.
     #[test]
-    fn a_background_report_is_sent_by_the_background() {
+    fn a_delivery_is_sent_by_the_background() {
         let req = VizierRequest {
             timestamp: crate::time::now(),
             user: "agent-1".to_string(),
-            content: VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "b-7f3a9c".to_string(),
-                kind: crate::schema::JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            content: VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             metadata: serde_json::json!({}),
             background_depth: 1,
             ..Default::default()
@@ -795,9 +804,27 @@ mod tests {
 
         let frontmatter = req.generate_frontmatter().unwrap();
         assert!(frontmatter.contains("sender: background"), "{frontmatter}");
-        assert!(frontmatter.contains("job: b-7f3a9c"), "{frontmatter}");
-        assert!(frontmatter.contains("job_kind: batch"), "{frontmatter}");
         assert!(!frontmatter.contains("agent-1"), "{frontmatter}");
+        assert!(!req.is_durable(&crate::schema::VizierSession(
+            "agent-1".into(),
+            crate::schema::VizierChannelId::System,
+            None
+        )));
+    }
+
+    /// A report saved before spec 058 still reads, so old conversations keep their history
+    /// (#82).
+    #[test]
+    fn a_pre_058_background_report_still_reads() {
+        let stored = serde_json::json!({
+            "background_report": {
+                "job_id": "b-7f3a9c", "kind": "batch", "delegated_to": null,
+                "entries": [{"ordinal": 0, "prompt": "check x", "state": "answered", "text": "x is fine", "truncated": false}]
+            }
+        });
+        let content: VizierRequestContent = serde_json::from_value(stored).unwrap();
+        let text = content.to_string();
+        assert!(text.starts_with("[Background report]") && text.contains("x is fine"), "{text}");
     }
 
     /// A dream request carries `Unattended` too, and must not be attributed to the
@@ -1015,4 +1042,19 @@ mod tests {
         let wire = serde_json::to_value(&request).unwrap();
         assert!(wire.get("client_context").is_none(), "{wire}");
     }
+}
+
+/// The text of a pre-058 background report, from its stored JSON: one paragraph per entry.
+fn legacy_report_text(report: &serde_json::Value) -> String {
+    let mut out = String::from("[Background report]");
+    for entry in report.get("entries").and_then(|e| e.as_array()).into_iter().flatten() {
+        let prompt = entry.get("prompt").and_then(|v| v.as_str()).unwrap_or_default();
+        let state = entry.get("state").and_then(|v| v.as_str()).unwrap_or_default();
+        let text = entry.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+        out.push_str(&format!("
+
+{prompt} ({state})
+{text}"));
+    }
+    out
 }

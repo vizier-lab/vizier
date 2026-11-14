@@ -4,7 +4,7 @@
 //! 040 stored a project chat as an ordinary HTTP session whose channel id was
 //! `project__<id>`, so its slug was `http__<user>__project__<id>`. 041 gives it a variant of its
 //! own and a slug `project__<user>__<id>`. Every column that matches on that slug — history,
-//! session details, pending turns, scratch files, artifacts, usage, background jobs and the
+//! session details, pending turns, scratch files, artifacts, usage and the
 //! dream journal — is rewritten once at startup under the marker
 //! [`MARKER`]. The old-shape parser lives here and nowhere else: the variant is the only
 //! representation code may use afterwards.
@@ -194,8 +194,6 @@ pub fn migrate_project_channels(conn: &Connection) -> Result<()> {
             ("artifact_event", "source_channel"),
             ("artifact_reference", "channel"),
             ("usage_event", "channel"),
-            ("background_job", "origin_channel"),
-            ("background_piece", "session_channel"),
         ] {
             rewritten += rewrite_exact(&tx, table, column, old, new)?;
         }
@@ -278,8 +276,6 @@ mod tests {
             CREATE TABLE artifact_event (id TEXT PRIMARY KEY, agent_id TEXT, source_channel TEXT);
             CREATE TABLE artifact_reference (artifact_id TEXT, agent_id TEXT, kind TEXT, target TEXT, session_slug TEXT, channel TEXT, PRIMARY KEY (artifact_id, kind, target));
             CREATE TABLE usage_event (id INTEGER PRIMARY KEY, agent_id TEXT, activity TEXT, channel TEXT, topic TEXT, place TEXT);
-            CREATE TABLE background_job (id TEXT PRIMARY KEY, origin_agent TEXT, origin_channel TEXT, origin_topic TEXT);
-            CREATE TABLE background_piece (job_id TEXT, session_channel TEXT, session_topic TEXT);
             CREATE TABLE dream_journal (id TEXT PRIMARY KEY, agent_id TEXT, data TEXT);
             ",
         )
@@ -324,8 +320,6 @@ mod tests {
             params![old, format!("http:{old}:t1")],
         )
         .unwrap();
-        conn.execute("INSERT INTO background_job (id, origin_agent, origin_channel, origin_topic) VALUES ('j1','dp-a',?1,'t1')", params![old]).unwrap();
-        conn.execute("INSERT INTO background_piece (job_id, session_channel, session_topic) VALUES ('j1',?1,'t1')", params![old]).unwrap();
         conn.execute(
             "INSERT INTO dream_journal (id, agent_id, data) VALUES ('d1','dp-a',?1)",
             params![serde_json::json!({
@@ -365,8 +359,6 @@ mod tests {
             ("artifact_event", "source_channel"),
             ("artifact_reference", "channel"),
             ("usage_event", "channel"),
-            ("background_job", "origin_channel"),
-            ("background_piece", "session_channel"),
         ] {
             assert_eq!(count(table, column), 0, "{table}.{column} still has the old slug");
         }

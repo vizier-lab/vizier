@@ -144,6 +144,11 @@ impl AgentStorage for SqlStorage {
             "DELETE FROM scratch_file WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        // Its detached scripts (spec 058); their tasks were stopped with the instance.
+        conn.execute(
+            "DELETE FROM detached_script WHERE agent_id = ?1",
+            params![agent_id],
+        )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
         // Its notifications go with it; their read rows cascade (spec 029).

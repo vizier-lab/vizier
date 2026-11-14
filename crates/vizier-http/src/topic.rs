@@ -2,7 +2,7 @@
 //!
 //! The WebSocket handler and the desktop app's IPC both drive a [`TopicConnection`]: frames
 //! the client sends go to [`TopicConnection::handle_inbound`], and everything the engine
-//! pushes (a turn's frames, background jobs, reactions, client tool calls) arrives on the
+//! pushes (a turn's frames, detached scripts, reactions, client tool calls) arrives on the
 //! `out` channel given to [`TopicConnection::open`].
 
 use std::sync::Arc;
@@ -533,8 +533,8 @@ impl TopicOutbound {
                     Ok(ev) if ev.session == self.session => {
                         let json = match ev.frame {
                             SessionFrame::Response(response) => serde_json::to_value(&response).ok(),
-                            SessionFrame::Job(snapshot) => {
-                                Some(serde_json::json!({ "background_job": snapshot }))
+                            SessionFrame::DetachedScript(script) => {
+                                Some(serde_json::json!({ "detached_script": script }))
                             }
                             SessionFrame::Reactions { history_uid, reactions } => Some(
                                 serde_json::json!({

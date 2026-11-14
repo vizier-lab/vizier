@@ -354,19 +354,12 @@ impl SessionStorage for SqlStorage {
             params![agent_id, channel.to_slug(), topic],
         )?;
 
-        // The jobs launched from this topic go with it, so no orphaned rows remain to
-        // authorize a piece read against. Pieces are deleted explicitly rather than trusting
-        // `ON DELETE CASCADE`, which only fires with `PRAGMA foreign_keys` on.
-        let origin_channel = serde_json::to_string(&channel)?;
+        // Its detached scripts go with it (spec 058). Their tasks are stopped by
+        // `DetachedScripts::delete_session` before this runs.
+        let session_channel = serde_json::to_string(&channel)?;
         conn.execute(
-            "DELETE FROM background_piece WHERE job_id IN (SELECT id FROM background_job \
-             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS NOT DISTINCT FROM ?3)",
-            params![agent_id, origin_channel, topic],
-        )?;
-        conn.execute(
-            "DELETE FROM background_job \
-             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS NOT DISTINCT FROM ?3",
-            params![agent_id, origin_channel, topic],
+            "DELETE FROM detached_script WHERE agent_id = ?1 AND session_channel = ?2              AND session_topic IS NOT DISTINCT FROM ?3",
+            params![agent_id, session_channel, topic],
         )?;
 
         // Its notifications go with it (their read rows cascade), so the inbox never shows a

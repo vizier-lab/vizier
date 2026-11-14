@@ -6,7 +6,6 @@ use rusqlite::OptionalExtension;
 
 use crate::storage::turn::TurnStorage;
 use crate::{
-    agents::background::BackgroundJobs,
     config::{VizierConfig, storage::StorageConfig},
     constant::CORE_MD,
     file_manager::FileManager,
@@ -17,7 +16,6 @@ use crate::{
     storage::{
         VizierStorage,
         agent::AgentStorage,
-        background_job::BackgroundJobStorage,
         client_call::ClientCallStorage,
         document::BlobDocumentStore,
         dream::DreamStorage,
@@ -58,7 +56,10 @@ pub struct VizierDependencies {
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     /// The transient session-file tier's one clear/delete service.
     pub session_files: Arc<crate::session_files::SessionFiles>,
-    pub background_jobs: BackgroundJobs,
+    /// Blocking sub-agent fan-outs (`parallel_subagents`).
+    pub subagents: crate::agents::subagents::Subagents,
+    /// Detached `execute_python` scripts (spec 058).
+    pub detached: crate::agents::detached::DetachedScripts,
     /// The one HTTP client every model provider request goes through (`llm::http`).
     pub http: reqwest::Client,
     /// The provider and model catalogue (spec 015).
@@ -273,8 +274,12 @@ impl VizierDependencies {
             Ok(purged) => tracing::info!("purged {} notification(s) past retention", purged),
             Err(e) => tracing::warn!("failed to purge old notifications: {e}"),
         }
-        let background_jobs =
-            BackgroundJobs::new(storage.clone(), transport.clone(), notifications.clone());
+        let subagents = crate::agents::subagents::Subagents::new(transport.clone());
+        let detached = crate::agents::detached::DetachedScripts::new(
+            storage.clone(),
+            transport.clone(),
+            notifications.clone(),
+        );
 
         // Files saved to a session (by any tool or attachment) reach its open sockets as
         // `session_file` frames.
@@ -318,7 +323,8 @@ impl VizierDependencies {
             blobs,
             artifacts,
             session_files,
-            background_jobs,
+            subagents,
+            detached,
             http: crate::llm::http::client(),
             catalogue,
             integration_kinds,

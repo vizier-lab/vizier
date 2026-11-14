@@ -8,8 +8,7 @@
 //! agent and `control` once, which reproduces what the sweeps did.
 
 use crate::dependencies::VizierDependencies;
-use crate::schema::{AgentId, JobState, PieceState, VizierRequestContent};
-use crate::storage::background_job::BackgroundJobStorage;
+use crate::schema::AgentId;
 use crate::storage::client_call::ClientCallStorage;
 use crate::storage::fence::{Fence, is_ownership_lost};
 use crate::storage::question::SensitiveAskStorage;
@@ -92,43 +91,6 @@ pub async fn recover_agent(
         Err(e) => failed("pending sessions", &scope, &e, &mut recovered),
     }
 
-    // 4. Jobs launched by this agent: one a pending turn still backs is kept (and picked up once
-    //    the turns below are re-sent); every other open job is interrupted, with one
-    //    notification each.
-    let mut kept_jobs = vec![];
-    match storage.expired_background_jobs(agent_id, below).await {
-        Ok(expired) if !expired.is_empty() => {
-            let keep = backed_jobs(deps, &expired).await;
-            match storage
-                .interrupt_expired_background_jobs_except(agent_id, below, &keep)
-                .await
-            {
-                Ok(swept) => {
-                    if !swept.is_empty() {
-                        tracing::info!(
-                            agent_id = %agent_id,
-                            "marked {} background job(s) left open by a previous owner as interrupted",
-                            swept.len()
-                        );
-                    }
-                    let now = crate::time::now();
-                    for job in swept {
-                        deps.notifications
-                            .job_ended(&job.id, &job.origin, job.kind, JobState::Interrupted, None, now)
-                            .await;
-                    }
-                    kept_jobs = expired
-                        .into_iter()
-                        .filter(|job| keep.contains(&job.id))
-                        .collect();
-                }
-                Err(e) => failed("background jobs", &scope, &e, &mut recovered),
-            }
-        }
-        Ok(_) => {}
-        Err(e) => failed("background jobs", &scope, &e, &mut recovered),
-    }
-
     // 5. The agent's turns, in the order they were accepted. They are not re-owned here: the owner
     //    takes each on receipt (research R6), which also drops a duplicate delivery.
     match storage.expired_turns(agent_id, below).await {
@@ -157,49 +119,12 @@ pub async fn recover_agent(
         Err(e) => failed("pending turns", &scope, &e, &mut recovered),
     }
 
-    // The kept jobs wait on their pieces' sessions again, after the turns that back them were
-    // re-sent (the order the sweeps ran in, too).
-    if !kept_jobs.is_empty() {
-        deps.background_jobs.recover_jobs(kept_jobs).await;
-    }
+    // 6. Detached scripts (spec 058): one left running by the previous owner is interrupted, and
+    //    every conversation with something to deliver is poked once. After the turns above, so a
+    //    poke queues behind a resumed turn and a round boundary of it may take the rows first.
+    deps.detached.recover_agent(&agent_id.to_string(), below).await;
 
     recovered
-}
-
-/// The ids of the jobs a pending turn backs: a running job while one of its running pieces has a
-/// pending turn, a reporting job while its report does (`specs/023-persist-turn-activity`).
-async fn backed_jobs(
-    deps: &VizierDependencies,
-    jobs: &[crate::schema::BackgroundJob],
-) -> Vec<String> {
-    let pending_sessions = deps
-        .storage
-        .sessions_with_pending_turns()
-        .await
-        .unwrap_or_default();
-    let mut keep = vec![];
-    for job in jobs {
-        let backed = match job.state {
-            JobState::Running => job
-                .pieces
-                .iter()
-                .any(|p| p.state == PieceState::Running && pending_sessions.contains(&p.session)),
-            JobState::Reporting => deps
-                .storage
-                .pending_turns(&job.origin.0)
-                .await
-                .unwrap_or_default()
-                .iter()
-                .any(|turn| {
-                    matches!(&turn.request.content, VizierRequestContent::BackgroundReport(r) if r.job_id == job.id)
-                }),
-            _ => false,
-        };
-        if backed {
-            keep.push(job.id.clone());
-        }
-    }
-    keep
 }
 
 /// After `claim(Scope::Control, ..)` and before the scheduler's first tick.
