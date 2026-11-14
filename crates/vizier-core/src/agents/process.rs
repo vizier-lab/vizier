@@ -1769,16 +1769,24 @@ pub async fn handle_request(
                     match stage {
                         DreamStage::Extraction => {
                             let end = request.timestamp;
-                            let session_history = storage
-                                .list_session_by_time_window(
-                                    *dream_session.clone(),
-                                    None,
-                                    Some(end),
-                                )
-                                .await?;
+                            // The scheduler always sends the window start; without one, read the
+                            // scheduler's first-cycle default.
+                            let since = request
+                                .metadata
+                                .get(crate::scheduler::DREAM_SINCE_KEY)
+                                .cloned()
+                                .and_then(|v| serde_json::from_value(v).ok())
+                                .unwrap_or(end - chrono::Duration::hours(24));
+                            let source = crate::scheduler::extraction_source(
+                                &storage,
+                                dream_session,
+                                since,
+                                end,
+                            )
+                            .await?;
 
-                            // Skip empty sessions — send Abort
-                            if session_history.is_empty() {
+                            // Nothing new in the window — send Abort
+                            let Some((session_history, handover)) = source else {
                                 if let Some(ref tx) = response_tx {
                                     let _ = tx
                                         .send_async(VizierResponse {
@@ -1790,7 +1798,7 @@ pub async fn handle_request(
                                         .await;
                                 }
                                 return Ok(());
-                            }
+                            };
 
                             let cycle_id = request
                                 .metadata
@@ -1805,6 +1813,7 @@ pub async fn handle_request(
                                     request,
                                     session.clone(),
                                     session_history,
+                                    handover,
                                     Some(hooks.clone()),
                                     deps,
                                 )
@@ -1847,6 +1856,7 @@ pub async fn handle_request(
                                     request,
                                     session.clone(),
                                     vec![],
+                                    None,
                                     Some(hooks.clone()),
                                     deps,
                                 )

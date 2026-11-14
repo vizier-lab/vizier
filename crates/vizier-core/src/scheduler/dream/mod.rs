@@ -20,6 +20,47 @@ use crate::{
 
 pub use prompts::{CONSOLIDATION_PROMPT_TEMPLATE, EXTRACTION_PROMPT};
 
+/// The extraction request's metadata key holding the start of the cycle's window.
+pub(crate) const DREAM_SINCE_KEY: &str = "dream_since";
+
+/// What one extraction reflects on: the conversation recorded in `(since, end]`, and the
+/// handover of the last checkpoint before `since` as a preface, so the dream knows what came
+/// before without reading it again. `None` when the window holds no conversation (only
+/// checkpoint or command rows, such as the pre-dream checkpoint itself), so the session is
+/// skipped.
+///
+/// It used to read the session from its very first entry every cycle, so a long-lived
+/// conversation was paid for in full each night however little of it was new.
+pub(crate) async fn extraction_source(
+    storage: &crate::storage::VizierStorage,
+    session: &VizierSession,
+    since: crate::time::Timestamp,
+    end: crate::time::Timestamp,
+) -> Result<Option<(Vec<crate::schema::SessionHistory>, Option<String>)>> {
+    let history = storage
+        .list_session_by_time_window(session.clone(), Some(since), Some(end))
+        .await?;
+    if !has_conversation(&history) {
+        return Ok(None);
+    }
+    let (_, handover) = storage
+        .list_session_history_until_checkpoint(session.clone(), Some(since))
+        .await?;
+    Ok(Some((history, handover)))
+}
+
+/// Whether `history` holds anything a dream could learn from: a checkpoint or a command row
+/// alone does not count.
+fn has_conversation(history: &[crate::schema::SessionHistory]) -> bool {
+    use crate::schema::SessionHistoryContent;
+    history.iter().any(|entry| {
+        !matches!(
+            entry.content,
+            SessionHistoryContent::Checkpoint(_) | SessionHistoryContent::Command(_)
+        )
+    })
+}
+
 pub struct DreamScheduler {
     deps: VizierDependencies,
 }
@@ -244,6 +285,9 @@ impl DreamScheduler {
                             ),
                             metadata: serde_json::json!({
                                 "dream_cycle_id": cycle_id,
+                                // Where this cycle's window starts: extraction reads only the
+                                // conversation since then (see `extraction_source`).
+                                DREAM_SINCE_KEY: last_dream,
                             }),
                             ..Default::default()
                         },
@@ -558,6 +602,79 @@ mod tests {
         assert!(message.contains("AWS SSO session has ended"), "{message}");
         assert!(message.contains("sign in again"), "{message}");
         drop(tx);
+    }
+
+    fn chat(text: &str) -> crate::schema::SessionHistoryContent {
+        crate::schema::SessionHistoryContent::Request(VizierRequest {
+            content: VizierRequestContent::Chat(text.into()),
+            ..Default::default()
+        })
+    }
+
+    fn texts(history: &[crate::schema::SessionHistory]) -> Vec<String> {
+        history
+            .iter()
+            .filter_map(|entry| match &entry.content {
+                crate::schema::SessionHistoryContent::Request(req) => match &req.content {
+                    VizierRequestContent::Chat(text) => Some(text.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Extraction reads only the conversation since the last dream, with the handover of the
+    /// checkpoint before it as a preface — never the session from its first entry.
+    #[tokio::test]
+    async fn extraction_reads_only_the_window_with_the_earlier_handover() {
+        let storage = crate::agents::client::test_storage();
+        let session = VizierSession("agent".into(), VizierChannelId::System, Some("t".into()));
+        let tick = || tokio::time::sleep(Duration::from_millis(5));
+
+        storage.save_session_history(session.clone(), chat("dreamed already")).await.unwrap();
+        tick().await;
+        storage
+            .save_checkpoint(session.clone(), Some("earlier summary".into()))
+            .await
+            .unwrap();
+        tick().await;
+        let since = crate::time::now();
+        tick().await;
+        storage.save_session_history(session.clone(), chat("new today")).await.unwrap();
+        tick().await;
+        // The pre-dream checkpoint lands inside the window; it is skipped, not a stopping point.
+        storage
+            .save_checkpoint(session.clone(), Some("pre-dream summary".into()))
+            .await
+            .unwrap();
+        tick().await;
+        let end = crate::time::now();
+
+        let (history, handover) = extraction_source(&storage, &session, since, end)
+            .await
+            .unwrap()
+            .expect("the window holds a message");
+        assert_eq!(texts(&history), vec!["new today".to_string()]);
+        assert_eq!(handover.as_deref(), Some("earlier summary"));
+    }
+
+    /// A window holding only the pre-dream checkpoint has nothing to extract.
+    #[tokio::test]
+    async fn a_window_with_only_a_checkpoint_is_skipped() {
+        let storage = crate::agents::client::test_storage();
+        let session = VizierSession("agent".into(), VizierChannelId::System, Some("t".into()));
+        storage.save_session_history(session.clone(), chat("old")).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let since = crate::time::now();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        storage.save_checkpoint(session.clone(), None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        let source = extraction_source(&storage, &session, since, crate::time::now())
+            .await
+            .unwrap();
+        assert!(source.is_none());
     }
 
     /// A dream turn that failed for any other reason is not a session failure: the cycle carries

@@ -1843,11 +1843,12 @@ impl VizierAgent {
         req: VizierRequest,
         session: VizierSession,
         session_history: Vec<SessionHistory>,
+        handover: Option<String>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, true);
-        self.dream_turn(req, session, session_history, hooks, deps)
+        self.dream_turn(req, session, session_history, handover, hooks, deps)
             .instrument(span)
             .await
     }
@@ -1857,6 +1858,7 @@ impl VizierAgent {
         req: VizierRequest,
         session: VizierSession,
         session_history: Vec<SessionHistory>,
+        handover: Option<String>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
@@ -1887,7 +1889,10 @@ impl VizierAgent {
             .prepare_system_prompts(&snapshot.categories, &session, None)
             .await;
 
-        // Extend with session history
+        // What came before the window, as chat replays it after a checkpoint, then the window.
+        if let Some(handover) = handover {
+            history.push(checkpoint_context(handover));
+        }
         history.extend(history_entries_to_messages(&session_history));
 
         let mut req = req;

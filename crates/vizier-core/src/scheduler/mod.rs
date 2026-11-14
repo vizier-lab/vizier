@@ -18,6 +18,7 @@ use crate::{
 mod dream;
 
 use dream::DreamScheduler;
+pub(crate) use dream::{DREAM_SINCE_KEY, extraction_source};
 
 fn normalize_task_instruction(instruction: String) -> String {
     if instruction.contains("\\n") {
