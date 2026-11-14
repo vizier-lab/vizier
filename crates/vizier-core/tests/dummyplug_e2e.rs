@@ -1713,7 +1713,7 @@ async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
         r#"{"tool":"list_tool_functions","arguments":{"category":"custom_tools"}}"#,
     )
     .await;
-    for name in ["create_custom_tool", "update_custom_tool", "get_custom_tool_history", "update_custom_tool_category"] {
+    for name in ["create_custom_tool", "update_custom_tool", "custom_tool_history", "update_custom_tool_category"] {
         assert!(listing.contains(name), "{name} in {listing}");
     }
 
@@ -1730,7 +1730,7 @@ async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
     )
     .await;
     assert!(created.contains("\"status\": \"created\"") || created.contains("\"status\":\"created\""), "{created}");
-    assert!(created.contains("custom_echo_sum"), "{created}");
+    assert!(created.contains("echo_sum"), "{created}");
     let bad = chat(
         transport,
         &session,
@@ -1747,20 +1747,29 @@ async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
     // This agent has no indexer, so no memory tools: the time tools are always there.
     assert!(typo.contains("unknown_tool") && typo.contains("\"current_time\""), "{typo}");
 
+    // No prefix: a name one of the agent's tools already has is refused.
+    let clash = chat(
+        transport,
+        &session,
+        &python("create_custom_tool(name='current_time', description='x', input_schema={'type':'object'}, script='1')['problems'][0]['code']"),
+    )
+    .await;
+    assert!(clash.contains("name_taken"), "{clash}");
+
     // §2: called from the next turn, with a bad input refused before anything runs.
-    let five = chat(transport, &session, &python("custom_echo_sum(a=2, b=3)")).await;
+    let five = chat(transport, &session, &python("echo_sum(a=2, b=3)")).await;
     assert!(five.contains("\"result\": 5") || five.contains("\"result\":5"), "{five}");
-    let refused = chat(transport, &session, &python("custom_echo_sum(a='2', b=3)")).await;
-    assert!(refused.contains("custom_echo_sum: invalid input: $.a: expected integer, got string"), "{refused}");
+    let refused = chat(transport, &session, &python("echo_sum(a='2', b=3)")).await;
+    assert!(refused.contains("echo_sum: invalid input: $.a: expected integer, got string"), "{refused}");
     let listed = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"maths"}}"#).await;
-    assert!(listed.contains("custom_echo_sum"), "{listed}");
+    assert!(listed.contains("echo_sum"), "{listed}");
     let described =
-        chat(transport, &session, r#"{"tool":"describe_tool_function","arguments":{"name":"custom_echo_sum"}}"#).await;
+        chat(transport, &session, r#"{"tool":"describe_tool_function","arguments":{"name":"echo_sum"}}"#).await;
     assert!(described.contains("\"author\"") && described.contains("you"), "{described}");
 
     // In another conversation too.
     let other = web_session("custom-b");
-    let two = chat(transport, &other, &python("custom_echo_sum(a=1, b=1)")).await;
+    let two = chat(transport, &other, &python("echo_sum(a=1, b=1)")).await;
     assert!(two.contains("\"result\": 2") || two.contains("\"result\":2"), "{two}");
 
     // §4: versions, and a stale write refused.
@@ -1787,10 +1796,10 @@ async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
     )
     .await;
     assert!(renamed.contains("updated"), "{renamed}");
-    let still = chat(transport, &session, &python("custom_echo_sum(a=3, b=4)")).await;
+    let still = chat(transport, &session, &python("echo_sum(a=3, b=4)")).await;
     assert!(still.contains("\"result\": 7") || still.contains("\"result\":7"), "{still}");
     let arith = chat(transport, &session, r#"{"tool":"list_tool_functions","arguments":{"category":"arith"}}"#).await;
-    assert!(arith.contains("custom_echo_sum"), "{arith}");
+    assert!(arith.contains("echo_sum"), "{arith}");
 
     runtime.shutdown().await.unwrap();
 }

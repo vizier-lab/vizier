@@ -157,11 +157,11 @@ fn summary(tool: &CustomTool, all: &[CustomTool], names: Option<&ToolNames>) -> 
     let backed: HashSet<String> =
         names.map(|names| names.model_backed.iter().cloned().collect()).unwrap_or_default();
     let calls = &tool.current.definition.calls;
-    let missing = validate::needs_attention(calls, known.as_ref(), all).filter(|missing| !missing.is_empty());
+    let attention = validate::attention(tool, known.as_ref(), all);
     json!({
         "id": tool.id,
         "name": tool.name,
-        "call_as": naming::call_as(&tool.name),
+        "call_as": tool.name,
         "category": tool.category,
         "description": tool.current.definition.description,
         "version": tool.current_seq,
@@ -170,7 +170,7 @@ fn summary(tool: &CustomTool, all: &[CustomTool], names: Option<&ToolNames>) -> 
         "last_called_at": tool.last_called_at,
         "enabled": tool.enabled,
         "disabled_by": tool.disabled_by.as_ref().map(author),
-        "needs_attention": missing.map(|missing| json!({ "missing": missing })),
+        "needs_attention": attention,
         "model_backed": validate::model_backed(calls, &backed, all),
     })
 }

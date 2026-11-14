@@ -1,9 +1,8 @@
-//! Names (`specs/061-agent-custom-tools` research R12): a tool is saved as `name` and called as
-//! `custom_<name>`; categories share the clash rule MCP servers and client categories use.
-
-/// The reserved prefix every custom tool is called by. No native, addon, MCP or client tool may
-/// take a name that starts with it.
-pub const PREFIX: &str = "custom_";
+//! Names (`specs/061-agent-custom-tools` research R12, revised 2026-11-15): a custom tool is
+//! called by its own name, with no prefix. A save is refused when the name is already taken (by
+//! any tool the agent has, a retired tool name or a sandbox helper); a tool attached later wins
+//! its name, and the custom tool needs attention until it is renamed. Categories share the clash
+//! rule MCP servers and client categories use.
 
 /// Where a tool saved with no category goes.
 pub const DEFAULT_CATEGORY: &str = "custom";
@@ -22,14 +21,20 @@ pub fn valid_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// The function a script calls for tool `name`.
-pub fn call_as(name: &str) -> String {
-    format!("{PREFIX}{name}")
-}
-
-/// The tool behind a `custom_<name>` function, if it is one.
-pub fn tool_name(function: &str) -> Option<&str> {
-    function.strip_prefix(PREFIX).filter(|name| !name.is_empty())
+/// Why `name` can never be a custom tool's, whatever the agent has: a Python builtin or sandbox
+/// helper a script could not reach it past, the sandbox tools, or a retired tool name that
+/// answers with guidance.
+pub fn reserved(name: &str) -> Option<&'static str> {
+    if super::calls::is_builtin(name) {
+        return Some("a Python builtin or sandbox helper");
+    }
+    if ["think", "execute_python", "list_tool_functions", "describe_tool_function"].contains(&name) {
+        return Some("a sandbox tool");
+    }
+    if crate::agents::tools::retired_hint(name).is_some() {
+        return Some("a retired tool name");
+    }
+    None
 }
 
 /// The stored name of a requested category: as asked, or `<name>_custom` when that is a built-in
@@ -51,11 +56,11 @@ mod tests {
     }
 
     #[test]
-    fn calls_go_by_the_prefix() {
-        assert_eq!(call_as("echo"), "custom_echo");
-        assert_eq!(tool_name("custom_echo"), Some("echo"));
-        assert_eq!(tool_name("custom_"), None);
-        assert_eq!(tool_name("memory_read"), None);
+    fn builtins_sandbox_tools_and_retired_names_are_reserved() {
+        for name in ["len", "print", "list_tools", "execute_python", "parallel_subagents"] {
+            assert!(reserved(name).is_some(), "{name}");
+        }
+        assert!(reserved("weekly_digest").is_none());
     }
 
     #[test]

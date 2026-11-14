@@ -66,25 +66,25 @@
 
   <div class="card group">
     <div class="ghead"><div><h2>reports</h2><div class="d">Pull and send the weekly status reports</div></div><span class="icon" title="Rename or describe category">✎</span></div>
-    <div class="row"><div><div class="n">custom_weekly_digest</div><div class="desc">Summarise a topic's notes from the last week into the digests bundle</div></div><div class="chips"><span class="chip">v3</span> <span class="chip">model-backed</span></div><div class="meta">a dream · 2 h ago</div><div class="switch"></div></div>
-    <div class="row"><div><div class="n">custom_send_report</div><div class="desc">Post the digest to the team channel</div> <span class="attn">⚠ needs attention: missing stripe_list_charges</span></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · yesterday</div><div class="switch"></div></div>
+    <div class="row"><div><div class="n">weekly_digest</div><div class="desc">Summarise a topic's notes from the last week into the digests bundle</div></div><div class="chips"><span class="chip">v3</span> <span class="chip">model-backed</span></div><div class="meta">a dream · 2 h ago</div><div class="switch"></div></div>
+    <div class="row"><div><div class="n">send_report</div><div class="desc">Post the digest to the team channel</div> <span class="attn">⚠ needs attention: missing stripe_list_charges</span></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · yesterday</div><div class="switch"></div></div>
   </div>
 
   <div class="card group">
     <div class="ghead"><div><h2>maths</h2><div class="d">Small arithmetic helpers</div></div><span class="icon">✎</span></div>
-    <div class="row off-row"><div><div class="n">custom_echo_sum</div><div class="desc">Add two integers · switched off by alice</div></div><div class="chips"><span class="chip">v4</span></div><div class="meta">alice · 3 d ago</div><div class="switch off"></div></div>
+    <div class="row off-row"><div><div class="n">echo_sum</div><div class="desc">Add two integers · switched off by alice</div></div><div class="chips"><span class="chip">v4</span></div><div class="meta">alice · 3 d ago</div><div class="switch off"></div></div>
   </div>
 
   <div class="card group">
     <div class="ghead"><div><h2>custom</h2><div class="d">Tools you made that have no category yet</div></div><span class="icon">✎</span></div>
-    <div class="row"><div><div class="n">custom_loose</div><div class="desc">Quick lookup</div></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · 5 d ago</div><div class="switch"></div></div>
+    <div class="row"><div><div class="n">loose</div><div class="desc">Quick lookup</div></div><div class="chips"><span class="chip">v1</span></div><div class="meta">you · 5 d ago</div><div class="switch"></div></div>
   </div>
   <p class="sub">Empty state: “No custom tools yet. The agent makes them when it saves a workflow it repeats; dreams make them too.”</p>
 
   <div class="label">2 · Tool view (opened from a row)</div>
   <div class="split">
     <div class="card">
-      <div class="header" style="padding:12px 14px;border-bottom:1px solid var(--line)"><div><h1 style="font-family:ui-monospace,monospace;font-size:15px">custom_weekly_digest</h1><div class="sub">reports · version 3 of 3</div></div><div style="display:flex;gap:6px"><button class="btn">Delete</button><button class="btn primary">Edit</button></div></div>
+      <div class="header" style="padding:12px 14px;border-bottom:1px solid var(--line)"><div><h1 style="font-family:ui-monospace,monospace;font-size:15px">weekly_digest</h1><div class="sub">reports · version 3 of 3</div></div><div style="display:flex;gap:6px"><button class="btn">Delete</button><button class="btn primary">Edit</button></div></div>
       <div class="tabs"><span class="tab on">Script</span><span class="tab">Input</span><span class="tab">Diff</span></div>
 <pre>notes = memory_search(query=input["topic"], limit=input["limit"])
 titles = [p["title"] for p in notes["passages"]]
@@ -98,7 +98,7 @@ memory_write(bundle="digests", path=input["topic"], content="\n".join(titles))
     <div class="card">
       <dl class="side">
         <div><dt>Calls</dt><dd><code>memory_search</code>, <code>memory_write</code></dd></div>
-        <div><dt>Called by</dt><dd><code>custom_send_report</code></dd></div>
+        <div><dt>Called by</dt><dd><code>send_report</code></dd></div>
         <div><dt>Last called</dt><dd>today, 09:12</dd></div>
       </dl>
       <div class="label" style="margin:0;padding:0 14px 6px">History</div>
@@ -113,7 +113,7 @@ memory_write(bundle="digests", path=input["topic"], content="\n".join(titles))
 
   <div class="label">3 · Editor (dialog) with a refusal, and a new category asking for a description</div>
   <div class="card dialog">
-    <div class="dhead"><h2>Edit custom_weekly_digest</h2><span class="icon">×</span></div>
+    <div class="dhead"><h2>Edit weekly_digest</h2><span class="icon">×</span></div>
     <div class="problems"><strong>Not saved, fix these:</strong><ul><li><code>unknown_tool</code> memory_serch is not a tool the agent has. Did you mean memory_search?</li><li><code>script_syntax</code> line 2, column 40: expected ')'</li></ul></div>
     <div class="field"><label>Description</label><input value="Summarise a topic's notes from the last week"></div>
     <div class="field"><label>Category</label><select><option>reports</option><option>maths</option><option>custom</option><option>New category…</option></select></div>
@@ -127,16 +127,16 @@ memory_write(bundle="digests", path=input["topic"], content="\n".join(titles))
   <div class="label">4 · Category dialog · 5 · Delete confirmation</div>
   <div style="display:flex;gap:14px;flex-wrap:wrap">
     <div class="card dialog"><div class="dhead"><h2>Category reports</h2><span class="icon">×</span></div><div class="field"><label>Name</label><input value="reports"></div><div class="field"><label>Description</label><input value="Pull and send the weekly status reports"></div><p class="sub">The agent sees the change from its next turn. Tools keep their names.</p><div class="actions"><button class="btn">Cancel</button><button class="btn primary">Save</button></div></div>
-    <div class="card dialog"><div class="dhead"><h2>Delete custom_weekly_digest?</h2><span class="icon">×</span></div><p class="sub">Its 3 versions are deleted. custom_send_report calls it and will need attention. The deletion stays in Activity.</p><div class="actions"><button class="btn">Cancel</button><button class="btn primary">Delete</button></div></div>
+    <div class="card dialog"><div class="dhead"><h2>Delete weekly_digest?</h2><span class="icon">×</span></div><p class="sub">Its 3 versions are deleted. send_report calls it and will need attention. The deletion stays in Activity.</p><div class="actions"><button class="btn">Cancel</button><button class="btn primary">Delete</button></div></div>
   </div>
 
   <div class="label">6 · View-only person · 7 · Phone</div>
   <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
     <div class="card group" style="flex:1;min-width:300px"><div class="ghead"><div><h2>reports</h2><div class="d">Pull and send the weekly status reports</div></div></div>
-      <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><div class="n">custom_weekly_digest</div><div class="desc">No switch, edit, delete or category edit</div></div><div class="meta">v3 · a dream</div></div></div>
+      <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><div><div class="n">weekly_digest</div><div class="desc">No switch, edit, delete or category edit</div></div><div class="meta">v3 · a dream</div></div></div>
     <div class="card phone"><div class="ghead"><div><h2>reports</h2><div class="d">Pull and send…</div></div><span class="icon">✎</span></div>
-      <div class="row"><div><div class="n">custom_weekly_digest</div><div class="desc">v3 · a dream · 2 h ago</div></div><div class="switch"></div></div>
-      <div class="row"><div><div class="n">custom_send_report</div><div class="desc">⚠ needs attention</div></div><div class="switch"></div></div></div>
+      <div class="row"><div><div class="n">weekly_digest</div><div class="desc">v3 · a dream · 2 h ago</div></div><div class="switch"></div></div>
+      <div class="row"><div><div class="n">send_report</div><div class="desc">⚠ needs attention</div></div><div class="switch"></div></div></div>
   </div>
 </div>
 </body>

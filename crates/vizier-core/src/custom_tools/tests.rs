@@ -65,7 +65,7 @@ async fn create_reports_call_as_and_category_and_refuses_duplicates() {
     let (tools, _dir) = service();
     let created = tools.create(&agent(), create_input("echo_sum", "input['a'] + input['b']")).await.unwrap();
     assert_eq!(created["status"], "created");
-    assert_eq!(created["tool"]["call_as"], "custom_echo_sum");
+    assert_eq!(created["tool"]["call_as"], "echo_sum");
     assert_eq!(created["version"], 1);
     assert_eq!(created["category_created"], true);
 
@@ -151,13 +151,13 @@ async fn composition_cycles_and_callers() {
     let (tools, _dir) = service();
     tools.create(&agent(), create_input("echo_sum", "input['a'] + input['b']")).await.unwrap();
     let double = tools
-        .create(&agent(), create_input("double_sum", "custom_echo_sum(a=input['a'], b=input['b']) * 2"))
+        .create(&agent(), create_input("double_sum", "echo_sum(a=input['a'], b=input['b']) * 2"))
         .await
         .unwrap();
     assert_eq!(double["status"], "created");
 
     let cycle = tools
-        .update(&agent(), UpdateInput { script: Some("custom_double_sum(a=1, b=1)".into()), ..update("echo_sum") })
+        .update(&agent(), UpdateInput { script: Some("double_sum(a=1, b=1)".into()), ..update("echo_sum") })
         .await
         .unwrap();
     assert_eq!(cycle["problems"][0]["code"], "cycle");
@@ -175,7 +175,7 @@ async fn composition_cycles_and_callers() {
     let names = agent().names;
     let listed = tools.list("dp-a", names.as_ref(), None, true).await.unwrap();
     let double = listed["tools"].as_array().unwrap().iter().find(|t| t["name"] == "double_sum").unwrap();
-    assert_eq!(double["needs_attention"]["missing"], json!(["custom_echo_sum"]));
+    assert_eq!(double["needs_attention"]["missing"], json!(["echo_sum"]));
 }
 
 #[tokio::test]
@@ -204,7 +204,7 @@ async fn categories_rename_move_and_clean_up() {
     assert_eq!(renamed["renamed_to"], "arith");
     let tool = tools.get("dp-a", None, "echo_sum", None).await.unwrap();
     assert_eq!(tool["category"], "arith");
-    assert_eq!(tool["call_as"], "custom_echo_sum");
+    assert_eq!(tool["call_as"], "echo_sum");
 
     let moved = tools
         .update(&agent(), UpdateInput { category: Some("arith".into()), ..update("loose") })
@@ -222,4 +222,23 @@ async fn categories_rename_move_and_clean_up() {
     let router = crate::agents::tools::ToolRouter::empty();
     assert!(tools.turn_categories("dp-a", &router).await.is_empty());
     assert_eq!(tools.list("dp-a", None, None, true).await.unwrap()["categories"].as_array().unwrap().len(), 1);
+}
+
+/// No prefix (FR-011): a name any tool of the agent has, a builtin, a sandbox tool or a retired
+/// name is refused on save.
+#[tokio::test]
+async fn a_name_another_tool_has_is_refused_on_save() {
+    let (tools, _dir) = service();
+    for name in ["current_time", "len", "execute_python", "parallel_subagents"] {
+        let refused = tools.create(&agent(), create_input(name, "1")).await.unwrap();
+        assert_eq!(refused["status"], "invalid", "{name}: {refused}");
+        assert_eq!(refused["problems"][0]["code"], "name_taken", "{name}: {refused}");
+    }
+    // A rename onto one is refused too.
+    tools.create(&agent(), create_input("echo_sum", "1")).await.unwrap();
+    let rename = tools
+        .update(&agent(), UpdateInput { new_name: Some("memory_read".into()), ..update("echo_sum") })
+        .await
+        .unwrap();
+    assert_eq!(rename["problems"][0]["code"], "name_taken", "{rename}");
 }

@@ -39,6 +39,11 @@ const NOT_TOOLS: &[&str] = &[
     "list_tools", "describe_tool",
 ];
 
+/// Whether `name` is a builtin or sandbox helper rather than a tool.
+pub fn is_builtin(name: &str) -> bool {
+    NOT_TOOLS.contains(&name)
+}
+
 /// The tool names `script` calls, sorted, or where it fails to parse.
 pub fn parse_calls(script: &str) -> Result<Vec<String>, SyntaxProblem> {
     let parsed = ruff_python_parser::parse_module(script).map_err(|error| {
@@ -157,7 +162,7 @@ import json
 s = "memory_delete()"
 def helper(n):
     return len(str(n))
-f = custom_other
+f = other_tool
 data = json.loads("{}")
 for item in sorted([3, 1]):
     print(helper(item))

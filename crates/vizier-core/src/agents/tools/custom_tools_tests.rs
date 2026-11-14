@@ -140,11 +140,11 @@ async fn a_saved_tool_runs_with_its_sample_and_is_callable_from_the_next_script(
     assert_eq!(report.result["sample_run"]["result"], 8);
     assert_eq!(report.result["sample_run"]["took_effect"], true);
 
-    let report = script(&f, "custom_double_next(n=1)").await;
+    let report = script(&f, "double_next(n=1)").await;
     assert!(report.ok, "{report:?}");
     assert_eq!(report.result, json!(4));
     let call = &report.tool_calls[0];
-    assert_eq!(call.name, "custom_double_next");
+    assert_eq!(call.name, "double_next");
     assert_eq!(call.calls.len(), 1);
     assert_eq!(call.calls[0].name, "add_one");
 }
@@ -155,17 +155,17 @@ async fn bad_input_and_a_failing_step_come_back_as_errors_naming_the_tool() {
     let schema = json!({"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]});
     assert!(script(&f, &create("plus", schema, "add_one(n=input['n'])", "")).await.ok);
 
-    let report = script(&f, "custom_plus(n='2')").await;
+    let report = script(&f, "plus(n='2')").await;
     assert!(!report.ok);
     let message = report.error.unwrap().message;
-    assert!(message.contains("custom_plus: invalid input: $.n: expected integer, got string"), "{message}");
+    assert!(message.contains("plus: invalid input: $.n: expected integer, got string"), "{message}");
     assert!(report.tool_calls[0].calls.is_empty(), "nothing ran");
 
     let fails = json!({"type": "object"});
     assert!(script(&f, &create("fails", fails, "add_one(n=1)\nadd_one(n='x')", "")).await.ok);
-    let report = script(&f, "custom_fails()").await;
+    let report = script(&f, "fails()").await;
     let message = report.error.unwrap().message;
-    assert!(message.contains("custom_fails failed at step 2 (add_one)"), "{message}");
+    assert!(message.contains("fails failed at step 2 (add_one)"), "{message}");
     assert!(message.contains("1 add_one ok"), "{message}");
 }
 
@@ -176,7 +176,7 @@ async fn an_inner_call_gets_the_answer_a_direct_call_gets_in_this_turn() {
     assert_eq!(report.result["status"], "created", "{}", report.result);
 
     let direct = script(&f, "ask_somebody()").await;
-    let wrapped = script(&f, "custom_ask()").await;
+    let wrapped = script(&f, "ask()").await;
     assert!(!direct.ok && !wrapped.ok);
     let direct = direct.error.unwrap().message;
     let wrapped = wrapped.error.unwrap().message;
@@ -188,9 +188,9 @@ async fn a_tool_that_never_ends_is_stopped_by_the_callers_timeout() {
     let f = fixture(true);
     let created = script(&f, &create("slow", json!({"type": "object"}), "while True:\n  pass", "")).await;
     assert_eq!(created.result["status"], "created", "{}", created.result);
-    let report = run(&f, "custom_slow()", Duration::from_secs(2)).await;
+    let report = run(&f, "slow()", Duration::from_secs(2)).await;
     assert!(!report.ok);
-    assert_eq!(report.tool_calls[0].name, "custom_slow");
+    assert_eq!(report.tool_calls[0].name, "slow");
     assert!(!report.tool_calls[0].ok);
 }
 
@@ -201,12 +201,12 @@ async fn a_tool_already_on_the_call_chain_is_refused_when_called() {
     let mut f = fixture(true);
     let object = json!({"type": "object"});
     assert!(script(&f, &create("a", object.clone(), "1", "")).await.ok);
-    let report = script(&f, &create("b", object, "custom_a()", "")).await;
+    let report = script(&f, &create("b", object, "a()", "")).await;
     assert_eq!(report.result["status"], "created", "{}", report.result);
     f.ctx.custom.chain = vec!["a".into()];
-    let report = script(&f, "custom_b()").await;
+    let report = script(&f, "b()").await;
     let message = report.error.unwrap().message;
-    assert!(message.contains("custom_a: cycle a → b → a"), "{message}");
+    assert!(message.contains("a: cycle a → b → a"), "{message}");
 }
 
 /// `SANDBOX.md` changes only when a category gains its first enabled tool or loses its last
@@ -245,8 +245,8 @@ async fn the_prompt_lines_change_only_with_a_category() {
     let tool = service.storage().get_custom_tool("agent-1", "c").await.unwrap().unwrap();
     service.storage().set_custom_tool_enabled("agent-1", &tool.id, false, &CustomToolActor::Agent).await.unwrap();
     let entries = crate::agents::tools::turn_catalogue(&f.router, &f.ctx).await;
-    assert!(entries.iter().any(|entry| entry.name == "custom_a"));
-    assert!(!entries.iter().any(|entry| entry.name == "custom_c"));
+    assert!(entries.iter().any(|entry| entry.name == "a"));
+    assert!(!entries.iter().any(|entry| entry.name == "c"));
     let names: Vec<String> =
         service.turn_categories("agent-1", &f.router).await.into_iter().map(|line| line.name).collect();
     assert_eq!(names, vec!["maths".to_string()]);
@@ -281,4 +281,53 @@ async fn a_dream_save_is_authored_by_the_cycle_and_never_sample_run() {
     let out: serde_json::Value =
         serde_json::from_str(&tool.tool_call(typo.to_string(), &f.ctx).await.unwrap()).unwrap();
     assert_eq!(out["problems"][0]["code"], "unknown_tool", "{out}");
+}
+
+/// A tool attached after a custom tool was saved keeps its name: the custom tool is not offered
+/// and reads as needing attention until it is renamed (FR-011).
+#[tokio::test]
+async fn a_tool_attached_later_wins_the_name_and_the_custom_tool_needs_attention() {
+    use crate::storage::custom_tool::{
+        CustomToolActor, CustomToolDefinition, CustomToolStorage, NewVersion, VersionTrigger,
+    };
+    let f = fixture(true);
+    let service = f.ctx.custom.tools.clone().unwrap();
+    // Saved before `add_one` existed: written straight to storage, as the save checks would
+    // refuse it now.
+    service
+        .storage()
+        .save_custom_tool_version(
+            "agent-1",
+            None,
+            None,
+            NewVersion {
+                definition: CustomToolDefinition {
+                    name: "add_one".into(),
+                    category: "maths".into(),
+                    description: "an older add_one".into(),
+                    input_schema: json!({"type": "object"}),
+                    output_description: None,
+                    script: "99".into(),
+                    calls: vec![],
+                    sample_input: None,
+                },
+                trigger: VersionTrigger::Create,
+                restored_from: None,
+                reason: None,
+            },
+            &CustomToolActor::Agent,
+            Some("Arithmetic"),
+        )
+        .await
+        .unwrap();
+
+    let entries = crate::agents::tools::turn_catalogue(&f.router, &f.ctx).await;
+    let add_one: Vec<_> = entries.iter().filter(|entry| entry.name == "add_one").collect();
+    assert_eq!(add_one.len(), 1, "one tool per name");
+    assert_eq!(add_one[0].target, crate::agents::tools::ToolTarget::Native("add_one".into()), "the attached tool keeps it");
+    assert_eq!(script(&f, "add_one(n=1)").await.result, json!(2));
+
+    let names = crate::custom_tools::router_names(&f.router, &f.ctx).await;
+    let listed = service.list("agent-1", Some(&names), None, true).await.unwrap();
+    assert_eq!(listed["tools"][0]["needs_attention"]["name_taken"], true, "{listed}");
 }

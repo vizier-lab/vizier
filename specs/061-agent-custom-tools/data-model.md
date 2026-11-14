@@ -11,7 +11,7 @@ does not apply). JSON columns are `TEXT` on SQLite and `JSONB` on PostgreSQL.
 |---|---|---|
 | `id` | TEXT PK | UUID; stable across renames |
 | `agent_id` | TEXT NOT NULL | owner (FR-002) |
-| `name` | TEXT NOT NULL | `^[a-z][a-z0-9_]*$`; called as `custom_<name>`; `UNIQUE(agent_id, name)` |
+| `name` | TEXT NOT NULL | `^[a-z][a-z0-9_]*$`; called by this name; `UNIQUE(agent_id, name)`; refused when any other tool has it |
 | `category` | TEXT NOT NULL | stored category name; FK-like to `custom_tool_category(agent_id, name)` |
 | `current_seq` | INTEGER NOT NULL | the version callers run |
 | `enabled` | INTEGER NOT NULL DEFAULT 1 | |
@@ -84,7 +84,7 @@ A deleted tool's rows in `custom_tool` and `custom_tool_version` are removed (St
 |---|---|---|
 | `needs_attention.missing` | current version's `calls` − published `agent.{id}.tool_names` − the agent's enabled custom tool names (R8) | every read (agent and HTTP) |
 | `model_backed` | `calls` ∩ model-backed tools, transitively through custom tools (R7) | every read |
-| `callers` | other tools whose current `calls` contain `custom_<name>` | rename/delete checks (spec edges) |
+| `callers` | other custom tools whose current `calls` contain its name | rename/delete checks (spec edges) |
 | category in prompt | categories with ≥ 1 enabled tool, snapshotted at turn start | `ToolContext.custom_categories` |
 
 ## Validation (FR-005), all problems reported at once

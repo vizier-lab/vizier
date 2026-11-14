@@ -69,7 +69,7 @@ running agent's state (the #163 seam)
 | II. DRY via traits (NON-NEGOTIABLE) | ✅ with refactor | Custom tools would be the third per-turn catalogue source matched in `RouterBridge::dispatch_to` / `turn_catalogue` / `ToolRouter::catalogue` ranking. R1 collapses client and project tools behind `TurnToolSource` first; custom tools then register as an implementation, with no new `match` arm. Validation, versioning and diffs reuse `storage/diff.rs` and the revision value types. |
 | III. Self-contained default | ✅ | SQLite + local, no network. PostgreSQL gets an ordered migration. |
 | IV. Portability | ✅ | No OS calls; scripts run in the existing sandbox. |
-| V. Unified errors & observability | ✅ | `crate::Result`, `tracing`; refusals are `status` data like the other agent tools; one `execute_tool custom_<name>` span per call with the nested calls as children. |
+| V. Unified errors & observability | ✅ | `crate::Result`, `tracing`; refusals are `status` data like the other agent tools; one `execute_tool <name>` span per call with the nested calls as children. |
 | Design before UI code | ⏳ required | The Custom tools page and its components are drawn (FigCraft, or a dummy `.html`/ASCII mockup if FigCraft is unreachable) and reviewed before any `design/` or `webui/` code. Tasks order this first. |
 | dummyplug e2e | ✅ planned | [quickstart.md](quickstart.md) scripts create, list, describe, call, fail, update, diff, rollback, disable, categories and a dream save through dummyplug; dream *judgment* (whether a workflow becomes a tool) is marked live-provider. |
 | Matching submodule branches | ⏳ | Run `just checkout 061-agent-custom-tools` before touching `design/`, `webui/` or `dummyplug/`; commit order design → webui → vizier. |
@@ -108,7 +108,7 @@ specs/061-agent-custom-tools/
 crates/vizier-core/src/
 ├── agents/tools/
 │   ├── mod.rs                      # ToolCategory::CustomTools (22nd); ToolTarget::Turn; turn_catalogue /
-│   │                               # turn_categories over TurnToolSource; reserved `custom_` prefix
+│   │                               # turn_categories over TurnToolSource; first-wins names
 │   ├── turn_source.rs              # NEW: TurnToolSource trait (client, project, custom implement it)
 │   ├── custom_tools.rs             # NEW: the authoring tools (create/update/list/get/history/diff/
 │   │                               # rollback/delete/set_enabled/update_category)
@@ -122,7 +122,7 @@ crates/vizier-core/src/
 │   ├── calls.rs                    # ruff-based "which functions does this script call"
 │   ├── run.rs                      # call a custom tool: load current version, bind input, run_script
 │   ├── catalogue.rs                # CustomTurnSource: entries + category lines for a turn
-│   └── naming.rs                   # name rule, `custom_` prefix, category clash suffix
+│   └── naming.rs                   # name rule, clash check, category clash suffix
 ├── sandbox/runtime.rs              # execute_with_input: MontyRun input names / start inputs
 ├── sandbox/report.rs               # ToolInvocationRecord.calls (nested)
 ├── agents/views.rs                 # publish agent.{id}.tool_names

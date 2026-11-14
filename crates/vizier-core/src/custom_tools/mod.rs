@@ -1,6 +1,6 @@
 //! Agent custom tools (`specs/061-agent-custom-tools`): an agent saves a Python script that
 //! composes its tools as a named, versioned tool of its own, then calls it from any script as
-//! `custom_<name>(...)`.
+//! `<name>(...)`, by the name it was saved under.
 //!
 //! [`CustomTools`] is the one write path for the agent, its dreams and people (research R11):
 //! every save is validated here and written through [`CustomToolStorage`] in one transaction.
@@ -132,7 +132,7 @@ impl<'a> Env<'a> {
 pub async fn router_names(router: &ToolRouter, ctx: &ToolContext) -> ToolNames {
     let mut names: Vec<String> = router.all_names().await;
     for entry in crate::agents::tools::turn_catalogue(router, ctx).await {
-        if naming::tool_name(&entry.name).is_none() {
+        if entry.target != (crate::agents::tools::ToolTarget::Turn { source: catalogue::CustomSource::ID }) {
             names.push(entry.name);
         }
     }
@@ -144,7 +144,7 @@ pub async fn router_names(router: &ToolRouter, ctx: &ToolContext) -> ToolNames {
 /// What `create_custom_tool` takes (contracts/agent-tools.md §2).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CreateInput {
-    #[schemars(description = "The tool's name: lower-case letters, digits and _. You call it as custom_<name>.")]
+    #[schemars(description = "The tool's name: lower-case letters, digits and _, and not the name of any tool you already have. You call it by this name.")]
     pub name: String,
     #[schemars(description = "What the tool does, in one or two sentences; shown when you list or describe it.")]
     pub description: String,
@@ -172,7 +172,7 @@ pub struct CreateInput {
 /// What `update_custom_tool` takes: the name plus any field to change.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct UpdateInput {
-    #[schemars(description = "The tool to change (without the custom_ prefix).")]
+    #[schemars(description = "The custom tool to change.")]
     pub name: String,
     #[serde(default)]
     #[schemars(description = "A new name; refused while other custom tools call this one.")]
@@ -329,7 +329,7 @@ impl CustomTools {
                         return Ok((
                             json!({
                                 "status": "has_callers",
-                                "message": format!("other custom tools call {}; change them first", naming::call_as(&tool.name)),
+                                "message": format!("other custom tools call {}; change them first", tool.name),
                                 "callers": callers,
                             }),
                             None,
@@ -554,7 +554,7 @@ impl CustomTools {
                 "status": "disabled_by_person",
                 "message": format!(
                     "{} was switched off by {}; only a person can change or switch it back on",
-                    naming::call_as(&tool.name),
+                    tool.name,
                     tool.disabled_by.as_ref().map(CustomToolActor::label).unwrap_or_default()
                 ),
             })
@@ -571,7 +571,7 @@ impl CustomTools {
             if !callers.is_empty() {
                 return Ok(json!({
                     "status": "has_callers",
-                    "message": format!("other custom tools call {}; change them first", naming::call_as(name)),
+                    "message": format!("other custom tools call {}; change them first", name),
                     "callers": callers,
                 }));
             }
@@ -664,10 +664,8 @@ impl CustomTools {
                     row["disabled_by"] = json!(by.label());
                 }
                 row["model_backed"] = json!(validate::model_backed(&tool.current.definition.calls, &backed, &tools));
-                if let Some(missing) = validate::needs_attention(&tool.current.definition.calls, known.as_ref(), &tools) {
-                    if !missing.is_empty() {
-                        row["needs_attention"] = json!({ "missing": missing });
-                    }
+                if let Some(attention) = validate::attention(tool, known.as_ref(), &tools) {
+                    row["needs_attention"] = attention;
                 }
                 row["author"] = json!(tool.current.actor.label());
                 row["description"] = json!(tool.current.definition.description);
@@ -709,11 +707,10 @@ impl CustomTools {
         };
         let known = names.map(ToolNames::known);
         let backed = names.map(ToolNames::backed).unwrap_or_default();
-        let missing = validate::needs_attention(&tool.current.definition.calls, known.as_ref(), &tools)
-            .filter(|missing| !missing.is_empty());
+        let attention = validate::attention(tool, known.as_ref(), &tools);
         Ok(json!({
             "name": tool.name,
-            "call_as": naming::call_as(&tool.name),
+            "call_as": tool.name,
             "category": tool.category,
             "enabled": tool.enabled,
             "disabled_by": tool.disabled_by.as_ref().map(CustomToolActor::label),
@@ -727,13 +724,13 @@ impl CustomTools {
             "calls": shown.definition.calls,
             "callers": validate::callers(&tool.name, &tools),
             "model_backed": validate::model_backed(&tool.current.definition.calls, &backed, &tools),
-            "needs_attention": missing.map(|missing| json!({ "missing": missing })),
+            "needs_attention": attention,
             "updated_at": tool.updated_at,
             "last_called_at": tool.last_called_at,
         }))
     }
 
-    /// `get_custom_tool_history`: versions newest first, and this tool's events.
+    /// `custom_tool_history`: versions newest first, and this tool's events.
     pub async fn history(&self, agent_id: &str, name: &str) -> anyhow::Result<Value> {
         let Some(tool) = self.storage.get_custom_tool(agent_id, name).await? else {
             return Ok(not_found(name));
@@ -798,7 +795,7 @@ pub fn tool_summary(tool: &CustomTool) -> Value {
     json!({
         "id": tool.id,
         "name": tool.name,
-        "call_as": naming::call_as(&tool.name),
+        "call_as": tool.name,
         "category": tool.category,
         "version": tool.current_seq,
     })

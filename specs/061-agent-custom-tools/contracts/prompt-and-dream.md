@@ -63,9 +63,9 @@ alone and why`, and the final report lists the custom tools by name.
 
 ## 4. Dream toolset
 
-`DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `get_custom_tool_history`,
+`DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `custom_tool_history`,
 `diff_custom_tool`, `create_custom_tool`, `update_custom_tool`, `rollback_custom_tool`,
 `update_custom_tool_category`. Never `delete_custom_tool`, `set_custom_tool_enabled`, or any
-`custom_<name>` tool. `dream_call` sets `ToolContext.script_router` to the agent's full router with
+custom tool. `dream_call` sets `ToolContext.script_router` to the agent's full router with
 `dream = true`: saves are validated against the full toolset, the sample run is skipped, and the
 version records the cycle id from the request metadata.

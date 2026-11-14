@@ -49,6 +49,20 @@ pub fn validate_definition(
             Problem::new("name_taken", format!("you already have a custom tool named {}", definition.name))
                 .with("name", definition.name.as_str()),
         );
+    } else if let Some(why) = naming::reserved(&definition.name) {
+        problems.push(
+            Problem::new("name_taken", format!("{} is {why}; pick another name", definition.name))
+                .with("name", definition.name.as_str()),
+        );
+    } else if known.is_some_and(|known| known.contains(&definition.name)) {
+        // Custom tools have no prefix (spec 061 FR-011): a name any other tool has is refused.
+        problems.push(
+            Problem::new(
+                "name_taken",
+                format!("{} is already the name of one of your tools; pick another name", definition.name),
+            )
+            .with("name", definition.name.as_str()),
+        );
     }
     if !naming::valid_name(&definition.category) {
         problems.push(
@@ -80,21 +94,19 @@ pub fn validate_definition(
     let custom: BTreeSet<String> = tools
         .iter()
         .filter(|tool| Some(tool.id.as_str()) != editing)
-        .map(|tool| naming::call_as(&tool.name))
-        .chain(std::iter::once(naming::call_as(&definition.name)))
+        .map(|tool| tool.name.clone())
+        .chain(std::iter::once(definition.name.clone()))
         .collect();
     let mut unchecked = vec![];
     for call in &definition.calls {
-        if naming::tool_name(call).is_some() {
-            if !custom.contains(call) {
-                problems.push(unknown(call, &custom.iter().cloned().collect::<Vec<_>>()));
-            }
+        if custom.contains(call) {
             continue;
         }
         match known {
             Some(known) if !known.contains(call) => {
-                let mut candidates: Vec<String> = known.iter().cloned().collect();
+                let mut candidates: Vec<String> = known.iter().chain(custom.iter()).cloned().collect();
                 candidates.sort();
+                candidates.dedup();
                 problems.push(unknown(call, &candidates));
             }
             Some(_) => {}
@@ -149,22 +161,19 @@ pub fn cycle(
     let mut graph: BTreeMap<String, Vec<String>> = tools
         .iter()
         .filter(|tool| Some(tool.id.as_str()) != editing)
-        .map(|tool| (tool.name.clone(), custom_calls(&tool.current.definition.calls)))
+        .map(|tool| (tool.name.clone(), tool.current.definition.calls.clone()))
         .collect();
-    graph.insert(definition.name.clone(), custom_calls(&definition.calls));
+    graph.insert(definition.name.clone(), definition.calls.clone());
+    // Only edges between custom tools count.
+    let names: BTreeSet<String> = graph.keys().cloned().collect();
+    for calls in graph.values_mut() {
+        calls.retain(|call| names.contains(call));
+    }
 
     let start = definition.name.clone();
     let mut path = vec![start.clone()];
     let mut seen = BTreeSet::new();
     walk(&graph, &start, &start, &mut path, &mut seen).then_some(path)
-}
-
-fn custom_calls(calls: &[String]) -> Vec<String> {
-    calls
-        .iter()
-        .filter_map(|call| naming::tool_name(call))
-        .map(str::to_string)
-        .collect()
 }
 
 fn walk(
@@ -192,10 +201,9 @@ fn walk(
 
 /// The other tools whose current script calls `name`.
 pub fn callers(name: &str, tools: &[CustomTool]) -> Vec<String> {
-    let function = naming::call_as(name);
     tools
         .iter()
-        .filter(|tool| tool.name != name && tool.current.definition.calls.contains(&function))
+        .filter(|tool| tool.name != name && tool.current.definition.calls.iter().any(|call| call == name))
         .map(|tool| tool.name.clone())
         .collect()
 }
@@ -207,7 +215,7 @@ pub fn missing(calls: &[String], known: Option<&HashSet<String>>, tools: &[Custo
     let enabled: HashSet<String> = tools
         .iter()
         .filter(|tool| tool.enabled)
-        .map(|tool| naming::call_as(&tool.name))
+        .map(|tool| tool.name.clone())
         .collect();
     Some(
         calls
@@ -230,10 +238,8 @@ pub fn model_backed(calls: &[String], model_backed: &HashSet<String>, tools: &[C
         if model_backed.contains(&call) {
             return true;
         }
-        if let Some(name) = naming::tool_name(&call) {
-            if let Some(tool) = tools.iter().find(|tool| tool.name == name) {
-                stack.extend(tool.current.definition.calls.iter().cloned());
-            }
+        if let Some(tool) = tools.iter().find(|tool| tool.name == call) {
+            stack.extend(tool.current.definition.calls.iter().cloned());
         }
     }
     false
@@ -253,18 +259,39 @@ pub fn needs_attention(
         if !seen.insert(call.clone()) {
             continue;
         }
-        if let Some(name) = naming::tool_name(&call) {
-            match tools.iter().find(|tool| tool.name == name && tool.enabled) {
-                Some(tool) => stack.extend(tool.current.definition.calls.iter().cloned()),
-                None => {
-                    missing_names.insert(call);
-                }
+        // A name another tool has resolves to that tool first (the first-wins catalogue).
+        if known.contains(&call) {
+            continue;
+        }
+        match tools.iter().find(|tool| tool.name == call && tool.enabled) {
+            Some(tool) => stack.extend(tool.current.definition.calls.iter().cloned()),
+            None => {
+                missing_names.insert(call);
             }
-        } else if !known.contains(&call) {
-            missing_names.insert(call);
         }
     }
     Some(missing_names.into_iter().collect())
+}
+
+/// Whether a tool attached after this custom tool was saved has taken its name: the custom tool is
+/// not offered until it is renamed. `false` when the names cannot be read.
+pub fn name_taken(name: &str, known: Option<&HashSet<String>>) -> bool {
+    known.is_some_and(|known| known.contains(name))
+}
+
+/// What a custom tool needs attention for: tools it calls that are gone, and its own name taken
+/// by a tool attached later. `None` when nothing does or the names cannot be read.
+pub fn attention(tool: &CustomTool, known: Option<&HashSet<String>>, tools: &[CustomTool]) -> Option<Value> {
+    let missing = needs_attention(&tool.current.definition.calls, known, tools).unwrap_or_default();
+    let taken = name_taken(&tool.name, known);
+    if missing.is_empty() && !taken {
+        return None;
+    }
+    let mut value = serde_json::json!({ "missing": missing });
+    if taken {
+        value["name_taken"] = Value::Bool(true);
+    }
+    Some(value)
 }
 
 /// A definition's schema as the description shows it, for diffs.
@@ -350,20 +377,20 @@ mod tests {
 
     #[test]
     fn cycles_are_refused_with_their_path() {
-        let tools = vec![saved("double_sum", "custom_echo_sum(a=1, b=1) * 2"), saved("echo_sum", "1")];
-        let mut def = definition("echo_sum", "custom_double_sum(a=1, b=1)");
+        let tools = vec![saved("double_sum", "echo_sum(a=1, b=1) * 2"), saved("echo_sum", "1")];
+        let mut def = definition("echo_sum", "double_sum(a=1, b=1)");
         let checked = validate_definition(&mut def, Some(&known()), &tools, Some("id-echo_sum"));
         assert_eq!(codes(&checked), vec!["cycle"]);
         assert_eq!(checked.problems[0].message, "cycle: echo_sum → double_sum → echo_sum");
 
         // Three tools.
-        let tools = vec![saved("a", "custom_b()"), saved("b", "custom_c()"), saved("c", "1")];
-        let mut def = definition("c", "custom_a()");
+        let tools = vec![saved("a", "b()"), saved("b", "c()"), saved("c", "1")];
+        let mut def = definition("c", "a()");
         let checked = validate_definition(&mut def, Some(&known()), &tools, Some("id-c"));
         assert_eq!(checked.problems[0].message, "cycle: c → a → b → c");
 
         // Calling yourself is the shortest cycle.
-        let mut def = definition("self_call", "custom_self_call()");
+        let mut def = definition("self_call", "self_call()");
         assert_eq!(codes(&validate_definition(&mut def, Some(&known()), &[], None)), vec!["cycle"]);
     }
 
@@ -377,14 +404,14 @@ mod tests {
 
     #[test]
     fn attention_and_model_backing_are_transitive() {
-        let tools = vec![saved("inner", "stripe_list_charges()\nspawn_subagents()"), saved("outer", "custom_inner()")];
+        let tools = vec![saved("inner", "stripe_list_charges()\nspawn_subagents()"), saved("outer", "inner()")];
         let names = known();
         assert_eq!(
-            needs_attention(&["custom_inner".into()], Some(&names), &tools).unwrap(),
+            needs_attention(&["inner".into()], Some(&names), &tools).unwrap(),
             vec!["spawn_subagents".to_string(), "stripe_list_charges".to_string()]
         );
         let backed: HashSet<String> = ["spawn_subagents".to_string()].into();
-        assert!(model_backed(&["custom_inner".into()], &backed, &tools));
+        assert!(model_backed(&["inner".into()], &backed, &tools));
         assert!(!model_backed(&["memory_read".into()], &backed, &tools));
         assert_eq!(callers("inner", &tools), vec!["outer".to_string()]);
     }

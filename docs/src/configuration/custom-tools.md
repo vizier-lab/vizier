@@ -40,7 +40,9 @@ memory_write(bundle="digests", path=input["topic"], content="\\n".join(titles))
 - The value of the script's last expression is the result.
 - The script can call every tool an `execute_python` script can, including other custom tools.
 
-From the next script on, the agent calls it as `custom_weekly_digest(topic="releases")`, in this conversation and every other.
+From the next script on, the agent calls it by its name, `weekly_digest(topic="releases")`, in this conversation and every other.
+
+A custom tool has no prefix, so its name cannot be one any of the agent's tools already has (a built-in, addon, MCP, client or project tool), a Python builtin, a sandbox tool or a retired tool name: saving such a name is refused with `name_taken`. If a tool attached later (say, a new MCP server) takes the name of an existing custom tool, the attached tool keeps it. The custom tool is then not offered and shows *needs attention: its name is taken* until it is renamed.
 
 ### What is checked when it is saved
 
@@ -48,7 +50,7 @@ Every problem comes back at once as `{ "status": "invalid", "problems": [...] }`
 
 | Code | Meaning |
 |---|---|
-| `name_invalid`, `name_taken` | Names are lower-case letters, digits and `_`, start with a letter, and are unique for the agent |
+| `name_invalid`, `name_taken` | Names are lower-case letters, digits and `_`, start with a letter, and are not the name of another custom tool or any other tool the agent has |
 | `category_description_required` | A new category needs a one-line description |
 | `schema_not_object`, `schema_keyword_unsupported` | The input schema is an object schema built from `type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, `description`, `default`, `title`, `minimum`, `maximum`, `minLength`, `maxLength`, `minItems` and `maxItems` |
 | `script_syntax` | The script doesn't parse (with its line and column) |
@@ -60,16 +62,16 @@ With `sample_input`, the tool runs once before it is saved. The run is real, so 
 
 ### Calling one
 
-A call checks the arguments against the schema first. A mismatch fails with a message such as `custom_weekly_digest: invalid input: $.limit: expected integer, got string`, and nothing runs. The script then runs as part of the calling turn: the same tools, the same people to ask (or nobody, in an unattended turn), and the same time limit as the script that called it.
+A call checks the arguments against the schema first. A mismatch fails with a message such as `weekly_digest: invalid input: $.limit: expected integer, got string`, and nothing runs. The script then runs as part of the calling turn: the same tools, the same people to ask (or nobody, in an unattended turn), and the same time limit as the script that called it.
 
 A failure names the tool, the step that failed and the calls made before it:
 
 ```text
-custom_weekly_digest failed at step 2 (memory_write): bundle 'digests' is reserved
+weekly_digest failed at step 2 (memory_write): bundle 'digests' is reserved
 calls made: 1 memory_search ok, 2 memory_write failed
 ```
 
-The caller's report records one call, `custom_weekly_digest`, with the calls its script made nested under it.
+The caller's report records one call, `weekly_digest`, with the calls its script made nested under it.
 
 ## Categories
 
@@ -78,14 +80,14 @@ The system prompt lists one line per category that has at least one enabled cust
 - The first save into a new category creates it, and needs a `category_description`.
 - A tool saved with no category goes into `custom`.
 - A category named after a built-in, addon or MCP category gets a `_custom` suffix (`memory_custom`).
-- `update_custom_tool_category` renames or redescribes a category. Tools keep their `custom_` names when their category is renamed.
+- `update_custom_tool_category` renames or redescribes a category. Tools keep their `` names when their category is renamed.
 - A category with no tools left is deleted.
 
 The category lines are read when a turn starts, so a change shows from the agent's next turn and the prompt stays the same within a turn.
 
 ## Versions
 
-Every change is a new version: `update_custom_tool`, a move to another category, and `rollback_custom_tool`, which saves an old version again as a new one. `get_custom_tool_history` lists versions and events, and `diff_custom_tool` shows line diffs of the description, input schema and script. Pass `expected_version` to be told `out_of_date` instead of overwriting a change you haven't seen.
+Every change is a new version: `update_custom_tool`, a move to another category, and `rollback_custom_tool`, which saves an old version again as a new one. `custom_tool_history` lists versions and events, and `diff_custom_tool` shows line diffs of the description, input schema and script. Pass `expected_version` to be told `out_of_date` instead of overwriting a change you haven't seen.
 
 ## In the WebUI
 

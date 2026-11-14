@@ -21,9 +21,10 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 
 | Send | Expect |
 |---|---|
-| `S(create_custom_tool(name="echo_sum", description="Add two numbers", category="maths", category_description="Small arithmetic helpers", input_schema={"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}, script="input['a'] + input['b']"))` | `status: "created"`, `call_as: "custom_echo_sum"`, `version: 1`, `category_created: true` |
+| `S(create_custom_tool(name="echo_sum", description="Add two numbers", category="maths", category_description="Small arithmetic helpers", input_schema={"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}, script="input['a'] + input['b']"))` | `status: "created"`, `call_as: "echo_sum"`, `version: 1`, `category_created: true` |
 | `S(create_custom_tool(name="bad", description="x", input_schema={"type":"string"}, script="memory_serch(query=1"))` | `status: "invalid"` with three problems: `schema_not_object`, `script_syntax` (line/column), and — once the syntax is fixed — `unknown_tool` with `did_you_mean: ["memory_search"]` |
 | `S(create_custom_tool(name="echo_sum", description="dup", input_schema={"type":"object"}, script="1"))` | `invalid`, `name_taken` |
+| `S(create_custom_tool(name="current_time", description="x", input_schema={"type":"object"}, script="1"))` | `invalid`, `name_taken` naming the built-in `time` category as its owner |
 | `S(create_custom_tool(name="nocat", description="x", input_schema={"type":"object"}, script="1", category="newcat"))` | `invalid`, `category_description_required` |
 | `S(create_custom_tool(name="loose", description="x", input_schema={"type":"object"}, script="42"))` | created in category `custom` |
 | `S(create_custom_tool(name="with_sample", description="x", input_schema={"type":"object","properties":{"n":{"type":"integer"}}}, script="input['n'] * 2", sample_input={"n": 3}))` | created; `sample_run: {ok: true, result: 6, took_effect: true}` |
@@ -33,21 +34,21 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 
 | Send | Expect |
 |---|---|
-| `S(custom_echo_sum(a=2, b=3))` | result `5`; the report's tool call `custom_echo_sum` has `calls: []` |
-| `S(custom_echo_sum(a="2", b=3))` | script fails with `RuntimeError` `custom_echo_sum: invalid input: $.a: expected integer, got string`; nothing ran |
-| `S(create_custom_tool(name="fails", description="x", input_schema={"type":"object"}, script="current_time()\nmemory_read(bundle='nope', path='nope')['missing']"))` then `S(custom_fails())` | failure names `custom_fails`, the failing step and lists `current_time ok` before it |
+| `S(echo_sum(a=2, b=3))` | result `5`; the report's tool call `echo_sum` has `calls: []` |
+| `S(echo_sum(a="2", b=3))` | script fails with `RuntimeError` `echo_sum: invalid input: $.a: expected integer, got string`; nothing ran |
+| `S(create_custom_tool(name="fails", description="x", input_schema={"type":"object"}, script="current_time()\nmemory_read(bundle='nope', path='nope')['missing']"))` then `S(fails())` | failure names `fails`, the failing step and lists `current_time ok` before it |
 | `context` | category lines now include `maths: Small arithmetic helpers`, `memory_custom: clash` and `custom: …`, after the MCP/client lines |
-| `{"tool":"list_tool_functions","arguments":{"category":"maths"}}` | `custom_echo_sum` |
-| `{"tool":"describe_tool_function","arguments":{"name":"custom_echo_sum"}}` | usual doc + `custom: {version: 1, author: "you", model_backed: false, needs_attention: null}` |
-| In a **second chat**, `S(custom_echo_sum(a=1, b=1))` | `2` |
+| `{"tool":"list_tool_functions","arguments":{"category":"maths"}}` | `echo_sum` |
+| `{"tool":"describe_tool_function","arguments":{"name":"echo_sum"}}` | usual doc + `custom: {version: 1, author: "you", model_backed: false, needs_attention: null}` |
+| In a **second chat**, `S(echo_sum(a=1, b=1))` | `2` |
 
 ## 3. Runs inside the calling turn (Story 3)
 
 | Send | Expect |
 |---|---|
 | `S(create_custom_tool(name="ask", description="x", input_schema={"type":"object"}, script="ask_question(questions=[{'kind':'confirm','text':'ok?'}])"))` | created (no security refusal in this version) |
-| Schedule a one-time task in a minute whose prompt is the JSON `S(custom_ask())`; read the task run | the inner `ask_question` gets the same "not offered here" answer a direct call gets in an unattended turn |
-| `S(create_custom_tool(name="slow", description="x", input_schema={"type":"object"}, script="while True:\n  pass"))` then `S(custom_slow())` | ends at the caller's time limit with a timeout naming `custom_slow` |
+| Schedule a one-time task in a minute whose prompt is the JSON `S(ask())`; read the task run | the inner `ask_question` gets the same "not offered here" answer a direct call gets in an unattended turn |
+| `S(create_custom_tool(name="slow", description="x", input_schema={"type":"object"}, script="while True:\n  pass"))` then `S(slow())` | ends at the caller's time limit with a timeout naming `slow` |
 
 ## 4. Versions, diff, rollback (Story 4)
 
@@ -64,8 +65,8 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 
 | Send | Expect |
 |---|---|
-| `S(create_custom_tool(name="double_sum", description="x", input_schema={"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}}}, script="custom_echo_sum(a=input['a'], b=input['b']) * 2"))` then `S(custom_double_sum(a=1, b=2))` | `6`; the record's `calls` contains `custom_echo_sum` |
-| `S(update_custom_tool(name="echo_sum", script="custom_double_sum(a=1, b=1)"))` | `invalid`, `cycle: echo_sum → double_sum → echo_sum` |
+| `S(create_custom_tool(name="double_sum", description="x", input_schema={"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}}}, script="echo_sum(a=input['a'], b=input['b']) * 2"))` then `S(double_sum(a=1, b=2))` | `6`; the record's `calls` contains `echo_sum` |
+| `S(update_custom_tool(name="echo_sum", script="double_sum(a=1, b=1)"))` | `invalid`, `cycle: echo_sum → double_sum → echo_sum` |
 | `S(update_custom_tool(name="echo_sum", new_name="add"))` | `has_callers: ["double_sum"]` |
 
 ## 6. Categories (Story 8)
@@ -73,7 +74,7 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 | Send | Expect |
 |---|---|
 | `S(update_custom_tool_category(name="maths", description="Arithmetic"))` | updated; next turn's `context` shows the new line; this turn's does not change |
-| `S(update_custom_tool_category(name="maths", new_name="arith"))` | renamed; `custom_echo_sum` is still callable by the same name and lists under `arith` |
+| `S(update_custom_tool_category(name="maths", new_name="arith"))` | renamed; `echo_sum` is still callable by the same name and lists under `arith` |
 | `S(update_custom_tool(name="loose", category="arith"))` | moved, as a new version; `custom` line disappears from the next turn's `context` |
 | Two turns with `S(create_custom_tool(... category="arith" ...))` between them | `context` before and after are identical (SC-010) |
 
@@ -81,8 +82,8 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 
 1. Open the agent's **Custom tools** page: groups `arith`, `memory_custom`, … each with its
    description; rows show version, author, time, switch.
-2. Switch `with_sample` off. In chat: `S(custom_with_sample(n=1))` → unknown; `S(set_custom_tool_enabled(name="with_sample", enabled=True))` → `disabled_by_person`.
-3. Open `echo_sum`, edit the script, save → version 5 authored by you; `S(custom_echo_sum(a=1,b=1))` runs it. Edit again from a second tab holding version 4 → "changed underneath you", reload offered.
+2. Switch `with_sample` off. In chat: `S(with_sample(n=1))` → unknown; `S(set_custom_tool_enabled(name="with_sample", enabled=True))` → `disabled_by_person`.
+3. Open `echo_sum`, edit the script, save → version 5 authored by you; `S(echo_sum(a=1,b=1))` runs it. Edit again from a second tab holding version 4 → "changed underneath you", reload offered.
 4. Rename `arith` from its heading; move `ask` into it from its editor (new category asks for a description).
 5. Delete `double_sum` (confirm). `S(list_custom_tools())` no longer lists it; the events list keeps the deletion.
 6. Sign in as a person who can only view the agent: no switches, editor or category edit.
@@ -92,7 +93,7 @@ Steps 1–7 should also be automated as `cargo test -p vizier-core --test dummyp
 **Mechanics (dummyplug)**: trigger a dream (`POST /agents/{id}/dream` or the WebUI button) on an
 agent whose dummyplug dream script calls `create_custom_tool` directly (no `execute_python`), then:
 the tool exists, its version 1 author is "a dream (<cycle id>)", `sample_run` is absent, and a
-dream call of `delete_custom_tool` or `custom_echo_sum` is refused as not in the dream toolset.
+dream call of `delete_custom_tool` or `echo_sum` is refused as not in the dream toolset.
 
 **Judgment (live provider, marked)**: seed two conversations that run the same three-call workflow
 with different inputs and one that needs judgment, run a dream, and check the extraction lists the

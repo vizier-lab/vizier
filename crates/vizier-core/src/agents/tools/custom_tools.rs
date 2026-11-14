@@ -46,7 +46,7 @@ custom_tool!(CreateCustomTool, "create_custom_tool");
 custom_tool!(UpdateCustomTool, "update_custom_tool");
 custom_tool!(ListCustomTools, "list_custom_tools");
 custom_tool!(GetCustomTool, "get_custom_tool");
-custom_tool!(CustomToolHistory, "get_custom_tool_history");
+custom_tool!(CustomToolHistory, "custom_tool_history");
 custom_tool!(DiffCustomTool, "diff_custom_tool");
 custom_tool!(RollbackCustomTool, "rollback_custom_tool");
 custom_tool!(DeleteCustomTool, "delete_custom_tool");
@@ -67,7 +67,7 @@ impl VizierTool for CreateCustomTool {
     }
 
     fn description(&self) -> String {
-        "Save a script as a custom tool of your own, called from any later script as custom_<name>(**arguments). \
+        "Save a script as a custom tool of your own, called from any later script by its own name, <name>(**arguments); the name must not be one any of your tools already has. \
          The script gets its validated arguments as the dict `input` (defaults filled in) and the value of its last \
          expression is the result; it can call every tool an execute_python script can. Use a custom tool for a \
          workflow whose steps are fixed and only the inputs change; use a skill when the steps need judgment. \
@@ -98,7 +98,7 @@ impl VizierTool for UpdateCustomTool {
 
     fn description(&self) -> String {
         "Change one of your custom tools: give its name and only the fields to change (new_name renames it, \
-         category moves it). Every change is a new version; the previous ones stay in get_custom_tool_history. \
+         category moves it). Every change is a new version; the previous ones stay in custom_tool_history. \
          Pass expected_version to be told out_of_date instead of overwriting a change you have not seen."
             .into()
     }
@@ -153,13 +153,13 @@ impl VizierTool for ListCustomTools {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NameInput {
-    #[schemars(description = "The tool's name, without the custom_ prefix.")]
+    #[schemars(description = "The custom tool's name.")]
     pub name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetCustomToolInput {
-    #[schemars(description = "The tool's name, without the custom_ prefix.")]
+    #[schemars(description = "The custom tool's name.")]
     pub name: String,
     #[serde(default)]
     #[schemars(description = "A past version; the current one when left out.")]
@@ -219,7 +219,7 @@ impl VizierTool for CustomToolHistory {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DiffCustomToolInput {
-    #[schemars(description = "The tool's name, without the custom_ prefix.")]
+    #[schemars(description = "The custom tool's name.")]
     pub name: String,
     #[schemars(description = "The older version.")]
     pub from: i64,
@@ -252,7 +252,7 @@ impl VizierTool for DiffCustomTool {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RollbackCustomToolInput {
-    #[schemars(description = "The tool's name, without the custom_ prefix.")]
+    #[schemars(description = "The custom tool's name.")]
     pub name: String,
     #[schemars(description = "The version to bring back; it is saved as a new version.")]
     pub to_version: i64,
@@ -313,7 +313,7 @@ impl VizierTool for DeleteCustomTool {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SetCustomToolEnabledInput {
-    #[schemars(description = "The tool's name, without the custom_ prefix.")]
+    #[schemars(description = "The custom tool's name.")]
     pub name: String,
     #[schemars(description = "true to offer it again, false to switch it off.")]
     pub enabled: bool,
@@ -350,7 +350,7 @@ pub struct UpdateCustomToolCategoryInput {
     #[schemars(description = "A new one-line description.")]
     pub description: Option<String>,
     #[serde(default)]
-    #[schemars(description = "A new name; every tool in it moves with it and keeps its custom_ name.")]
+    #[schemars(description = "A new name; every tool in it moves with it and keeps its name.")]
     pub new_name: Option<String>,
 }
 

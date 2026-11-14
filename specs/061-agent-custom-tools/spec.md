@@ -409,8 +409,12 @@ the category is gone.
 - **FR-010f**: The prompt's category list MUST be fixed for the whole turn: categories created,
   renamed, redescribed or removed during a turn appear from the next turn, and adding, changing or
   removing a tool in an existing category MUST NOT change the prompt at all.
-- **FR-011**: Custom tools MUST be named under a fixed namespace that no built-in, addon, MCP or
-  client tool can take, independent of their category, so a category change never renames a tool.
+- **FR-011**: A custom tool MUST be called by its own name, with no prefix, independent of its
+  category, so a category change never renames a tool. A save MUST be refused when the name is
+  already taken by any tool the agent has (built-in, addon, MCP, client or project tool, another
+  custom tool, a retired tool name or a sandbox helper). If a tool attached later takes the name of
+  an existing custom tool, the attached tool keeps it: the custom tool MUST be marked as needing
+  attention (its name is taken) and is not offered until it is renamed.
 - **FR-012**: A call MUST validate its input against the schema before running and fail with every
   mismatch, by path, if it does not match.
 - **FR-013**: A custom tool MUST run inside the calling script's call, making its inner tool calls

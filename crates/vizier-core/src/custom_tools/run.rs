@@ -5,7 +5,7 @@
 
 use tracing::Instrument;
 
-use super::{CustomTools, naming, schema};
+use super::{CustomTools, schema};
 use crate::{
     agents::tools::{ToolContext, ToolRouter, turn_source::BridgeEnv},
     sandbox::{ExecutionReport, SandboxLimits, ToolInvocationRecord},
@@ -46,7 +46,7 @@ fn tool_timeout(ctx: &ToolContext) -> std::time::Duration {
         .unwrap_or(std::time::Duration::from_secs(60))
 }
 
-/// One call of `function` (`custom_<name>`) from a script.
+/// One call of the custom tool `function` from a script.
 pub async fn call(
     tools: &CustomTools,
     function: &str,
@@ -66,9 +66,7 @@ async fn call_inner(
     env: &BridgeEnv<'_>,
 ) -> anyhow::Result<VizierResponse> {
     let agent_id = &ctx.session.0;
-    let Some(name) = naming::tool_name(function) else {
-        anyhow::bail!("{function} is not a custom tool");
-    };
+    let name = function;
     let Some(tool) = tools.storage().get_custom_tool(agent_id, name).await? else {
         anyhow::bail!("{function}: you have no custom tool named {name} (was it deleted or renamed?)");
     };

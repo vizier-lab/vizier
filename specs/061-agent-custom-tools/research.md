@@ -73,11 +73,11 @@ scripts too: it is the sandbox's limit, not a custom-tool limit, so FR-015a hold
 - **Entries** come from `CustomTurnSource::entries`, one storage query (`list_enabled(agent)`)
   each time `RouterBridge` fills its per-run catalogue (`OnceCell`, bridge.rs:65). A tool saved in
   this turn is callable from the next script run in the same turn (SC-001).
-- **Category lines** are snapshotted once at turn start into `ToolContext.custom_categories`
+- **Category lines** are snapshotted once at turn start into `ToolContext.categories`
   (where `VizierAgent` already resolves the project context and client tools), and
   `turn_categories` appends them after built-in, addon, MCP and client lines. `list_tool_functions`
   reads the same snapshot, so the prompt and the listing agree for the turn (FR-010f, SC-010).
-- An entry's name is `custom_<name>`; its `CatalogueEntry.category` is the stored category name;
+- An entry's name is the tool's own name (no prefix, decided 2026-11-15); its `CatalogueEntry.category` is the stored category name;
   its definition's description is the tool's description plus a one-line suffix
   (`Custom tool v3 by you (dream 2026-11-14). Calls a model-backed tool.` / `Needs attention:
   missing stripe_list_charges`). `describe_tool_function` adds `version`, `author`,
@@ -119,7 +119,7 @@ check (rejected: it has side effects and is skipped in dreams and the WebUI).
 
 **Decision**: at save, build the graph `custom tool → custom tools it calls` from the stored
 `calls` of the agent's current versions plus the candidate, and refuse if the candidate reaches
-itself; the refusal names the cycle (`a → b → a`). At call time, `ToolContext.custom_chain`
+itself; the refusal names the cycle (`a → b → a`). At call time, `ToolContext.chain`
 (a `Vec<String>`, copied into the nested call's context) refuses a name already on the chain —
 this covers indirect calls R4 cannot see and edits that raced.
 
@@ -232,7 +232,11 @@ unchanged), so the server keeps its usual name and the clash rule stays one func
 transaction that removes its last tool (FR-010c). Renames update the tools' `category` in the same
 transaction (FR-010e).
 
-**Tool names**: `^[a-z][a-z0-9_]*$`, reached as `custom_<name>`. `custom_` becomes a reserved prefix:
+**Tool names** (revised 2026-11-15, the requester dropped the prefix): `^[a-z][a-z0-9_]*$`, called by
+that name. A save is refused (`name_taken`, with the owner) when any tool the agent can call, a
+retired name or a sandbox helper already has it. A tool attached later wins its name: turn sources
+are first-wins in `turn_catalogue`, so the custom entry is dropped and the tool reads *needs
+attention: name taken*. The superseded first draft was a reserved `custom_` prefix:
 a test pins that no native, addon or retired tool name starts with it, and MCP/client naming
 (`assign_names`, `client_category_name`) skips it (FR-011).
 
@@ -241,7 +245,7 @@ a test pins that no native, addon or retired tool name starts with it, and MCP/c
 **Decision**: `ToolInvocationRecord` gains `calls: Vec<ToolInvocationRecord>` (serde `skip if
 empty`). A custom tool's record in the caller's report carries the nested run's records; the
 nested records are not repeated at the outer level (the inner bridge has its own list). The span
-is the normal `execute_tool custom_<name>` from `ToolRouter`'s path with `vizier.custom_tool.id`
+is the normal `execute_tool <name>` from `ToolRouter`'s path with `vizier.custom_tool.id`
 and `vizier.custom_tool.version`; nested `execute_tool` spans are its children because the nested
 run executes inside it. `last_called_at` is written best-effort after each call (a failed write is
 logged).
@@ -256,7 +260,7 @@ logged).
   and `list_skills` first, update rather than duplicate, prefer an existing category, suggest
   merging categories of one or two tools"; the audit step adds "N skills, M custom tools created or
   updated; workflows left alone and why".
-- `DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `get_custom_tool_history`,
+- `DREAM_TOOL_NAMES` adds `list_custom_tools`, `get_custom_tool`, `custom_tool_history`,
   `diff_custom_tool`, `create_custom_tool`, `update_custom_tool`, `rollback_custom_tool`,
   `update_custom_tool_category`; never `delete_custom_tool` or `set_custom_tool_enabled`; the
   custom tools themselves are never dream tools (FR-009). A test pins both lists.

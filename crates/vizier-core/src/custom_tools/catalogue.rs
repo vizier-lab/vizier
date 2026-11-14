@@ -75,7 +75,7 @@ impl TurnToolSource for CustomSource {
             .map(|tool| {
                 let calls = &tool.current.definition.calls;
                 let model_backed = validate::model_backed(calls, &backed, &tools);
-                let name = naming::call_as(&tool.name);
+                let name = tool.name.clone();
                 CatalogueEntry {
                     name: name.clone(),
                     category: shown_category(&tool.category, &reserved),
@@ -97,7 +97,7 @@ impl TurnToolSource for CustomSource {
 
     async fn describe_extra(&self, ctx: &ToolContext, name: &str) -> Option<serde_json::Value> {
         let service = ctx.custom.tools.as_ref()?;
-        let tool_name = naming::tool_name(name)?;
+        let tool_name = name;
         let tools = service.storage().list_custom_tools(&ctx.session.0, true).await.ok()?;
         let tool = tools.iter().find(|tool| tool.name == tool_name)?;
         let router = ctx.custom.script_router.as_ref();
@@ -109,13 +109,13 @@ impl TurnToolSource for CustomSource {
         let backed: HashSet<String> =
             names.as_ref().map(|names| names.model_backed.iter().cloned().collect()).unwrap_or_default();
         let calls = &tool.current.definition.calls;
-        let missing = validate::needs_attention(calls, known.as_ref(), &tools).filter(|m| !m.is_empty());
+        let attention = validate::attention(tool, known.as_ref(), &tools);
         Some(serde_json::json!({
             "custom": {
                 "version": tool.current_seq,
                 "author": tool.current.actor.label(),
                 "model_backed": validate::model_backed(calls, &backed, &tools),
-                "needs_attention": missing.map(|missing| serde_json::json!({ "missing": missing })),
+                "needs_attention": attention,
             }
         }))
     }

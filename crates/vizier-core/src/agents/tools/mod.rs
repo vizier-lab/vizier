@@ -873,8 +873,15 @@ pub fn client_category_name(category: &str, reserved: &[String]) -> String {
 /// (client, project, custom; `specs/061-agent-custom-tools` R1).
 pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<CatalogueEntry> {
     let mut entries = router.catalogue(ctx).await;
+    // First wins (spec 061 FR-011): a later source never takes a name an earlier one has, so a
+    // custom tool whose name a tool attached later took is not offered until it is renamed.
+    let mut taken: HashSet<String> = entries.iter().map(|entry| entry.name.clone()).collect();
     for source in turn_source::sources() {
-        entries.extend(source.entries(router, ctx).await);
+        for entry in source.entries(router, ctx).await {
+            if taken.insert(entry.name.clone()) {
+                entries.push(entry);
+            }
+        }
     }
     // A detached script has no turn to end (spec 058 contracts/detached-flag.md §2).
     if ctx.detached {
@@ -934,11 +941,7 @@ pub(crate) fn assign_names(native: &[&str], mcp: &[(&str, &str)]) -> Vec<String>
     let mut names = vec![String::new(); mcp.len()];
     for i in order {
         let (server, tool) = mcp[i];
-        let mut base = python_identifier(&format!("{server}_{tool}"));
-        // `custom_` is the agent's own tools' prefix (spec 061 R12): an MCP tool never takes it.
-        if base.starts_with(crate::custom_tools::naming::PREFIX) {
-            base = format!("mcp_{base}");
-        }
+        let base = python_identifier(&format!("{server}_{tool}"));
         let mut name = base.clone();
         let mut n = 2;
         while !taken.insert(name.clone()) {
@@ -1284,7 +1287,7 @@ impl VizierTools {
         // off or call one.
         "list_custom_tools",
         "get_custom_tool",
-        "get_custom_tool_history",
+        "custom_tool_history",
         "diff_custom_tool",
         "create_custom_tool",
         "update_custom_tool",
@@ -1347,7 +1350,7 @@ impl VizierTools {
         }
 
         // Only what the dream was offered: a guessed name (`delete_custom_tool`, a
-        // `custom_<name>` tool, `set_secret`) is refused, not dispatched (spec 061 R14).
+        // custom tool, `set_secret`) is refused, not dispatched (spec 061 R14).
         if !Self::dream_may_call(&function_name) {
             return Err(VizierError(format!("{function_name} is not in the dream toolset")).into());
         }
@@ -2017,7 +2020,7 @@ mod tests {
             ("update_custom_tool", CustomTools),
             ("list_custom_tools", CustomTools),
             ("get_custom_tool", CustomTools),
-            ("get_custom_tool_history", CustomTools),
+            ("custom_tool_history", CustomTools),
             ("diff_custom_tool", CustomTools),
             ("rollback_custom_tool", CustomTools),
             ("delete_custom_tool", CustomTools),
@@ -2242,32 +2245,12 @@ mod tests {
         for name in ["delete_custom_tool", "set_custom_tool_enabled"] {
             assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
         }
-        assert!(
-            VizierTools::DREAM_TOOL_NAMES
-                .iter()
-                .all(|name| !name.starts_with(crate::custom_tools::naming::PREFIX)),
-            "a custom tool is never called from a dream"
-        );
         // A guessed name is refused at dispatch, not only left out of the offer.
-        for name in ["delete_custom_tool", "set_custom_tool_enabled", "custom_echo_sum", "set_secret"] {
+        for name in ["delete_custom_tool", "set_custom_tool_enabled", "echo_sum", "set_secret"] {
             assert!(!VizierTools::dream_may_call(name), "{name}");
         }
         assert!(VizierTools::dream_may_call("create_custom_tool"));
         assert!(VizierTools::dream_may_call("read_dream_journal"));
-    }
-
-    /// `custom_` is reserved for the agent's own tools (spec 061 R12).
-    #[test]
-    fn no_built_in_or_retired_name_takes_the_custom_prefix() {
-        let prefix = crate::custom_tools::naming::PREFIX;
-        for (name, _) in every_tool() {
-            assert!(!name.starts_with(prefix), "{name}");
-        }
-        for (name, _) in RETIRED_TOOL_NAMES {
-            assert!(!name.starts_with(prefix), "{name}");
-        }
-        let names = assign_names(&[], &[("custom", "thing"), ("custom", "other")]);
-        assert!(names.iter().all(|name| !name.starts_with(prefix)), "{names:?}");
     }
 
     /// A new category is appended, never slotted in among the categories older prompts and

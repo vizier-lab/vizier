@@ -25,7 +25,7 @@ Everything available to an `execute_python` script is available here, under the 
 | `update_custom_tool` | `name`, any of the create fields plus `new_name?`, `expected_version?`, `reason?` | `{status: "updated", tool, version}` | ✅ |
 | `list_custom_tools` | `category?`, `include_disabled?` (default true) | `{tools: [{name, call_as, category, version, enabled, disabled_by?, needs_attention?, model_backed, author, updated_at, last_called_at}], categories: [{name, description, tools}]}` | ✅ |
 | `get_custom_tool` | `name`, `version?` | full definition of that version + `calls`, `callers`, `needs_attention`, `model_backed` | ✅ |
-| `get_custom_tool_history` | `name` | `{versions: [{version, author, trigger, dream_cycle_id?, reason?, restored_from?, at}], events: [...]}` | ✅ |
+| `custom_tool_history` | `name` | `{versions: [{version, author, trigger, dream_cycle_id?, reason?, restored_from?, at}], events: [...]}` | ✅ |
 | `diff_custom_tool` | `name`, `from`, `to?` (default current) | `{description: RevisionDiff, input_schema: RevisionDiff, script: RevisionDiff, category?: {from, to}}` | ✅ |
 | `rollback_custom_tool` | `name`, `to_version`, `reason?` | `{status: "rolled_back", version, restored_from}` (validated as an update) | ✅ |
 | `delete_custom_tool` | `name` | `{status: "deleted"}` | ❌ |
@@ -52,21 +52,21 @@ when the steps need judgment."
 
 ## 3. Calling a custom tool
 
-From any script: `custom_<name>(**arguments)`, like any tool. The bridge:
+From any script: `<name>(**arguments)`, like any tool. The bridge:
 
-1. resolves `custom_<name>` from the turn's catalogue (enabled tools only);
-2. loads the current version; disabled/deleted since the listing → `RuntimeError("custom_x: disabled by <who>")` / `NameError`-like unknown;
-3. validates the arguments (R6); a mismatch → `RuntimeError("custom_x: invalid input: $.limit: expected integer, got string; …")` and nothing runs;
-4. refuses a name already on the call chain → `RuntimeError("custom_a: cycle a → b → a")`;
+1. resolves `<name>` from the turn's catalogue (enabled tools whose name no other tool has);
+2. loads the current version; disabled/deleted since the listing → `RuntimeError("x: disabled by <who>")` / `NameError`-like unknown;
+3. validates the arguments (R6); a mismatch → `RuntimeError("x: invalid input: $.limit: expected integer, got string; …")` and nothing runs;
+4. refuses a name already on the call chain → `RuntimeError("a: cycle a → b → a")`;
 5. runs the script with `input` bound, under the caller's tool timeout and deadline;
 6. returns the result value, or raises `RuntimeError` whose message is the failure summary:
 
 ```text
-custom_weekly_report_pull failed at step 3 (memory_write): bundle 'digests' is reserved
+weekly_report_pull failed at step 3 (memory_write): bundle 'digests' is reserved
 calls made: 1 memory_search ok, 2 memory_read ok, 3 memory_write failed
 ```
 
-The caller's report records one invocation `custom_<name>` with `calls: [...]` holding the nested
+The caller's report records one invocation `<name>` with `calls: [...]` holding the nested
 records (FR-028).
 
 ## 4. Discovery additions (existing tools)
@@ -76,6 +76,6 @@ records (FR-028).
   `custom_tools` authoring category is a built-in line.
 - **`list_tool_functions(category="reports")`**: the category's tools, as for any category.
 - **`list_tool_functions()`** (all): custom entries carry `"custom": true`.
-- **`describe_tool_function("custom_weekly_report_pull")`**: the usual doc plus
+- **`describe_tool_function("weekly_report_pull")`**: the usual doc plus
   `{"custom": {"version": 3, "author": "you" | "a dream (2026-11-14)" | "<person>", "model_backed": false, "needs_attention": null | {"missing": ["stripe_list_charges"]}}}`.
 - Disabled tools appear in none of these.
