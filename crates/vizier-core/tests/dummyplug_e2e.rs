@@ -1631,3 +1631,60 @@ async fn old_tool_outputs_are_pruned_from_the_model_and_recalled_by_id() {
 
     runtime.shutdown().await.unwrap();
 }
+
+/// A one-request HTTP server on a free port that answers with `body` as a PDF attachment.
+fn serve_once(body: Vec<u8>) -> u16 {
+    use std::io::{Read, Write};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf);
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"report.pdf\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(&body).unwrap();
+    });
+    port
+}
+
+/// `http_client(save_as_session_file=True)` keeps a binary body byte for byte as a session
+/// file named from the server's Content-Disposition, and returns no body text.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_client_saves_a_download_as_a_session_file() {
+    use vizier_core::storage::session_file::SessionFileStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    vizier_core::integrations::service::seed_default(
+        runtime.deps(),
+        "plug",
+        None,
+        vizier_core::integrations::kinds::http::ID,
+        vizier_core::integrations::kinds::http::DEFAULT_NAME,
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let session = web_session("download");
+    // Not valid UTF-8, so a text body would have been mangled.
+    let bytes: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    let port = serve_once(bytes.clone());
+    let code = format!(
+        "r = http_client(url='http://127.0.0.1:{port}/files/x', method='GET', save_as_session_file=True)\n[r['status'], r['body'], r['session_file']]"
+    );
+    let reply = chat(runtime.transport(), &session, &run_python(&code, false, None)).await;
+    assert!(reply.contains("report.pdf") && reply.contains("4096"), "{reply}");
+
+    let files = runtime.deps().storage.list_session_files(&session).await.unwrap();
+    let file = files
+        .iter()
+        .find(|f| f.filename == "report.pdf")
+        .unwrap_or_else(|| panic!("no report.pdf in {files:?}: {reply}"));
+    assert_eq!(file.mime_type, "application/pdf");
+    let (_, saved) = runtime.deps().file_manager.get(&file.file_id).await.unwrap();
+    assert_eq!(saved, bytes);
+
+    runtime.shutdown().await.unwrap();
+}

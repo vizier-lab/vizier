@@ -84,7 +84,7 @@ Shell, HTTP, Brave Search, Office and MCP servers are **addons**: they are attac
 | `shell` | – | – | `shell_exec` | **An addon now** (the addons redesign). Install **Shell** with `path` and optional `env`, then `shell_exec` is contributed under the `shell` category. Docker is not offered yet. |
 | `brave_search` + `brave_search_settings` | bool + `{api_key, safesearch}` | `false` | `brave_search_web`, `brave_search_news` | An addon: install **Brave Search** from the agent’s Addons page. |
 | `fetch` | – | – | `fetch` | **Part of the HTTP addon** (the addons redesign): install **HTTP**, which adds `fetch` and `http_client` together. |
-| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. |
+| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. With `save_as_session_file: true` a 2xx response body is saved byte for byte as a file of the conversation (up to 100 MiB) and returned as `session_file {filename, mime_type, size}` with an empty `body`; `filename` names it, otherwise the server's `Content-Disposition` name or the URL's last path segment is used. A same-named session file is replaced; a non-2xx response is returned as text. |
 | `discord` | bool | `false` | `discord_*` | Requires `discord_token` on the agent |
 | `telegram` | bool | `false` | `telegram_*` | Requires `telegram_token` |
 | `mcp_servers` | map | `{}` | `mcp_<server>__<tool>` | See [MCP Servers](./mcp.md) |
