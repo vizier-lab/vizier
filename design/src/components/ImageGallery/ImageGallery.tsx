@@ -17,7 +17,8 @@ export function ImageGallery({ images, onOpen, className, ...rest }: ImageGaller
         <li key={img.src + i}>
           <figure className="flex flex-col gap-6">
             <button type="button" onClick={() => onOpen?.(i)} aria-label={`Open ${img.name}`} className="overflow-hidden rounded-md bg-surface">
-              <img src={img.src} alt={img.alt ?? ""} className="aspect-[3/2] w-full object-cover" />
+              {/* Cropped from the top, not the middle: a tall photo keeps its subject's head in frame. */}
+              <img src={img.src} alt={img.alt ?? ""} className="aspect-[3/2] w-full object-cover object-top" />
             </button>
             <figcaption className="type-mono-xs text-faint">
               {img.name}
