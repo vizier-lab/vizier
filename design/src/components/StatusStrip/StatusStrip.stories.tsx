@@ -7,9 +7,9 @@ import { StatusPanel } from "./StatusPanel";
 
 const items = [
   { id: "memory" as const, icon: "memory" as const, label: "recalled passages", count: 3 },
-  { id: "work" as const, icon: "layers" as const, label: "background work running", count: 2, busy: true },
-  { id: "subagents" as const, icon: "users" as const, label: "subagents at work", count: 2, dot: "warn" as const },
-  { id: "files" as const, icon: "file" as const, label: "session files", count: 4 },
+  { id: "work" as const, icon: "briefcase" as const, label: "background work running", count: 2, busy: true },
+  { id: "subagents" as const, icon: "agent" as const, label: "subagents at work", count: 2, dot: "warn" as const },
+  { id: "files" as const, icon: "attach" as const, label: "session files", count: 4 },
   { id: "changes" as const, icon: "git-branch" as const, label: "changed files", count: 5 },
 ];
 
