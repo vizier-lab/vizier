@@ -346,6 +346,42 @@ mod service {
         assert_eq!(got.result.as_deref(), Some("the real answer"));
     }
 
+    /// Found by CI: a wait in a detached script leaves the conversation idle, so a worker's poke
+    /// is claimed at once. While a wait watches a worker, delivery must leave its outcome to the
+    /// wait, or the agent gets it twice.
+    #[tokio::test]
+    async fn a_watched_worker_is_not_delivered_behind_the_waits_back() {
+        let f = fixture().await;
+        let hirer = ctx(chat(), 5);
+        let workers = f.subagents.spawn(&hirer, vec!["a".into()], 600).await.unwrap();
+        let ids = vec![workers[0].id.clone()];
+
+        let subagents = f.subagents.clone();
+        let waiting = tokio::spawn(async move { subagents.wait(&hirer, &ids, Until::All).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        reply(&f, &workers[0], "the answer").await;
+        // The poke's claim runs while the wait still watches the worker.
+        assert!(f.subagents.claim(&chat()).await.is_empty(), "left to the wait");
+        let waited = waiting.await.unwrap().unwrap().unwrap();
+        assert!(waited.met);
+        assert_eq!(waited.workers[0].result.as_deref(), Some("the answer"));
+        assert!(f.subagents.claim(&chat()).await.is_empty(), "returned by the wait, so never delivered");
+    }
+
+    /// The other side: an outcome that lands after a wait gave up is still delivered.
+    #[tokio::test]
+    async fn an_outcome_after_the_wait_ends_is_delivered() {
+        let f = fixture().await;
+        let workers = f.subagents.spawn(&ctx(chat(), 1), vec!["a".into()], 600).await.unwrap();
+        let ids = vec![workers[0].id.clone()];
+        let waited = f.subagents.wait(&ctx(chat(), 0), &ids, Until::All).await.unwrap().unwrap();
+        assert!(!waited.met);
+        reply(&f, &workers[0], "late").await;
+        let delivered = f.subagents.claim(&chat()).await;
+        assert_eq!(delivered.len(), 1);
+        assert!(delivered[0].contains("result: late"));
+    }
+
     #[tokio::test]
     async fn an_unseen_answer_is_delivered_once_beside_other_sources() {
         let f = fixture().await;

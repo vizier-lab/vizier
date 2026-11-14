@@ -1428,14 +1428,16 @@ async fn call_tool(runtime: &VizierRuntime, session: &VizierSession, tool: &str,
     chat(runtime.transport(), session, &request.to_string()).await
 }
 
-/// Quickstart step 6: a detached script fans out to sub-agents; one delivery carries both
-/// answers when it ends.
+/// Quickstart step 6 (058), with the spec 059 worker tools: a detached script hires two workers
+/// and waits for them; one delivery (the script's) carries both answers, and the workers' own
+/// outcomes are not delivered again because the wait returned them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_detached_fan_out_is_delivered_once_with_every_answer() {
     let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
     let session = web_session("fanout");
-    let code = "r = parallel_subagents(tasks=[{'prompt': 'tools'}, {'prompt': 'tools'}])
-[x['state'] for x in r['results']]";
+    let code = "r = spawn_subagents(tasks=[{'task': 'tools'}, {'task': 'tools'}])
+w = wait_subagents(ids=[x['id'] for x in r['subagents']])
+[x['state'] for x in w['subagents']]";
     let id = handle_id(&chat(runtime.transport(), &session, &run_python(code, true, None)).await);
     eventually(60, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
     let row = script(&runtime, &id).await;

@@ -339,7 +339,11 @@ impl SubagentStorage for SqlStorage {
         Ok(marked)
     }
 
-    async fn claim_subagent_deliveries(&self, session: &VizierSession) -> Result<Vec<Subagent>> {
+    async fn claim_subagent_deliveries(
+        &self,
+        session: &VizierSession,
+        exclude: &[SubagentId],
+    ) -> Result<Vec<Subagent>> {
         let (agent, channel, topic) = hiring_params(session)?;
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
@@ -352,6 +356,9 @@ impl SubagentStorage for SqlStorage {
         )?;
         let mut claimed = Vec::with_capacity(candidates.len());
         for mut worker in candidates {
+            if exclude.contains(&worker.id) {
+                continue;
+            }
             // Re-checked per row, so a wait (or another claimer) that took the outcome first
             // leaves it out.
             let changed = tx.execute(
@@ -665,7 +672,7 @@ pub(crate) mod tests {
         open(&storage, &["s_1", "s_2", "s_3"], hiring("t")).await;
         open(&storage, &["s_9"], hiring("other")).await;
         let now = crate::time::now();
-        assert!(storage.claim_subagent_deliveries(&hiring("t")).await.unwrap().is_empty());
+        assert!(storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap().is_empty());
 
         storage.settle_subagent("s_1", answered(), now).await.unwrap();
         storage.ask_subagent("s_2", "which?", 1_000, now).await.unwrap();
@@ -674,11 +681,11 @@ pub(crate) mod tests {
 
         // A wait already returned s_3's answer to the main agent.
         assert_eq!(storage.mark_subagents_seen(&["s_3".into()]).await.unwrap(), vec!["s_3".to_string()]);
-        let claimed = storage.claim_subagent_deliveries(&hiring("t")).await.unwrap();
+        let claimed = storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap();
         let mut ids: Vec<_> = claimed.iter().map(|w| w.id.as_str()).collect();
         ids.sort();
         assert_eq!(ids, vec!["s_1", "s_2"]);
-        assert!(storage.claim_subagent_deliveries(&hiring("t")).await.unwrap().is_empty());
+        assert!(storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap().is_empty());
         assert!(storage.mark_subagents_seen(&["s_1".into()]).await.unwrap().is_empty(), "delivered is not seen again");
         assert_eq!(
             storage.subagent_delivery_sessions(&"agent-1".to_string()).await.unwrap(),
@@ -688,9 +695,22 @@ pub(crate) mod tests {
         // The reply, then a second question: deliverable again.
         storage.reply_subagent("s_2", now, now).await.unwrap();
         storage.ask_subagent("s_2", "and?", 1_000, now).await.unwrap();
-        let again = storage.claim_subagent_deliveries(&hiring("t")).await.unwrap();
+        let again = storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap();
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].question.as_deref(), Some("and?"));
+    }
+
+    #[tokio::test]
+    async fn a_claim_skips_the_workers_a_wait_is_watching() {
+        let (storage, _dir) = setup();
+        open(&storage, &["s_1", "s_2"], hiring("t")).await;
+        let now = crate::time::now();
+        storage.settle_subagent("s_1", answered(), now).await.unwrap();
+        storage.settle_subagent("s_2", answered(), now).await.unwrap();
+        let claimed = storage.claim_subagent_deliveries(&hiring("t"), &["s_1".into()]).await.unwrap();
+        assert_eq!(claimed.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), vec!["s_2"]);
+        // Still deliverable once nobody is watching it.
+        assert_eq!(storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -700,7 +720,7 @@ pub(crate) mod tests {
         let now = crate::time::now();
         storage.ask_subagent("s_1", "which?", 1_000, now).await.unwrap();
         storage.stop_subagent("s_1", SubagentStopReason::ByAgent, now).await.unwrap();
-        assert!(storage.claim_subagent_deliveries(&hiring("t")).await.unwrap().is_empty());
+        assert!(storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -715,7 +735,7 @@ pub(crate) mod tests {
         }
         let claims = (0..4).map(|_| {
             let storage = storage.clone();
-            tokio::spawn(async move { storage.claim_subagent_deliveries(&hiring("t")).await.unwrap() })
+            tokio::spawn(async move { storage.claim_subagent_deliveries(&hiring("t"), &[]).await.unwrap() })
         });
         let mut got: Vec<String> = vec![];
         for claim in claims {

@@ -75,8 +75,13 @@ pub trait SubagentStorage {
     async fn mark_subagents_seen(&self, ids: &[SubagentId]) -> Result<Vec<SubagentId>>;
 
     /// Take the hiring conversation's deliverable outcomes: `delivered_seq = outcome_seq` where
-    /// still deliverable; returns the rows it took, oldest change first. Fenced.
-    async fn claim_subagent_deliveries(&self, session: &VizierSession) -> Result<Vec<Subagent>>;
+    /// still deliverable; returns the rows it took, oldest change first. `exclude` are workers a
+    /// `wait_subagents` is watching, which hands their outcome back itself. Fenced.
+    async fn claim_subagent_deliveries(
+        &self,
+        session: &VizierSession,
+        exclude: &[SubagentId],
+    ) -> Result<Vec<Subagent>>;
 
     /// The worker whose own conversation has `worker_topic`.
     async fn subagent_by_worker(&self, worker_topic: &str) -> Result<Option<Subagent>>;
@@ -163,8 +168,12 @@ impl SubagentStorage for super::VizierStorage {
         self.0.mark_subagents_seen(ids).await
     }
 
-    async fn claim_subagent_deliveries(&self, session: &VizierSession) -> Result<Vec<Subagent>> {
-        self.0.claim_subagent_deliveries(session).await
+    async fn claim_subagent_deliveries(
+        &self,
+        session: &VizierSession,
+        exclude: &[SubagentId],
+    ) -> Result<Vec<Subagent>> {
+        self.0.claim_subagent_deliveries(session, exclude).await
     }
 
     async fn subagent_by_worker(&self, worker_topic: &str) -> Result<Option<Subagent>> {

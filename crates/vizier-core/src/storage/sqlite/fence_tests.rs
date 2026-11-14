@@ -326,7 +326,7 @@ async fn stale_subagent_write_refused() {
     n.assert_refused(&scope, n.a.settle_subagent("s_1", answered(), now).await);
     n.assert_refused(&scope, n.a.stop_subagent("s_3", SubagentStopReason::ByAgent, now).await);
     n.assert_refused(&scope, n.a.mark_subagents_seen(&["s_2".into()]).await);
-    n.assert_refused(&scope, n.a.claim_subagent_deliveries(&session("x")).await);
+    n.assert_refused(&scope, n.a.claim_subagent_deliveries(&session("x"), &[]).await);
     n.assert_refused(&scope, n.a.reown_running_subagents(&"x".to_string(), i64::MAX as u64).await);
     n.assert_refused(
         &scope,
@@ -337,7 +337,7 @@ async fn stale_subagent_write_refused() {
 
     // The same writes by the new owner succeed.
     n.b.open_subagents(vec![worker("s_4")]).await.unwrap();
-    assert!(n.b.claim_subagent_deliveries(&session("x")).await.unwrap().len() == 1, "s_2's question");
+    assert!(n.b.claim_subagent_deliveries(&session("x"), &[]).await.unwrap().len() == 1, "s_2's question");
     n.b.reply_subagent("s_2", now, now).await.unwrap().unwrap();
     n.b.ask_subagent("s_2", "again?", 0, now).await.unwrap().unwrap();
     assert_eq!(n.b.mark_subagents_seen(&["s_2".into()]).await.unwrap(), vec!["s_2".to_string()]);

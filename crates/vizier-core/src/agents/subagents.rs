@@ -159,6 +159,51 @@ struct Inner {
     transport: VizierTransport,
     /// One time-limit task per running worker of this process.
     timers: Mutex<HashMap<SubagentId, AbortHandle>>,
+    /// Workers a `wait_subagents` of this process is watching, with how many waits watch each.
+    /// Delivery skips them, because the wait hands their outcome back itself: without this, an
+    /// idle conversation's poke could deliver an answer the wait is about to return too.
+    watched: Mutex<HashMap<SubagentId, usize>>,
+}
+
+/// A wait's hold on the workers it watches. Released on every way out of the wait (a return,
+/// an error, the call dropped), and then anything it did not hand back is poked for delivery.
+struct Watch {
+    inner: Arc<Inner>,
+    ids: Vec<SubagentId>,
+    session: VizierSession,
+}
+
+impl Watch {
+    fn new(inner: &Arc<Inner>, ids: &[SubagentId], session: &VizierSession) -> Self {
+        let mut watched = inner.watched.lock();
+        for id in ids {
+            *watched.entry(id.clone()).or_default() += 1;
+        }
+        Self { inner: inner.clone(), ids: ids.to_vec(), session: session.clone() }
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        {
+            let mut watched = self.inner.watched.lock();
+            for id in &self.ids {
+                if let Some(count) = watched.get_mut(id) {
+                    *count -= 1;
+                    if *count == 0 {
+                        watched.remove(id);
+                    }
+                }
+            }
+        }
+        // An outcome that arrived after the wait's last read was neither returned nor delivered:
+        // poke, and the claim (no longer skipping it) takes it.
+        let transport = self.inner.transport.clone();
+        let session = self.session.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move { crate::agents::delivery::poke(&transport, session, 0).await });
+        }
+    }
 }
 
 impl Subagents {
@@ -168,6 +213,7 @@ impl Subagents {
                 storage,
                 transport,
                 timers: Mutex::new(HashMap::new()),
+                watched: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -436,7 +482,9 @@ impl Subagents {
         if ids.is_empty() {
             return Err(VizierError("ids must not be empty".into()));
         }
-        // Subscribe before the first read, so a change in between still wakes us.
+        // Watch before the first read, so no delivery takes these outcomes meanwhile, and
+        // subscribe before it too, so a change in between still wakes us.
+        let _watch = Watch::new(&self.inner, ids, &ctx.session);
         let mut events = self.inner.transport.subscribe_session_events();
         let deadline = ctx
             .deadline
@@ -688,7 +736,8 @@ pub async fn delete_worker_conversations(
 #[async_trait::async_trait]
 impl crate::agents::delivery::DeliverySource for Subagents {
     async fn claim(&self, session: &VizierSession) -> Vec<String> {
-        match self.inner.storage.claim_subagent_deliveries(session).await {
+        let watched: Vec<SubagentId> = self.inner.watched.lock().keys().cloned().collect();
+        match self.inner.storage.claim_subagent_deliveries(session, &watched).await {
             Ok(rows) => rows
                 .iter()
                 .map(|row| {
