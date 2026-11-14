@@ -15,9 +15,32 @@ DUMMYPLUG_NODE_SELECTOR=${DUMMYPLUG_NODE_SELECTOR:-'{}'}
 DUMMYPLUG_TOLERATIONS=${DUMMYPLUG_TOLERATIONS:-'[]'}
 PF_PID=
 
+# What a failed run leaves behind: why a pod is not ready is in its events, its probes and its
+# logs (and the previous container's, when it crashed and restarted).
+diagnostics() {
+  printf '\n===== smoke failed: diagnostics for namespace %s =====\n' "$NAMESPACE"
+  kubectl -n "$NAMESPACE" get all,pvc -o wide || true
+  kubectl get pv -o wide || true
+  kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
+  kubectl -n "$NAMESPACE" describe deployment "$RELEASE" || true
+  kubectl -n "$NAMESPACE" describe pvc || true
+  for pod in $(kubectl -n "$NAMESPACE" get pods -o name 2>/dev/null); do
+    printf '\n----- describe %s -----\n' "$pod"
+    kubectl -n "$NAMESPACE" describe "$pod" || true
+    printf '\n----- logs %s -----\n' "$pod"
+    kubectl -n "$NAMESPACE" logs "$pod" --all-containers --tail=300 || true
+    printf '\n----- previous logs %s -----\n' "$pod"
+    kubectl -n "$NAMESPACE" logs "$pod" --all-containers --previous --tail=300 2>/dev/null || true
+  done
+  printf '===== end of diagnostics =====\n'
+}
+
 cleanup() {
   status=$?
   [ -z "${PF_PID:-}" ] || kill "$PF_PID" 2>/dev/null || true
+  if [ "$status" -ne 0 ]; then
+    diagnostics >&2 || true
+  fi
   if [ "$status" -ne 0 ] && [ "${KEEP_NAMESPACE_ON_FAILURE:-false}" = true ]; then
     printf 'keeping failed smoke namespace %s\n' "$NAMESPACE" >&2
     return "$status"
