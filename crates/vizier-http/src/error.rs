@@ -20,7 +20,7 @@ pub fn envelope(e: &ServiceError) -> (u16, serde_json::Value) {
     if let Some(code) = e.code() {
         body["code"] = code.into();
     }
-    if let ServiceError::Conflict { data: Some(d), .. } = e {
+    if let ServiceError::Conflict { data: Some(d), .. } | ServiceError::Unprocessable { data: d, .. } = e {
         body["data"] = d.clone();
     }
     (e.status(), body)

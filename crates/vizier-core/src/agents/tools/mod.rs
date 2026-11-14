@@ -1292,6 +1292,11 @@ impl VizierTools {
         "update_custom_tool_category",
     ];
 
+    /// Whether a dream may call `name`: its toolset plus the journal reader.
+    pub fn dream_may_call(name: &str) -> bool {
+        name == "read_dream_journal" || Self::DREAM_TOOL_NAMES.contains(&name)
+    }
+
     pub async fn dream_tools(
         &self,
         agent_id: AgentId,
@@ -1341,6 +1346,11 @@ impl VizierTools {
             _ => {}
         }
 
+        // Only what the dream was offered: a guessed name (`delete_custom_tool`, a
+        // `custom_<name>` tool, `set_secret`) is refused, not dispatched (spec 061 R14).
+        if !Self::dream_may_call(&function_name) {
+            return Err(VizierError(format!("{function_name} is not in the dream toolset")).into());
+        }
         // The custom tool authoring tools validate against the agent's full toolset and are
         // authored by the dream, never sample-run (spec 061 R9, R14).
         let mut ctx = ctx.clone();
@@ -2238,6 +2248,12 @@ mod tests {
                 .all(|name| !name.starts_with(crate::custom_tools::naming::PREFIX)),
             "a custom tool is never called from a dream"
         );
+        // A guessed name is refused at dispatch, not only left out of the offer.
+        for name in ["delete_custom_tool", "set_custom_tool_enabled", "custom_echo_sum", "set_secret"] {
+            assert!(!VizierTools::dream_may_call(name), "{name}");
+        }
+        assert!(VizierTools::dream_may_call("create_custom_tool"));
+        assert!(VizierTools::dream_may_call("read_dream_journal"));
     }
 
     /// `custom_` is reserved for the agent's own tools (spec 061 R12).

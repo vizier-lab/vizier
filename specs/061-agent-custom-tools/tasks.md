@@ -154,8 +154,8 @@ reusable workflows.
 
 - [X] T051 [US7] Add `list_custom_tools`, `get_custom_tool`, `get_custom_tool_history`, `diff_custom_tool`, `create_custom_tool`, `update_custom_tool`, `rollback_custom_tool`, `update_custom_tool_category` to `VizierTools::DREAM_TOOL_NAMES` in `core/agents/tools/mod.rs`; add tests that `delete_custom_tool`, `set_custom_tool_enabled` and every `custom_*` name never reach the dream cycle, like `secrets_tools_never_reach_the_dream_cycle`
 - [X] T052 [US7] In `VizierTools::dream_call` (`core/agents/tools/mod.rs`), set `ctx.script_router = Some(self.router.clone())` and `ctx.script_router_is_dream = true` before dispatch, so saves validate against the full toolset and skip the sample run; take the cycle id from the request metadata the way memory revisions do (`core/agents/process.rs`, `dream_cycle_id`) and pass `Actor::Dream`
-- [ ] T053 [P] [US7] Update `EXTRACTION_PROMPT` and `CONSOLIDATION_PROMPT_TEMPLATE` in `core/scheduler/dream/prompts.rs` exactly as contracts/prompt-and-dream.md §2–§3 (Reusable Workflows section; step 4 "skills and custom tools" with the rule, check-first, category nudge; audit counts)
-- [ ] T054 [US7] Dummyplug check for quickstart §8 mechanics (a dream session calling `create_custom_tool` directly records a dream author and no sample run; `delete_custom_tool` refused); document the live-provider judgment steps as marked in `quickstart.md`
+- [X] T053 [P] [US7] Update `EXTRACTION_PROMPT` and `CONSOLIDATION_PROMPT_TEMPLATE` in `core/scheduler/dream/prompts.rs` exactly as contracts/prompt-and-dream.md §2–§3 (Reusable Workflows section; step 4 "skills and custom tools" with the rule, check-first, category nudge; audit counts)
+- [X] T054 [US7] Dummyplug check for quickstart §8 mechanics (a dream session calling `create_custom_tool` directly records a dream author and no sample run; `delete_custom_tool` refused); document the live-provider judgment steps as marked in `quickstart.md`
 
 ---
 
@@ -168,14 +168,14 @@ rollback, enable/disable, delete and an editor.
 
 ### API
 
-- [ ] T055 [US5] Create `core/service/custom_tools.rs`: list (grouped), detail, edit (person actor; no sample run; unknown-tool check via the published view, `tools_unchecked` warning when it is missing), delete, set_enabled, versions, diff, rollback, events, update_category — each authorized with `access::can_view_agent` / `can_edit_agent`, mapping outcomes to `ServiceError` kinds (`out_of_date` → conflict, `invalid` → unprocessable)
-- [ ] T056 [US5] Create `http/api/v1/agents/custom_tools.rs` with the ten routes of contracts/http-api.md, registered in the agents router and in the OpenAPI document (`utoipa`); epoch-ms fields as `i64`
-- [ ] T057 [US5] Conformance vectors in `crates/vizier-http/tests/conformance/groups/custom_tools.rs` for every new route (three fixture users; vectors idempotent across the harness's two sends), record the baseline with `CONFORMANCE_RECORD=1`, and make sure `tests/conformance/pending.txt` does not grow
+- [X] T055 [US5] Create `core/service/custom_tools.rs`: list (grouped), detail, edit (person actor; no sample run; unknown-tool check via the published view, `tools_unchecked` warning when it is missing), delete, set_enabled, versions, diff, rollback, events, update_category — each authorized with `access::can_view_agent` / `can_edit_agent`, mapping outcomes to `ServiceError` kinds (`out_of_date` → conflict, `invalid` → unprocessable)
+- [X] T056 [US5] Create `http/api/v1/agents/custom_tools.rs` with the ten routes of contracts/http-api.md, registered in the agents router and in the OpenAPI document (`utoipa`); epoch-ms fields as `i64`
+- [X] T057 [US5] Conformance vectors in `crates/vizier-http/tests/conformance/groups/custom_tools.rs` for every new route (three fixture users; vectors idempotent across the harness's two sends), record the baseline with `CONFORMANCE_RECORD=1`, and make sure `tests/conformance/pending.txt` does not grow
 - [ ] T058 [US5] Regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`
 
 ### Design first (constitution: no UI code before a reviewed mockup)
 
-- [ ] T059 [US5] Draw the Custom tools page in FigCraft (`Vizier.figcraft`, a new `Custom tools` page matching the Skills/Secrets agent pages, both themes): category groups with heading and edit action, tool rows (version, author, time, switch, needs-attention warning), the tool view (script, schema, history, diff), the editor with the category picker and "new category asks for a description", the category dialog, the view-only state and the phone layout. If FigCraft is unreachable, make `specs/061-agent-custom-tools/mockups/custom-tools.html` instead. Get it reviewed before T060
+- [X] T059 [US5] Draw the Custom tools page in FigCraft (`Vizier.figcraft`, a new `Custom tools` page matching the Skills/Secrets agent pages, both themes): category groups with heading and edit action, tool rows (version, author, time, switch, needs-attention warning), the tool view (script, schema, history, diff), the editor with the category picker and "new category asks for a description", the category dialog, the view-only state and the phone layout. If FigCraft is unreachable, make `specs/061-agent-custom-tools/mockups/custom-tools.html` instead. Get it reviewed before T060
 
 ### Implementation
 
@@ -201,8 +201,8 @@ rollback, enable/disable, delete and an editor.
 
 ## Phase 11: Polish & cross-cutting
 
-- [ ] T068 [P] Write `docs/src/configuration/custom-tools.md` (what a custom tool is, writing one, categories, versions, the WebUI page, dreams, and "skill or custom tool?" — FR-029) and add it to `docs/src/SUMMARY.md`
-- [ ] T069 [P] Update `CLAUDE.md`: a **Custom tools** paragraph under Tools (service, storage, turn source, naming, `custom_tools` category as the 22nd, dream tool list), the refactored `ToolTarget::Turn` seam in place of the client/project wording, and "Adding a new tool" unchanged
+- [X] T068 [P] Write `docs/src/configuration/custom-tools.md` (what a custom tool is, writing one, categories, versions, the WebUI page, dreams, and "skill or custom tool?" — FR-029) and add it to `docs/src/SUMMARY.md`
+- [X] T069 [P] Update `CLAUDE.md`: a **Custom tools** paragraph under Tools (service, storage, turn source, naming, `custom_tools` category as the 22nd, dream tool list), the refactored `ToolTarget::Turn` seam in place of the client/project wording, and "Adding a new tool" unchanged
 - [ ] T070 Run the full quickstart by hand on a dummyplug agent (including §7 in the WebUI and §9 needs-attention with an MCP server), then `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, `cd webui && npm run typecheck`; fix anything found
 - [ ] T071 Re-read spec.md's functional requirements and success criteria against the result and note any gap in the PR description (e.g. SC-008 depends on a live model)
 

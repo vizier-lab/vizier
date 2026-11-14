@@ -8,6 +8,7 @@ use crate::common::v;
 mod agents;
 mod auth;
 mod core;
+mod custom_tools;
 mod detached;
 mod memory;
 mod misc;
@@ -35,6 +36,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(agents::vectors());
     all.extend(auth::vectors());
     all.extend(core::vectors());
+    all.extend(custom_tools::vectors());
     all.extend(detached::vectors());
     all.extend(memory::vectors());
     all.extend(misc::vectors());

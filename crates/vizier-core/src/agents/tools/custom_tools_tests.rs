@@ -251,3 +251,34 @@ async fn the_prompt_lines_change_only_with_a_category() {
         service.turn_categories("agent-1", &f.router).await.into_iter().map(|line| line.name).collect();
     assert_eq!(names, vec!["maths".to_string()]);
 }
+
+/// A dream saves directly (no script): checked against the full toolset, never sample-run, and
+/// authored by the cycle (quickstart §8 mechanics).
+#[tokio::test]
+async fn a_dream_save_is_authored_by_the_cycle_and_never_sample_run() {
+    use crate::agents::tools::VizierToolDyn;
+    let mut f = fixture(false);
+    f.ctx.custom.dream_cycle = Some("cycle-7".into());
+    f.ctx.custom.script_router = Some(f.router.clone());
+    let service = f.ctx.custom.tools.clone().unwrap();
+    let tool = CreateCustomTool::new(service.clone());
+    let args = json!({
+        "name": "nightly",
+        "description": "x",
+        "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}},
+        "script": "add_one(n=input['n'])",
+        "sample_input": {"n": 1},
+    });
+    let out: serde_json::Value =
+        serde_json::from_str(&tool.tool_call(args.to_string(), &f.ctx).await.unwrap()).unwrap();
+    assert_eq!(out["status"], "created", "{out}");
+    assert!(out.get("sample_run").is_none(), "a dream never sample-runs: {out}");
+    let saved = service.get("agent-1", None, "nightly", None).await.unwrap();
+    assert_eq!(saved["author"], "a dream (cycle-7)");
+
+    // Checked against the full toolset: a typo is still refused.
+    let typo = json!({"name": "typo", "description": "x", "input_schema": {"type": "object"}, "script": "add_onee(n=1)"});
+    let out: serde_json::Value =
+        serde_json::from_str(&tool.tool_call(typo.to_string(), &f.ctx).await.unwrap()).unwrap();
+    assert_eq!(out["problems"][0]["code"], "unknown_tool", "{out}");
+}
