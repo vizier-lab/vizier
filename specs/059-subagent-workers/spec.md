@@ -18,8 +18,7 @@ person, or what its job is beyond the prompt text. The fan-out tool blocks until
 finishes, so the main agent cannot stop one piece, read a question from it or answer one.
 
 This feature changes what a subagent *understands itself to be* and how the main agent *manages*
-it. A second, separate spec will let people watch subagents in the WebUI; this one defines the
-states and stop reasons that spec will show.
+it, and lets people peek at what the workers are doing in the WebUI (Story 7), read-only.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -181,6 +180,34 @@ the agent mid-work: the worker resumes and its result is still delivered once.
 6. **Given** a running worker, **When** the agent is updated or restarted, **Then** the worker
    resumes on the next instance and its outcome is delivered once.
 
+### User Story 7 - A person peeks at the workers (Priority: P2)
+
+A person chatting with the agent sees, in the chat's status strip, how many workers are still at
+work, with an amber dot while one of them is waiting on a question. Opening it shows a panel of the
+conversation's workers, grouped by the spawn that hired them: each row gives the task, its position
+("2 · …"), the handle, the elapsed time and what it is doing (running, waiting for the agent with
+its question, answered, failed, ran out of time, stopped). Expanding a row shows the task in full,
+the worker's steps drawn with the same activity trail the chat uses, and its result. The panel is
+separate from Background work, which shows detached scripts.
+
+**Why this priority**: Workers outlive the turn and run unseen; without a view a person cannot tell
+whether the agent is waiting on a stuck worker or why a turn started on its own.
+
+**Independent Test**: With an offline test agent, spawn two workers, one of which asks: the strip
+counts 2 with an amber dot, the panel shows one group of two, the asking row shows its question,
+and expanding a row shows its steps and, once answered, its result. Another person's topic and an
+unknown id answer not found.
+
+**Acceptance Scenarios**:
+
+1. **Given** a conversation with unfinished workers, **Then** the strip's Subagents item counts
+   the running and asking ones, and carries an amber dot while one is asking.
+2. **Given** the panel is open, **When** a worker changes state, **Then** its row updates without a
+   reload (from the `subagent` frame).
+3. **Given** an expanded worker, **Then** its steps are drawn with the chat's activity trail, read
+   from the worker's own conversation, and its result follows once it has one.
+4. **Given** any person, **Then** the panel has no control that stops or replies to a worker.
+
 ### Edge Cases
 
 - **The main turn ends first.** When the turn that spawned workers ends, or the person aborts it,
@@ -290,6 +317,18 @@ the agent mid-work: the worker resumes and its result is still delivered once.
   question; several outcomes ready at the same moment MAY be delivered together.
 - **FR-026**: An outcome the main agent saw through a wait or a read MUST NOT be delivered again, and
   a worker the main agent stopped MUST NOT be delivered.
+
+**Peeking in the WebUI**
+
+- **FR-027**: People MUST be able to list the workers a conversation hired (running and asking
+  first, then the most recent final ones), read one with its whole task and result, and read its
+  own conversation, each only for a conversation of their own; any other id answers not found.
+- **FR-028**: Every worker snapshot sent to the conversation MUST say whether the main agent already
+  has the newest outcome, so the panel can say "the agent read it" or "waiting to be delivered".
+- **FR-029**: The chat's status strip MUST show a Subagents item separate from Background work,
+  counting unfinished workers, with an attention dot while one is asking; its panel MUST group
+  workers by spawn, show the question of an asking worker, and draw an expanded worker's steps with
+  the existing activity trail. The panel MUST NOT offer stopping or replying.
 - **FR-018**: By default only the main agent MAY spawn workers: the spawning, waiting, replying,
   stopping, listing and reading tools MUST NOT be offered inside a worker or inside work a worker
   started. The allowed nesting depth MUST be a backend setting (default: workers cannot spawn),
@@ -319,7 +358,7 @@ the agent mid-work: the worker resumes and its result is still delivered once.
   it, its state, its stop reason, its pending question, its result, whether its outcome was seen or
   delivered, and start and end times.
 - **Spawn group**: the set of workers created by one spawn call; gives each worker its position
-  ("task 2 of 4") and is what the future WebUI view groups by.
+  ("task 2 of 4") and is what the WebUI panel groups by.
 - **Hiring conversation**: the main agent's conversation a worker was spawned in. It bounds the
   worker's lifetime, receives its deliveries, and its deletion stops the worker. The turn or
   detached script that issued the spawn is recorded for reference but does not bound the worker.
@@ -344,6 +383,8 @@ the agent mid-work: the worker resumes and its result is still delivered once.
   lost: every worker outcome the main agent had not already seen reaches it exactly once.
 - **SC-008**: After a conversation or agent is deleted, 0 of its workers remain running.
 - **SC-007**: Calling a retired name always yields guidance that names a tool that exists.
+- **SC-009**: A person can tell, from the strip alone, that a worker is waiting on a question, and
+  can read any worker's steps from the panel without leaving the chat.
 
 ## Assumptions
 
@@ -356,8 +397,7 @@ the agent mid-work: the worker resumes and its result is still delivered once.
   workers act exactly as the main agent would, and the last write wins.
 - Per-call worker definitions (a role, a tool subset or a different model per worker) are out of
   scope and will be a separate spec.
-- People cannot stop or reply to workers; the WebUI view of workers is a separate, read-only spec
-  that builds on the states, stop reasons and records defined here.
+- People cannot stop or reply to workers; the WebUI view of workers (Story 7) is read-only.
 - Workers are allowed wherever the main agent could use the retired fan-out tool today (an
   interactive turn, a scheduled run, a detached script), and not in the dream cycle.
 - The per-worker time limit keeps today's bounds (1 to 3,600 seconds, default 600).

@@ -140,6 +140,16 @@ description: "Task list for 059-subagent-workers"
 
 ---
 
+## Phase 8b: User Story 7 - A person peeks at the workers (Priority: P2)
+
+- [X] T054 [US7] Add `handed_over` and `Subagent::detail()` to `SubagentSnapshot` in `crates/vizier-core/src/schema/subagent.rs` (FR-028)
+- [X] T055 [US7] Add `service::subagents` (`list`, `get`, `history`, scoped to the caller's own hiring topic like `service::detached`) and the routes `GET …/topic/{topic}/subagents[/{id}[/history]]` in `crates/vizier-http/src/api/v1/agents/subagents.rs`, registered in OpenAPI, with vectors in `tests/conformance/groups/subagents.rs` (FR-027)
+- [X] T056 [P] [US7] Build `SubagentWorker` in `design/src/components/SubagentWorker/` with stories (states, asking, expanded with `RunDetail`/trail), and add `subagents` to `StatusStripItemId` (frame "059 · A")
+- [X] T057 [US7] In `webui/`: the `subagent` frame in `api/frames.ts`, endpoints in `api/endpoints/chat.ts`, pure grouping/filtering in `lib/subagents.ts` with vitest tests, topic state in the chat screen, and the Subagents item and panel in `screens/chat/ChatStatusStrip.tsx`, the expanded body drawn with `Trail` from the worker's history (FR-029)
+- [X] T058 [US7] (2026-11-14: typecheck clean, 1145 vitest tests, e2e 40/40 incl. the routes, panel checked live on a dummyplug agent) `npm run typecheck` and `npm test` in `webui/`, then check the panel in the browser against a dummyplug agent (quickstart step 13)
+
+---
+
 ## Phase 9: Polish and cross-cutting
 
 - [X] T048 [P] Update `CLAUDE.md`: replace every `parallel_subagents` mention (Detached scripts, Tools, Telemetry, project subagent scope) with the worker model, add a short "Subagents" paragraph under Agents (worker framing, the seven tools, the `subagent` row, durable worker turns, delivery through `Deliveries`, `subagents.max_depth`), and list `subagents` among the built-in categories
@@ -147,7 +157,7 @@ description: "Task list for 059-subagent-workers"
 - [X] T050 [P] Update `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md` only if a quickstart step needed a protocol change (expected: none)
 - [ ] T051 Run quickstart step 12 (**live**, real model) and record whether worker reports avoid addressing a person (SC-001)
 - [X] T052 (2026-11-14, WSL Ubuntu: `cargo test --workspace --no-fail-fast` all green, `cargo clippy --workspace --all-features --tests` no finding in this change; PostgreSQL storage tests not run locally, CI's `managed-storage` job runs them) Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and the PostgreSQL storage tests with `VIZIER_TEST_DATABASE_URL`; fix anything they report
-- [ ] T053 Open the PR titled `feat(agents)!: subagents as temporary workers`, with the quickstart results and the #82 draft in the description
+- [X] T053 Open the PR titled `feat(agents)!: subagents as temporary workers`, with the quickstart results and the #82 draft in the description
 
 ---
 

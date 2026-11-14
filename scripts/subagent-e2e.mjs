@@ -226,6 +226,22 @@ check('its answer is the reply handled in its own conversation', (r.done.subagen
 check('a second reply is refused: not asking', r.again?.status === 'not_asking', r.again)
 const kinds = workerHistory.map((e) => requestKind(e) ?? kindOf(e))
 check('one conversation: task, the ask, the reply, the answer', kinds.indexOf('subagent_task') === 0 && kinds.includes('subagent_reply') && kinds.at(-1) === 'Response', kinds)
+check('the socket carried subagent frames', ws.frames.some((f) => f.subagent?.id === r.done.subagents[0].id && f.subagent.state === 'asking'))
+
+// §13 (API part): a person reads the topic's workers, one worker, and its own conversation.
+const sid = r.done.subagents[0].id
+const base = `/agents/${AGENT}/channel/${CHANNEL}/topic/${topic}/subagents`
+const listed = await api('GET', base)
+check('the topic lists its worker', listed.status === 200 && listed.data?.some((w) => w.id === sid && w.state === 'answered'), listed.body)
+check('the main agent has its outcome', listed.data.find((w) => w.id === sid)?.handed_over === true, listed.data)
+const one = await api('GET', `${base}/${sid}`)
+check('one worker reads whole', one.status === 200 && one.data?.result?.includes('Available tools') && one.data.group, one.body)
+const steps = await api('GET', `${base}/${sid}/history`)
+check('its conversation reads through the hiring topic', steps.status === 200 && steps.data?.length === workerHistory.length, { got: steps.data?.length, want: workerHistory.length })
+const elsewhere = await api('GET', `/agents/${AGENT}/channel/${CHANNEL}/topic/${fresh('other')}/subagents/${sid}`)
+check('another topic cannot read it', elsewhere.status === 404, elsewhere.body)
+const unknown = await api('GET', `${base}/s_nothere0`)
+check('an unknown id is not found', unknown.status === 404, unknown.body)
 ws.close()
 
 // --- §6 workers survive the parent's /abort ------------------------------------------------------------

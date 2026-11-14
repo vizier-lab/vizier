@@ -128,3 +128,12 @@ history are gone, and no delivery is attempted.
 With a real model, ask the agent to split a small research question across two workers. Expected:
 each worker's answer ends with what it did, what it could not do, and how sure it is, and contains
 no greeting or "let me know" addressed to a person (SC-001).
+
+## 13. Peek at the workers (WebUI, dummyplug)
+
+Open the conversation from step 5 in the WebUI while one worker is asking. Expect: the status
+strip shows a Subagents item (people icon) counting the unfinished workers with an amber dot; its
+panel groups the workers by spawn, the asking row shows the question in amber, and expanding a
+row shows the task, the worker's steps as the chat's activity trail and, once answered, its
+result. `GET …/topic/{topic}/subagents` lists the same rows; another person's topic or an unknown
+id answers 404. There is no stop or reply control.

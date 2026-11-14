@@ -16,7 +16,7 @@ use crate::{
 pub const LISTED_FINAL: usize = 50;
 
 /// The caller's own topic session, after the same agent check as the topic routes.
-async fn topic_session(
+pub(crate) async fn topic_session(
     s: &Services,
     who: &Principal,
     agent_id: &str,

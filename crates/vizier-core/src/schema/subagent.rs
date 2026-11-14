@@ -225,8 +225,25 @@ impl Subagent {
             summary,
             group: self.group_id.clone(),
             parent_detached_id: self.parent_detached_id.clone(),
+            handed_over: self.handed_over(),
             updated_at: self.updated_at,
         }
+    }
+
+    /// One worker for a person's detail read: the whole task and result, nothing cut.
+    pub fn detail(&self) -> SubagentSnapshot {
+        SubagentSnapshot {
+            summary: self.summary(true),
+            group: self.group_id.clone(),
+            parent_detached_id: self.parent_detached_id.clone(),
+            handed_over: self.handed_over(),
+            updated_at: self.updated_at,
+        }
+    }
+
+    /// Whether the main agent has its newest outcome, by a wait, a read or a delivery.
+    pub fn handed_over(&self) -> bool {
+        self.outcome_seq > 0 && self.seen_seq.max(self.delivered_seq) >= self.outcome_seq
     }
 }
 
@@ -272,6 +289,9 @@ pub struct SubagentSnapshot {
     pub summary: SubagentSummary,
     pub group: String,
     pub parent_detached_id: Option<String>,
+    /// The main agent has the newest outcome (an answer, a failure or a question).
+    #[serde(default)]
+    pub handed_over: bool,
     pub updated_at: DateTime<Local>,
 }
 

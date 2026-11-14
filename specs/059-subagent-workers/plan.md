@@ -40,7 +40,8 @@ and "no greeting" checks are marked **live**).
 **Target Platform**: server (Linux, macOS, Docker) and the desktop app (Windows included); nothing
 platform-specific.
 
-**Project Type**: Rust workspace (engine library + binary); no WebUI change in this spec.
+**Project Type**: Rust workspace (engine library + binary), plus the read-only peek panel in the
+`design/` and `webui/` submodules (Story 7).
 
 **Performance Goals**: `spawn_subagents` returns in under 1 s for up to 10 tasks; a settled
 outcome wakes a `wait_subagents` within 1 s; a delivery reaches the main agent at its next step
@@ -64,12 +65,12 @@ the list tool returns running and asking workers plus the last 50 settled ones.
 | **III. Self-contained default** | Pass. SQLite default untouched; PostgreSQL by the shared layer and an ordered migration. |
 | **IV. Portability** | Pass. No OS-specific code; quickstart gives the Windows sleep form. |
 | **V. Unified errors and observability** | Pass. `crate::Result`, `tracing` only. A worker turn is already an `invoke_agent` span continuing the spawning tool call's trace (request trace propagation); it gains `vizier.subagent.id` and `vizier.subagent.position`. Refusals to the model are `status` results. |
-| Design before UI code | N/A. No UI in this spec; the peek spec carries the FigCraft pass. |
+| Design before UI code | Pass. Frame "059 · A" in `Vizier shell.figcraft` (reviewed); the worker's expanded body reuses the chat's activity trail, not the frame's custom step rows. `SubagentWorker` is built in `design/` with stories before `webui/` uses it. |
 | Optional capabilities behind a flag | N/A. Core engine behaviour; no API shape changes by flag. |
 | Roles and components independent | Pass. `Subagents` depends on `VizierStorage` and `VizierTransport` only; the gateway side is untouched. |
 | Verify what a change touches | Pass. Touches `vizier-core` and one config field read by `vizier`; `Cargo.toml`/`Cargo.lock` untouched. The PR runs those jobs and `gate`. |
 | Dummyplug e2e | Pass. Quickstart steps 2–10. |
-| Submodule branches | No submodule changes in this spec; the peek spec opens matching branches with `just checkout`. |
+| Submodule branches | `059-subagent-workers` in `design/` and `webui/`; commit order design → webui → vizier. |
 | Conventional commits | Pass. PR title `feat(agents)!: subagents as temporary workers` (breaking: `parallel_subagents` retired). |
 | Row ownership (spec 057) | Pass. Every write of in-flight work calls `check_fence`; recovery runs on claim (re-arm timers, poke deliverable sessions); `fence_tests.rs` gets one row per method. |
 | Breaking-change tracking (#82) | Pass. New `RETIRED_TOOL_NAMES` row and rewritten hints get #82 entries. |
