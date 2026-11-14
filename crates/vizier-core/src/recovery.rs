@@ -119,10 +119,20 @@ pub async fn recover_agent(
         Err(e) => failed("pending turns", &scope, &e, &mut recovered),
     }
 
-    // 6. Detached scripts (spec 058): one left running by the previous owner is interrupted, and
-    //    every conversation with something to deliver is poked once. After the turns above, so a
-    //    poke queues behind a resumed turn and a round boundary of it may take the rows first.
+    // 6. Detached scripts (spec 058): one left running by the previous owner is interrupted.
     deps.detached.recover_agent(&agent_id.to_string(), below).await;
+
+    // 6b. Subagent workers (spec 059): running ones are re-owned and their time limits re-armed;
+    //     their turns were re-sent in step 5, and asking ones keep waiting.
+    deps.subagents.recover_agent(agent_id, below).await;
+
+    // 7. Every conversation with something to deliver (detached scripts, subagent outcomes) is
+    //    poked once. After the turns above, so a poke queues behind a resumed turn and a round
+    //    boundary of it may take the outcome first.
+    for session in deps.deliveries.sessions_with_deliveries(agent_id).await {
+        let transport = deps.transport.clone();
+        tokio::spawn(async move { crate::agents::delivery::poke(&transport, session, 0).await });
+    }
 
     recovered
 }

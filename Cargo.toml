@@ -141,8 +141,15 @@ vizier-fleet = { path = "crates/vizier-fleet", version = "0.16.0-rc.1" }
 vizier-schema = { path = "crates/vizier-schema", version = "0.16.0-rc.1" }
 vizier-http = { path = "crates/vizier-http", version = "0.16.0-rc.1" }
 
+# Line tables only: backtraces keep file and line, but `target/` is far smaller (full debug
+# info across every feature/role variant of the workspace ran to tens of gigabytes).
+[profile.dev]
+debug = "line-tables-only"
+
 # Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,
 # whisper.cpp) is unusably slow at opt-level 0; vizier's own crates stay unoptimised so
-# rebuilds remain quick. Build-script and proc-macro code is unaffected.
+# rebuilds remain quick. Build-script and proc-macro code is unaffected. No debug info for
+# dependencies.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

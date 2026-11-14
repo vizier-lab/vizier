@@ -57,6 +57,7 @@ fn ctx(session: VizierSession, depth: u8) -> ToolContext {
         pending_attachments: Default::default(),
         hooks: None,
         background_depth: depth,
+        subagent_depth: 0,
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),

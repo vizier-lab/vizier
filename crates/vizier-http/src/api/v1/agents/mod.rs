@@ -30,6 +30,7 @@ pub mod core;
 pub mod dream;
 pub mod integrations;
 pub mod detached;
+pub mod subagents;
 pub mod memory;
 pub mod projects;
 pub mod secrets;
@@ -42,6 +43,7 @@ use channel::channel;
 use core::core;
 use dream::dream;
 use detached::detached_scripts;
+use subagents::subagent_routes;
 use memory::memory;
 use secrets::secrets;
 use skills::agent_skills;
@@ -118,7 +120,7 @@ pub fn agents() -> Router<HTTPState> {
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
         )
-        .nest("/{agent_id}/channel", channel().merge(detached_scripts()))
+        .nest("/{agent_id}/channel", channel().merge(detached_scripts()).merge(subagent_routes()))
         .nest("/{agent_id}/artifacts", artifacts::artifacts())
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())

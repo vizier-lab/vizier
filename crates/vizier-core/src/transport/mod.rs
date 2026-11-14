@@ -59,6 +59,9 @@ pub enum SessionFrame {
     Response(VizierResponse),
     /// A detached script changed (spec 058): launched, made a call, ended or was cancelled.
     DetachedScript(crate::schema::DetachedScriptSnapshot),
+    /// A worker of this conversation changed (spec 059): spawned, asked, replied to, settled,
+    /// stopped. Published on the **hiring** conversation; a wake-up, the row is the truth.
+    Subagent(crate::schema::SubagentSnapshot),
     /// The full current reaction set of one message, after any change to it.
     Reactions {
         history_uid: String,

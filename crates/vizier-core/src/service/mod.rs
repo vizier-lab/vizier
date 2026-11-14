@@ -9,6 +9,7 @@ pub mod memory;
 pub mod tasks;
 pub mod dream;
 pub mod detached;
+pub mod subagents;
 pub mod conversations;
 pub mod artifacts;
 pub mod secrets;

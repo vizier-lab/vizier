@@ -172,6 +172,30 @@ pub struct VizierConfig {
     /// Language servers for project chats (spec 054).
     #[serde(default)]
     pub lsp: LspConfig,
+    /// Subagents as temporary workers (spec 059).
+    #[serde(default)]
+    pub subagents: SubagentsConfig,
+}
+
+/// Subagents (`specs/059-subagent-workers`).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct SubagentsConfig {
+    /// How deep workers may hire workers. `1`: only the main agent spawns (a worker is at depth
+    /// 1 and is offered no management tool). Raise it to let workers hire their own.
+    #[serde(default = "default_subagents_max_depth")]
+    pub max_depth: u8,
+}
+
+fn default_subagents_max_depth() -> u8 {
+    1
+}
+
+impl Default for SubagentsConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: default_subagents_max_depth(),
+        }
+    }
 }
 
 /// Language servers in project chats (`specs/054-project-lsp`).
@@ -364,6 +388,7 @@ impl Default for VizierConfig {
             worker_threads: 4,
             catalogue: CatalogueConfig::default(),
             lsp: LspConfig::default(),
+            subagents: SubagentsConfig::default(),
         }
     }
 }
@@ -429,5 +454,13 @@ mod lsp_config_tests {
         assert_eq!(lsp.max_servers, 6);
         let set: LspConfig = serde_yaml::from_str("max_servers: 2").unwrap();
         assert_eq!(set.max_servers, 2);
+    }
+
+    #[test]
+    fn subagents_default_to_main_agent_only() {
+        let config: SubagentsConfig = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(config.max_depth, 1);
+        let set: SubagentsConfig = serde_yaml::from_str("max_depth: 2").unwrap();
+        assert_eq!(set.max_depth, 2);
     }
 }

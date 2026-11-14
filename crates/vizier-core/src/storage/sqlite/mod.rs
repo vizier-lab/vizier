@@ -11,6 +11,7 @@ use crate::utils::build_path;
 mod agent;
 pub mod artifact;
 mod detached_script;
+mod subagent;
 mod catalogue;
 mod client_call;
 pub(crate) mod core_revision;
@@ -474,6 +475,7 @@ impl SqlStorage {
         init_media_catalogue_schema(conn)?;
         init_notification_schema(conn)?;
         init_detached_script_schema(conn)?;
+        init_subagent_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
         // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
@@ -520,6 +522,49 @@ pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
             "CREATE INDEX IF NOT EXISTS idx_sa_agent_state ON sensitive_ask(agent_id, state);",
         )?;
     }
+    Ok(())
+}
+
+/// Subagents (`specs/059-subagent-workers/data-model.md`): one row per worker, owned like the
+/// other in-flight tables (spec 057). Split out so the tests in `src/storage/sqlite/subagent.rs`
+/// can build just this table.
+pub fn init_subagent_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS subagent (
+            id                 TEXT PRIMARY KEY,
+            agent_id           TEXT NOT NULL,
+            hiring_channel     TEXT NOT NULL,
+            hiring_topic       TEXT,
+            parent_detached_id TEXT,
+            group_id           TEXT NOT NULL,
+            position           INTEGER NOT NULL,
+            group_size         INTEGER NOT NULL,
+            worker_topic       TEXT NOT NULL,
+            task               TEXT NOT NULL,
+            timeout_secs       INTEGER NOT NULL,
+            state              TEXT NOT NULL,
+            stop_reason        TEXT,
+            question           TEXT,
+            result             TEXT,
+            result_truncated   INTEGER NOT NULL DEFAULT 0,
+            error              TEXT,
+            outcome_seq        INTEGER NOT NULL DEFAULT 0,
+            seen_seq           INTEGER NOT NULL DEFAULT 0,
+            delivered_seq      INTEGER NOT NULL DEFAULT 0,
+            deadline_at        INTEGER,
+            remaining_ms       INTEGER,
+            created_at         INTEGER NOT NULL,
+            updated_at         INTEGER NOT NULL,
+            ended_at           INTEGER,
+            owner_node         TEXT,
+            owner_token        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_subagent_hiring ON subagent(agent_id, hiring_channel, hiring_topic, created_at);
+        CREATE INDEX IF NOT EXISTS idx_subagent_agent_state ON subagent(agent_id, state);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_worker ON subagent(worker_topic);
+        ",
+    )?;
     Ok(())
 }
 

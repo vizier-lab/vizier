@@ -1428,14 +1428,16 @@ async fn call_tool(runtime: &VizierRuntime, session: &VizierSession, tool: &str,
     chat(runtime.transport(), session, &request.to_string()).await
 }
 
-/// Quickstart step 6: a detached script fans out to sub-agents; one delivery carries both
-/// answers when it ends.
+/// Quickstart step 6 (058), with the spec 059 worker tools: a detached script hires two workers
+/// and waits for them; one delivery (the script's) carries both answers, and the workers' own
+/// outcomes are not delivered again because the wait returned them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_detached_fan_out_is_delivered_once_with_every_answer() {
     let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
     let session = web_session("fanout");
-    let code = "r = parallel_subagents(tasks=[{'prompt': 'tools'}, {'prompt': 'tools'}])
-[x['state'] for x in r['results']]";
+    let code = "r = spawn_subagents(tasks=[{'task': 'tools'}, {'task': 'tools'}])
+w = wait_subagents(ids=[x['id'] for x in r['subagents']])
+[x['state'] for x in w['subagents']]";
     let id = handle_id(&chat(runtime.transport(), &session, &run_python(code, true, None)).await);
     eventually(60, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
     let row = script(&runtime, &id).await;
@@ -1477,6 +1479,16 @@ ask_question(questions=[])", true, None)).await);
     eventually(20, || async { script(&runtime, &id).await.state.is_final() }).await;
     let row = script(&runtime, &id).await;
     assert!(serde_json::to_string(&row.outcome).unwrap().contains("NameError"), "{:?}", row.outcome);
+    // Its delivery wakes the agent; let that turn finish first, or it can land at the next
+    // request's round boundary and dummyplug answers the delivery instead of the refusal.
+    eventually(20, || async { !deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    eventually(20, || async {
+        history_of(&runtime, &session)
+            .await
+            .last()
+            .is_some_and(|entry| matches!(entry.content, vizier_core::schema::SessionHistoryContent::Response(..)))
+    })
+    .await;
     // An out-of-range limit on a detached call.
     let refused = chat(runtime.transport(), &session, &run_python("1", true, Some(0))).await;
     assert!(refused.contains("between 1 and 3600"), "{refused}");

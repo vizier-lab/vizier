@@ -536,6 +536,9 @@ impl TopicOutbound {
                             SessionFrame::DetachedScript(script) => {
                                 Some(serde_json::json!({ "detached_script": script }))
                             }
+                            SessionFrame::Subagent(worker) => {
+                                Some(serde_json::json!({ "subagent": worker }))
+                            }
                             SessionFrame::Reactions { history_uid, reactions } => Some(
                                 serde_json::json!({
                                     "reactions": { "message_uid": history_uid, "reactions": reactions }

@@ -188,14 +188,11 @@ pub async fn agent_process(
                     && text.is_empty()
                     && !session_is_busy(&turns, &session_queues, &session)
                 {
-                    let claimed = deps.detached.claim(&session).await;
-                    if claimed.is_empty() {
-                        tracing::debug!(agent_id = %agent_id, session = %session.to_slug(), "detached delivery: nothing to deliver");
+                    let Some(text) = deps.deliveries.claim(&session).await else {
+                        tracing::debug!(agent_id = %agent_id, session = %session.to_slug(), "background delivery: nothing to deliver");
                         continue;
-                    }
-                    request.content = VizierRequestContent::DetachedDelivery(
-                        crate::agents::detached::render_delivery(&claimed),
-                    );
+                    };
+                    request.content = VizierRequestContent::DetachedDelivery(text);
                 }
 
                 // A side chat must leave no trace (FR-006): it never creates or titles the
@@ -333,6 +330,13 @@ pub async fn agent_process(
                 let session = finished.session;
                 if finished.outcome == TurnOutcome::Panicked {
                     seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::InternalError).await;
+                    // A worker whose turn panicked fails (spec 059); a no-op elsewhere.
+                    deps.subagents
+                        .turn_ended(
+                            &session,
+                            crate::agents::subagents::TurnEnd::Failed("the worker's turn crashed".into()),
+                        )
+                        .await;
                 }
                 if finished.outcome != TurnOutcome::Done {
                     // A dialog belongs to the turn that opened it: an aborted, panicked or
@@ -386,10 +390,13 @@ pub async fn agent_process(
     // Detached scripts are not part of the instance but run on its tools, so they stop with it
     // (spec 058): an update or restart interrupts them and the next instance is told; a delete
     // forgets them.
+    // Subagent workers are turns of this agent: an update or restart resumes their turns like
+    // any other (their rows are untouched), and a delete forgets them (spec 059).
     if replacing {
         deps.detached.interrupt_agent(&agent_id).await;
     } else {
         deps.detached.delete_agent(&agent_id).await;
+        deps.subagents.delete_agent(&agent_id).await;
     }
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
@@ -682,6 +689,7 @@ async fn refresh_session_detail(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        subagent_depth: 0,
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1043,6 +1051,10 @@ fn start_session_job(
 
         if let Err(err) = result {
             tracing::error!("{}", err);
+            // A worker whose turn failed (spec 059): its row says why. A no-op elsewhere.
+            deps.subagents
+                .turn_ended(&session, crate::agents::subagents::TurnEnd::Failed(err.to_string()))
+                .await;
             if let Some(ref tx) = response_tx {
                 let err_str = err.to_string();
                 let _ = tx
@@ -1159,6 +1171,7 @@ async fn run_checkpoint(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        subagent_depth: 0,
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1500,13 +1513,11 @@ pub async fn handle_request(
     if let VizierRequestContent::DetachedDelivery(text) = &request.content
         && text.is_empty()
     {
-        let claimed = deps.detached.claim(&session).await;
-        if claimed.is_empty() {
-            tracing::debug!(agent_id = %session.0, session = %session.to_slug(), "detached delivery: nothing to deliver");
+        let Some(text) = deps.deliveries.claim(&session).await else {
+            tracing::debug!(agent_id = %session.0, session = %session.to_slug(), "background delivery: nothing to deliver");
             return Ok(());
-        }
-        request.content =
-            VizierRequestContent::DetachedDelivery(crate::agents::detached::render_delivery(&claimed));
+        };
+        request.content = VizierRequestContent::DetachedDelivery(text);
     }
 
     match &request.content {
@@ -1517,7 +1528,11 @@ pub async fn handle_request(
         | VizierRequestContent::ClientEvent(_)
         // An answer starts a turn the way a typed message does (FR-015): same queue, same
         // history, same hooks.
-        | VizierRequestContent::QuestionAnswer(_) => {
+        | VizierRequestContent::QuestionAnswer(_)
+        // A worker's task and the main agent's reply to it (spec 059): a chat turn of the
+        // worker's own conversation, durable and resumable like any other.
+        | VizierRequestContent::SubagentTask(_)
+        | VizierRequestContent::SubagentReply(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
             // The list as typed rides the request's history entry; the resolved contents never
@@ -1668,6 +1683,21 @@ pub async fn handle_request(
             if let Some(injected) = injected_context {
                 let agent = session.0.clone();
                 record_context_followup(&storage, &session, &agent, turn_start, injected).await;
+            }
+            // A worker's turn ended with a reply (spec 059 research D5): its row records the
+            // answer, unless the turn ended by asking (the row is `asking`, and stays so).
+            if matches!(session.1, VizierChannelId::Subagent) {
+                use crate::agents::subagents::{ASK_TOOL, TurnEnd};
+                let end = match &res.content {
+                    VizierResponseContent::Message { stats: Some(stats), .. }
+                        if stats.ended_by_tool.as_deref() == Some(ASK_TOOL) =>
+                    {
+                        TurnEnd::Asked
+                    }
+                    VizierResponseContent::Message { content, .. } => TurnEnd::Replied(content.clone()),
+                    _ => TurnEnd::Replied(String::new()),
+                };
+                deps.subagents.turn_ended(&session, end).await;
             }
             if notifies_chat
                 && matches!(
@@ -2058,6 +2088,8 @@ fn chat_turn_prompt(
         VizierRequestContent::DetachedDelivery(text) => text.clone(),
         // The person's summary of their answers: what retrieval and skill matching read.
         VizierRequestContent::QuestionAnswer(answer) => answer.text.clone(),
+        VizierRequestContent::SubagentTask(brief) => brief.text.clone(),
+        VizierRequestContent::SubagentReply(reply) => reply.text.clone(),
         _ => return None,
     })
 }

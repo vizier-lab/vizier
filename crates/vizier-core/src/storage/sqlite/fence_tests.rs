@@ -15,6 +15,7 @@ use crate::storage::fence::{FenceStorage, Scope, is_ownership_lost};
 use crate::storage::history::HistoryStorage;
 use crate::storage::question::SensitiveAskStorage;
 use crate::storage::sql::{SqlStore, params};
+use crate::storage::subagent::{Settled, StopOutcome, SubagentStorage};
 use crate::storage::task_run::TaskRunStorage;
 use crate::storage::turn::{TurnState, TurnStorage};
 use crate::tests_support::{node_storage, test_store_pair};
@@ -299,6 +300,63 @@ async fn stale_detached_script_write_refused() {
     assert_eq!(n.b.interrupt_running_scripts("x", None, None).await.unwrap().len(), 1);
 }
 
+fn worker(id: &str) -> crate::schema::Subagent {
+    let mut row = crate::storage::sqlite::subagent::tests::worker(id, session("x"), 1);
+    row.agent_id = "x".into();
+    row
+}
+
+/// Spec 059: every write that advances a worker is fenced on its agent's scope, one test row per
+/// fenced `SubagentStorage` method.
+#[tokio::test]
+async fn stale_subagent_write_refused() {
+    use crate::schema::{SubagentState, SubagentStopReason};
+    let n = nodes();
+    let scope = Scope::Agent("x".into());
+    n.a_then_b(&scope).await;
+    n.a.open_subagents(vec![worker("s_1"), worker("s_2"), worker("s_3")]).await.unwrap();
+    n.a.ask_subagent("s_2", "which?", 1_000, crate::time::now()).await.unwrap().unwrap();
+    n.b_takes_over(&scope).await;
+    let now = crate::time::now();
+    let answered = || Settled::Answered { result: "done".into(), truncated: false };
+
+    n.assert_refused(&scope, n.a.open_subagents(vec![worker("s_4")]).await);
+    n.assert_refused(&scope, n.a.ask_subagent("s_1", "q", 0, now).await);
+    n.assert_refused(&scope, n.a.reply_subagent("s_2", now, now).await);
+    n.assert_refused(&scope, n.a.settle_subagent("s_1", answered(), now).await);
+    n.assert_refused(&scope, n.a.stop_subagent("s_3", SubagentStopReason::ByAgent, now).await);
+    n.assert_refused(&scope, n.a.mark_subagents_seen(&["s_2".into()]).await);
+    n.assert_refused(&scope, n.a.claim_subagent_deliveries(&session("x"), &[]).await);
+    n.assert_refused(&scope, n.a.reown_running_subagents(&"x".to_string(), i64::MAX as u64).await);
+    n.assert_refused(
+        &scope,
+        n.a.stop_session_subagents(&session("x"), SubagentStopReason::ConversationDeleted, now).await,
+    );
+    assert!(n.b.get_subagent("s_4").await.unwrap().is_none());
+    assert_eq!(n.b.get_subagent("s_1").await.unwrap().unwrap().state, SubagentState::Running);
+
+    // The same writes by the new owner succeed.
+    n.b.open_subagents(vec![worker("s_4")]).await.unwrap();
+    assert!(n.b.claim_subagent_deliveries(&session("x"), &[]).await.unwrap().len() == 1, "s_2's question");
+    n.b.reply_subagent("s_2", now, now).await.unwrap().unwrap();
+    n.b.ask_subagent("s_2", "again?", 0, now).await.unwrap().unwrap();
+    assert_eq!(n.b.mark_subagents_seen(&["s_2".into()]).await.unwrap(), vec!["s_2".to_string()]);
+    n.b.settle_subagent("s_1", answered(), now).await.unwrap().unwrap();
+    assert!(matches!(
+        n.b.stop_subagent("s_3", SubagentStopReason::ByAgent, now).await.unwrap(),
+        StopOutcome::Stopped(_)
+    ));
+    assert_eq!(n.b.reown_running_subagents(&"x".to_string(), i64::MAX as u64).await.unwrap().len(), 1);
+    assert_eq!(
+        n.b.stop_session_subagents(&session("x"), SubagentStopReason::ConversationDeleted, now)
+            .await
+            .unwrap()
+            .len(),
+        2,
+        "s_2 asking and s_4 running"
+    );
+}
+
 /// Two claimers on two connections race for the same rows: each script is taken once.
 #[tokio::test]
 async fn detached_claims_race_and_split_the_rows() {
@@ -475,6 +533,7 @@ crate::postgres_tests!(
     stale_client_call_write_refused,
     stale_sensitive_ask_write_refused,
     stale_detached_script_write_refused,
+    stale_subagent_write_refused,
     detached_claims_race_and_split_the_rows,
     detached_cancel_and_close_race,
     stale_task_run_write_refused,
