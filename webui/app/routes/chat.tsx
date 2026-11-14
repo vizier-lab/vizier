@@ -2,7 +2,7 @@ import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteCon
 import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
 import { IconButton, Notice } from '@vizier/design'
 import { nanoid } from 'nanoid'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
 import { CHANNEL, listTopics, restartAgent } from '../api/endpoints/chat'
@@ -143,6 +143,8 @@ export default function Chat() {
     // Stable, so the panel's Escape listener is not re-bound on every render.
     const closeSideChat = useCallback(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [])
     const composerBox = useRef<HTMLDivElement>(null)
+    // The message list's scroll bar narrows its column; the composer below it does not scroll.
+    const [scrollbarWidth, setScrollbarWidth] = useState(0)
     const [composerHeight, setComposerHeight] = useState(120)
     useEffect(() => {
         const el = composerBox.current
@@ -421,6 +423,7 @@ export default function Chat() {
                 <MessageList
                     topicId={topicId}
                     bottomInset={composerHeight}
+                    onScrollbarWidth={setScrollbarWidth}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
                     greeting={opening}
@@ -481,7 +484,12 @@ export default function Chat() {
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
-                    <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16 max-lg:px-12 max-lg:pt-16 max-lg:pb-4">
+                    {/* Padded like the message list, scroll bar included, so the composer lines up with the messages' column. */}
+                    <div
+                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
+                        style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
+                    >
+                    <div className="mx-auto w-full max-w-4xl">
                     <SideChatPanel
                         key={sideChat.id}
                         open={sideChat.open}
@@ -589,6 +597,7 @@ export default function Chat() {
                             />
                         </>
                     )}
+                    </div>
                     </div>
                     </div>
                 </div>

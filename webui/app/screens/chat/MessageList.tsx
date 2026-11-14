@@ -60,6 +60,8 @@ type Props = {
     bottomInset?: number
     /** Room kept free at the right edge for a panel floating over the list. */
     insetRight?: number
+    /** Told the width of the list's scroll bar, so what floats over the list can centre on the same column. */
+    onScrollbarWidth?: (px: number) => void
     loadingOlder: boolean
     onLoadOlder: () => void
     onReact: (uid: string, emoji: string, action: 'added' | 'removed') => void
@@ -111,12 +113,23 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const el = scroller.current
+        if (!el || !onScrollbarWidth) return
+        const measure = () => onScrollbarWidth(el.offsetWidth - el.clientWidth)
+        measure()
+        // The bar comes and goes with the content's height, not only the box's size.
+        const ro = new ResizeObserver(measure)
+        ro.observe(el)
+        if (el.firstElementChild) ro.observe(el.firstElementChild)
+        return () => ro.disconnect()
+    }, [onScrollbarWidth])
     const [pinned, setPinned] = useState(true)
     const [unseen, setUnseen] = useState(0)
     const lastCount = useRef(entries.length)
