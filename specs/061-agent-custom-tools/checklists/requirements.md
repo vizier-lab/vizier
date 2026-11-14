@@ -42,3 +42,7 @@
 - Third pass (2026-11-15): security checks removed (old FR-007 secret refusal, the turn-ending /
   person-waiting refusal, Story 3's redaction and refusal scenarios, SC-003's bypass metric) and
   deferred to a later pass, recorded in Assumptions. Re-validated: every item still passes.
+- Fourth pass (2026-11-15): agent-owned categories (Story 8, FR-010–FR-011, SC-009/SC-010), one
+  discovery path for built-in and custom tools, WebUI grouped by category with rename/redescribe/move
+  (Story 5 scenarios 7–8, FR-021/FR-022), dreams may tidy categories (Story 7 scenario 7).
+  Re-validated: every item still passes.

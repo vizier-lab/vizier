@@ -29,8 +29,8 @@ as a function. This spec uses **custom tool** throughout; "function" keeps its s
 
 An agent has just written a script that does something its person will ask for again (for example,
 "collect today's unread notes, summarise their titles, save the list to memory"). It saves the
-script as a custom tool with a name, a one-line description, an input schema and, optionally, a
-sample input. The tool is checked before it is saved; a problem is reported with what to fix, and
+script as a custom tool with a name, a one-line description, an input schema, a category and,
+optionally, a sample input. The tool is checked before it is saved; a problem is reported with what to fix, and
 nothing is saved.
 
 **Why this priority**: Without saving there is nothing to reuse. This is the minimum viable slice.
@@ -53,6 +53,11 @@ name that is taken and confirm each is refused with a specific reason and nothin
 4. **Given** a definition with a sample input, **When** the agent saves it, **Then** the tool is run
    once with that input, the save happens only if that run succeeds, and the result says the run
    was real (any tool calls it made took effect).
+5. **Given** a save naming a category the agent does not have yet, **When** it carries a category
+   description, **Then** the category is created with that description in the same save; **when**
+   it carries none, **Then** the save is refused asking for one.
+6. **Given** a save with no category, **When** it is stored, **Then** the tool goes into the default
+   `custom` category.
 
 ---
 
@@ -65,28 +70,38 @@ failure it can read and act on.
 
 **Why this priority**: Reuse is the point of the feature; saving without calling delivers nothing.
 
-**Independent Test**: Save a custom tool in one conversation; in a new conversation list the custom
-tool category, describe the tool, call it with valid input and with invalid input, and check the
-value and the failure shape.
+There is no separate search or listing tool for custom tools: the agent learns one way to find a
+tool, whoever made it.
+
+**Independent Test**: Save a custom tool in category `reports` in one conversation; in a new
+conversation confirm `reports` and its description are in the prompt's category list, list it with
+the ordinary listing tool, describe the tool, call it with valid input and with invalid input, and
+check the value and the failure shape.
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent with saved, enabled custom tools, **When** it lists its tool categories,
-   **Then** a custom tools category is present, and listing it shows each tool's name and
-   description.
-2. **Given** a custom tool, **When** the agent asks for its description, **Then** it gets the
-   description, the input schema, the output description and whether the tool depends on any
-   model-backed tool.
-3. **Given** a valid input, **When** a script calls the custom tool, **Then** the tool's script runs,
+1. **Given** an agent with saved, enabled custom tools, **When** a turn starts, **Then** each of its
+   custom tool categories appears in the prompt's category list with the description the agent
+   wrote, beside the built-in, addon and MCP categories.
+2. **Given** a custom tool category, **When** the agent lists it with the existing listing tool,
+   **Then** it gets each tool's name and description; listing every function (no category) includes
+   custom tools, each marked as the agent's own.
+3. **Given** a custom tool, **When** the agent describes it with the existing description tool,
+   **Then** it gets the description, input schema and output description as for any tool, plus what
+   only custom tools have: the current version, who made it (agent, dream or person), whether it
+   calls a model-backed tool, and whether it needs attention.
+4. **Given** a valid input, **When** a script calls the custom tool, **Then** the tool's script runs,
    its own tool calls go through the normal dispatch path, and the caller receives the returned
    value.
-4. **Given** an input that does not match the schema, **When** a script calls the custom tool,
+5. **Given** an input that does not match the schema, **When** a script calls the custom tool,
    **Then** the call fails before anything runs, with every mismatch named by its path.
-5. **Given** a custom tool whose script fails partway, **When** it is called, **Then** the caller
+6. **Given** a custom tool whose script fails partway, **When** it is called, **Then** the caller
    receives a failure that names the custom tool, the step that failed and the error, and the
    calls already made are listed.
-6. **Given** an agent with no custom tools, **When** it lists categories, **Then** no custom tools
-   category appears and the prompt is unchanged from today.
+7. **Given** an agent with no custom tools, **When** a turn starts, **Then** no custom tool category
+   appears and the prompt is unchanged from today.
+8. **Given** a disabled custom tool, **When** the agent lists or describes tools, **Then** it does not
+   appear; it is seen only through the authoring tools.
 
 ---
 
@@ -167,7 +182,14 @@ With a person who may only view the agent, confirm the page is read-only.
    script and save, **Then** it is checked like an agent's save, refused with every problem found
    or stored as a new version authored by that person, and the agent's next call runs it.
 6. **Given** a person who may only view the agent, **When** they open a tool, **Then** no editor is
-   offered.
+   offered, and no category can be renamed or redescribed.
+7. **Given** the Custom tools page, **When** it opens, **Then** tools are grouped by category, each
+   group headed by its name and description, and each row shows version, author, last change,
+   enabled state and any *needs attention* warning.
+8. **Given** a person who may edit the agent, **When** they edit a category from its heading,
+   **Then** they can rename it or change its description; **when** they pick another category (or
+   type a new one, which asks for a description) in a tool's editor, **Then** the tool moves there
+   as a new version authored by them.
 
 ---
 
@@ -228,6 +250,44 @@ confirm it updates rather than duplicates.
    cannot: those tools are not in its toolset.
 6. **Given** a dream save that fails validation, **When** it is attempted, **Then** nothing is
    saved and the dream's report names the workflow and the reason.
+7. **Given** categories holding one or two closely related tools each, **When** the dream cycle
+   consolidates, **Then** it may move tools between categories and rewrite category descriptions,
+   and its report says what it reorganised.
+
+---
+
+### User Story 8 - The agent organises its custom tools into its own categories (Priority: P2)
+
+The agent groups the tools it makes into categories it names and describes, so the prompt's
+category list tells it, in a line each, what its own tools are for. A category comes into being
+with the first tool saved in it, can be renamed or redescribed, and goes away with its last tool.
+
+**Why this priority**: With one generic category the agent must list every custom tool to find the
+one it wants; named and described categories are what make a growing toolbox findable, the same
+way an MCP server's or addon's category does.
+
+**Independent Test**: Save two tools into `reports` (giving a description the first time) and one
+into `billing`; confirm the next turn's category list shows both lines; rename `reports` and
+confirm both tools moved and their names did not change; delete `billing`'s only tool and confirm
+the category is gone.
+
+**Acceptance Scenarios**:
+
+1. **Given** a new category name with a description, **When** the first tool is saved into it,
+   **Then** the category exists with that description; there is no separate step to create one.
+2. **Given** an existing category, **When** the agent renames it or changes its description,
+   **Then** every tool in it moves with it, no tool is renamed, and callers keep working.
+3. **Given** a tool, **When** it is updated with another category, **Then** it moves there, and the
+   move is a version in its history.
+4. **Given** a category name that is taken by a built-in, addon or MCP category, **When** it is
+   used, **Then** it is stored under that name with a `_custom` suffix and the save result names the
+   resulting category.
+5. **Given** a category whose last tool is deleted, **When** that happens, **Then** the category is
+   removed; **given** a category whose tools are all disabled, **Then** it leaves the agent's prompt
+   but stays on the WebUI page.
+6. **Given** a category created, renamed or removed during a turn, **When** that turn continues,
+   **Then** its category list is unchanged; the change appears from the next turn. Adding a tool to
+   an existing category never changes the prompt.
 
 ---
 
@@ -240,6 +300,10 @@ confirm it updates rather than duplicates.
 - **Name collisions**: custom tools are always reached under their own namespace, so a later
   built-in, addon or MCP tool can never take a custom tool's name and a custom tool can never shadow
   one. Two custom tools of one agent cannot share a name; renaming to a taken name is refused.
+- **Many small categories**: every category is a line in every prompt, and there is no cap in this
+  version; the dream prompt nudges toward merging categories that hold one or two tools.
+- **Renaming a category onto an existing one**: refused naming the existing category; moving its
+  tools there one by one is the way to merge.
 - **Rename**: renaming a custom tool that another custom tool calls is refused, naming the callers,
   until they are updated.
 - **Deleting a tool other tools call**: the deletion is refused naming the callers, unless a person
@@ -270,8 +334,8 @@ confirm it updates rather than duplicates.
 
 **Definition and storage**
 
-- **FR-001**: The system MUST let an agent store custom tools, each with a name, a description, an
-  input schema, an optional output description, a script, and metadata: author, created and updated
+- **FR-001**: The system MUST let an agent store custom tools, each with a name, a description, a
+  category, an input schema, an optional output description, a script, and metadata: author, created and updated
   times, version number, enabled state and last-called time.
 - **FR-002**: Custom tools MUST belong to exactly one agent and be visible and callable only by that
   agent. Copying a tool to another agent, export and import are out of scope for this version.
@@ -281,7 +345,10 @@ confirm it updates rather than duplicates.
 **Authoring**
 
 - **FR-004**: The agent MUST have tools to create, update, list, describe, view the history of, diff
-  versions of, roll back and delete its custom tools, in a category of their own.
+  versions of, roll back and delete its custom tools, and one tool to rename a custom tool category
+  or change its description, all in an authoring category of their own. The authoring list shows
+  every custom tool, disabled and *needs attention* ones included; it is for managing tools, not for
+  finding one to call (FR-010).
 - **FR-005**: Before a custom tool is saved (created, updated or rolled back), the system MUST check:
   the name follows the naming rule and is free; the input schema is a valid object schema; the
   script parses and declares the entry it is called through; every tool the script calls exists for
@@ -296,7 +363,7 @@ confirm it updates rather than duplicates.
   approval step; oversight is after the fact (FR-021–FR-025), which is sound because a custom tool
   runs with the caller's own rights (FR-013) and can do nothing a script in the same turn could not.
 - **FR-009**: The dream cycle MUST be able to list, describe, view the history of, diff, create and
-  update custom tools, so a custom tool, like a skill, is one of a dream's outputs. A dream MUST NOT
+  update custom tools, and rename or redescribe their categories, so a custom tool, like a skill, is one of a dream's outputs. A dream MUST NOT
   delete, disable or enable a custom tool, and MUST NOT call one (a custom tool acts through the
   agent's full toolset, which an unattended dream does not have).
 - **FR-009a**: A save made in a dream MUST pass every check of FR-005, judged against the
@@ -313,17 +380,37 @@ confirm it updates rather than duplicates.
   outputs, and the prompt MUST state the rule: **a custom tool** when the steps are fixed and only
   the inputs vary; **a skill** when the steps need the model's judgment; **nothing** when it is a
   one-off. It MUST check the existing skills and custom tools first and prefer updating one over
-  creating a near-duplicate.
+  creating a near-duplicate, place a new custom tool in a fitting existing category before making a
+  new one, and suggest merging categories that hold only one or two related tools.
 - **FR-009d**: The consolidation audit MUST count the skills and custom tools created or updated,
   beside the counts it already reports, and name any reusable workflow intentionally left alone.
 
 **Discovery and calling**
 
-- **FR-010**: Enabled custom tools MUST appear in the agent's tool discovery (category listing,
-  per-category listing, description) like any other tool, under a reserved custom tools category
-  that exists only when the agent has at least one enabled custom tool.
+- **FR-010**: Enabled custom tools MUST be found through the existing discovery tools (the per-
+  category listing, the full listing and the description tool, and their in-script equivalents),
+  with no separate search or listing tool for them. The full listing MUST mark custom tools as the
+  agent's own; the description MUST add version, author, model-backed dependency and *needs
+  attention* to the usual fields.
+- **FR-010a**: Custom tools MUST be grouped into categories that belong to the agent. Each category
+  has a name and a one-line description written by whoever created it, and every category with at
+  least one enabled tool MUST appear in the prompt's category list beside the other categories.
+- **FR-010b**: A category MUST be created by the first save that names it, and that save MUST carry
+  the category's description (refused otherwise); there is no separate create-category step. A save
+  with no category MUST go into a default `custom` category, which needs no description from the
+  agent.
+- **FR-010c**: A category MUST be removed when its last tool is deleted. A category whose tools are
+  all disabled MUST leave the prompt but remain visible on the WebUI page.
+- **FR-010d**: Custom tools MUST NOT be placed in built-in, addon or MCP categories. A category name
+  that clashes with one MUST be stored with a `_custom` suffix, and the save result MUST give the
+  resulting name. Renaming a category onto another custom tool category MUST be refused.
+- **FR-010e**: Renaming a category or changing its description MUST move every tool with it and
+  rename none; moving a tool to another category MUST be an update that records a version.
+- **FR-010f**: The prompt's category list MUST be fixed for the whole turn: categories created,
+  renamed, redescribed or removed during a turn appear from the next turn, and adding, changing or
+  removing a tool in an existing category MUST NOT change the prompt at all.
 - **FR-011**: Custom tools MUST be named under a fixed namespace that no built-in, addon, MCP or
-  client tool can take, and the custom tools category name MUST be reserved.
+  client tool can take, independent of their category, so a category change never renames a tool.
 - **FR-012**: A call MUST validate its input against the schema before running and fail with every
   mismatch, by path, if it does not match.
 - **FR-013**: A custom tool MUST run inside the calling script's call, making its inner tool calls
@@ -355,12 +442,15 @@ confirm it updates rather than duplicates.
 
 **People and the WebUI**
 
-- **FR-021**: The WebUI MUST offer a Custom tools page per agent listing each tool with its name,
-  description, version, author, last change, last call, enabled state and *needs attention* state,
-  with its current script and version history readable.
+- **FR-021**: The WebUI MUST offer a Custom tools page per agent with tools grouped by category, each
+  group headed by its name and description, listing each tool with its name, description, version,
+  author, last change, last call, enabled state and *needs attention* state, with its current
+  script, schema, version history and diffs readable.
 - **FR-022**: People who may view the agent MUST be able to read the page; people who may edit the
-  agent MUST be able to enable, disable, roll back and delete (with confirmation), and edit an
-  existing tool's description, input schema, output description and script.
+  agent MUST be able to enable, disable, roll back and delete (with confirmation), edit an existing
+  tool's description, category, input schema, output description and script, and rename or
+  redescribe a category from its heading. Choosing a new category in a tool's editor MUST ask for
+  its description.
 - **FR-022a**: A person's edit MUST pass the same checks as an agent's save (FR-005) except
   the sample run, which is not performed from the WebUI; it MUST be saved as a new version authored
   by that person, and the agent MUST see that authorship in the tool's history and description.
@@ -388,8 +478,11 @@ confirm it updates rather than duplicates.
 - **Custom tool**: an agent-owned, named, callable workflow — name, description, input schema,
   output description, current version, enabled state, *needs attention* state with the missing
   tools, last-called time, the tools it calls (derived from its script).
+- **Custom tool category**: an agent-owned group of custom tools — name, one-line description, who
+  last changed it; exists while it holds at least one tool; shown in the prompt while it holds an
+  enabled one.
 - **Custom tool version**: one immutable snapshot of a custom tool's definition — version number,
-  description, schemas, script, author (agent in a turn, agent in a dream cycle with the cycle
+  description, category, schemas, script, author (agent in a turn, agent in a dream cycle with the cycle
   named, or person), time, reason, and whether it came from a
   rollback (and of which version).
 - **Custom tool event**: a person's or the agent's lifecycle action that is not a version — enable,
@@ -416,6 +509,10 @@ confirm it updates rather than duplicates.
 - **SC-008**: Given conversations that repeat a fixed workflow at least twice, one dream cycle turns
   it into exactly one custom tool (or one new version of an existing one), and a second cycle over
   the same conversations creates no duplicate.
+- **SC-009**: An agent finds the custom tool it needs by opening one category (one listing call) in
+  most cases, because the prompt's category lines describe what each group of its tools does.
+- **SC-010**: Within a turn the prompt never changes because of a custom tool change, and across
+  turns it changes only when a category is added, renamed, redescribed or removed.
 
 ## Assumptions
 
@@ -424,7 +521,11 @@ confirm it updates rather than duplicates.
 - The sandbox, the tool dispatch path, secret redaction, tool categories and the discovery tools
   already exist and are reused as they are; a custom tool is a new kind of entry in the same
   catalogue.
-- The custom tools category is appended at the end of the existing category list.
+- The authoring tools get one built-in category, appended at the end of the existing list; the
+  agent's own custom tool categories follow the built-in, addon and MCP categories in the prompt.
+- Decided with the requester (2026-11-15, fourth pass): one discovery path for every tool; the agent
+  names and describes its own categories, created implicitly by the first save; the WebUI groups by
+  category and lets editors rename, redescribe and move.
 - "May view / may edit the agent" uses the existing agent permissions; no new permission is
   introduced unless planning shows one is needed.
 - The new WebUI page is drawn in FigCraft (or a mockup) before it is built, as the project requires.
