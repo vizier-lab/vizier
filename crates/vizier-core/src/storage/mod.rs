@@ -35,6 +35,7 @@ use crate::{
         session_file::SessionFileStorage,
         sso_session::SsoSessionStorage,
         state::StateStorage,
+        subagent::SubagentStorage,
         task::TaskStorage,
         task_run::TaskRunStorage,
         turn::TurnStorage,
@@ -47,6 +48,7 @@ use crate::{
 pub mod agent;
 pub mod artifact;
 pub mod detached_script;
+pub mod subagent;
 pub mod blob;
 pub mod catalogue;
 pub mod chunk;
@@ -125,6 +127,7 @@ where
         + TaskStorage
         + TaskRunStorage
         + DetachedScriptStorage
+        + SubagentStorage
         + HistoryStorage
         + SessionStorage
         + StateStorage

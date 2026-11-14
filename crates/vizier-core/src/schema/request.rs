@@ -55,10 +55,12 @@ pub enum VizierRequestContent {
     /// history; never sent any more. Its text is rendered from the stored JSON. Tracked for
     /// removal in #82.
     BackgroundReport(serde_json::Value),
-    /// Finished detached scripts of this conversation (spec 058). Sent empty by a script's
-    /// task as a poke; whoever handles it claims the deliverable rows and, only if it got
-    /// some, runs a turn whose request carries the rendered delivery (`[Background work
-    /// finished] …`). Never journaled: the rows are the durable part, and recovery pokes again.
+    /// Background delivery for this conversation: finished detached scripts (spec 058) and
+    /// subagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles
+    /// it claims from every source and, only if it got something, runs a turn whose request
+    /// carries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).
+    /// Never journaled: the rows are the durable part, and recovery pokes again. The name is
+    /// kept because it is stored in history and read by the WebUI.
     DetachedDelivery(String),
     /// A message a client sent on the person's behalf, such as a click inside a page the
     /// agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
@@ -70,6 +72,12 @@ pub enum VizierRequestContent {
     /// A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn
     /// like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
     QuestionAnswer(crate::questions::model::QuestionAnswer),
+    /// A worker's task from its main agent (spec 059): the first request of a `Subagent`
+    /// conversation. It starts a turn like `Chat`, framed as a worker's.
+    SubagentTask(crate::schema::SubagentBrief),
+    /// The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues
+    /// the worker's conversation like `Chat`.
+    SubagentReply(crate::schema::SubagentReplyText),
 }
 
 /// One `/btw` side chat carried in each request: the question being asked now and the
@@ -129,6 +137,8 @@ impl VizierRequestContent {
             Self::ClientEvent(_) => "client_event",
             Self::Btw(_) => "btw",
             Self::QuestionAnswer(_) => "question_answer",
+            Self::SubagentTask(_) => "subagent_task",
+            Self::SubagentReply(_) => "subagent_reply",
         }
     }
 
@@ -165,6 +175,8 @@ impl Display for VizierRequestContent {
             Self::DetachedDelivery(text) => f.write_str(text),
             Self::ClientEvent(event) => write!(f, "{}", event),
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
+            Self::SubagentTask(brief) => f.write_str(&brief.text),
+            Self::SubagentReply(reply) => f.write_str(&reply.text),
             // The readable summary, then the answers as data the agent can read without
             // re-parsing prose — the shape `ClientEvent` already uses.
             Self::QuestionAnswer(answer) => {
@@ -317,6 +329,11 @@ pub struct VizierRequest {
     /// turn that launched the job and must still count as one level deeper.
     #[serde(default)]
     pub background_depth: u8,
+    /// How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring
+    /// context's depth + 1 for a worker. The subagent management tools are offered only below
+    /// `subagents.max_depth`. Independent of `background_depth`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub subagent_depth: u8,
     /// The project a subagent piece works in (`specs/041-project-coding-workspace` R11),
     /// copied from the launching turn by `BackgroundJobs::dispatch_piece`. It is serialised
     /// with the durable turn row, so a resumed piece keeps the folder and mode it started
@@ -351,7 +368,7 @@ pub struct VizierRequest {
     #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub trace: crate::telemetry::RequestTrace,
     /// The detached script whose sub-agent turn this is (spec 058), so a script that turn
-    /// launches records its parent. Set only by `parallel_subagents` inside a detached script;
+    /// launches records its parent. Set only by `spawn_subagents` inside a detached script;
     /// in-process only and never accepted from a client.
     #[serde(skip)]
     #[schemars(skip)]
@@ -384,6 +401,11 @@ pub struct VizierRequest {
 /// attachments (a replayed turn), and the turn itself, which moves them into the session files
 /// and then says so on the model's message — otherwise the model is handed a request whose files
 /// were just taken off it and never learns they exist.
+/// `skip_serializing_if` for a depth that is still zero.
+fn is_zero(value: &u8) -> bool {
+    *value == 0
+}
+
 pub fn attachments_note(attachments: &[VizierAttachment]) -> Option<String> {
     if attachments.is_empty() {
         return None;
@@ -481,6 +503,31 @@ impl VizierRequest {
                 "sent_at": self.sent_at(),
                 "metadata": self.shown_metadata(),
             }))?);
+        }
+
+        // A worker's task and the main agent's reply to it (spec 059): sent by the main agent,
+        // so `sender` is its id, and `via` says the reader is a worker, not a conversation.
+        match &self.content {
+            VizierRequestContent::SubagentTask(brief) => {
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": "subagent",
+                    "subagent": brief.subagent_id,
+                    "task": format!("{} of {}", brief.position, brief.group_size),
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
+            VizierRequestContent::SubagentReply(reply) => {
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": "subagent_reply",
+                    "subagent": reply.subagent_id,
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
+            _ => {}
         }
 
         // A client event is still the person's message (they clicked it), so `sender` stays
@@ -704,6 +751,42 @@ mod tests {
             !frontmatter.contains("sender: '@dani"),
             "the requester must not appear as the sender: {frontmatter}"
         );
+    }
+
+    /// Spec 059: a worker's request says it came from its main agent, as a worker task.
+    #[test]
+    fn a_worker_task_and_reply_are_sent_by_the_main_agent() {
+        let task = VizierRequest {
+            timestamp: crate::time::now(),
+            user: "oz".into(),
+            content: VizierRequestContent::SubagentTask(crate::schema::SubagentBrief {
+                subagent_id: "s_1".into(),
+                position: 2,
+                group_size: 4,
+                text: "compare prices".into(),
+            }),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        };
+        let frontmatter = task.generate_frontmatter().unwrap();
+        for line in ["sender: oz", "via: subagent", "subagent: s_1", "task: 2 of 4"] {
+            assert!(frontmatter.contains(line), "{line} in {frontmatter}");
+        }
+        assert_eq!(task.content.kind(), "subagent_task");
+
+        let reply = VizierRequest {
+            content: VizierRequestContent::SubagentReply(crate::schema::SubagentReplyText {
+                subagent_id: "s_1".into(),
+                text: "EU retail".into(),
+            }),
+            ..task
+        };
+        let frontmatter = reply.generate_frontmatter().unwrap();
+        for line in ["sender: oz", "via: subagent_reply", "subagent: s_1"] {
+            assert!(frontmatter.contains(line), "{line} in {frontmatter}");
+        }
+        assert!(!frontmatter.contains("task:"));
+        assert_eq!(reply.content.to_string(), "EU retail");
     }
 
     fn at_known_time(content: VizierRequestContent) -> VizierRequest {

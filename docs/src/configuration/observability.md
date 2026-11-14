@@ -26,20 +26,22 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 vizier run
 
 ## What a trace looks like
 
-One trace covers a conversation turn **and the work it starts**. Here a person's message makes the agent run a script that waits for two subagents:
+One trace covers a conversation turn **and the work it starts**. Here a person's message makes the agent run a script that hires two workers:
 
 ```
 invoke_agent otel                         ← the turn
   chat gpt-5                              ← one request to the provider
   execute_tool execute_python             ← a tool call the model made
     python_exec
-      execute_tool parallel_subagents    ← a tool called from inside the script
-        invoke_agent otel               ← subagent 1's turn
+      execute_tool spawn_subagents       ← a tool called from inside the script
+        invoke_agent otel               ← worker 1's turn (vizier.subagent.id)
           chat gpt-5
-        invoke_agent otel               ← subagent 2's turn
+        invoke_agent otel               ← worker 2's turn
           chat gpt-5
   chat gpt-5                              ← the turn's final answer
 ```
+
+A worker's turn carries `vizier.subagent.id` and `vizier.subagent.position`. Its turn after a reply (`reply_subagent`) continues the replying call's trace.
 
 An agent woken by a mention in a Workspace starts a new trace of its own, because it is a turn of its own; filter on the Workspace's conversation id to follow a chain.
 
@@ -99,7 +101,7 @@ Tools the model calls directly (`execute_python`, `list_tool_functions`, …) an
 
 ### `detached_script {id}`: a detached script
 
-It opens when `execute_python` runs with `detached: true` and closes when the script ends, is cancelled or is interrupted, so its duration is the script's. It is created inside the launching call's span, so it continues that turn's trace, and the tool calls the script makes (and the turns of any sub-agents it starts) are its children. The blocking `parallel_subagents` tool has no span of its own beyond the tool call.
+It opens when `execute_python` runs with `detached: true` and closes when the script ends, is cancelled or is interrupted, so its duration is the script's. It is created inside the launching call's span, so it continues that turn's trace, and the tool calls the script makes (and the turns of any sub-agents it starts) are its children. Hiring workers (`spawn_subagents`) has no span of its own beyond the tool call.
 
 | Attribute | Value |
 |-----------|-------|

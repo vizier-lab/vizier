@@ -7,6 +7,7 @@ pub mod sandbox;
 pub mod scheduled_run;
 pub mod side_chat;
 pub mod user;
+pub mod worker;
 
 pub fn init_workspace(path: String) {
     let path_buf = std::path::PathBuf::from(&path);

@@ -37,7 +37,10 @@ use crate::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         stt::SttTranscribe,
-        subagents::ParallelSubagentsTool,
+        subagents::{
+            AskMainAgentTool, GetSubagentTool, ListSubagentsTool, ReplySubagentTool,
+            SpawnSubagentsTool, StopSubagentTool, WaitSubagentsTool,
+        },
         think::ThinkTool,
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
@@ -120,10 +123,14 @@ pub enum ToolCategory {
     /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
     /// in a shared topic, and reach a Workspace from any other conversation.
     Workspaces,
+    /// Subagents as temporary workers (`specs/059-subagent-workers`): the main agent hires,
+    /// waits for, answers and stops workers; a worker asks its main agent. Who sees which tool
+    /// is decided per turn by `available`.
+    Subagents,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 19] = [
+    pub const ALL: [ToolCategory; 20] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -143,6 +150,7 @@ impl ToolCategory {
         Self::Questions,
         Self::Time,
         Self::Workspaces,
+        Self::Subagents,
     ];
 
     pub fn name(self) -> &'static str {
@@ -166,6 +174,7 @@ impl ToolCategory {
             Self::Questions => "questions",
             Self::Time => "time",
             Self::Workspaces => "workspaces",
+            Self::Subagents => "subagents",
         }
     }
 
@@ -173,7 +182,7 @@ impl ToolCategory {
         match self {
             Self::Memory => "Search, read, write and organise long-term memory",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
-            Self::Agents => "Run parallel subagents and manage background jobs",
+            Self::Agents => "See and stop your background work (detached scripts)",
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
             Self::Scratchpad => {
@@ -204,6 +213,9 @@ impl ToolCategory {
             Self::Workspaces => {
                 "Wake other agents in a shared Workspace by mentioning them, and post to or read a Workspace from any conversation"
             }
+            Self::Subagents => {
+                "Hire temporary workers for parts of a task, wait for them, answer their questions and stop them"
+            }
         }
     }
 }
@@ -212,13 +224,14 @@ impl ToolCategory {
 /// caller still uses one. Keep this table until the pre-1.0 removal tracker (#82)
 /// says these compatibility hints can go.
 /// The one hint for the three background-job tools spec 058 retired.
-const BACKGROUND_REPLACED: &str = "background_subagents was replaced: run execute_python with detached=true and call parallel_subagents (or any tool) inside it; see list_detached_scripts, get_detached_script and cancel_detached_script.";
+const BACKGROUND_REPLACED: &str = "background_subagents was replaced: run execute_python with detached=true for background work (see list_detached_scripts, get_detached_script and cancel_detached_script); for workers use spawn_subagents then wait_subagents (category subagents).";
+
+/// The hint for the fan-out tools spec 059 retired (and the older name the first replaced).
+const FAN_OUT_REPLACED: &str = "parallel_subagents was retired: call spawn_subagents(tasks=[...]), then wait_subagents(ids=[...], until='all') (category subagents). Workers can ask you questions; answer with reply_subagent.";
 
 pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
-    (
-        "paralel_subtasks",
-        "paralel_subtasks was replaced by parallel_subagents; to have it run in the background, call it inside execute_python with detached=true",
-    ),
+    ("paralel_subtasks", FAN_OUT_REPLACED),
+    ("parallel_subagents", FAN_OUT_REPLACED),
     (
         "background_subagents",
         BACKGROUND_REPLACED,
@@ -263,6 +276,10 @@ pub struct ToolContext {
     /// The turn's `VizierRequest::background_depth`, which a detached launch checks
     /// against `MAX_BACKGROUND_DEPTH`. 0 outside an ordinary chat turn.
     pub background_depth: u8,
+    /// The turn's `VizierRequest::subagent_depth` (spec 059): 0 for the main agent, 1 for its
+    /// workers. The subagent management tools are offered only below `subagents.max_depth`; a
+    /// detached script inherits its turn's value.
+    pub subagent_depth: u8,
     /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
@@ -302,7 +319,7 @@ pub struct ToolContext {
     /// `client: None` it takes the question tools and client tools out; this flag also drops
     /// every turn-ending entry from [`turn_catalogue`].
     pub detached: bool,
-    /// The detached script this context runs inside, if any. `parallel_subagents` copies it
+    /// The detached script this context runs inside, if any. `spawn_subagents` copies it
     /// onto its requests (`VizierRequest.parent_detached_id`), so a script launched by a
     /// sub-agent records its parent and a cancel cascades to it.
     pub parent_detached_id: Option<String>,
@@ -342,6 +359,9 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
         // A person just answered a set and is waiting on the reply, so this is as interactive as a
         // typed message — and the agent may ask its next question in it (US6 #6).
         VizierRequestContent::QuestionAnswer(_) => true,
+        // A worker (spec 059): nobody but its main agent reads it, and it asks that agent with
+        // `ask_main_agent`, never a person.
+        VizierRequestContent::SubagentTask(_) | VizierRequestContent::SubagentReply(_) => false,
     };
     // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
     // whatever the request kind says.
@@ -1327,7 +1347,15 @@ impl BaseTools {
             .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(ParallelSubagentsTool::new(deps.clone()))
+            // Subagents (spec 059): the six management tools for the main agent, and
+            // `ask_main_agent` for a worker; `available` decides which a turn sees.
+            .tool(SpawnSubagentsTool::new(deps.clone()))
+            .tool(WaitSubagentsTool::new(deps.clone()))
+            .tool(ReplySubagentTool::new(deps.clone()))
+            .tool(StopSubagentTool::new(deps.clone()))
+            .tool(ListSubagentsTool::new(deps.clone()))
+            .tool(GetSubagentTool::new(deps.clone()))
+            .tool(AskMainAgentTool::new(deps.clone()))
             .tool(ListDetachedScripts { storage: deps.storage.clone() })
             .tool(GetDetachedScript { storage: deps.storage.clone() })
             .tool(CancelDetachedScript {
@@ -1714,7 +1742,13 @@ mod tests {
             entry::<SendMessageToWorkspace>(),
             entry::<ListWorkspaces>(),
             entry::<ReadWorkspaceMessages>(),
-            entry::<ParallelSubagentsTool>(),
+            entry::<SpawnSubagentsTool>(),
+            entry::<WaitSubagentsTool>(),
+            entry::<ReplySubagentTool>(),
+            entry::<StopSubagentTool>(),
+            entry::<ListSubagentsTool>(),
+            entry::<GetSubagentTool>(),
+            entry::<AskMainAgentTool>(),
             entry::<ListDetachedScripts>(),
             entry::<GetDetachedScript>(),
             entry::<CancelDetachedScript>(),
@@ -1833,7 +1867,13 @@ mod tests {
             ("send_message_to_workspace", Workspaces),
             ("list_workspaces", Workspaces),
             ("read_workspace_messages", Workspaces),
-            ("parallel_subagents", Agents),
+            ("spawn_subagents", Subagents),
+            ("wait_subagents", Subagents),
+            ("reply_subagent", Subagents),
+            ("stop_subagent", Subagents),
+            ("list_subagents", Subagents),
+            ("get_subagent", Subagents),
+            ("ask_main_agent", Subagents),
             ("list_detached_scripts", Agents),
             ("get_detached_script", Agents),
             ("cancel_detached_script", Agents),
@@ -1995,9 +2035,21 @@ mod tests {
 
     #[test]
     fn retired_names_point_at_what_replaced_them() {
-        let hint = retired_hint("paralel_subtasks").expect("retired name has a hint");
-        assert!(hint.contains("parallel_subagents") && hint.contains("detached=true"));
-        assert!(retired_hint("parallel_subagents").is_none());
+        // Spec 059: both fan-out names point at the worker tools, never at a retired name.
+        for name in ["paralel_subtasks", "parallel_subagents"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("spawn_subagents") && hint.contains("wait_subagents"), "{hint}");
+        }
+        for (_, hint) in RETIRED_TOOL_NAMES {
+            for (retired, _) in RETIRED_TOOL_NAMES {
+                let told_to_call = format!("call {retired}");
+                let told_to_use = format!("use {retired}");
+                assert!(
+                    !hint.contains(&told_to_call) && !hint.contains(&told_to_use),
+                    "{hint} sends the agent to the retired {retired}"
+                );
+            }
+        }
         assert_eq!(
             retired_hint("ui_render_interactive_ui"),
             Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
@@ -2012,7 +2064,13 @@ mod tests {
     #[test]
     fn subagent_tools_never_reach_the_dream_cycle() {
         for name in [
-            "parallel_subagents",
+            "spawn_subagents",
+            "wait_subagents",
+            "reply_subagent",
+            "stop_subagent",
+            "list_subagents",
+            "get_subagent",
+            "ask_main_agent",
             "list_detached_scripts",
             "get_detached_script",
             "cancel_detached_script",
@@ -2062,10 +2120,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `workspaces` (spec 053) is the last; `time` (spec 052) is the one before it.
-        assert_eq!(names.last(), Some(&"workspaces"));
-        assert_eq!(names[names.len() - 2], "time");
-        assert_eq!(names.len(), 19);
+        // `subagents` (spec 059) is the last; `workspaces` (spec 053) is the one before it.
+        assert_eq!(names.last(), Some(&"subagents"));
+        assert_eq!(names[names.len() - 2], "workspaces");
+        assert_eq!(names.len(), 20);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2267,6 +2325,8 @@ mod tests {
         assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
         assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
         assert_eq!(mcp_category_name("time", &[]), "time_mcp", "time is a built-in category (spec 052)");
+        assert_eq!(mcp_category_name("subagents", &[]), "subagents_mcp", "subagents is a built-in category (spec 059)");
+        assert_eq!(client_category_name("subagents", &[]), "subagents_client");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }
 
@@ -2318,6 +2378,7 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             deadline: None,
             loaded_images: Default::default(),
             recalled: Default::default(),

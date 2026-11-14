@@ -56,10 +56,13 @@ pub struct VizierDependencies {
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     /// The transient session-file tier's one clear/delete service.
     pub session_files: Arc<crate::session_files::SessionFiles>,
-    /// Blocking sub-agent fan-outs (`parallel_subagents`).
+    /// Subagents as temporary workers (spec 059).
     pub subagents: crate::agents::subagents::Subagents,
     /// Detached `execute_python` scripts (spec 058).
     pub detached: crate::agents::detached::DetachedScripts,
+    /// Every background delivery source (detached scripts, subagent workers), claimed together
+    /// at the three delivery sites (spec 059 research D9).
+    pub deliveries: crate::agents::delivery::Deliveries,
     /// The one HTTP client every model provider request goes through (`llm::http`).
     pub http: reqwest::Client,
     /// The provider and model catalogue (spec 015).
@@ -274,7 +277,7 @@ impl VizierDependencies {
             Ok(purged) => tracing::info!("purged {} notification(s) past retention", purged),
             Err(e) => tracing::warn!("failed to purge old notifications: {e}"),
         }
-        let subagents = crate::agents::subagents::Subagents::new(transport.clone());
+        let subagents = crate::agents::subagents::Subagents::new(storage.clone(), transport.clone());
         let detached = crate::agents::detached::DetachedScripts::new(
             storage.clone(),
             transport.clone(),
@@ -323,6 +326,11 @@ impl VizierDependencies {
             blobs,
             artifacts,
             session_files,
+            // Detached scripts first, then workers: sections ready together keep this order.
+            deliveries: crate::agents::delivery::Deliveries::new(vec![
+                std::sync::Arc::new(detached.clone()),
+                std::sync::Arc::new(subagents.clone()),
+            ]),
             subagents,
             detached,
             http: crate::llm::http::client(),

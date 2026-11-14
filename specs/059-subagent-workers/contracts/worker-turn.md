@@ -61,5 +61,5 @@ subagents ready at the same moment share one message, scripts first.
 
 `SessionFrame::Subagent(SubagentSnapshot)` on the **hiring** session, socket frame name
 `subagent`, published after every committed change (spawn, ask, reply, settle, stop, delete). The
-payload is the tool summary plus `group`, `hiring_turn`, `parent_detached_id`, `updated_at`.
+payload is the tool summary plus `group`, `parent_detached_id`, `updated_at`.
 Consumers re-read the row on receipt; the frame is a wake-up, not the source of truth.

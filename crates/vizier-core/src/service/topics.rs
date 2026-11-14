@@ -415,6 +415,12 @@ pub async fn delete(
     // Its detached scripts stop and go (spec 058). A script another process runs stops at its
     // next progress write, when it finds its row gone.
     s.deps().detached.delete_session(&session).await;
+    // Its workers stop and go, with their own conversations (spec 059 FR-017c).
+    for worker in s.deps().subagents.delete_session(&session).await {
+        if let Err(e) = files.delete_conversation(&worker).await {
+            tracing::warn!(session = %worker.to_slug(), "could not delete a worker's conversation: {e:?}");
+        }
+    }
     match files.delete_conversation(&session).await {
         Ok(_) => {
             // The stale-read ledger is per conversation and dies with it.

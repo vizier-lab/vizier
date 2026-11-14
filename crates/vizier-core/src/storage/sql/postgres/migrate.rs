@@ -58,6 +58,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "0008_detached_scripts",
         sql: include_str!("migrations/0008_detached_scripts.sql"),
     },
+    Migration {
+        version: 9,
+        name: "0009_subagents",
+        sql: include_str!("migrations/0009_subagents.sql"),
+    },
 ];
 
 /// Bring the schema `conn` sees (its `search_path`) up to the newest embedded migration.

@@ -116,9 +116,9 @@ Clients see a `checkpoint` response event with the handover text. Manual variant
 
 ## Background work
 
-An agent runs slow work in the background by calling `execute_python` with `detached: true`. The call returns a handle such as `{"detached": true, "id": "d_k3x9a1b2", "state": "running", "timeout_secs": 600}` at once, the script runs in its own task, and the agent carries on: it can keep talking to the person while a test suite runs or several pages are fetched. Any tool the script calls runs in the background with it, so a sub-agent fan-out is `parallel_subagents` inside a detached script.
+An agent runs slow work in the background by calling `execute_python` with `detached: true`. The call returns a handle such as `{"detached": true, "id": "d_k3x9a1b2", "state": "running", "timeout_secs": 600}` at once, the script runs in its own task, and the agent carries on: it can keep talking to the person while a test suite runs or several pages are fetched. Any tool the script calls runs in the background with it.
 
-- **Time limit.** `timeout_secs` (1 to 3600, default 600) bounds the whole script, every tool and sub-agent wait included. Without `detached` the field is ignored.
+- **Time limit.** `timeout_secs` (1 to 3600, default 600) bounds the whole script, every tool and wait included. Without `detached` the field is ignored.
 - **What is not available inside.** Asking the person (`ask_question`, `ask_sensitive_input`), the person's client tools (the WebUI's `ui_render` and the like) and every tool that ends the turn: the turn that launched the script may be over. They are absent from `list_tools()` there.
 - **Delivery.** When the script ends, its result reaches the agent exactly once as a message starting `[Background work finished]`: in the agent's next step if it is working on a turn of that conversation, otherwise as a new turn that wakes it. Files the script produced become session files of the conversation and are named in the message.
 - **The agent's tools.** `list_detached_scripts`, `get_detached_script` and `cancel_detached_script` (category `agents`) list, inspect and stop the conversation's background work. A cancel also stops what the script was waiting on and any background work started beneath it; nothing is delivered for a cancelled script.
@@ -126,6 +126,18 @@ An agent runs slow work in the background by calling `execute_python` with `deta
 - **Lifecycle.** Updating or restarting the agent, or restarting the server, interrupts its running scripts; the agent is told in a delivery. Deleting the agent or the conversation stops and removes them. Scheduled-task and dream turns cannot detach (nobody is waiting to be told), and a script at the third level of background nesting cannot start another.
 
 `background_subagents`, `list_background_jobs` and `cancel_background_job` were removed in this release; an agent that calls one is told what replaced it.
+
+## Subagents
+
+An agent splits work with independent parts between **workers**: temporary helpers that are the agent itself, working on one task each. A worker acts with the agent's tools, memory and permissions, and what it does is credited to the agent; it has no settings of its own. Its prompt tells it so: it works *for* the agent, the agent's identity (`core/soul`) and owner are described as its employer's, and its answer goes back to the agent, not to a person.
+
+- **The tools** (category `subagents`). `spawn_subagents` hires one worker per task and returns their handles (`s_…`) at once. `wait_subagents` waits until one (`until: "any"`) or every (`until: "all"`) worker has settled; a worker that is asking a question counts as settled, so the agent is never stuck waiting on a worker that waits for it. `reply_subagent` answers a worker's question, `stop_subagent` stops one worker, and `list_subagents` and `get_subagent` read them.
+- **Questions.** A worker that cannot go on without the agent's decision calls `ask_main_agent`. Its step ends, its state reads `asking`, and the agent's reply continues it in the same conversation. Workers never ask the person.
+- **Lifetime.** A worker lives as long as the conversation it was hired in. It keeps running when the agent's turn ends or a person sends `/abort`, it resumes after an update or a restart, and it stops only when it finishes, is stopped, reaches its time limit (`timeout_secs`, 1 to 3600, default 600; time spent waiting for a reply does not count), or its conversation or agent is deleted.
+- **Delivery.** An answer or a question the agent has not already read through `wait_subagents` or `get_subagent` reaches it exactly once, as a message starting `[Subagent update]`: in its next step if it is working, otherwise as a new turn.
+- **Depth.** Only the main agent hires workers. The [`subagents.max_depth`](./main-config.md#subagents) setting raises the limit.
+
+`parallel_subagents` was removed in this release; an agent that calls it is told to use `spawn_subagents` and `wait_subagents`.
 
 ## Dream cycle
 
@@ -169,7 +181,7 @@ Each call has one **activity**:
 | Activity | What it covers |
 |---|---|
 | Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished detached script wakes |
-| Subagents | `parallel_subagents` pieces, inline or inside a detached script, counted for the agent that ran them |
+| Subagents | Worker turns (`spawn_subagents`), counted for the agent that hired them |
 | Scheduled | Scheduled task runs |
 | Dreams | Dream extraction and consolidation |
 | Compaction | Checkpoint summaries, automatic and `/checkpoint` |

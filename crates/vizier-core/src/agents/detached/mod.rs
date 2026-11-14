@@ -60,9 +60,6 @@ fn timed_out_reason(secs: u64) -> String {
 /// Progress is written at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Waits between delivery pokes while the agent is not registered (being respawned).
-const POKE_BACKOFF_MS: [u64; 6] = [500, 1_000, 2_000, 4_000, 8_000, 14_000];
-
 /// The `timeout_secs` argument of a detached `execute_python`: 1..=3600, default 600. An inline
 /// call ignores it (models fill in optional fields they do not use), so only a detached call
 /// is checked.
@@ -267,8 +264,7 @@ impl DetachedScripts {
     }
 
     /// Recovery when this process claims `agent:{agent_id}` (spec 057): scripts left running
-    /// under an older owner are interrupted, and every conversation with something to deliver
-    /// is poked once.
+    /// under an older owner are interrupted; they then read as deliverable.
     pub async fn recover_agent(&self, agent_id: &AgentId, below: u64) {
         match self.inner.storage.interrupt_running_scripts(agent_id, Some(below), None).await {
             Ok(moved) => {
@@ -279,14 +275,8 @@ impl DetachedScripts {
             }
             Err(e) => tracing::warn!(agent_id, "could not recover detached scripts: {e}"),
         }
-        match self.inner.storage.deliverable_script_sessions(agent_id).await {
-            Ok(sessions) => {
-                for session in sessions {
-                    tokio::spawn(self.inner.clone().poke(session, 0));
-                }
-            }
-            Err(e) => tracing::warn!(agent_id, "could not list undelivered detached scripts: {e}"),
-        }
+        // Poking the conversations with something to deliver is `recovery::recover_agent`'s,
+        // across every delivery source (spec 059 research D9).
     }
 
     /// Take this conversation's finished scripts for delivery. Whoever calls first gets them.
@@ -308,6 +298,29 @@ impl DetachedScripts {
     /// How many scripts of this process are running (tests).
     pub fn live_count(&self) -> usize {
         self.inner.live.lock().len()
+    }
+}
+
+/// Detached scripts are one of the two delivery sources (spec 059 research D9).
+#[async_trait::async_trait]
+impl crate::agents::delivery::DeliverySource for DetachedScripts {
+    async fn claim(&self, session: &VizierSession) -> Vec<String> {
+        let claimed = DetachedScripts::claim(self, session).await;
+        if claimed.is_empty() {
+            vec![]
+        } else {
+            vec![render_delivery(&claimed)]
+        }
+    }
+
+    async fn sessions_with_deliveries(&self, agent_id: &AgentId) -> Vec<VizierSession> {
+        match self.inner.storage.deliverable_script_sessions(agent_id).await {
+            Ok(sessions) => sessions,
+            Err(e) => {
+                tracing::warn!(agent_id, "could not list undelivered detached scripts: {e}");
+                vec![]
+            }
+        }
     }
 }
 
@@ -516,36 +529,9 @@ impl Inner {
         names
     }
 
-    /// Tell the conversation something may be ready. The handler claims; an empty claim runs
-    /// no turn, so a poke that loses to a round-boundary claim costs nothing.
+    /// Tell the conversation something may be ready (`agents::delivery::poke`).
     async fn poke(self: Arc<Self>, session: VizierSession, depth: u8) {
-        let request = VizierRequest {
-            timestamp: crate::time::now(),
-            user: session.0.clone(),
-            content: VizierRequestContent::DetachedDelivery(String::new()),
-            metadata: serde_json::json!({}),
-            background_depth: depth.saturating_add(1),
-            ..Default::default()
-        };
-        let mut last_err = None;
-        for attempt in 0..=POKE_BACKOFF_MS.len() {
-            if attempt > 0 {
-                tokio::time::sleep(Duration::from_millis(POKE_BACKOFF_MS[attempt - 1])).await;
-            }
-            let mut request = request.clone();
-            request.timestamp = crate::time::now();
-            let replies = self.transport.broadcast_sender(session.clone()).await.ok();
-            match self.transport.send_request(session.clone(), request, replies).await {
-                Ok(()) => return,
-                Err(e) => last_err = Some(e.to_string()),
-            }
-        }
-        // The row stays deliverable: the next round boundary or the next recovery takes it.
-        tracing::warn!(
-            session = %session.to_slug(),
-            "could not poke a conversation about finished background work: {}",
-            last_err.unwrap_or_default()
-        );
+        crate::agents::delivery::poke(&self.transport, session, depth).await;
     }
 }
 

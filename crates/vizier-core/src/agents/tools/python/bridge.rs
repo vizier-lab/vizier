@@ -126,7 +126,7 @@ impl RouterBridge {
         };
         // A cancel (the sandbox dropped, or a detached script cancelled) stops whatever call
         // is in flight, whichever tool it is: dropping the call's future runs its own drop
-        // guards (`parallel_subagents` aborts its pieces, a shell call kills its process).
+        // guards (a shell call kills its process). Workers a script spawned keep running.
         let mut cancelled = self.cancelled.subscribe();
         if *cancelled.borrow() {
             return Err("tool call cancelled".to_string());
@@ -335,6 +335,7 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             loaded_images: Default::default(),
             recalled: Default::default(),
             deadline: None,

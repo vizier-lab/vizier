@@ -24,6 +24,7 @@ use std::sync::{
 
 pub mod agent;
 pub mod client;
+pub mod delivery;
 pub mod detached;
 pub mod hook;
 pub mod mcp;

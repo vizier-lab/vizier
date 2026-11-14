@@ -13,7 +13,8 @@ Every agent gets these regardless of configuration:
 | `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
 | `mention_agent` | Inside a Workspace: wake other member agents by mentioning them. See [Workspaces](./workspaces.md) |
 | `send_message_to_workspace`, `list_workspaces`, `read_workspace_messages` | Reach a Workspace you are a member of from any conversation, including a scheduled task |
-| `parallel_subagents` | Run several sub-prompts in parallel and wait for their results; inside a detached script it runs in the background |
+| `spawn_subagents`, `wait_subagents`, `reply_subagent`, `stop_subagent`, `list_subagents`, `get_subagent` | Subagents — hire temporary workers, wait for them, answer their questions, stop them. Main agent only by default. See [Agents](./agents.md#subagents) |
+| `ask_main_agent` | Offered only to a worker: ask the agent it works for one question; ends the worker's step |
 | `list_detached_scripts`, `get_detached_script`, `cancel_detached_script` | The agent's background work: scripts run with `execute_python` `detached: true`. See [Agents](./agents.md#background-work) |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
 | `list_session_files`, `read_document_file`, `read_image_file` | Session files — transient uploaded/attached files; text documents and PDFs (txt/md/json/yaml/csv/html/pdf…) are extracted to text; Word and Excel files are read by the [Office addon](./office-addon.md) |

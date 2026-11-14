@@ -27,6 +27,7 @@ use crate::{
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
                 user::owner_md,
+                worker::{employer_identity_md, served_owner_md, worker_md},
             },
         },
         hook::{VizierSessionHook, VizierSessionHooks},
@@ -476,56 +477,24 @@ impl VizierAgent {
     ) -> Vec<Message> {
         init_workspace(self.workspace.clone());
 
-        let boot = boot_md(
-            self.config.name.clone(),
-            self.config
+        let parts = PromptParts {
+            name: self.config.name.clone(),
+            description: self
+                .config
                 .description
                 .clone()
                 .unwrap_or("a Digital Steward".into()),
-        );
-
-        let mut res = vec![
-            Message::system(boot),
-            Message::system(
-                self.config
-                    .system_prompt
-                    .clone()
-                    .unwrap_or("You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md.".into()),
-            ),
-        ];
-
-        res.insert(
-            1,
-            Message::system(sandbox_md(
-                categories,
-                &self.config.tools.timeout.to_string(),
-            )),
-        );
-
-        // Add owner info if available
-        if let Some(ref owner) = self.owner_profile {
-            res.push(Message::system(owner_md(owner)));
-        }
-
-        res.push(Message::system(self.identity_block().await));
-
-        // After the identity block and before configured documents (FR-015/FR-016): project
-        // identity is stable across a project session's turns, and no other session kind gets it.
-        if let Some(project) = project {
-            res.push(Message::system(project_md(project)));
-        }
-
-        for document in &self.config.documents {
-            res.push(Message::system(document.clone()));
-        }
-
-        // Appended last, after the identity block and documents, so the cacheable
-        // boot/identity prefix stays byte-identical to an interactive turn's.
-        if session.is_scheduled_task() {
-            res.push(Message::system(scheduled_run_md()));
-        }
-
-        res
+            system_prompt: self.config.system_prompt.clone(),
+            sandbox: sandbox_md(categories, &self.config.tools.timeout.to_string()),
+            owner: self.owner_profile.as_ref().map(owner_md),
+            identity: self.identity_block().await,
+            project: project.map(project_md),
+            documents: self.config.documents.clone(),
+        };
+        system_prompt_layout(parts, session)
+            .into_iter()
+            .map(Message::system)
+            .collect()
     }
 
     pub async fn chat(
@@ -596,8 +565,21 @@ impl VizierAgent {
             vizier.queue.wait_ms = req.trace.queue_wait_ms(),
             vizier.dream = dream,
             vizier.turn.ended_by_tool = tracing::field::Empty,
+            vizier.subagent.id = tracing::field::Empty,
+            vizier.subagent.position = tracing::field::Empty,
         );
         record_channel(&span, &session.1);
+        // A worker's turn (spec 059): which worker, and its place in its group.
+        match &req.content {
+            VizierRequestContent::SubagentTask(brief) => {
+                span.record("vizier.subagent.id", brief.subagent_id.as_str());
+                span.record("vizier.subagent.position", brief.position);
+            }
+            VizierRequestContent::SubagentReply(reply) => {
+                span.record("vizier.subagent.id", reply.subagent_id.as_str());
+            }
+            _ => {}
+        }
         req.trace.adopt(&span);
         span
     }
@@ -615,6 +597,7 @@ impl VizierAgent {
         turn: TurnRef,
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
+        let subagent_depth = req.subagent_depth;
         let mut req = req;
 
         // A turn that was running when vizier went down carries on from its last step: the
@@ -769,6 +752,7 @@ impl VizierAgent {
             pending_attachments: Arc::new(Mutex::new(vec![])),
             hooks: hooks.clone(),
             background_depth,
+            subagent_depth,
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(self.deps.questions.clone()),
@@ -1553,18 +1537,17 @@ impl VizierAgent {
                 break;
             }
 
-            // Detached scripts that finished while this round ran (spec 058): delivered now,
+            // Background work that finished while this round ran (detached scripts, spec 058;
+            // subagent workers, spec 059): delivered now,
             // after the round's results and before the next completion, as one user message.
             // The claim is the exactly-once guard: a waiting wake-up poke then finds nothing.
-            let delivery = match self.deps.detached.claim(&ctx.session).await {
-                claimed if claimed.is_empty() => None,
-                claimed => {
+            let delivery = match self.deps.deliveries.claim(&ctx.session).await {
+                None => None,
+                Some(text) => {
                     let request = VizierRequest {
                         timestamp: crate::time::now(),
                         user: ctx.session.0.clone(),
-                        content: VizierRequestContent::DetachedDelivery(
-                            crate::agents::detached::render_delivery(&claimed),
-                        ),
+                        content: VizierRequestContent::DetachedDelivery(text),
                         metadata: serde_json::json!({}),
                         ..Default::default()
                     };
@@ -2001,6 +1984,7 @@ impl VizierAgent {
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
                     background_depth: 0,
+                    subagent_depth: 0,
                     deadline: None,
                     dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -3001,5 +2985,120 @@ mod attachment_note_tests {
             "{text}"
         );
         assert!(!text.contains("# Attached Files"), "{text}");
+    }
+}
+
+/// Everything the system prompt is built from, read once per turn.
+struct PromptParts {
+    name: String,
+    description: String,
+    system_prompt: Option<String>,
+    sandbox: String,
+    owner: Option<String>,
+    identity: String,
+    project: Option<String>,
+    documents: Vec<String>,
+}
+
+/// The system messages of a turn, in order. Pure, so both layouts are pinned by tests.
+///
+/// A subagent worker (spec 059) is the same agent told it is a temporary worker for it: selected
+/// on the session's channel, like the scheduled-run framing, never on the request kind. The
+/// conversational doctrine and the agent's own system prompt (its persona) are not a worker's,
+/// and its identity and owner are presented as its employer's (contracts/worker-turn.md).
+fn system_prompt_layout(parts: PromptParts, session: &VizierSession) -> Vec<String> {
+    let PromptParts {
+        name,
+        description,
+        system_prompt,
+        sandbox,
+        owner,
+        identity,
+        project,
+        documents,
+    } = parts;
+
+    if matches!(session.1, crate::schema::VizierChannelId::Subagent) {
+        let mut res = vec![worker_md(&name, &description), sandbox];
+        if let Some(owner) = owner {
+            res.push(served_owner_md(&name, &owner));
+        }
+        res.push(employer_identity_md(&name, &identity));
+        res.extend(project);
+        res.extend(documents);
+        return res;
+    }
+
+    let mut res = vec![
+        boot_md(name, description),
+        sandbox,
+        system_prompt.unwrap_or(
+            "You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md."
+                .into(),
+        ),
+    ];
+    res.extend(owner);
+    res.push(identity);
+    // After the identity block and before configured documents (FR-015/FR-016): project
+    // identity is stable across a project session's turns, and no other session kind gets it.
+    res.extend(project);
+    res.extend(documents);
+    // Appended last, after the identity block and documents, so the cacheable boot/identity
+    // prefix stays byte-identical to an interactive turn's.
+    if session.is_scheduled_task() {
+        res.push(scheduled_run_md());
+    }
+    res
+}
+
+#[cfg(test)]
+mod system_prompt_layout_tests {
+    use super::*;
+    use crate::schema::VizierChannelId;
+
+    fn parts() -> PromptParts {
+        PromptParts {
+            name: "Oz".into(),
+            description: "a researcher".into(),
+            system_prompt: Some("PERSONA".into()),
+            sandbox: "SANDBOX".into(),
+            owner: Some("OWNER".into()),
+            identity: "IDENTITY".into(),
+            project: Some("PROJECT".into()),
+            documents: vec!["DOC".into()],
+        }
+    }
+
+    fn session(channel: VizierChannelId) -> VizierSession {
+        VizierSession("oz".into(), channel, Some("t".into()))
+    }
+
+    #[test]
+    fn a_main_turn_keeps_its_layout() {
+        let got = system_prompt_layout(parts(), &session(VizierChannelId::HTTP("u".into(), "c".into())));
+        assert!(got[0].starts_with("# BOOT.md"));
+        assert_eq!(&got[1..], &["SANDBOX", "PERSONA", "OWNER", "IDENTITY", "PROJECT", "DOC"]);
+    }
+
+    #[test]
+    fn a_worker_is_framed_as_working_for_the_agent() {
+        let got = system_prompt_layout(parts(), &session(VizierChannelId::Subagent));
+        assert!(got[0].starts_with("# WORKER.md"), "{}", got[0]);
+        assert!(got[0].contains("temporary worker for Oz"));
+        assert_eq!(got[1], "SANDBOX");
+        assert!(got[2].starts_with("## The person Oz serves") && got[2].ends_with("OWNER"));
+        assert!(got[3].starts_with("## The agent you work for") && got[3].ends_with("IDENTITY"));
+        assert_eq!(&got[4..], &["PROJECT", "DOC"]);
+        assert!(!got.iter().any(|m| m == "PERSONA" || m.contains("BOOT.md")), "no persona, no conversational doctrine");
+    }
+
+    #[test]
+    fn a_worker_without_an_owner_or_project_skips_them() {
+        let mut p = parts();
+        p.owner = None;
+        p.project = None;
+        let got = system_prompt_layout(p, &session(VizierChannelId::Subagent));
+        assert_eq!(got.len(), 4);
+        assert!(got[2].starts_with("## The agent you work for"));
     }
 }

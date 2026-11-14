@@ -18,6 +18,8 @@ pub mod revision;
 pub mod secret;
 mod session;
 pub mod session_file;
+/// Subagents as temporary workers (spec 059).
+pub mod subagent;
 /// The Bedrock SSO session: the non-secret view and the encrypted payload (spec 044).
 pub mod sso;
 mod storage;
@@ -42,6 +44,10 @@ pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
     AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
     MemoryOpRequest, MemoryOpResponse,
+};
+pub use subagent::{
+    Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
+    SubagentSummary,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;

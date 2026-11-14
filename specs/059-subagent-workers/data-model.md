@@ -10,12 +10,11 @@ state IN (…)`.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | text PK | `s_` + 12 base32 chars, as `d_` ids |
+| `id` | text PK | `s_` + 8 base36 chars, as `d_` ids |
 | `agent_id` | text | the main agent (also the worker's agent) |
-| `hiring_session` | text | slug of the conversation it was spawned in (FR-001 lifetime, deliveries) |
-| `hiring_turn` | integer null | the `session_turn` id of the spawning turn, for reference only |
+| `hiring_channel` / `hiring_topic` | text / text null | the conversation it was spawned in (FR-001 lifetime, deliveries), stored like `detached_script`'s session |
 | `parent_detached_id` | text null | set when spawned inside a detached script |
-| `group_id` | text | one per `spawn_subagents` call |
+| `group_id` | text | `g_` + 8 base36, one per `spawn_subagents` call |
 | `position` | integer | 1-based within the group |
 | `group_size` | integer | tasks in the group |
 | `worker_topic` | text | the worker's own `Subagent` topic (UUID) |
@@ -35,7 +34,10 @@ state IN (…)`.
 | `created_at` / `updated_at` / `ended_at` | integer | ms; `ended_at` on a final state |
 | `owner_node` / `owner_token` | text / integer | spec 057 |
 
-Indexes: `(agent_id, hiring_session, created_at)`; `(agent_id, state)`; `(worker_topic)` unique.
+Indexes: `(agent_id, hiring_channel, hiring_topic, created_at)`; `(agent_id, state)`; `(worker_topic)` unique.
+
+The spawning turn's id is not stored: tools never see it, and nothing reads it (implementation
+note, 2026-11-14).
 
 Text timestamps are not used, so `time::stored` does not apply.
 
@@ -82,11 +84,11 @@ deliverable(row) := state ∈ {answered, failed, timed_out, asking}
 | `reply_subagent(id, deadline_at)` | yes | `asking → running`, set deadline; false if not asking |
 | `settle_subagent(id, state, result/error)` | yes | `running → answered/failed/timed_out`, `outcome_seq+1`, `ended_at` |
 | `stop_subagent(id, reason)` | yes | `running|asking → stopped`; returns the prior state or `AlreadyFinished` |
-| `mark_seen(ids)` | yes | `seen_seq = outcome_seq` where deliverable |
+| `mark_subagents_seen(ids)` | yes | `seen_seq = outcome_seq` where deliverable |
 | `claim_subagent_deliveries(session)` | yes | the claim above |
-| `subagent_by_worker(session)` | no | the row for a worker session (used at settle) |
+| `subagent_by_worker(topic)` | no | the row for a worker conversation (used at settle) |
 | `get_subagent(id)` / `list_subagents(session, final_limit)` | no | reads |
-| `running_subagents(agent, below)` | no | rows to re-arm on recovery (`running`, older fence) |
+| `reown_running_subagents(agent, below)` | yes | re-own `running` rows under an older fence, to re-arm their timers |
 | `subagent_delivery_sessions(agent)` | no | hiring sessions with a deliverable row |
 | `stop_session_subagents(session, reason)` | yes | stop all unfinished, return their worker sessions |
 | `delete_session_subagents(session)` / `delete_agent_subagents(agent)` | no | deletion paths |
@@ -94,10 +96,11 @@ deliverable(row) := state ∈ {answered, failed, timed_out, asking}
 ## Schema additions outside the table
 
 - `VizierRequestContent::SubagentTask(SubagentBrief { subagent_id, position, group_size, text })`
-  and `VizierRequestContent::SubagentReply { subagent_id, text }`; kinds `subagent_task`,
+  and `VizierRequestContent::SubagentReply(SubagentReplyText { subagent_id, text })`; kinds `subagent_task`,
   `subagent_reply`. Both `records_session_activity`, both durable.
 - `VizierRequest.subagent_depth: u8` (`#[serde(default)]`, on the wire); `ToolContext.subagent_depth`.
-- `SessionFrame::Subagent(SubagentSnapshot)` (socket name `subagent`): the row minus `task` beyond
-  200 characters and minus `result` beyond 500 — the peek spec's input.
+- `SessionFrame::Subagent(SubagentSnapshot)` (socket name `subagent`): the tool summary (task cut
+  at 200 characters, result at 500) plus `group`, `parent_detached_id`, `updated_at` — the peek
+  spec's input.
 - `VizierConfig.subagents: SubagentsConfig { max_depth: u8 }`, default `1`.
 - `ToolCategory::Subagents`, name `subagents`.
