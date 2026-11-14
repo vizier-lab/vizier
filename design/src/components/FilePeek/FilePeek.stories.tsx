@@ -50,7 +50,7 @@ export const Markdown: Story = {
         <p className="type-body-medium text-fg">vizier 0.13</p>
         <ul className="list-disc pl-16 type-small text-soft">
           <li>Skills you can run with /name</li>
-          <li>Background jobs report back</li>
+          <li>Background work reports back</li>
         </ul>
       </div>
     ),

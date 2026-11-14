@@ -3,7 +3,7 @@ import { IconButton } from "../IconButton/IconButton";
 import { cx } from "../../lib/cx";
 
 export type StatusPanelProps = {
-  /** The panel's title: "Recalled memory", "Background jobs", "Session files". */
+  /** The panel's title: "Recalled memory", "Background work", "Session files". */
   title: ReactNode;
   /** Right-aligned mono meta: "1,248 passages", "2 running". */
   meta?: ReactNode;

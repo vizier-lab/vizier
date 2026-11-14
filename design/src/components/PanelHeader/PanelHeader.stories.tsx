@@ -15,7 +15,7 @@ type Story = StoryObj<typeof meta>;
 
 export const WithCount: Story = {};
 
-export const WithClose: Story = { args: { title: "Background jobs", meta: "2 running", onClose: () => {} } };
+export const WithClose: Story = { args: { title: "Background work", meta: "2 running", onClose: () => {} } };
 
 export const WithAction: Story = {
   args: { title: "History", meta: undefined, action: <button type="button" className="type-small-medium text-fg hover:underline">Compare</button> },
