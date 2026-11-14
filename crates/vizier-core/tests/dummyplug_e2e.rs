@@ -1531,3 +1531,103 @@ async fn an_agent_update_interrupts_its_scripts_and_a_delete_forgets_them() {
 
     runtime.shutdown().await.unwrap();
 }
+
+/// The `- <call_id> <record> <size>` lines of a dummyplug `pruned` reply (§7).
+fn pruned_lines(reply: &str) -> Vec<(String, String)> {
+    reply
+        .lines()
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(|line| {
+            let mut parts = line.splitn(3, ' ');
+            let _call = parts.next().unwrap_or_default();
+            let record = parts.next().unwrap_or_default().to_string();
+            (record, parts.next().unwrap_or_default().to_string())
+        })
+        .collect()
+}
+
+/// Spec 060's quickstart, steps 1–6: old outputs are pruned from what the model is sent, past
+/// the mark and down to the low mark, stay pruned, are recallable from their own conversation
+/// only, and are stored whole.
+#[tokio::test(flavor = "multi_thread")]
+async fn old_tool_outputs_are_pruned_from_the_model_and_recalled_by_id() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let session = web_session("prune");
+    let big = |c: char| run_python(&format!("'{c}'*76000"), false, None);
+
+    // 1. Three outputs, about 57,000 tokens: under the mark, nothing is pruned.
+    for c in ['a', 'b', 'c'] {
+        chat(runtime.transport(), &session, &big(c)).await;
+    }
+    assert_eq!(chat(runtime.transport(), &session, "pruned").await, "(nothing pruned)");
+
+    // 2. A fourth passes it: the three oldest go, down to the low mark, the newest stays.
+    chat(runtime.transport(), &session, &big('d')).await;
+    let reply = chat(runtime.transport(), &session, "pruned").await;
+    assert!(reply.starts_with("3 pruned:"), "{reply}");
+    let pruned = pruned_lines(&reply);
+    let results: Vec<String> = history_of(&runtime, &session)
+        .await
+        .into_iter()
+        .filter(|h| matches!(h.content, SessionHistoryContent::ToolResult { .. }))
+        .map(|h| h.uid)
+        .collect();
+    assert_eq!(
+        pruned.iter().map(|(record, _)| record.clone()).collect::<Vec<_>>(),
+        results[..3],
+        "the placeholders name the stored uids of a, b and c, in order"
+    );
+    assert!(pruned.iter().all(|(_, size)| size == "74.3 KB"), "{pruned:?}");
+
+    // One-way, and stable across turns; a small output is never pruned.
+    assert_eq!(chat(runtime.transport(), &session, "pruned").await, reply);
+    chat(runtime.transport(), &session, &run_python("1", false, None)).await;
+    assert_eq!(chat(runtime.transport(), &session, "pruned").await, reply);
+
+    // 4. Recall, several in one script, and a miss that does not fail it.
+    let a = &pruned[0].0;
+    let found = chat(
+        runtime.transport(),
+        &session,
+        &run_python(&format!("r = recall_history(id='{a}')\n(r['status'], len(r['output']['result']))"), false, None),
+    )
+    .await;
+    assert!(found.contains("\"found\"") && found.contains("76000"), "{found}");
+    let several = chat(
+        runtime.transport(),
+        &session,
+        &run_python(&format!("[recall_history(id=i)['status'] for i in ['{a}', '{a}', 'no-such-id']]"), false, None),
+    )
+    .await;
+    assert!(several.contains("\"ok\":true") || several.contains("\"ok\": true"), "{several}");
+    assert!(several.contains("\"found\",\"found\",\"not_found\"") || several.contains("\"found\", \"found\", \"not_found\""), "{several}");
+
+    // Another conversation cannot read it.
+    let elsewhere = chat(
+        runtime.transport(),
+        &web_session("prune-elsewhere"),
+        &run_python(&format!("recall_history(id='{a}')['status']"), false, None),
+    )
+    .await;
+    assert!(elsewhere.contains("not_found"), "{elsewhere}");
+
+    // 5. Storage keeps every output whole.
+    let stored = runtime.deps().storage.get_session_history_entry(&session, a).await.unwrap();
+    match stored.map(|h| h.content) {
+        Some(SessionHistoryContent::ToolResult { content, .. }) => assert!(content.len() > 76_000),
+        other => panic!("expected the stored result, got {other:?}"),
+    }
+
+    // 6. The category is listed, with its one tool.
+    let listed = chat(
+        runtime.transport(),
+        &session,
+        &serde_json::json!({ "tool": "list_tool_functions", "arguments": { "category": "history" } }).to_string(),
+    )
+    .await;
+    assert!(listed.contains("recall_history"), "{listed}");
+
+    runtime.shutdown().await.unwrap();
+}

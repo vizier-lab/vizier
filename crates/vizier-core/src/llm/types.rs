@@ -16,7 +16,15 @@ pub enum Message {
     Assistant(Vec<AssistantPart>),
     /// The result of one tool call, as its own message: dialects group consecutive results
     /// as their wire format requires.
-    ToolResult { call_id: String, content: Vec<Part> },
+    ToolResult {
+        call_id: String,
+        content: Vec<Part>,
+        /// The `session_history.uid` this result was saved under, once it is saved
+        /// (`specs/060-prune-tool-outputs`): the id a pruning placeholder names and
+        /// `recall_history` reads back. Never sent to a provider.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record: Option<String>,
+    },
 }
 
 impl Message {
@@ -52,6 +60,7 @@ impl Message {
         Message::ToolResult {
             call_id: call_id.into(),
             content: vec![Part::Text(text.into())],
+            record: None,
         }
     }
 }

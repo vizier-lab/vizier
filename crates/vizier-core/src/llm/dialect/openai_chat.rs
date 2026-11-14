@@ -214,7 +214,7 @@ fn encode_message(message: &Message) -> Option<Value> {
             }
             msg
         }
-        Message::ToolResult { call_id, content } => json!({
+        Message::ToolResult { call_id, content, .. } => json!({
             "role": "tool",
             "tool_call_id": call_id,
             "content": joined_text(content),

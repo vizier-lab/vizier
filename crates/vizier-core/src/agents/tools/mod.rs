@@ -24,6 +24,7 @@ use crate::{
             ScheduleOneTimeTask,
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        history::RecallHistory,
         workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
         time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
@@ -64,6 +65,7 @@ pub mod brave_search;
 pub mod discord;
 mod dream_journal;
 pub mod fetch;
+mod history;
 pub mod http_client;
 mod image_gen;
 #[cfg(feature = "addon-documents")]
@@ -127,10 +129,12 @@ pub enum ToolCategory {
     /// waits for, answers and stops workers; a worker asks its main agent. Who sees which tool
     /// is decided per turn by `available`.
     Subagents,
+    /// Recall tool outputs pruned from the model's view (`specs/060-prune-tool-outputs`).
+    History,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 20] = [
+    pub const ALL: [ToolCategory; 21] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -151,6 +155,7 @@ impl ToolCategory {
         Self::Time,
         Self::Workspaces,
         Self::Subagents,
+        Self::History,
     ];
 
     pub fn name(self) -> &'static str {
@@ -161,6 +166,7 @@ impl ToolCategory {
             Self::Skills => "skills",
             Self::Files => "files",
             Self::Scratchpad => "scratchpad",
+            Self::History => "history",
             Self::Web => "web",
             Self::Audio => "audio",
             Self::Media => "media",
@@ -187,6 +193,9 @@ impl ToolCategory {
             Self::Files => "Read files attached to this conversation and send attachments",
             Self::Scratchpad => {
                 "Temporary notes private to this conversation, deleted once it goes idle"
+            }
+            Self::History => {
+                "Recall tool outputs pruned from this conversation's view; recall them in a script and return only what you need"
             }
             Self::Web => "Search the web and news, fetch pages, make HTTP requests",
             Self::Audio => "Generate speech from text and transcribe audio",
@@ -1432,6 +1441,11 @@ impl BaseTools {
             .tool(ReadTmp {
                 storage: deps.storage.clone(),
             })
+            // Pruned tool outputs read back (spec 060): any conversation can have them; never
+            // the dream cycle, which is not pruned.
+            .tool(RecallHistory {
+                storage: deps.storage.clone(),
+            })
             // The agent's own credentials (`specs/027-agent-secrets`): always available, never
             // to the dream cycle, because a dream turn is unattended.
             .tool(SetSecret {
@@ -1774,6 +1788,7 @@ mod tests {
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
+            entry::<RecallHistory>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
             #[cfg(feature = "addon-documents")]
@@ -1899,6 +1914,7 @@ mod tests {
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
+            ("recall_history", History),
             ("fetch", Web),
             ("http_client", Web),
             ("tts_generate", Audio),
@@ -2117,10 +2133,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `subagents` (spec 059) is the last; `workspaces` (spec 053) is the one before it.
-        assert_eq!(names.last(), Some(&"subagents"));
-        assert_eq!(names[names.len() - 2], "workspaces");
-        assert_eq!(names.len(), 20);
+        // `history` (spec 060) is the last; `subagents` (spec 059) is the one before it.
+        assert_eq!(names.last(), Some(&"history"));
+        assert_eq!(names[names.len() - 2], "subagents");
+        assert_eq!(names.len(), 21);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2323,6 +2339,7 @@ mod tests {
         assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
         assert_eq!(mcp_category_name("time", &[]), "time_mcp", "time is a built-in category (spec 052)");
         assert_eq!(mcp_category_name("subagents", &[]), "subagents_mcp", "subagents is a built-in category (spec 059)");
+        assert_eq!(mcp_category_name("history", &[]), "history_mcp", "history is a built-in category (spec 060)");
         assert_eq!(client_category_name("subagents", &[]), "subagents_client");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }

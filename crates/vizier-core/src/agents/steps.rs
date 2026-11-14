@@ -189,16 +189,21 @@ impl StepRecorder {
         Self { session, recorded }
     }
 
+    /// Saves the entries of `message` and returns the uids they were saved under, in entry
+    /// order; a save that failed contributes none. A tool result's uid is the id a pruning
+    /// placeholder names (spec 060).
     pub async fn record(
         &mut self,
         storage: &VizierStorage,
         transport: &VizierTransport,
         message: &Message,
-    ) {
+    ) -> Vec<String> {
+        let mut uids = Vec::new();
         for content in entries_for(std::slice::from_ref(message)) {
-            record_step(storage, transport, &self.session, content).await;
+            uids.extend(record_step(storage, transport, &self.session, content).await);
             self.recorded += 1;
         }
+        uids
     }
 
     /// Records one entry that is not a model message (a background delivery). It does not count toward

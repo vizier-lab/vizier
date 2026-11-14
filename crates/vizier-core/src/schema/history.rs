@@ -246,7 +246,7 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
     for msg in messages {
         match msg {
             Message::System(_) | Message::User(_) => {}
-            Message::ToolResult { call_id, content } => {
+            Message::ToolResult { call_id, content, .. } => {
                 entries.push(SessionHistoryContent::ToolResult {
                     call_id: call_id.clone(),
                     content: parts_text(content),
@@ -391,7 +391,12 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::ToolResult { call_id, content } => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-                messages.push(Message::tool_result(call_id.clone(), content.clone()));
+                // The uid is what a pruning placeholder names (spec 060).
+                messages.push(Message::ToolResult {
+                    call_id: call_id.clone(),
+                    content: vec![Part::Text(content.clone())],
+                    record: Some(entry.uid.clone()),
+                });
                 open_calls.remove(call_id.as_str());
                 if open_calls.is_empty() {
                     messages.append(&mut held);
@@ -595,7 +600,12 @@ fn parts_text(content: &[Part]) -> String {
 /// tool result is built, because that same value is what gets persisted: the agent
 /// loop hands `full_history` to storage and the output of this function to the model.
 pub fn message_for_model(message: &Message) -> Message {
-    let Message::ToolResult { call_id, content } = message else {
+    let Message::ToolResult {
+        call_id,
+        content,
+        record,
+    } = message
+    else {
         return message.clone();
     };
     // A cheap pre-check, so an ordinary tool result is never parsed as JSON.
@@ -621,6 +631,7 @@ pub fn message_for_model(message: &Message) -> Message {
     Message::ToolResult {
         call_id: call_id.clone(),
         content: narrowed,
+        record: record.clone(),
     }
 }
 
@@ -815,6 +826,17 @@ mod tests {
         assert!(parts.iter().all(|p| matches!(p, AssistantPart::ToolCall { .. })), "{parts:?}");
     }
 
+    #[test]
+    fn a_replayed_result_carries_the_uid_it_was_saved_under() {
+        let mut result = result_entry("c1", "done");
+        result.uid = "h-42".to_string();
+        let replayed = history_entries_to_messages(&[call_entry("c1"), result]);
+        let Some(Message::ToolResult { record, .. }) = replayed.get(1) else {
+            panic!("expected the result second: {replayed:?}")
+        };
+        assert_eq!(record.as_deref(), Some("h-42"));
+    }
+
     fn entry(content: SessionHistoryContent) -> SessionHistory {
         SessionHistory {
             uid: "uid".to_string(),
@@ -1007,7 +1029,7 @@ mod tests {
         messages[index..]
             .iter()
             .map_while(|m| match m {
-                Message::ToolResult { call_id, content } => {
+                Message::ToolResult { call_id, content, .. } => {
                     Some((call_id.clone(), parts_text(content)))
                 }
                 _ => None,

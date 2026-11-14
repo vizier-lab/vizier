@@ -6,6 +6,7 @@ pub mod dream_journal;
 mod file;
 mod global_config;
 mod history;
+pub mod prune;
 pub mod integration;
 pub mod metrics;
 pub mod notification;
@@ -57,6 +58,7 @@ pub use history::{
     history_entries_to_messages, message_for_model, messages_for_model,
     messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
 };
+pub use prune::{PruneStats, prune_for_model};
 pub use integration::{
     EventAction, EventDraft, Integration, IntegrationChanged, IntegrationEvent, IntegrationFamily,
     IntegrationGrant, IntegrationStatus,

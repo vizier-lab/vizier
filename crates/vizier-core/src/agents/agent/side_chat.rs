@@ -12,7 +12,7 @@ use tracing::Instrument;
 use super::system_prompt::context::{context_md, with_context};
 use super::system_prompt::side_chat::{SIDE_CHAT_MD, SIDE_CHAT_NO_TOOLS};
 use crate::agents::agent::model::usage::{TurnId, UsageScope};
-use crate::agents::agent::{VizierAgent, checkpoint_context, completion_request, text_of};
+use crate::agents::agent::{VizierAgent, checkpoint_context, pruned_completion_request, text_of};
 use crate::llm::types::{AssistantPart, Message, Part};
 use crate::schema::{
     SessionHistory, VizierRequest, VizierResponse, VizierResponseContent, VizierResponseStats,
@@ -82,7 +82,8 @@ impl VizierAgent {
         let response = self
             .model
             .complete_until(
-                completion_request(&messages, &message, &snapshot.tools().await?, true),
+                // The host turn's pruned prefix, so an aside shares its cache (spec 060).
+                pruned_completion_request(&messages, &message, &snapshot.tools().await?, true).0,
                 Some(now + prompt_timeout),
                 &UsageScope::turn(Some(session.clone()), &TurnId::new(), 1),
             )

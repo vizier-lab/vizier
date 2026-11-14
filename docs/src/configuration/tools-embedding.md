@@ -21,6 +21,7 @@ Every agent gets these regardless of configuration:
 | `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file`, `send_attachment` | Permanent artifacts — copy a session file in, replace its content, list them, load one back as a session file, or send one with a reply |
 | `attach_artifact_to_memory`, `detach_attachment_from_memory` | Attach or remove one artifact on a memory (memory_write never changes attachments) |
 | `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |
+| `recall_history` | History — read back a tool output pruned from the model's view, see [below](#pruned-tool-outputs) |
 | `webui_send_message`, `webui_list_topics` | Push messages into WebUI topics |
 | `memory_*` (8 tools) | Present whenever `embedding` + `indexer` are set (the API default) — see [Memory](./memory.md) |
 
@@ -37,6 +38,23 @@ The `scratchpad` category holds named plain-text files private to one conversati
 **Limits.** Names are 1–128 characters of letters, digits, `-`, `_` and `.`. Each file holds up to 1 MiB, and a conversation up to 64 files. A write over a limit is refused and changes nothing; refusals and missing files come back as results with a `status`, never as errors.
 
 Files live in the `scratch_file` SQLite table and are never written to memory, history or usage. The dream cycle gets the three tools too; each dream stage has its own scratchpad.
+
+### Pruned tool outputs
+
+A long conversation keeps every tool output in what the model is sent, round after round. To keep that bounded, old outputs are **pruned from the model's view**: once the outputs it would be sent pass about 60,000 estimated tokens (about four characters a token), the oldest are replaced, down to about 30,000, by one line:
+
+```text
+[output pruned (74.3 KB) - use recall_history("<id>") to recall]
+```
+
+- **Only the model's view changes.** History, the WebUI trail, notifications and usage keep every output whole.
+- **Never pruned:** outputs under 2 KB, failed scripts, the newest round's outputs, an output that ended the turn, images, and the tool calls themselves (so the script that produced an output stays visible).
+- **Rare, and one-way.** A pruned output stays pruned, and pruning happens in large steps, so the prompt the model's provider caches changes only when a prune happens.
+- **Everywhere the turn loop runs:** chats, project chats, channels, Workspaces, scheduled tasks, side chats and subagent workers. Compaction summarises the pruned view. The dream cycle is not pruned.
+
+`recall_history(id)`, in the `history` category, reads an output back by the id in its placeholder: `{status: "found", id, output}`, with the output exactly as stored (a script report comes back as a dict), or `{status: "not_found", id}` for an id that is not one of this conversation's outputs. It has no size limit yet. A script can recall several outputs, keep only the part it needs and return that. The dream cycle does not get it.
+
+The turn's `invoke_agent` span reports what was pruned: `vizier.prune.outputs` and `vizier.prune.tokens_removed` (see [Observability](./observability.md)).
 
 ## Configurable tools (`tools`)
 
