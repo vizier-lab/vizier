@@ -35,4 +35,7 @@
   once), per-agent only (no sharing/export), WebUI includes an editor for existing tools.
 - "Python in the existing sandbox" (FR-003) is named on purpose: the issue frames the feature as
   composing tools in the sandbox agents already use, so it is a product boundary, not a tech choice.
-- Limits (100 tools, 64 KiB, 2 KB, depth 3) are provisional defaults to revisit in `/speckit-plan`.
+- Second pass (2026-11-15): dreams author custom tools (Story 7, FR-009–FR-009d, SC-008), the dream
+  extraction/consolidation prompts change to look for reusable workflows, and all limits are
+  removed (FR-015, FR-015a); cycles stay refused and the calling script's time limit bounds a call.
+  Re-validated: every item still passes.

@@ -182,14 +182,14 @@ With a person who may only view the agent, confirm the page is read-only.
 ### User Story 6 - Custom tools call other custom tools (Priority: P3)
 
 A custom tool may call another of the agent's custom tools, so small tools combine into larger ones,
-within a fixed depth and with cycles refused.
+with no depth limit and with cycles refused.
 
 **Why this priority**: Useful for building up a toolbox, but single-level tools deliver most of the
 value.
 
 **Independent Test**: Save tool A that calls tool B, call A, and see B's result used; save B so that
-it calls A and confirm the save is refused as a cycle; build a chain deeper than the limit and
-confirm the call beyond it is refused.
+it calls A and confirm the save is refused as a cycle; build a long chain and confirm the calling
+script's time limit, not a depth rule, is what stops it.
 
 **Acceptance Scenarios**:
 
@@ -197,9 +197,45 @@ confirm the call beyond it is refused.
    value is returned to A.
 2. **Given** an update that would make a tool reach itself through other custom tools, **When** it
    is saved, **Then** it is refused naming the cycle.
-3. **Given** a chain of custom tools calling each other, **When** a call would go deeper than the
-   limit, **Then** that call is refused with the limit named, and the outer tools receive it as a
-   failure.
+3. **Given** a long chain of custom tools calling each other, **When** it runs past the calling
+   script's time limit, **Then** the call ends with a timeout failure naming the custom tool that
+   was running, and the outer tools receive it as a failure.
+
+---
+
+### User Story 7 - A dream turns a repeated workflow into a custom tool or a skill (Priority: P2)
+
+During its dream cycle the agent notices that it ran the same sequence of steps in several
+conversations (or that its person asked for the same thing again). It decides whether that workflow
+should become a custom tool (fixed steps, varying inputs), a skill (steps that need judgment), or
+nothing, checks what it already has, and creates or updates the right one. The dream's report says
+what it made.
+
+**Why this priority**: This is how the toolbox grows without anyone asking: the dream cycle already
+turns conversations into memories and skills, and custom tools are the third durable output.
+
+**Independent Test**: With an offline test agent, seed two conversations that run the same tool
+sequence with different inputs, run a dream cycle, and confirm the extraction lists the workflow,
+consolidation creates one custom tool authored "during a dream cycle", and the report counts it.
+Seed a workflow that needs judgment and confirm it becomes a skill instead. Run the cycle again and
+confirm it updates rather than duplicates.
+
+**Acceptance Scenarios**:
+
+1. **Given** conversations that repeat one fixed sequence of tool calls with different inputs,
+   **When** the dream cycle runs, **Then** its extraction report lists the workflow with its steps
+   and varying inputs, and consolidation saves it as a custom tool.
+2. **Given** a repeated workflow whose steps depend on judgment, **When** the dream cycle runs,
+   **Then** it creates or updates a skill, not a custom tool.
+3. **Given** a custom tool or skill that already covers the workflow, **When** the dream cycle runs,
+   **Then** it updates the existing one (a new version for a custom tool) or leaves it, and creates
+   no duplicate.
+4. **Given** a custom tool the dream saved, **When** a person opens Custom tools, **Then** the
+   version shows it was made by the agent during a dream cycle, which cycle, and why.
+5. **Given** a dream cycle, **When** it tries to delete, disable or call a custom tool, **Then** it
+   cannot: those tools are not in its toolset.
+6. **Given** a dream save that fails validation, **When** it is attempted, **Then** nothing is
+   saved and the dream's report names the workflow and the reason.
 
 ---
 
@@ -221,8 +257,13 @@ confirm the call beyond it is refused.
   depends on a model-backed tool, so the caller knows its result can vary.
 - **Detached calls**: a custom tool called from a detached script runs inside that script under the
   script's own limits.
-- **Limits**: an agent may hold at most 100 custom tools; a script is at most 64 KiB; a description
-  at most 2 KB; a version history keeps every version (no automatic pruning).
+- **Limits**: none in this version on count, script or description size, nesting depth or history
+  length; every version is kept. Only cycles are refused, and the calling script's time limit ends
+  a call that runs too long.
+- **A dream and a person change the same tool**: the same out-of-date rule as concurrent updates;
+  the dream's report names the tool it could not update.
+- **A dream writes a tool that calls a tool the dream cannot use**: allowed, because the check is
+  against the agent's full toolset; the tool simply is not called in the dream.
 - **Agent deleted**: all its custom tools and their history are deleted with it.
 - **A person edits while the agent updates**: same rule as concurrent updates; the person's editor
   shows the tool changed underneath them and offers to reload.
@@ -253,7 +294,7 @@ confirm the call beyond it is refused.
   the name follows the naming rule and is free; the input schema is a valid object schema; the
   script parses and declares the entry it is called through; every tool the script calls exists for
   the agent; it calls no turn-ending or person-waiting tool; it creates no cycle with other custom
-  tools; the sample input, if given, matches the schema; size limits hold. Every problem MUST be
+  tools; the sample input, if given, matches the schema. Every problem MUST be
   reported at once, as data the agent can act on.
 - **FR-006**: When a sample input is supplied, the system MUST run the tool once with it before
   saving, save only on success, and say in the result that the run took effect.
@@ -262,8 +303,27 @@ confirm the call beyond it is refused.
 - **FR-008**: A custom tool or version that passes validation MUST be callable at once, with no
   approval step; oversight is after the fact (FR-021–FR-025), which is sound because a custom tool
   runs with the caller's own rights (FR-013) and can do nothing a script in the same turn could not.
-- **FR-009**: Custom tools MUST NOT be created, updated or deleted from a dream cycle; the dream
-  cycle may not call them either in this version.
+- **FR-009**: The dream cycle MUST be able to list, describe, view the history of, diff, create and
+  update custom tools, so a custom tool, like a skill, is one of a dream's outputs. A dream MUST NOT
+  delete, disable or enable a custom tool, and MUST NOT call one (a custom tool acts through the
+  agent's full toolset, which an unattended dream does not have).
+- **FR-009a**: A save made in a dream MUST pass every check of FR-005 and FR-007, judged against the
+  agent's full toolset (where the tool will run), not the dream's; the sample run of FR-006 is not
+  performed in a dream. The version MUST be recorded as authored by the agent during a dream cycle,
+  naming the cycle, and the cycle's report MUST list the custom tools it created or updated.
+
+**The dream prompt**
+
+- **FR-009b**: The dream extraction step MUST look for **reusable workflows** in the conversations it
+  reflects on: a sequence of tool calls the agent ran more than once, or one the person asked to
+  repeat, noting the steps, the inputs that varied and whether any step needed judgment.
+- **FR-009c**: The dream consolidation step MUST decide, for each reusable workflow, between three
+  outputs, and the prompt MUST state the rule: **a custom tool** when the steps are fixed and only
+  the inputs vary; **a skill** when the steps need the model's judgment; **nothing** when it is a
+  one-off. It MUST check the existing skills and custom tools first and prefer updating one over
+  creating a near-duplicate.
+- **FR-009d**: The consolidation audit MUST count the skills and custom tools created or updated,
+  beside the counts it already reports, and name any reusable workflow intentionally left alone.
 
 **Discovery and calling**
 
@@ -280,8 +340,11 @@ confirm the call beyond it is refused.
 - **FR-014**: A custom tool MUST return a value to its caller; a failure MUST be returned as data
   naming the custom tool, the failing step, the error and the calls already made — never as a crash
   of the calling script.
-- **FR-015**: A custom tool MAY call other custom tools of the same agent, up to a nesting depth of
-  3; deeper calls MUST be refused, and cycles MUST be refused at save time and at call time.
+- **FR-015**: A custom tool MAY call other custom tools of the same agent with no nesting limit;
+  cycles MUST be refused at save time and at call time. The calling script's time limit (FR-013)
+  is what bounds a long chain.
+- **FR-015a**: This version sets no limit on the number of custom tools per agent, the size of a
+  script or description, or the number of versions kept.
 - **FR-016**: A custom tool's description MUST state whether it calls model-backed tools, so its
   result is known to be variable.
 - **FR-017**: Custom tools MUST be callable from any turn in which the agent can run scripts —
@@ -290,7 +353,8 @@ confirm the call beyond it is refused.
 **Versioning**
 
 - **FR-018**: Every successful create, update or rollback MUST record a new version holding the full
-  definition, who made it (the agent or a person), when, and an optional reason; earlier versions
+  definition, who made it (the agent in a turn, the agent during a dream cycle, or a person), when,
+  and an optional reason; earlier versions
   MUST be kept.
 - **FR-019**: The agent and people who may edit the agent MUST be able to see the difference between
   any two versions and roll back to any earlier version; a rollback MUST be validated as an update.
@@ -333,7 +397,8 @@ confirm the call beyond it is refused.
   output description, current version, enabled state, *needs attention* state with the missing
   tools, last-called time, the tools it calls (derived from its script).
 - **Custom tool version**: one immutable snapshot of a custom tool's definition — version number,
-  description, schemas, script, author (agent or person), time, reason, and whether it came from a
+  description, schemas, script, author (agent in a turn, agent in a dream cycle with the cycle
+  named, or person), time, reason, and whether it came from a
   rollback (and of which version).
 - **Custom tool event**: a person's or the agent's lifecycle action that is not a version — enable,
   disable, delete — with who and when.
@@ -356,6 +421,9 @@ confirm the call beyond it is refused.
 - **SC-006**: After any update, the previous working version can be restored in one action by the
   agent or a person.
 - **SC-007**: An agent without custom tools sees a prompt byte-identical to today's.
+- **SC-008**: Given conversations that repeat a fixed workflow at least twice, one dream cycle turns
+  it into exactly one custom tool (or one new version of an existing one), and a second cycle over
+  the same conversations creates no duplicate.
 
 ## Assumptions
 
@@ -368,11 +436,14 @@ confirm the call beyond it is refused.
 - "May view / may edit the agent" uses the existing agent permissions; no new permission is
   introduced unless planning shows one is needed.
 - The new WebUI page is drawn in FigCraft (or a mockup) before it is built, as the project requires.
-- Workers, detached scripts and scheduled tasks get custom tools because they are the agent; dreams
-  do not in this version.
+- Workers, detached scripts and scheduled tasks can call custom tools because they are the agent.
+  Dreams author custom tools but do not call them.
+- The dream cycle already creates skills and sees each conversation's tool calls and scripts in its
+  history, so finding repeated workflows needs no new source of data, only the prompt changes of
+  FR-009b–FR-009d.
 - Decided with the requester (2026-11-15): tools are callable at once with no approval step; they
   are per agent with no sharing, copying or export; people get an editor in the WebUI. Creating a
   brand-new tool from the WebUI and running a tool from the WebUI are out of scope — the agent
   creates tools, people inspect, edit and govern them.
-- The default limits (100 tools per agent, 64 KiB script, 2 KB description, nesting depth 3) are
-  provisional and may be tuned in planning.
+- Decided with the requester (2026-11-15, second pass): dreams write custom tools as one of their
+  outputs, the dream prompts change to look for them, and there are no limits for now.
