@@ -89,7 +89,7 @@ Every change is a new version: `update_custom_tool`, a move to another category,
 
 ## In the WebUI
 
-People who can view an agent see its **Custom tools** page, grouped by category. Each tool shows its version, author, last change, whether it is model-backed, and *needs attention* when it calls a tool the agent no longer has.
+In the WebUI, custom tools are called **functions**. People who can view an agent see its **Functions** page (beside Skills), grouped by category. Each tool shows its version, author, last change, whether it is model-backed, and *needs attention* when it calls a tool the agent no longer has.
 
 People who can edit the agent can also:
 

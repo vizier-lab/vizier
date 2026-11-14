@@ -179,11 +179,11 @@ rollback, enable/disable, delete and an editor.
 
 ### Implementation
 
-- [ ] T060 [US5] In `design/`: add `CustomToolGroup` and `CustomToolRow` (and any new variant the drawing needs) with Storybook stories; reuse the existing revision list and diff view components from memory history; run the design checks; commit in `design/` first
-- [ ] T061 [P] [US5] Create `webui/app/lib/customTools.ts` (+ `customTools.test.ts`): grouping by category (`custom` last), author label, needs-attention text, "changed underneath you" detection from `expected_version` vs a 409
-- [ ] T062 [US5] Create `webui/app/routes/custom-tools.tsx` and `webui/app/routes/custom-tool.tsx` plus `webui/app/screens/customTools/` (page, tool view with history and diff, editor using the editor component skill editing uses, category dialog, delete confirmation via design `Dialog`); hide every control for view-only people; register the routes
-- [ ] T063 [US5] Add the Custom tools entry to the agent menu beside Skills and a row in `webui/app/lib/agentDetails.ts` (+ its test) for the phone details list
-- [ ] T064 [US5] `cd webui && npm run typecheck && npm test`; commit `webui/`, then bump the `design`/`webui` pins in the workspace (order design → webui → vizier)
+- [X] T060 [US5] In `design/`: add `CustomToolGroup` and `CustomToolRow` (and any new variant the drawing needs) with Storybook stories; reuse the existing revision list and diff view components from memory history; run the design checks; commit in `design/` first
+- [X] T061 [P] [US5] Create `webui/app/lib/customTools.ts` (+ `customTools.test.ts`): grouping by category (`custom` last), author label, needs-attention text, "changed underneath you" detection from `expected_version` vs a 409
+- [X] T062 [US5] Create `webui/app/routes/custom-tools.tsx` and `webui/app/routes/custom-tool.tsx` plus `webui/app/screens/customTools/` (page, tool view with history and diff, editor using the editor component skill editing uses, category dialog, delete confirmation via design `Dialog`); hide every control for view-only people; register the routes
+- [X] T063 [US5] Add the Custom tools entry to the agent menu beside Skills and a row in `webui/app/lib/agentDetails.ts` (+ its test) for the phone details list
+- [X] T064 [US5] `cd webui && npm run typecheck && npm test`; commit `webui/`, then bump the `design`/`webui` pins in the workspace (order design → webui → vizier)
 
 ---
 
