@@ -15,6 +15,10 @@ vizier:
   lsp:
     max_servers: 6                    # default 6
 
+  # ── Subagents (read every start) ──
+  subagents:
+    max_depth: 1                      # default 1: only the main agent hires workers
+
   # ── Storage (read every start) ──
   storage:
     type: sqlite            # the only supported backend
@@ -50,6 +54,14 @@ Agents, tasks and dreams never trigger a check, and startup never does. See [Pro
 | `max_servers` | number | `6` | Most language servers running at once, across the whole instance. When a new one is needed the least recently used stops, unless every running server has a question in flight, in which case the new one answers `lsp_busy`. A rust-analyzer on a large repository can use a few gigabytes, so lower this on a small machine. |
 
 See [Projects](./projects.md#language-intelligence).
+
+### `subagents`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_depth` | number | `1` | How deep workers may hire workers. At `1` only the main agent is offered the subagent tools; a worker is offered only `ask_main_agent`. Raise it to let workers hire their own. |
+
+See [Agents](./agents.md#subagents).
 
 ### `storage`
 

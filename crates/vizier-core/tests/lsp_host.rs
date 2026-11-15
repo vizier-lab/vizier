@@ -12,9 +12,15 @@ use vizier_core::schema::ServerOverride;
 
 fn fake_lsp() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
-    let dir = exe.parent().unwrap().parent().unwrap();
-    let name = if cfg!(windows) { "fake_lsp.exe" } else { "fake_lsp" };
-    let path = dir.join("examples").join(name);
+    let names: &[&str] = if cfg!(windows) { &["fake_lsp.exe", "fake_lsp"] } else { &["fake_lsp"] };
+    // The binary sits in `target/debug/deps/` on an older cargo and in
+    // `target/debug/build/<package>/<hash>/` on a newer one: look in every ancestor.
+    let path = exe
+        .ancestors()
+        .skip(1)
+        .flat_map(|dir| names.iter().map(move |name| dir.join("examples").join(name)))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| exe.parent().unwrap().parent().unwrap().join("examples").join(names[0]));
     assert!(path.exists(), "build the example first: {}", path.display());
     path
 }

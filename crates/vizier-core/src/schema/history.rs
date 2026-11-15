@@ -62,7 +62,8 @@ pub enum SessionHistoryContent {
         state: Option<serde_json::Value>,
     },
     /// Memory passages the agent was given or went looking for during a turn
-    /// (`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.
+    /// (`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can
+    /// still be read (#82). Never part of the model's input.
     Recall {
         origin: RecallOrigin,
         passages: Vec<RecalledPassage>,
@@ -164,23 +165,6 @@ pub struct RecalledPassage {
     pub title: Option<String>,
 }
 
-/// One entry per `(bundle, path, ordinal)`, keeping the highest score, best first.
-pub fn dedupe_passages(passages: Vec<RecalledPassage>) -> Vec<RecalledPassage> {
-    let mut out: Vec<RecalledPassage> = Vec::new();
-    for p in passages {
-        match out
-            .iter_mut()
-            .find(|o| o.bundle == p.bundle && o.path == p.path && o.ordinal == p.ordinal)
-        {
-            Some(o) if p.score > o.score => *o = p,
-            Some(_) => {}
-            None => out.push(p),
-        }
-    }
-    out.sort_by(|a, b| b.score.total_cmp(&a.score));
-    out
-}
-
 /// How a client tool call ended, or `Pending` while it is in flight.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -262,7 +246,7 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
     for msg in messages {
         match msg {
             Message::System(_) | Message::User(_) => {}
-            Message::ToolResult { call_id, content } => {
+            Message::ToolResult { call_id, content, .. } => {
                 entries.push(SessionHistoryContent::ToolResult {
                     call_id: call_id.clone(),
                     content: parts_text(content),
@@ -338,8 +322,13 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     // call and its result; a provider refuses a user message there, so it waits for the results.
     let mut open_calls: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut held: Vec<Message> = Vec::new();
+    // The last message came from a request saved at a round boundary (a delivery, or a message
+    // read mid-turn, spec 062). The live turn sent everything that arrived at one boundary as one
+    // user message, so the replay joins them the same way (research R6).
+    let mut after_boundary_request = false;
 
     for entry in entries {
+        let joins_boundary = std::mem::take(&mut after_boundary_request);
         match &entry.content {
             SessionHistoryContent::Request(req) if !open_calls.is_empty() => {
                 if let Ok(text) = req.to_prompt()
@@ -354,7 +343,13 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 if let Ok(text) = req.to_prompt()
                     && !text.is_empty()
                 {
-                    messages.push(Message::User(vec![Part::Text(text)]));
+                    match messages.last_mut() {
+                        Some(Message::User(parts)) if joins_boundary && !req.opens_turn() => {
+                            parts.push(Part::Text(text));
+                        }
+                        _ => messages.push(Message::User(vec![Part::Text(text)])),
+                    }
+                    after_boundary_request = !req.opens_turn();
                 }
             }
             SessionHistoryContent::Response(res) => {
@@ -407,7 +402,12 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::ToolResult { call_id, content } => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-                messages.push(Message::tool_result(call_id.clone(), content.clone()));
+                // The uid is what a pruning placeholder names (spec 060).
+                messages.push(Message::ToolResult {
+                    call_id: call_id.clone(),
+                    content: vec![Part::Text(content.clone())],
+                    record: Some(entry.uid.clone()),
+                });
                 open_calls.remove(call_id.as_str());
                 if open_calls.is_empty() {
                     messages.append(&mut held);
@@ -611,7 +611,12 @@ fn parts_text(content: &[Part]) -> String {
 /// tool result is built, because that same value is what gets persisted: the agent
 /// loop hands `full_history` to storage and the output of this function to the model.
 pub fn message_for_model(message: &Message) -> Message {
-    let Message::ToolResult { call_id, content } = message else {
+    let Message::ToolResult {
+        call_id,
+        content,
+        record,
+    } = message
+    else {
         return message.clone();
     };
     // A cheap pre-check, so an ordinary tool result is never parsed as JSON.
@@ -637,6 +642,7 @@ pub fn message_for_model(message: &Message) -> Message {
     Message::ToolResult {
         call_id: call_id.clone(),
         content: narrowed,
+        record: record.clone(),
     }
 }
 
@@ -831,6 +837,17 @@ mod tests {
         assert!(parts.iter().all(|p| matches!(p, AssistantPart::ToolCall { .. })), "{parts:?}");
     }
 
+    #[test]
+    fn a_replayed_result_carries_the_uid_it_was_saved_under() {
+        let mut result = result_entry("c1", "done");
+        result.uid = "h-42".to_string();
+        let replayed = history_entries_to_messages(&[call_entry("c1"), result]);
+        let Some(Message::ToolResult { record, .. }) = replayed.get(1) else {
+            panic!("expected the result second: {replayed:?}")
+        };
+        assert_eq!(record.as_deref(), Some("h-42"));
+    }
+
     fn entry(content: SessionHistoryContent) -> SessionHistory {
         SessionHistory {
             uid: "uid".to_string(),
@@ -844,6 +861,83 @@ mod tests {
             reactions: vec![],
             seq: None,
         }
+    }
+
+    /// spec 062 R6: what arrived at one boundary (a delivery, then messages read mid-turn) is
+    /// replayed as the one user message the live turn sent, never as adjacent user messages.
+    #[test]
+    fn a_boundary_replays_as_one_user_message() {
+        let request = |content, mid_turn| {
+            entry(SessionHistoryContent::Request(VizierRequest {
+                content,
+                mid_turn,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            }))
+        };
+        let chat = |text: &str, mid_turn| {
+            request(
+                crate::schema::VizierRequestContent::Chat(text.into()),
+                mid_turn,
+            )
+        };
+        let entries = vec![
+            chat("refactor auth", false),
+            entry(SessionHistoryContent::ToolCall {
+                call_id: "c1".into(),
+                name: "execute_python".into(),
+                arguments: serde_json::json!({}),
+            }),
+            entry(SessionHistoryContent::ToolResult {
+                call_id: "c1".into(),
+                content: "ok".into(),
+            }),
+            request(
+                crate::schema::VizierRequestContent::DetachedDelivery(
+                    "[Background work finished]".into(),
+                ),
+                false,
+            ),
+            chat("keep the old token format", true),
+            chat("and the logs", true),
+            entry(SessionHistoryContent::Response(VizierResponse {
+                content: VizierResponseContent::Message {
+                    content: "done".into(),
+                    stats: None,
+                },
+                ..Default::default()
+            })),
+            // A later turn's own message opens a new user message.
+            chat("thanks", false),
+        ];
+        let messages = history_entries_to_messages(&entries);
+        let users: Vec<Vec<String>> = messages
+            .iter()
+            .filter_map(|m| match m {
+                Message::User(parts) => Some(
+                    parts
+                        .iter()
+                        .map(|p| match p {
+                            Part::Text(t) => t.rsplit("---\n\n").next().unwrap_or(t).to_string(),
+                            _ => String::new(),
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            users,
+            vec![
+                vec!["refactor auth".to_string()],
+                vec![
+                    "[Background work finished]".to_string(),
+                    "keep the old token format".to_string(),
+                    "and the logs".to_string(),
+                ],
+                vec!["thanks".to_string()],
+            ]
+        );
     }
 
     fn kinds(entries: &[SessionHistoryContent]) -> Vec<&'static str> {
@@ -1023,7 +1117,7 @@ mod tests {
         messages[index..]
             .iter()
             .map_while(|m| match m {
-                Message::ToolResult { call_id, content } => {
+                Message::ToolResult { call_id, content, .. } => {
                     Some((call_id.clone(), parts_text(content)))
                 }
                 _ => None,
@@ -1277,6 +1371,46 @@ mod tests {
         assert_eq!(calls.len(), results.len());
     }
 
+    /// A detached script that finished mid-turn is saved after its round's results (spec 058),
+    /// and replays at that point: call, result, delivery, call, result, reply.
+    #[test]
+    fn a_mid_turn_delivery_replays_between_rounds() {
+        let delivery = entry(SessionHistoryContent::Request(crate::schema::VizierRequest {
+            content: crate::schema::VizierRequestContent::DetachedDelivery(
+                "[Background work finished]\nd_aaaaaaaa  succeeded in 2s  — x\nresult: 1".into(),
+            ),
+            ..Default::default()
+        }));
+        let reply = entry(SessionHistoryContent::Response(VizierResponse {
+            timestamp: crate::time::now(),
+            content: VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            },
+            attachments: vec![],
+            ..Default::default()
+        }));
+        let entries = vec![
+            call_entry("a"),
+            result_entry("a", "handle"),
+            delivery,
+            call_entry("b"),
+            result_entry("b", "ok"),
+            reply,
+        ];
+        let kinds: Vec<&str> = history_entries_to_messages(&entries)
+            .iter()
+            .map(|m| match m {
+                Message::Assistant(parts) if parts.iter().any(|p| matches!(p, AssistantPart::ToolCall { .. })) => "call",
+                Message::Assistant(_) => "reply",
+                Message::ToolResult { .. } => "result",
+                Message::User(_) => "delivery",
+                Message::System(_) => "system",
+            })
+            .collect();
+        assert_eq!(kinds, ["call", "result", "delivery", "call", "result", "reply"]);
+    }
+
     #[test]
     fn recall_entries_are_not_model_input() {
         let with = history_entries_to_messages(&[
@@ -1290,20 +1424,5 @@ mod tests {
             SessionHistoryContent::AssistantMessage("hello".into()),
         )]);
         assert_eq!(with.len(), without.len());
-    }
-
-    #[test]
-    fn duplicate_passages_keep_the_highest_score() {
-        let p = |ordinal, score| RecalledPassage {
-            bundle: "infra".into(),
-            path: "qdrant.md".into(),
-            ordinal,
-            score,
-            title: None,
-        };
-        let out = dedupe_passages(vec![p(1, 0.4), p(2, 0.9), p(1, 0.7)]);
-        assert_eq!(out.len(), 2);
-        assert_eq!((out[0].ordinal, out[0].score), (2, 0.9));
-        assert_eq!((out[1].ordinal, out[1].score), (1, 0.7));
     }
 }

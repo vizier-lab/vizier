@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/056-shared-chat/data-model.md`): a frozen, read-only copy of one
+//! Shared chat snapshots (`specs/063-shared-chat/data-model.md`): a frozen, read-only copy of one
 //! conversation, who may open it, and the revoked state. Storage is unaware of permissions; the
 //! service layer owns them. The snapshot text is stored and returned byte for byte.
 

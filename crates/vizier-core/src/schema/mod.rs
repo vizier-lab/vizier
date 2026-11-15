@@ -1,11 +1,12 @@
 pub mod agent;
 pub mod artifact;
-pub mod background;
 mod commands;
+pub mod detached;
 pub mod dream_journal;
 mod file;
 mod global_config;
 mod history;
+pub mod prune;
 pub mod integration;
 pub mod metrics;
 pub mod notification;
@@ -18,6 +19,8 @@ pub mod revision;
 pub mod secret;
 mod session;
 pub mod session_file;
+/// Subagents as temporary workers (spec 059).
+pub mod subagent;
 /// The Bedrock SSO session: the non-secret view and the encrypted payload (spec 044).
 pub mod sso;
 mod storage;
@@ -34,24 +37,28 @@ pub use artifact::{
     ArtifactFilters, ArtifactId, ArtifactKind, ArtifactOrigin, ArtifactPage, ArtifactReference,
     ArtifactStats, validate_artifact_name,
 };
-pub use background::{
-    BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece,
-    BackgroundPieceSnapshot, BackgroundReport, Canceller, JobKind, JobState, PieceState,
-    ReportEntry,
+pub use detached::{
+    Canceller, DetachedScript, DetachedScriptDetail, DetachedScriptId, DetachedScriptSnapshot,
+    DetachedScriptState, new_detached_id,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
     AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
     MemoryOpRequest, MemoryOpResponse,
 };
+pub use subagent::{
+    Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
+    SubagentSummary,
+};
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{
     ClientCallOutcome, RecallOrigin, RecalledPassage, SessionHistory, SessionHistoryContent,
-    dedupe_passages, history_entries_to_messages, message_for_model, messages_for_model,
+    history_entries_to_messages, message_for_model, messages_for_model,
     messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
 };
+pub use prune::{PruneStats, prune_for_model};
 pub use integration::{
     EventAction, EventDraft, Integration, IntegrationChanged, IntegrationEvent, IntegrationFamily,
     IntegrationGrant, IntegrationStatus,

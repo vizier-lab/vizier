@@ -25,7 +25,6 @@ use vizier_core::{
     },
     storage::{
         agent::AgentStorage,
-        background_job::BackgroundJobStorage,
         client_call::ClientCallStorage,
         history::HistoryStorage,
         reaction::{ReactionStorage, Reactor},

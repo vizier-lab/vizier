@@ -135,7 +135,7 @@ impl ScratchStorage for SqlStorage {
         )?)
     }
 
-    async fn clear_scratch_except(&self, keep: &[VizierSession]) -> Result<usize> {
+    async fn clear_scratch_except(&self, agent_id: &str, keep: &[VizierSession]) -> Result<usize> {
         let keep: std::collections::HashSet<(String, String, String)> = keep
             .iter()
             .map(|s| {
@@ -146,8 +146,8 @@ impl ScratchStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let rows: Vec<(String, String, String)> = {
             let mut stmt =
-                conn.prepare("SELECT DISTINCT agent_id, channel, topic FROM scratch_file")?;
-            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                conn.prepare("SELECT DISTINCT agent_id, channel, topic FROM scratch_file WHERE agent_id = ?1")?;
+            stmt.query_map([agent_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
                 .collect::<sql::Result<_>>()?
         };
         let mut cleared = 0;

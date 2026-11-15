@@ -1,4 +1,4 @@
-//! The shared-snapshot tables (`specs/056-shared-chat/data-model.md`). Both are new, created
+//! The shared-snapshot tables (`specs/063-shared-chat/data-model.md`). Both are new, created
 //! with `CREATE TABLE IF NOT EXISTS`; nothing existing is altered (SC-009). The single
 //! implementation of [`ShareStorage`] is written against the backend-neutral `Connection`.
 //! `snapshot_json` is `TEXT`, so the stored bytes are the bytes that were previewed, and the

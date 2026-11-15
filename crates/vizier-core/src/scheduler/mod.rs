@@ -18,6 +18,7 @@ use crate::{
 mod dream;
 
 use dream::DreamScheduler;
+pub(crate) use dream::{DREAM_SINCE_KEY, extraction_source};
 
 fn normalize_task_instruction(instruction: String) -> String {
     if instruction.contains("\\n") {
@@ -55,6 +56,7 @@ impl VizierScheduler {
     /// session's turn to end and records how it did, as `fire` does. It keeps the run's row
     /// `running`, which is what stops `tick_tasks` from firing the task on top of it.
     async fn recover(&self) {
+        self.dream_scheduler.recover().await;
         let runs = match self.deps.storage.open_task_runs().await {
             Ok(runs) => runs,
             Err(e) => {
@@ -67,7 +69,7 @@ impl VizierScheduler {
             let deps = self.deps.clone();
             tracing::info!(task = %run.task_slug, "recovering a task run");
             tokio::spawn(async move {
-                use crate::agents::background::PieceOutcome;
+                use crate::agents::subagents::PieceOutcome;
                 let state = match deps.transport.await_session_outcome(&session, run.ran_at).await {
                     PieceOutcome::Answered(_) => TaskRunState::Answered,
                     PieceOutcome::Failed(_) => TaskRunState::NoResponse,

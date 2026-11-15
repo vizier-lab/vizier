@@ -1412,6 +1412,8 @@ fn telegram_rules() -> PlatformRules {
                 "btw",
                 "ask me a side question; never saved, deleted after 2 minutes",
             ),
+            // spec 062: `/queue <message>`, read by core like any typed text.
+            CommandEntry::new("queue", "send this after my current turn, as a new one"),
         ],
     }
 }

@@ -21,6 +21,8 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "owned_agents:view_artifacts",
     "all_agents:manage_artifacts",
     "owned_agents:manage_artifacts",
+    "all_agents:manage_functions",
+    "owned_agents:manage_functions",
     "all_agents:projects",
     "owned_agents:projects",
     "all_agents:share_conversations",

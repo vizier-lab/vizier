@@ -50,8 +50,28 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 7,
-        name: "0007_shared_snapshot",
-        sql: include_str!("migrations/0007_shared_snapshot.sql"),
+        name: "0007_row_ownership",
+        sql: include_str!("migrations/0007_row_ownership.sql"),
+    },
+    Migration {
+        version: 8,
+        name: "0008_detached_scripts",
+        sql: include_str!("migrations/0008_detached_scripts.sql"),
+    },
+    Migration {
+        version: 9,
+        name: "0009_subagents",
+        sql: include_str!("migrations/0009_subagents.sql"),
+    },
+    Migration {
+        version: 10,
+        name: "0010_custom_tools",
+        sql: include_str!("migrations/0010_custom_tools.sql"),
+    },
+    Migration {
+        version: 11,
+        name: "0011_shared_snapshot",
+        sql: include_str!("migrations/0011_shared_snapshot.sql"),
     },
 ];
 

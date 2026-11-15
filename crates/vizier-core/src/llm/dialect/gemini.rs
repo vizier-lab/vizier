@@ -276,7 +276,7 @@ fn encode_contents(messages: &[Message]) -> Vec<Value> {
     };
     for message in messages {
         match message {
-            Message::ToolResult { call_id, content } => {
+            Message::ToolResult { call_id, content, .. } => {
                 results.push(function_response(call_id, content))
             }
             Message::User(parts) => {

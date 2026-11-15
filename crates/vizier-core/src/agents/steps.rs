@@ -97,6 +97,12 @@ pub async fn record_step(
             });
             Some(uid)
         }
+        // A newer owner holds this agent: the write was refused whole, and the watch on the
+        // scope is what stops the agent here (specs/057 research R4). Not an error to log.
+        Err(e) if crate::storage::fence::is_ownership_lost(&e) => {
+            tracing::debug!(agent_id = %session.0, "a turn step was refused: {e}");
+            None
+        }
         Err(e) => {
             tracing::error!(
                 agent_id = %session.0,
@@ -129,9 +135,20 @@ pub async fn seal_open_calls(
 
     let start = match request_uid {
         Some(uid) => entries.iter().position(|e| e.uid == uid),
+        // A detached script's delivery (spec 058) and a message read mid-turn (spec 062) are
+        // saved mid-turn as a `Request`, so the turn starts at the last request that opens one;
+        // a turn a delivery woke has only deliveries since the last person's request, and
+        // starting earlier only scans calls that are already answered.
         None => entries
             .iter()
-            .rposition(|e| matches!(e.content, SessionHistoryContent::Request(_))),
+            .rposition(
+                |e| matches!(&e.content, SessionHistoryContent::Request(r) if r.opens_turn()),
+            )
+            .or_else(|| {
+                entries
+                    .iter()
+                    .position(|e| matches!(e.content, SessionHistoryContent::Request(_)))
+            }),
     };
     let Some(start) = start else {
         return 0;
@@ -171,19 +188,24 @@ impl StepRecorder {
         Self { session, recorded }
     }
 
+    /// Saves the entries of `message` and returns the uids they were saved under, in entry
+    /// order; a save that failed contributes none. A tool result's uid is the id a pruning
+    /// placeholder names (spec 060).
     pub async fn record(
         &mut self,
         storage: &VizierStorage,
         transport: &VizierTransport,
         message: &Message,
-    ) {
+    ) -> Vec<String> {
+        let mut uids = Vec::new();
         for content in entries_for(std::slice::from_ref(message)) {
-            record_step(storage, transport, &self.session, content).await;
+            uids.extend(record_step(storage, transport, &self.session, content).await);
             self.recorded += 1;
         }
+        uids
     }
 
-    /// Records one entry that is not a model message (a `Recall`). It does not count toward
+    /// Records one entry that is not a model message (a background delivery). It does not count toward
     /// `recorded`, which indexes the turn's messages.
     pub async fn record_entry(
         &mut self,

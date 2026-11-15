@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use vizier_core::{
-    agents::background::BackgroundJobs,
     config::VizierConfig,
     storage::{VizierStorage, agent::AgentStorage},
     transport::VizierTransport,
@@ -22,7 +21,6 @@ pub struct HTTPState {
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
     pub auth: AuthMode,
-    pub background_jobs: BackgroundJobs,
     /// The provider and model catalogue (spec 015).
     pub catalogue: vizier_core::catalogue::Catalogue,
     /// For the catalogue and providers APIs, which resolve models and reach providers.
@@ -34,7 +32,7 @@ pub struct HTTPState {
     /// One visit write per person a minute. Visits are still recorded, but nothing reads
     /// them since spec 029 removed the overview feed; tracked for #82.
     pub visit_throttle: Arc<vizier_core::utils::rate_limit::RateLimiter>,
-    /// Shares a person may create (`specs/056-shared-chat`): 10 an hour.
+    /// Shares a person may create (`specs/063-shared-chat`): 10 an hour.
     pub share_creates: Arc<vizier_core::utils::rate_limit::RateLimiter>,
     /// Refused or unknown share reads per address: 60 a minute.
     pub share_misses: Arc<vizier_core::utils::rate_limit::RateLimiter>,
@@ -53,7 +51,7 @@ impl HTTPState {
     }
 }
 
-/// 10 creates per person per hour (`specs/056-shared-chat` R12).
+/// 10 creates per person per hour (`specs/063-shared-chat` R12).
 pub(crate) fn share_creates_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
     Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
         vizier_core::service::shares::CREATES_PER_HOUR,

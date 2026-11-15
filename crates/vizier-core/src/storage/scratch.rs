@@ -47,15 +47,16 @@ pub trait ScratchStorage {
     /// Startup sweep: nothing can be running yet, so every row is a leftover.
     async fn clear_all_scratch(&self) -> Result<usize>;
 
-    /// Startup sweep that keeps the files of the sessions in `keep`, which have a turn waiting
-    /// to resume (`specs/023-persist-turn-activity`).
-    async fn clear_scratch_except(&self, keep: &[VizierSession]) -> Result<usize>;
+    /// Recovery of one agent's conversations: clears its files except those of the sessions in
+    /// `keep`, which have a turn waiting to resume (`specs/023-persist-turn-activity`,
+    /// `specs/057-fleet-row-ownership`). Another agent's files are never touched.
+    async fn clear_scratch_except(&self, agent_id: &str, keep: &[VizierSession]) -> Result<usize>;
 }
 
 #[async_trait::async_trait]
 impl ScratchStorage for VizierStorage {
-    async fn clear_scratch_except(&self, keep: &[VizierSession]) -> Result<usize> {
-        self.0.clear_scratch_except(keep).await
+    async fn clear_scratch_except(&self, agent_id: &str, keep: &[VizierSession]) -> Result<usize> {
+        self.0.clear_scratch_except(agent_id, keep).await
     }
 
     async fn write_scratch(&self, session: &VizierSession, name: &str, content: &str) -> Result<ScratchWrite> {

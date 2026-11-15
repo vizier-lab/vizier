@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/056-shared-chat/contracts/share-api.md`). Authorization,
+//! Shared chat snapshots (`specs/063-shared-chat/contracts/share-api.md`). Authorization,
 //! validation and storage are in `vizier_core::service::shares`; these handlers translate, set
 //! the response headers of the contract, and hand the stored text to the client without
 //! parsing it into a value.

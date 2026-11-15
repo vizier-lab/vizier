@@ -48,7 +48,7 @@ Every project chat has a mode, saved with the chat. A new chat starts in **Plan*
 - **Build** adds `write_file` and `edit_file`, and `workspace_shell` when the project's shell
   switch is on.
 
-The mode is server state, so every tab, a resumed turn and a background report see the same one.
+The mode is server state, so every tab, a resumed turn and a turn a detached script's result wakes see the same one.
 A switch applies from the next turn; a running turn keeps the tools it started with. Subagents
 launched from a project chat inherit its folder (the worktree, when it has one) and the launching
 turn's mode, minus `propose_plan`.

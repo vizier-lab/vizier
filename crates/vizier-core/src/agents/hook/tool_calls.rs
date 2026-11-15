@@ -68,3 +68,39 @@ impl VizierSessionHook for ToolCallsHook {
         Ok(res)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::hook::{handover::HandoverSenderHook, thinking::ThinkingHook};
+
+    /// A detached script outlives the turn that launched it, so its hooks publish into a
+    /// reply whose reader is gone (spec 058 research D3). Every hook must shrug that off.
+    #[tokio::test]
+    async fn hooks_tolerate_a_turn_that_has_ended() {
+        let (tx, stream) = crate::transport::standalone_reply_channel().await;
+        drop(stream);
+        let session = VizierSession("a".into(), crate::schema::VizierChannelId::System, None);
+
+        let calls = ToolCallsHook::new(tx.clone(), session.clone());
+        assert!(calls.on_tool_call("shell_exec".into(), "{}".into()).await.is_ok());
+        let report = serde_json::to_value(ExecutionReport::failed(
+            crate::sandbox::ExecutionErrorKind::Script,
+            "x",
+            "",
+            None,
+        ))
+        .unwrap();
+        let res = VizierResponse {
+            content: VizierResponseContent::ToolResponse { response: report },
+            ..Default::default()
+        };
+        assert!(calls.on_tool_response(res).await.is_ok());
+
+        let thinking = ThinkingHook::new(tx.clone(), session.clone());
+        assert!(thinking.on_tool_call("think".into(), r#"{"thought":"t"}"#.into()).await.is_ok());
+
+        let handover = HandoverSenderHook::new(tx, session);
+        assert!(handover.on_handover(Some("h".into())).await.is_ok());
+    }
+}

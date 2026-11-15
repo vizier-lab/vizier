@@ -1,4 +1,4 @@
-//! Tasks and runs, dream, background jobs and the conversation picker (spec 038 T062–T065).
+//! Tasks and runs, dream and the conversation picker (spec 038 T062–T065).
 use crate::common::{Vector, v};
 use serde_json::json;
 
@@ -10,7 +10,6 @@ fn task_body(slug: &str) -> serde_json::Value {
 }
 
 pub fn vectors() -> Vec<Vector> {
-    let jobs = "/agents/agent-a/channel/webui/topic/t1/jobs";
     vec![
         // tasks
         v("POST", "/agents/agent-a/tasks", Some(task_body("t-one"))),
@@ -51,14 +50,6 @@ pub fn vectors() -> Vec<Vector> {
         v("GET", "/agents/agent-a/dream/cycles", None),
         v("GET", "/agents/agent-a/dream/cycles?limit=3&before=2030-01-01T00:00:00Z", None),
         v("GET", "/agents/agent-b/dream/cycles", None),
-        // background jobs
-        v("GET", jobs, None),
-        v("GET", "/agents/agent-b/channel/webui/topic/t1/jobs", None),
-        v("GET", "/agents/missing/channel/webui/topic/t1/jobs", None),
-        v("GET", "/agents/agent-a/channel/webui/topic/t1/jobs/nojob", None),
-        v("POST", "/agents/agent-a/channel/webui/topic/t1/jobs/nojob/cancel", Some(json!({ "reason": "because" }))),
-        v("POST", "/agents/agent-a/channel/webui/topic/t1/jobs/nojob/cancel", Some(json!({}))),
-        v("GET", "/agents/agent-a/channel/webui/topic/t1/jobs/nojob/pieces/0/history", None),
         // conversations
         v("GET", "/agents/agent-a/conversations", None),
         v("GET", "/agents/agent-a/conversations?limit=5&channel=webui&q=x", None),

@@ -136,7 +136,7 @@ fn encode_messages(messages: &[Message]) -> Vec<Value> {
             Message::User(parts) => {
                 push_message(&mut out, "user", parts.iter().map(encode_part).collect());
             }
-            Message::ToolResult { call_id, content } => {
+            Message::ToolResult { call_id, content, .. } => {
                 push_message(
                     &mut out,
                     "user",
@@ -535,6 +535,7 @@ mod tests {
                 Message::ToolResult {
                     call_id: "t1".into(),
                     content: vec![Part::Text("done".into())],
+                    record: None,
                 },
             ],
             ..Default::default()

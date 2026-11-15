@@ -1,7 +1,7 @@
 {
-  "etag": "\"19c6169aaf74aeb081f56c5d05986eae\"",
-  "fetched_at": "2026-11-07T19:53:31Z",
-  "models": 8943,
+  "etag": "\"294a94ed23c855b19aa859e1c00c40a2\"",
+  "fetched_at": "2026-11-13T02:42:01Z",
+  "models": 9129,
   "no_logo": [
     "aion-labs",
     "aisingapore",
@@ -22,7 +22,6 @@
     "cognitivecomputations",
     "cortecs",
     "deepreinforce",
-    "elevenlabs",
     "essentialai",
     "fireworks",
     "gmicloud",
@@ -66,7 +65,7 @@
     "voyageai",
     "writer"
   ],
-  "providers": 235,
+  "providers": 236,
   "schema": 1,
   "source_url": "https://models.dev/api.json"
 }

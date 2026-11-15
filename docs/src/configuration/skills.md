@@ -165,7 +165,7 @@ A third scope lives in the **project folder** itself, in the layout the Agent Sk
 | `.agents/skills/<slug>/SKILL.md` | first |
 | `.claude/skills/<slug>/SKILL.md` | second, for a slug `.agents` does not have |
 
-A project skill is available in a [project chat](projects.md) and in a subagent piece launched from one, and nowhere else: an ordinary conversation, a task, a dream and another project's chat all resolve no project scope.
+A project skill is available in a [project chat](projects.md) and in a worker hired from one, and nowhere else: an ordinary conversation, a task, a dream and another project's chat all resolve no project scope.
 
 - **Precedence**: project → agent → global, and `.agents` before `.claude` inside a project. A slug appears once, so a skill installed in both folders (`this repository` has all 15 in both) is one line in `/skills`, not two.
 - **Read where it lies, never indexed.** Project skills are not embedded and never recommended by similarity: they are listed in the project chat's system prompt (`## Project Skills`) and read from disk each time one is loaded, so a branch switch shows up on the next turn and one project's skills can never surface in another.

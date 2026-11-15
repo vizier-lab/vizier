@@ -189,8 +189,8 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             loaded_images: Default::default(),
-            recalled: Default::default(),
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
@@ -198,6 +198,9 @@ mod tests {
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             dream_sources: vec![],
             project: Some(Arc::new(project)),
+            detached: false,
+            parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 

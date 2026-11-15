@@ -144,8 +144,15 @@ impl AgentStorage for SqlStorage {
             "DELETE FROM scratch_file WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        // Its detached scripts (spec 058); their tasks were stopped with the instance.
+        conn.execute(
+            "DELETE FROM detached_script WHERE agent_id = ?1",
+            params![agent_id],
+        )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
+        // Its custom tools, versions, categories and their log (spec 061).
+        super::delete_agent_custom_tools(&conn, agent_id)?;
         // Its notifications go with it; their read rows cascade (spec 029).
         super::notification::delete_agent_notifications(&conn, agent_id)?;
         // It leaves every Workspace it was in; the messages it wrote stay under its name (spec 053).
@@ -160,6 +167,14 @@ impl AgentStorage for SqlStorage {
             "DELETE FROM session_turn WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        // Its ownership fence (spec 057): a re-created agent of the same id starts a new scope,
+        // so this process also forgets the fence it held, which no row would match any more.
+        conn.execute(
+            "DELETE FROM owner_fence WHERE scope = ?1",
+            params![format!("agent:{agent_id}")],
+        )?;
+        self.fences
+            .forget(&crate::storage::fence::Scope::Agent(agent_id.to_owned()));
         // Its Telegram side-chat deletion ledger (spec 033): message ids only, but still its own.
         conn.execute(
             "DELETE FROM state WHERE key = ?1",

@@ -27,9 +27,11 @@ pub mod artifacts;
 pub mod channel;
 pub mod conversations;
 pub mod core;
+pub mod custom_tools;
 pub mod dream;
 pub mod integrations;
-pub mod jobs;
+pub mod detached;
+pub mod subagents;
 pub mod memory;
 pub mod projects;
 pub mod secrets;
@@ -41,7 +43,8 @@ use vizier_core::storage::session::SessionStorage;
 use channel::channel;
 use core::core;
 use dream::dream;
-use jobs::jobs;
+use detached::detached_scripts;
+use subagents::subagent_routes;
 use memory::memory;
 use secrets::secrets;
 use skills::agent_skills;
@@ -118,11 +121,13 @@ pub fn agents() -> Router<HTTPState> {
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
         )
-        .nest("/{agent_id}/channel", channel().merge(jobs()))
+        .nest("/{agent_id}/channel", channel().merge(detached_scripts()).merge(subagent_routes()))
         .nest("/{agent_id}/artifacts", artifacts::artifacts())
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/secrets", secrets())
+        .nest("/{agent_id}/custom-tools", custom_tools::custom_tools())
+        .nest("/{agent_id}/custom-tool-categories", custom_tools::custom_tool_categories())
         .nest("/{agent_id}/projects", projects::projects())
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())

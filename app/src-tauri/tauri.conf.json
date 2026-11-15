@@ -11,7 +11,7 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: vizier-asset: http://vizier-asset.localhost; media-src 'self' blob: vizier-asset: http://vizier-asset.localhost; connect-src 'self' ipc: http://ipc.localhost vizier-asset: http://vizier-asset.localhost; style-src 'self' 'unsafe-inline'; frame-src 'self' blob: data:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: https: vizier-asset: http://vizier-asset.localhost; media-src 'self' blob: vizier-asset: http://vizier-asset.localhost; connect-src 'self' ipc: http://ipc.localhost vizier-asset: http://vizier-asset.localhost; style-src 'self' 'unsafe-inline'; frame-src 'self' blob: data:"
     }
   },
   "bundle": {

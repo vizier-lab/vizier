@@ -22,6 +22,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # No debug info in CI builds: it only slows linking and bloats the cache. Panic locations
+  # are unaffected; only native debugger symbols and backtrace line numbers go.
+  CARGO_PROFILE_DEV_DEBUG: '0'
   # Every rustc warning and clippy's correctness/suspicious lints fail the build. The style,
   # complexity and perf groups stay warnings: the tree carried ~100 of them before CI existed.
   CLIPPY_LINTS: -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
@@ -37,6 +40,7 @@ jobs:
       core: ${{ steps.plan.outputs.core }}
       flags: ${{ steps.plan.outputs.flags }}
       roles: ${{ steps.plan.outputs.roles }}
+      app: ${{ steps.filter.outputs.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -101,6 +105,14 @@ jobs:
               - 'crates/vizier-core/src/integrations/**'
               - 'crates/vizier-core/src/dependencies.rs'
               - 'crates/vizier-core/src/agents/mod.rs'
+            app:
+              - 'app/**'
+              - 'crates/**'
+              - 'webui'
+              - 'design'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
             telemetry:
               - 'crates/vizier-core/src/telemetry.rs'
               - 'crates/vizier-core/src/llm/telemetry.rs'
@@ -175,9 +187,37 @@ jobs:
       # The dummyplug harness starts the Node server from this one submodule.
       - run: git submodule update --init dummyplug
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make
+      - name: Stub the WebUI
+        run: |
+          mkdir -p crates/vizier-http/webui-dist
+          echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
+      - name: Test
+        env:
+          CI: 'true'
+        run: cargo test --workspace
+
+  # Lint and test are separate jobs so they compile in parallel instead of one after the other.
+  clippy:
+    name: clippy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -188,10 +228,6 @@ jobs:
           echo '<!doctype html><title>vizier</title>' > crates/vizier-http/webui-dist/index.html
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- $CLIPPY_LINTS
-      - name: Test
-        env:
-          CI: 'true'
-        run: cargo test --workspace
 
   # The engine alone: no optional feature, no web or CLI crate.
   core-minimal:
@@ -205,6 +241,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
           key: core-minimal
       - name: Install Linux dependencies
         run: |
@@ -234,6 +271,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
           key: flag-${{ matrix.flag }}
       - name: Install Linux dependencies
         run: |
@@ -264,6 +302,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
           key: role-${{ matrix.role }}
       - name: Install Linux dependencies
         run: |
@@ -307,6 +346,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
           key: managed-storage
       - name: Install Linux dependencies
         run: |
@@ -571,10 +611,12 @@ jobs:
           diff -u /tmp/server-native.txt /tmp/app-native.txt || { echo "::error::native dependency versions differ between Cargo.lock and app/Cargo.lock"; exit 1; }
 
   # The desktop app (specs/038-desktop-app-edition). Builds the WebUI because the app embeds it.
-  # Only runs when something the app is built from changes; server-only PRs skip it.
+  # The `changes` job decides whether anything the app is built from changed, so a server-only
+  # PR never starts these runners (or checks out the submodules).
   app:
     name: app (${{ matrix.os }})
     needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -587,28 +629,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            app:
-              - 'app/**'
-              - 'crates/**'
-              - 'webui'
-              - 'design'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.changes.outputs.app == 'true'
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-        if: steps.changes.outputs.app == 'true'
         with:
           workspaces: app -> target
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
       - uses: actions/setup-node@v4
-        if: steps.changes.outputs.app == 'true'
         with:
           node-version: '22'
           cache: 'npm'
@@ -616,17 +644,15 @@ jobs:
             design/package-lock.json
             webui/package-lock.json
       - name: Point bindgen at LLVM
-        if: steps.changes.outputs.app == 'true' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         shell: bash
-        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
       - name: Install Linux dependencies
-        if: steps.changes.outputs.app == 'true' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
-            pkg-config libssl-dev python3-dev libclang-dev clang perl make
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf             pkg-config libssl-dev python3-dev libclang-dev clang perl make
       - name: Build the WebUI
-        if: steps.changes.outputs.app == 'true'
         shell: bash
         run: |
           (cd design && npm ci)
@@ -634,12 +660,10 @@ jobs:
           npm ci
           npm run build
       - name: Clippy and test
-        if: steps.changes.outputs.app == 'true'
         working-directory: app
         shell: bash
         env:
           CI: 'true'
-          CARGO_PROFILE_DEV_DEBUG: '0'
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo test
@@ -649,7 +673,7 @@ jobs:
   gate:
     name: gate
     if: always()
-    needs: [changes, rust, core-minimal, flag, role, managed-storage, policy, app]
+    needs: [changes, rust, clippy, core-minimal, flag, role, managed-storage, policy, app]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

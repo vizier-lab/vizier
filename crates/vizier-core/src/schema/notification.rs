@@ -17,7 +17,8 @@ pub enum NotificationCategory {
     AgentSetupReady,
     TaskRun,
     DreamCycle,
-    BackgroundJob,
+    /// A detached script finished (spec 058): one row per final, non-cancelled script.
+    BackgroundWork,
     Integration,
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
@@ -34,7 +35,7 @@ impl NotificationCategory {
             Self::AgentSetupReady => "agent_setup_ready",
             Self::TaskRun => "task_run",
             Self::DreamCycle => "dream_cycle",
-            Self::BackgroundJob => "background_job",
+            Self::BackgroundWork => "background_work",
             Self::Integration => "integration",
             Self::ChatReply => "chat_reply",
             Self::WorkspaceMessage => "workspace_message",
@@ -47,7 +48,7 @@ impl NotificationCategory {
             "agent_setup_ready" => Some(Self::AgentSetupReady),
             "task_run" => Some(Self::TaskRun),
             "dream_cycle" => Some(Self::DreamCycle),
-            "background_job" => Some(Self::BackgroundJob),
+            "background_work" => Some(Self::BackgroundWork),
             "integration" => Some(Self::Integration),
             "chat_reply" => Some(Self::ChatReply),
             "workspace_message" => Some(Self::WorkspaceMessage),
@@ -234,7 +235,7 @@ mod tests {
             NotificationCategory::AgentSetupReady,
             NotificationCategory::TaskRun,
             NotificationCategory::DreamCycle,
-            NotificationCategory::BackgroundJob,
+            NotificationCategory::BackgroundWork,
             NotificationCategory::Integration,
             NotificationCategory::ChatReply,
         ] {

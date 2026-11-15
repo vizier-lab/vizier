@@ -6,7 +6,6 @@ use rusqlite::OptionalExtension;
 
 use crate::storage::turn::TurnStorage;
 use crate::{
-    agents::background::BackgroundJobs,
     config::{VizierConfig, storage::StorageConfig},
     constant::CORE_MD,
     file_manager::FileManager,
@@ -17,7 +16,6 @@ use crate::{
     storage::{
         VizierStorage,
         agent::AgentStorage,
-        background_job::BackgroundJobStorage,
         client_call::ClientCallStorage,
         document::BlobDocumentStore,
         dream::DreamStorage,
@@ -58,7 +56,15 @@ pub struct VizierDependencies {
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     /// The transient session-file tier's one clear/delete service.
     pub session_files: Arc<crate::session_files::SessionFiles>,
-    pub background_jobs: BackgroundJobs,
+    /// Subagents as temporary workers (spec 059).
+    pub subagents: crate::agents::subagents::Subagents,
+    /// Detached `execute_python` scripts (spec 058).
+    pub detached: crate::agents::detached::DetachedScripts,
+    /// Agent custom tools (spec 061): the one write path for agents, dreams and people.
+    pub custom_tools: crate::custom_tools::CustomTools,
+    /// Every background delivery source (detached scripts, subagent workers), claimed together
+    /// at the three delivery sites (spec 059 research D9).
+    pub deliveries: crate::agents::delivery::Deliveries,
     /// The one HTTP client every model provider request goes through (`llm::http`).
     pub http: reqwest::Client,
     /// The provider and model catalogue (spec 015).
@@ -214,14 +220,10 @@ impl VizierDependencies {
         if on_sqlite {
             Self::on_sqlite(&sql, crate::projects::migrate::migrate_project_channels)?;
         }
-        let interrupted_runs = Self::interrupt_orphaned_task_runs(&storage).await?;
-        let interrupted_jobs = Self::interrupt_orphaned_background_jobs(&storage).await;
-        Self::interrupt_orphaned_client_calls(&storage).await;
-        // A dialog cannot outlive the process awaiting it (`specs/042-agent-asking-question`
-        // research R9): a restart abandons every ask still open, so none is answerable against a
-        // turn that no longer exists.
-        crate::questions::sensitive::abandon_open_asks(&storage).await;
-        Self::clear_orphaned_scratch(&storage).await;
+        // The in-flight work a previous process left (open runs and jobs, pending client calls,
+        // open asks, scratch files) is recovered when its scope is claimed, not here: per agent
+        // in `AgentHost::take` and for `control` in `VizierRuntime::start`
+        // (`specs/057-fleet-row-ownership`, `crate::recovery`).
         crate::skill::builtin::seed_builtin_skills(&config.workspace, &storage).await;
         // Never blocks startup: it is retried on the next start until it has finished.
         if let Err(e) = Self::migrate_reply_usage(&storage, &sql).await {
@@ -261,12 +263,8 @@ impl VizierDependencies {
             file_manager.clone(),
         ));
         let notifications = crate::notifications::Notifications::new(storage.clone());
-        // New rows reach the inbox stream; the sweeps below run with it already installed.
+        // New rows reach the inbox stream; recovery runs later, with it already installed.
         notifications.install_transport(transport.clone());
-        // The interrupted runs and jobs the sweeps above closed are news: record them now that
-        // the service exists. Best-effort, like every notification write.
-        Self::record_interrupted(&notifications, &storage, interrupted_runs, interrupted_jobs)
-            .await;
         if let Err(e) = notifications.purge_orphans().await {
             tracing::warn!("failed to clear orphaned notifications: {e}");
         }
@@ -281,8 +279,12 @@ impl VizierDependencies {
             Ok(purged) => tracing::info!("purged {} notification(s) past retention", purged),
             Err(e) => tracing::warn!("failed to purge old notifications: {e}"),
         }
-        let background_jobs =
-            BackgroundJobs::new(storage.clone(), transport.clone(), notifications.clone());
+        let subagents = crate::agents::subagents::Subagents::new(storage.clone(), transport.clone());
+        let detached = crate::agents::detached::DetachedScripts::new(
+            storage.clone(),
+            transport.clone(),
+            notifications.clone(),
+        );
 
         // Files saved to a session (by any tool or attachment) reach its open sockets as
         // `session_file` frames.
@@ -317,7 +319,13 @@ impl VizierDependencies {
         setup.install_publisher(crate::agents::views::Publisher::new(&transport));
         setup.install_inbox(transport.clone());
 
+        let custom_tools = crate::custom_tools::CustomTools::new(
+            storage.clone(),
+            Some(transport.bus().state.clone()),
+        );
+
         let deps = Self {
+            custom_tools,
             config: Arc::new(config.clone()),
             storage,
             sql,
@@ -326,7 +334,13 @@ impl VizierDependencies {
             blobs,
             artifacts,
             session_files,
-            background_jobs,
+            // Detached scripts first, then workers: sections ready together keep this order.
+            deliveries: crate::agents::delivery::Deliveries::new(vec![
+                std::sync::Arc::new(detached.clone()),
+                std::sync::Arc::new(subagents.clone()),
+            ]),
+            subagents,
+            detached,
             http: crate::llm::http::client(),
             catalogue,
             integration_kinds,
@@ -1238,195 +1252,6 @@ impl VizierDependencies {
         }
 
         Ok(())
-    }
-
-    /// A process that stopped mid-run left a `task_run` row claiming to be in flight. Such a
-    /// row would both display as perpetually running and — since the row *is* the overlap
-    /// lock — permanently block the task from firing again.
-    ///
-    /// Running at startup is what makes this correct rather than a guess: nothing can
-    /// legitimately be running before the scheduler starts.
-    ///
-    /// Unlike the migrations above this is not one-time, so it carries no marker.
-    async fn interrupt_orphaned_task_runs(
-        storage: &VizierStorage,
-    ) -> Result<Vec<crate::storage::task_run::InterruptedRun>> {
-        // A run whose session has a pending turn is resumed with it and closed by
-        // `VizierScheduler::recover`; only the rest died with the process.
-        let pending = storage
-            .sessions_with_pending_turns()
-            .await
-            .unwrap_or_default();
-        let keep: Vec<i64> = storage
-            .open_task_runs()
-            .await
-            .unwrap_or_default()
-            .iter()
-            .filter(|run| pending.contains(&crate::storage::task_run::task_run_session(run)))
-            .map(|run| run.id)
-            .collect();
-        match storage.interrupt_open_task_runs_except(&keep).await {
-            Ok(swept) => {
-                if !swept.is_empty() {
-                    tracing::info!(
-                        "marked {} task run(s) left open by a previous process as interrupted",
-                        swept.len()
-                    );
-                }
-                Ok(swept)
-            }
-            // A failed sweep must not stop the process from booting; the cost is a task
-            // that looks busy until the next successful startup.
-            Err(e) => {
-                tracing::warn!("failed to sweep open task runs: {}", e);
-                Ok(vec![])
-            }
-        }
-    }
-
-    /// Record the task runs and background jobs the startup sweeps just closed as
-    /// notifications. A task's title is looked up; a deleted or unreadable task falls back to
-    /// its slug.
-    async fn record_interrupted(
-        notifications: &crate::notifications::Notifications,
-        storage: &VizierStorage,
-        runs: Vec<crate::storage::task_run::InterruptedRun>,
-        jobs: Vec<crate::storage::background_job::InterruptedJob>,
-    ) {
-        let now = crate::time::now();
-        for run in runs {
-            let title = match storage
-                .get_task(run.agent_id.clone(), run.task_slug.clone())
-                .await
-            {
-                Ok(Some(task)) => task.title,
-                _ => run.task_slug.clone(),
-            };
-            notifications
-                .task_run_ended(
-                    &run.agent_id,
-                    &run.task_slug,
-                    &title,
-                    run.id,
-                    crate::schema::TaskRunState::Interrupted,
-                    now,
-                )
-                .await;
-        }
-        for job in jobs {
-            notifications
-                .job_ended(
-                    &job.id,
-                    &job.origin,
-                    job.kind,
-                    crate::schema::JobState::Interrupted,
-                    None,
-                    now,
-                )
-                .await;
-        }
-    }
-
-    /// Background jobs live only as long as the process that runs them: a job still
-    /// `running` or `reporting` at startup died with the previous process, and will never
-    /// report. Marking it `interrupted` is what lets a reloaded WebUI show it as lost instead
-    /// of perpetually running (research D9).
-    async fn interrupt_orphaned_background_jobs(
-        storage: &VizierStorage,
-    ) -> Vec<crate::storage::background_job::InterruptedJob> {
-        // A job a pending turn still backs is kept open: a running one while one of its
-        // pieces has a pending turn, a reporting one while its report does. `recover` picks
-        // them up once the agents have re-sent their turns (`specs/023-persist-turn-activity`).
-        let keep = Self::background_jobs_backed_by_turns(storage).await;
-        match storage.interrupt_open_background_jobs_except(&keep).await {
-            Ok(swept) => {
-                if !swept.is_empty() {
-                    tracing::info!(
-                        "marked {} background job(s) left open by a previous process as interrupted",
-                        swept.len()
-                    );
-                }
-                swept
-            }
-            Err(e) => {
-                tracing::warn!("failed to sweep open background jobs: {}", e);
-                vec![]
-            }
-        }
-    }
-
-    async fn background_jobs_backed_by_turns(storage: &VizierStorage) -> Vec<String> {
-        use crate::schema::{JobState, PieceState, VizierRequestContent};
-        let Ok(jobs) = storage.open_background_jobs().await else {
-            return vec![];
-        };
-        let pending_sessions = storage
-            .sessions_with_pending_turns()
-            .await
-            .unwrap_or_default();
-        let mut keep = vec![];
-        for job in jobs {
-            let backed = match job.state {
-                JobState::Running => job
-                    .pieces
-                    .iter()
-                    .any(|p| p.state == PieceState::Running && pending_sessions.contains(&p.session)),
-                JobState::Reporting => storage
-                    .pending_turns(&job.origin.0)
-                    .await
-                    .unwrap_or_default()
-                    .iter()
-                    .any(|turn| {
-                        matches!(&turn.request.content, VizierRequestContent::BackgroundReport(r) if r.job_id == job.id)
-                    }),
-                _ => false,
-            };
-            if backed {
-                keep.push(job.id);
-            }
-        }
-        keep
-    }
-
-    /// A client tool call is awaited by the turn that made it, so one still `pending` at
-    /// startup died with the previous process (specs/019-client-tools R16).
-    async fn interrupt_orphaned_client_calls(storage: &VizierStorage) {
-        match storage.interrupt_pending_client_calls().await {
-            Ok(0) => {}
-            Ok(swept) => tracing::info!(
-                "marked {} client tool call(s) left pending by a previous process as interrupted",
-                swept
-            ),
-            Err(e) => tracing::warn!("failed to sweep pending client tool calls: {}", e),
-        }
-    }
-
-    /// Scratch files last only while their conversation has a turn running or queued, and
-    /// nothing can be running before agents start, so every row left is a leftover
-    /// (`specs/020-scratchpad-tools` research R5).
-    async fn clear_orphaned_scratch(storage: &VizierStorage) {
-        // A session with a turn waiting to resume keeps its scratch files and its thinking
-        // mark; everything else is a leftover of the previous process.
-        let keep = storage
-            .sessions_with_pending_turns()
-            .await
-            .unwrap_or_default();
-        match storage.reset_thinking_except(&keep).await {
-            Ok(0) => {}
-            Ok(reset) => tracing::info!(
-                "cleared the thinking mark of {} session(s) left by a previous process",
-                reset
-            ),
-            Err(e) => tracing::warn!("failed to reset thinking marks: {}", e),
-        }
-        match storage.clear_scratch_except(&keep).await {
-            Ok(0) => {}
-            Ok(cleared) => tracing::info!(
-                "cleared {} scratch file(s) left by a previous process",
-                cleared
-            ),
-            Err(e) => tracing::warn!("failed to clear leftover scratch files: {}", e),
-        }
     }
 }
 

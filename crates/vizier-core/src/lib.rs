@@ -75,6 +75,7 @@ pub mod agents_client;
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod recovery;
 pub mod runtime;
 pub mod schema;
 pub mod server_role;
@@ -91,6 +92,8 @@ pub mod artifacts;
 pub mod catalogue;
 #[doc(hidden)]
 pub mod channels;
+#[doc(hidden)]
+pub mod custom_tools;
 #[doc(hidden)]
 pub mod dependencies;
 #[doc(hidden)]
@@ -135,3 +138,5 @@ pub(crate) mod tts;
 
 #[cfg(test)]
 mod tests_support;
+#[cfg(test)]
+mod recovery_tests;

@@ -42,9 +42,13 @@ impl IntegrationKind for HttpKind {
         }
     }
 
-    fn contribute(&self, _integration: &Integration, _ctx: &AgentToolContext) -> Contribution {
+    fn contribute(&self, _integration: &Integration, ctx: &AgentToolContext) -> Contribution {
+        let client = HttpClient {
+            storage: ctx.storage.clone(),
+            file_manager: ctx.file_manager.clone(),
+        };
         Contribution {
-            native: VizierToolSet::new().tool(FetchWebpage).tool(HttpClient),
+            native: VizierToolSet::new().tool(FetchWebpage).tool(client),
             mcp: None,
             addon: Some(self.id()),
         }

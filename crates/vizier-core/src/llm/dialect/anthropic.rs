@@ -257,7 +257,7 @@ fn encode_messages(messages: &[Message]) -> Vec<Value> {
 
     for message in messages {
         match message {
-            Message::ToolResult { call_id, content } => results.push(json!({
+            Message::ToolResult { call_id, content, .. } => results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": call_id,
                 "content": content.iter().map(encode_part).collect::<Vec<_>>(),

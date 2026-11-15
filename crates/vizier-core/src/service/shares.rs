@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/056-shared-chat`): create and read. The WebUI builds and cleans
+//! Shared chat snapshots (`specs/063-shared-chat`): create and read. The WebUI builds and cleans
 //! the snapshot; this layer only checks what is cheap and structural (it parses, the version,
 //! the known top-level keys, sizes, the trail flag, the audience shape), authorizes, and stores
 //! the received text unchanged. It never rewrites a snapshot, and it never logs content, titles

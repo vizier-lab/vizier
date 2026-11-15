@@ -13,11 +13,12 @@ use crate::{
     storage::{
         agent::AgentStorage,
         artifact::ArtifactStorage,
-        background_job::BackgroundJobStorage,
+        detached_script::DetachedScriptStorage,
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow},
         client_call::ClientCallStorage,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
+        fence::{Fence, FenceStorage, Scope},
         global_config::GlobalConfigStorage,
         history::HistoryStorage,
         integration::IntegrationStorage,
@@ -30,10 +31,12 @@ use crate::{
         reaction::ReactionStorage,
         scratch::ScratchStorage,
         secret::SecretStorage,
+        custom_tool::CustomToolStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
         sso_session::SsoSessionStorage,
         state::StateStorage,
+        subagent::SubagentStorage,
         task::TaskStorage,
         task_run::TaskRunStorage,
         turn::TurnStorage,
@@ -45,7 +48,8 @@ use crate::{
 
 pub mod agent;
 pub mod artifact;
-pub mod background_job;
+pub mod detached_script;
+pub mod subagent;
 pub mod blob;
 pub mod catalogue;
 pub mod chunk;
@@ -54,6 +58,7 @@ pub mod diff;
 pub mod document;
 pub mod dream;
 pub mod dream_journal;
+pub mod fence;
 pub mod global_config;
 pub mod history;
 pub mod integration;
@@ -69,6 +74,7 @@ pub mod reaction;
 pub mod rerank;
 pub mod scratch;
 pub mod secret;
+pub mod custom_tool;
 pub mod session;
 pub mod session_file;
 pub mod migrate;
@@ -123,7 +129,8 @@ where
         + ArtifactStorage
         + TaskStorage
         + TaskRunStorage
-        + BackgroundJobStorage
+        + DetachedScriptStorage
+        + SubagentStorage
         + HistoryStorage
         + SessionStorage
         + StateStorage
@@ -145,12 +152,14 @@ where
         + ScratchStorage
         + TurnStorage
         + SecretStorage
+        + CustomToolStorage
         + NotificationStorage
         + ProjectStorage
         + share::ShareStorage
         + WorkspaceStorage
         + QuestionStorage
-        + SensitiveAskStorage,
+        + SensitiveAskStorage
+        + FenceStorage,
 {
 }
 
@@ -164,6 +173,22 @@ impl VizierStorage {
 }
 
 impl VizierStorageProvider for VizierStorage {}
+
+#[async_trait::async_trait]
+impl FenceStorage for VizierStorage {
+    async fn claim(
+        &self,
+        scope: &Scope,
+        node: &str,
+        lease: Option<vizier_schema::FencingToken>,
+    ) -> Result<Fence> {
+        self.0.claim(scope, node, lease).await
+    }
+
+    fn ownership_lost(&self, scope: &Scope) -> tokio::sync::watch::Receiver<bool> {
+        self.0.ownership_lost(scope)
+    }
+}
 
 #[async_trait::async_trait]
 impl SsoSessionStorage for VizierStorage {

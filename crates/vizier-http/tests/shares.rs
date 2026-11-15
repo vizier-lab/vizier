@@ -1,4 +1,4 @@
-//! Shared chat snapshots over the real router (`specs/056-shared-chat/contracts/share-api.md`).
+//! Shared chat snapshots over the real router (`specs/063-shared-chat/contracts/share-api.md`).
 //!
 //! One runtime, three people: `alice` (owns `agent-a`, holds `owned_agents:share_conversations`),
 //! `bob` (signed in, no share permission) and `root` (system). Requests go through

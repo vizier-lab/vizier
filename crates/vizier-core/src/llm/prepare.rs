@@ -38,9 +38,14 @@ fn attachments_by_capability(message: Message, m: &ResolvedModel) -> Message {
     };
     match message {
         Message::User(parts) => Message::User(fix(parts)),
-        Message::ToolResult { call_id, content } => Message::ToolResult {
+        Message::ToolResult {
+            call_id,
+            content,
+            record,
+        } => Message::ToolResult {
             call_id,
             content: fix(content),
+            record,
         },
         other => other,
     }

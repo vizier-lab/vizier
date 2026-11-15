@@ -27,6 +27,7 @@ use crate::{
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
                 user::owner_md,
+                worker::{employer_identity_md, served_owner_md, worker_md},
             },
         },
         hook::{VizierSessionHook, VizierSessionHooks},
@@ -46,8 +47,8 @@ use crate::{
         AgentConfig, AgentId, ErrorKind, IntegrationStatus, MemoryPassageResult, SessionHistory,
         SessionHistoryContent, Skill, VizierAttachment, VizierAttachmentContent, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
-        VizierSession, history_entries_to_messages, message_for_model, messages_for_model,
-        seal_tool_calls,
+        PruneStats, VizierSession, history_entries_to_messages, message_for_model,
+        messages_for_model, prune_for_model, seal_tool_calls,
     },
     skill::invocation::Invoked,
     storage::{
@@ -476,56 +477,24 @@ impl VizierAgent {
     ) -> Vec<Message> {
         init_workspace(self.workspace.clone());
 
-        let boot = boot_md(
-            self.config.name.clone(),
-            self.config
+        let parts = PromptParts {
+            name: self.config.name.clone(),
+            description: self
+                .config
                 .description
                 .clone()
                 .unwrap_or("a Digital Steward".into()),
-        );
-
-        let mut res = vec![
-            Message::system(boot),
-            Message::system(
-                self.config
-                    .system_prompt
-                    .clone()
-                    .unwrap_or("You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md.".into()),
-            ),
-        ];
-
-        res.insert(
-            1,
-            Message::system(sandbox_md(
-                categories,
-                &self.config.tools.timeout.to_string(),
-            )),
-        );
-
-        // Add owner info if available
-        if let Some(ref owner) = self.owner_profile {
-            res.push(Message::system(owner_md(owner)));
-        }
-
-        res.push(Message::system(self.identity_block().await));
-
-        // After the identity block and before configured documents (FR-015/FR-016): project
-        // identity is stable across a project session's turns, and no other session kind gets it.
-        if let Some(project) = project {
-            res.push(Message::system(project_md(project)));
-        }
-
-        for document in &self.config.documents {
-            res.push(Message::system(document.clone()));
-        }
-
-        // Appended last, after the identity block and documents, so the cacheable
-        // boot/identity prefix stays byte-identical to an interactive turn's.
-        if session.is_scheduled_task() {
-            res.push(Message::system(scheduled_run_md()));
-        }
-
-        res
+            system_prompt: self.config.system_prompt.clone(),
+            sandbox: sandbox_md(categories, &self.config.tools.timeout.to_string()),
+            owner: self.owner_profile.as_ref().map(owner_md),
+            identity: self.identity_block().await,
+            project: project.map(project_md),
+            documents: self.config.documents.clone(),
+        };
+        system_prompt_layout(parts, session)
+            .into_iter()
+            .map(Message::system)
+            .collect()
     }
 
     pub async fn chat(
@@ -539,6 +508,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
         turn: TurnRef,
+        steer: Option<crate::agents::steer::SteerInbox>,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
         let result = self
@@ -552,6 +522,7 @@ impl VizierAgent {
                 hooks,
                 checkpoint_handover,
                 turn,
+                steer,
             )
             .instrument(span.clone())
             .await;
@@ -596,8 +567,23 @@ impl VizierAgent {
             vizier.queue.wait_ms = req.trace.queue_wait_ms(),
             vizier.dream = dream,
             vizier.turn.ended_by_tool = tracing::field::Empty,
+            vizier.prune.outputs = tracing::field::Empty,
+            vizier.prune.tokens_removed = tracing::field::Empty,
+            vizier.subagent.id = tracing::field::Empty,
+            vizier.subagent.position = tracing::field::Empty,
         );
         record_channel(&span, &session.1);
+        // A worker's turn (spec 059): which worker, and its place in its group.
+        match &req.content {
+            VizierRequestContent::SubagentTask(brief) => {
+                span.record("vizier.subagent.id", brief.subagent_id.as_str());
+                span.record("vizier.subagent.position", brief.position);
+            }
+            VizierRequestContent::SubagentReply(reply) => {
+                span.record("vizier.subagent.id", reply.subagent_id.as_str());
+            }
+            _ => {}
+        }
         req.trace.adopt(&span);
         span
     }
@@ -613,8 +599,10 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
         turn: TurnRef,
+        steer: Option<crate::agents::steer::SteerInbox>,
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
+        let subagent_depth = req.subagent_depth;
         let mut req = req;
 
         // A turn that was running when vizier went down carries on from its last step: the
@@ -764,11 +752,11 @@ impl VizierAgent {
         // catalogue is what the availability rule filters (R1).
         let mut ctx = ToolContext {
             loaded_images: Default::default(),
-            recalled: Default::default(),
             session: session.clone(),
             pending_attachments: Arc::new(Mutex::new(vec![])),
             hooks: hooks.clone(),
             background_depth,
+            subagent_depth,
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(self.deps.questions.clone()),
@@ -776,7 +764,34 @@ impl VizierAgent {
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             project: project.clone(),
+            detached: false,
+            // A sub-agent turn a detached script started: a script it detaches records that
+            // script as its parent (spec 058).
+            parent_detached_id: req.parent_detached_id.clone(),
+            // The agent's custom tools (spec 061): offered to every script this turn runs, with
+            // the category lines snapshotted now so `SANDBOX.md` stays the same for the turn.
+            custom: crate::custom_tools::CustomTurn {
+                tools: Some(self.deps.custom_tools.clone()),
+                categories: Arc::new(
+                    self.deps.custom_tools.turn_categories(&session.0, &tools.router).await,
+                ),
+                ..Default::default()
+            },
         };
+        // What the gateway checks a person's custom tool edit against (spec 061 R8), kept fresh
+        // off the turn's path.
+        {
+            let router = tools.router.clone();
+            let publisher = crate::agents::views::Publisher::new(&self.transport);
+            let agent_id = session.0.clone();
+            tokio::spawn(async move {
+                let names = crate::custom_tools::ToolNames {
+                    names: router.all_names().await,
+                    model_backed: router.model_backed_names(),
+                };
+                publisher.publish_tool_names(&agent_id, &names);
+            });
+        }
 
         // The tools the person's client declared for this turn, if its connection is still
         // open now that the turn has started (specs/019-client-tools R4). They are named
@@ -829,53 +844,26 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
-        // Store attachments in SessionFiles via FileManager. One that fails is left out and
-        // the model told so, rather than failing the turn over one file (#47).
-        let mut unavailable = vec![];
-        // The ones that are now session files: the request is about to lose its attachments, so
-        // this is the only record of them the turn's own message can be built from.
-        let mut stored_attachments: Vec<VizierAttachment> = vec![];
-        for attachment in &req.attachments {
-            match self.store_session_file(&session, attachment).await {
-                Ok(()) => stored_attachments.push(attachment.clone()),
-                Err(e) => {
-                    tracing::warn!(
-                        "attachment '{}' could not be stored, continuing without it: {}",
-                        attachment.filename,
-                        e
-                    );
-                    unavailable.push(attachment.filename.clone());
-                }
-            }
-        }
-        let attachment_names: Vec<String> =
-            req.attachments.iter().map(|a| a.filename.clone()).collect();
-        // What history shows under the person's message: only attachments that are a reference
-        // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
-        let shown_attachments: Vec<VizierAttachment> = req
-            .attachments
-            .iter()
-            .filter(|a| {
-                matches!(
-                    a.content,
-                    VizierAttachmentContent::Local(_) | VizierAttachmentContent::Url(_)
-                )
-            })
-            .cloned()
-            .collect();
-        // Clear attachments so they don't get injected directly into the conversation
-        req.attachments.clear();
+        let AdmittedFiles {
+            names: attachment_names,
+            shown: shown_attachments,
+            note: files_note,
+        } = self.admit_attachments(&session, &mut req).await;
 
         // Always save request to history (even for SilentRead that may not get a response)
-        let resumed_request_uid_was_none = resumed_request_uid.is_none();
         let request_uid = match resumed_request_uid {
             Some(uid) => Some(uid),
             None => {
                 let mut saved = req.clone();
                 saved.attachments = shown_attachments;
-                if matches!(saved.content, VizierRequestContent::AudioChat(..)) {
+                if matches!(
+                    saved.content,
+                    VizierRequestContent::AudioChat(..) | VizierRequestContent::DetachedDelivery(_)
+                ) {
                     // The voice message and its transcript are ready now; whoever watches the
-                    // session shouldn't wait for the turn to end to see them.
+                    // session shouldn't wait for the turn to end to see them. A delivery that
+                    // woke the agent (spec 058) has no page that sent it, so it is pushed too,
+                    // or its card would appear only on a reload.
                     crate::agents::steps::record_step(
                         &self.storage,
                         &self.transport,
@@ -889,42 +877,13 @@ impl VizierAgent {
                 }
             }
         };
-        // Files the person attached are theirs, and belong to this request.
-        for name in &attachment_names {
-            if let Err(e) = self
-                .storage
-                .label_session_file(&session, name, Some(&req.user), request_uid.as_deref())
-                .await
-            {
-                tracing::warn!("could not label session file '{name}': {e}");
-            }
-        }
-        // What the turn was handed from memory, for the WebUI's Recalled memory panel. Once
-        // per turn: a resumed turn already has its entry.
-        if resumed_request_uid_was_none && !memory.is_empty() {
-            let passages = crate::schema::dedupe_passages(
-                memory
-                    .iter()
-                    .map(|p| crate::schema::RecalledPassage {
-                        bundle: p.bundle.clone(),
-                        path: p.path.clone(),
-                        ordinal: p.ordinal as u32,
-                        score: p.score as f32,
-                        title: Some(p.title.clone()).filter(|t| !t.is_empty()),
-                    })
-                    .collect(),
-            );
-            crate::agents::steps::record_step(
-                &self.storage,
-                &self.transport,
-                &session,
-                SessionHistoryContent::Recall {
-                    origin: crate::schema::RecallOrigin::Auto,
-                    passages,
-                },
-            )
-            .await;
-        }
+        self.label_attachments(
+            &session,
+            &attachment_names,
+            &req.user,
+            request_uid.as_deref(),
+        )
+        .await;
         if let (Some(id), Some(uid)) = (turn.id, request_uid.as_deref())
             && let Err(e) = self.storage.set_turn_request_uid(id, uid).await
         {
@@ -956,24 +915,8 @@ impl VizierAgent {
             }
             None => req.to_message(self.deps.artifacts.as_ref()).await?,
         };
-        // What became of the person's files, on their own message: the ones that could not be
-        // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
-        // request whose attachments were just moved into the session files and reads a message
-        // that mentions a file it was never told exists — so it only finds it if it happens to
-        // call `list_session_files`. The stored bytes never ride the message; the names do.
-        let mut note = String::new();
-        if !unavailable.is_empty() {
-            note.push_str(&format!(
-                "[These attachments could not be loaded: {}]",
-                unavailable.join(", ")
-            ));
-        }
-        if let Some(added) = crate::schema::attachments_note(&stored_attachments) {
-            // The block brings its own leading blank line, which separates it from a failure.
-            note.push_str(&added);
-        }
-        if !note.is_empty() {
-            message = with_note(message, note);
+        if !files_note.is_empty() {
+            message = with_note(message, files_note);
         }
 
         let progress = resume_steps
@@ -1029,6 +972,7 @@ impl VizierAgent {
                 &ctx,
                 Some(&mut recorder),
                 progress,
+                steer.as_ref(),
             )
             .await;
 
@@ -1151,8 +1095,175 @@ impl VizierAgent {
             ctx,
             None,
             vec![],
+            None,
         )
         .await
+    }
+
+    /// A person's attachments, moved into the conversation's session files (spec 062 R6: one
+    /// path for a turn's own request and for a message read mid-turn). One that fails is left
+    /// out and the model told so, rather than failing the turn over one file (#47). Takes the
+    /// attachments off `req`.
+    async fn admit_attachments(
+        &self,
+        session: &VizierSession,
+        req: &mut VizierRequest,
+    ) -> AdmittedFiles {
+        let mut unavailable = vec![];
+        // The ones that are now session files: the request is about to lose its attachments, so
+        // this is the only record of them the message can be built from.
+        let mut stored: Vec<VizierAttachment> = vec![];
+        for attachment in &req.attachments {
+            match self.store_session_file(session, attachment).await {
+                Ok(()) => stored.push(attachment.clone()),
+                Err(e) => {
+                    tracing::warn!(
+                        "attachment '{}' could not be stored, continuing without it: {}",
+                        attachment.filename,
+                        e
+                    );
+                    unavailable.push(attachment.filename.clone());
+                }
+            }
+        }
+        let names = req.attachments.iter().map(|a| a.filename.clone()).collect();
+        // What history shows under the person's message: only attachments that are a reference
+        // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
+        let shown = req
+            .attachments
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a.content,
+                    VizierAttachmentContent::Local(_) | VizierAttachmentContent::Url(_)
+                )
+            })
+            .cloned()
+            .collect();
+        // Clear attachments so they don't get injected directly into the conversation
+        req.attachments.clear();
+        // What became of the files, for the person's own message: the ones that could not be
+        // stored (loudly, #47) and the ones that did. Without the second, the model reads a
+        // message that mentions a file it was never told exists. The bytes never ride the
+        // message; the names do.
+        let mut note = String::new();
+        if !unavailable.is_empty() {
+            note.push_str(&format!(
+                "[These attachments could not be loaded: {}]",
+                unavailable.join(", ")
+            ));
+        }
+        if let Some(added) = crate::schema::attachments_note(&stored) {
+            // The block brings its own leading blank line, which separates it from a failure.
+            note.push_str(&added);
+        }
+        AdmittedFiles { names, shown, note }
+    }
+
+    /// Files the person attached are theirs, and belong to the request saved under `uid`.
+    async fn label_attachments(
+        &self,
+        session: &VizierSession,
+        names: &[String],
+        user: &str,
+        uid: Option<&str>,
+    ) {
+        for name in names {
+            if let Err(e) = self
+                .storage
+                .label_session_file(session, name, Some(user), uid)
+                .await
+            {
+                tracing::warn!("could not label session file '{name}': {e}");
+            }
+        }
+    }
+
+    /// The messages waiting to steer this turn, read at a round boundary
+    /// (`specs/062-steer-busy-turn` contracts/steering.md S2): taken from the session's queue,
+    /// saved where they were read in one transaction with the removal of their journal rows,
+    /// shown to watchers, and returned as the text parts the model reads next. Each one's own
+    /// sender is told it was read (`Steered`). A message the save did not take (an `/abort` got
+    /// there first) is dropped; a save that failed puts every message back, so each still runs
+    /// as a turn of its own.
+    async fn read_steered(
+        &self,
+        inbox: &crate::agents::steer::SteerInbox,
+        session: &VizierSession,
+    ) -> Vec<Part> {
+        let taken = inbox.take();
+        if taken.is_empty() {
+            return vec![];
+        }
+        let mut prepared = Vec::with_capacity(taken.len());
+        for item in &taken {
+            let mut request = item.request.clone();
+            let files = self.admit_attachments(session, &mut request).await;
+            request.mid_turn = true;
+            let mut text = request
+                .to_prompt()
+                .unwrap_or_else(|_| request.content.to_string());
+            text.push_str(&files.note);
+            let mut saved = request;
+            saved.attachments = files.shown;
+            prepared.push((saved, text, files.names));
+        }
+        let items: Vec<(Option<i64>, VizierRequest)> = taken
+            .iter()
+            .zip(&prepared)
+            .map(|(item, (saved, _, _))| (item.turn.id, saved.clone()))
+            .collect();
+        let saved = match self.storage.steer_turns(session, &items).await {
+            Ok(saved) => saved,
+            Err(e) => {
+                tracing::warn!(agent_id = %session.0, "could not read waiting messages into the turn, leaving them queued: {e}");
+                let mut queue = crate::agents::steer::lock(&inbox.0);
+                for item in taken.into_iter().rev() {
+                    queue.push_front(item);
+                }
+                return vec![];
+            }
+        };
+        let mut parts = Vec::with_capacity(saved.len());
+        let mut taken: Vec<Option<crate::agents::steer::Queued>> =
+            taken.into_iter().map(Some).collect();
+        for steered in saved {
+            let (request, text, names) = &prepared[steered.index];
+            self.label_attachments(session, names, &request.user, Some(&steered.history_uid))
+                .await;
+            self.transport
+                .publish_session_event(crate::transport::SessionEvent {
+                    session: session.clone(),
+                    frame: crate::transport::SessionFrame::HistoryEntry(
+                        crate::schema::SessionHistory {
+                            uid: steered.history_uid.clone(),
+                            vizier_session: session.clone(),
+                            content: SessionHistoryContent::Request(request.clone()),
+                            // Where it was read, not when it was sent: the order a reload shows.
+                            timestamp: crate::time::now(),
+                            reactions: vec![],
+                            seq: None,
+                        },
+                    ),
+                });
+            parts.push(Part::Text(text.clone()));
+            if let Some(item) = taken[steered.index].take()
+                && let Some(tx) = item.response_tx
+            {
+                let _ = tx
+                    .send_async(VizierResponse {
+                        timestamp: crate::time::now(),
+                        content: VizierResponseContent::Steered,
+                        attachments: vec![],
+                        ..Default::default()
+                    })
+                    .await;
+            }
+        }
+        for skipped in taken.into_iter().flatten() {
+            tracing::debug!(agent_id = %session.0, turn = ?skipped.turn.id, "a waiting message was cancelled before the turn could read it");
+        }
+        parts
     }
 
     async fn prompt_with(
@@ -1167,6 +1278,7 @@ impl VizierAgent {
         ctx: &ToolContext,
         mut steps: Option<&mut StepRecorder>,
         progress: Vec<Message>,
+        steer: Option<&crate::agents::steer::SteerInbox>,
     ) -> std::result::Result<
         (
             String,
@@ -1256,9 +1368,16 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
+            let (completion, pruned) =
+                pruned_completion_request(&history, &message, &tools, wrapping_up);
+            // The span ends with the last request's numbers: pruning is one-way, so that is
+            // the turn's state (spec 060 FR-017).
+            tracing::Span::current()
+                .record("vizier.prune.outputs", pruned.pruned as u64)
+                .record("vizier.prune.tokens_removed", pruned.tokens_removed);
             let response = model
                 .complete_until(
-                    completion_request(&history, &message, &tools, wrapping_up),
+                    completion,
                     Some(start + prompt_timeout),
                     &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
                 )
@@ -1480,40 +1599,28 @@ impl VizierAgent {
                     self.withdraw_question_set(ctx, &set_id).await;
                 }
 
-                let response_content = tool_res
+                let mut response_content = tool_res
                     .to_tool_result(call_id.clone(), self.deps.artifacts.as_ref())
                     .await
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
                 // Saved the moment it exists, so the trail shows the call finished even if
-                // the next one runs for minutes.
+                // the next one runs for minutes. The uid it is saved under goes on the
+                // message, as replay puts it there, so pruning names the same id (spec 060).
                 if let Some(recorder) = steps.as_deref_mut() {
-                    recorder
+                    let uids = recorder
                         .record(&self.storage, &self.transport, &response_content)
                         .await;
+                    if let Message::ToolResult { record, .. } = &mut response_content {
+                        *record = uids.into_iter().next();
+                    }
                 }
                 tool_responses.push(response_content);
             }
 
             // Images the round's tools loaded go in separate user messages, since most
             // providers drop images from tool results.
-            // What `memory_search` returned this round, shown beside the reply.
-            let recalled: Vec<_> = ctx.recalled.lock().await.drain(..).collect();
-            if !recalled.is_empty()
-                && let Some(recorder) = steps.as_deref_mut()
-            {
-                recorder
-                    .record_entry(
-                        &self.storage,
-                        &self.transport,
-                        SessionHistoryContent::Recall {
-                            origin: crate::schema::RecallOrigin::Search,
-                            passages: crate::schema::dedupe_passages(recalled),
-                        },
-                    )
-                    .await;
-            }
             for attachment in ctx.loaded_images.lock().await.drain(..) {
                 pending_images.push(
                     attachment
@@ -1544,7 +1651,51 @@ impl VizierAgent {
                 break;
             }
 
-            if pending_images.is_empty() {
+            // Background work that finished while this round ran (detached scripts, spec 058;
+            // subagent workers, spec 059): delivered now,
+            // after the round's results and before the next completion, as one user message.
+            // The claim is the exactly-once guard: a waiting wake-up poke then finds nothing.
+            //
+            // Messages the person sent while this round ran come right after it (spec 062), in
+            // the same user message, so the model reads everything that arrived before its next
+            // step. The delivery is saved first and the messages after it, which is the order a
+            // replay rebuilds (`history_entries_to_messages`).
+            let mut arrived: Vec<Part> = vec![];
+            if let Some(text) = self.deps.deliveries.claim(&ctx.session).await {
+                let request = VizierRequest {
+                    timestamp: crate::time::now(),
+                    user: ctx.session.0.clone(),
+                    content: VizierRequestContent::DetachedDelivery(text),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                };
+                let text = request.to_prompt().unwrap_or_else(|_| request.content.to_string());
+                if let Some(recorder) = steps.as_deref_mut() {
+                    recorder
+                        .record_entry(
+                            &self.storage,
+                            &self.transport,
+                            SessionHistoryContent::Request(request),
+                        )
+                        .await;
+                }
+                arrived.push(Part::Text(text));
+            }
+            if let Some(inbox) = steer {
+                arrived.extend(self.read_steered(inbox, &ctx.session).await);
+            }
+            let delivery = (!arrived.is_empty()).then_some(Message::User(arrived));
+
+            if let Some(delivery) = delivery {
+                history.extend(tool_responses.iter().cloned());
+                full_history.extend(tool_responses);
+                for img in pending_images {
+                    let img_msg = Message::User(vec![img]);
+                    history.push(img_msg.clone());
+                    full_history.push(img_msg);
+                }
+                message = delivery;
+            } else if pending_images.is_empty() {
                 // Every result but the last joins the history now; the last is the message
                 // the next completion carries.
                 message = tool_responses.pop().expect("checked non-empty");
@@ -1857,11 +2008,12 @@ impl VizierAgent {
         req: VizierRequest,
         session: VizierSession,
         session_history: Vec<SessionHistory>,
+        handover: Option<String>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, true);
-        self.dream_turn(req, session, session_history, hooks, deps)
+        self.dream_turn(req, session, session_history, handover, hooks, deps)
             .instrument(span)
             .await
     }
@@ -1871,6 +2023,7 @@ impl VizierAgent {
         req: VizierRequest,
         session: VizierSession,
         session_history: Vec<SessionHistory>,
+        handover: Option<String>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
@@ -1901,7 +2054,10 @@ impl VizierAgent {
             .prepare_system_prompts(&snapshot.categories, &session, None)
             .await;
 
-        // Extend with session history
+        // What came before the window, as chat replays it after a checkpoint, then the window.
+        if let Some(handover) = handover {
+            history.push(checkpoint_context(handover));
+        }
         history.extend(history_entries_to_messages(&session_history));
 
         let mut req = req;
@@ -1927,6 +2083,15 @@ impl VizierAgent {
             _ => vec![],
         };
 
+        // The cycle a dream-made custom tool is authored by (spec 061 R14).
+        let dream_cycle = Some(
+            req.metadata
+                .get("dream_cycle_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+        );
+
         let (output, stats) = self
             .dream_prompt(
                 &snapshot,
@@ -1946,7 +2111,6 @@ impl VizierAgent {
                 deps,
                 &ToolContext {
                     loaded_images: Default::default(),
-                    recalled: Default::default(),
                     client: None,
                     questions: crate::questions::QuestionsHandle::new(deps.questions.clone()),
                     interactive: false,
@@ -1954,10 +2118,17 @@ impl VizierAgent {
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
                     background_depth: 0,
+                    subagent_depth: 0,
                     deadline: None,
                     dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
                     project: None,
+                    detached: false,
+                    parent_detached_id: None,
+                    custom: crate::custom_tools::CustomTurn {
+                        dream_cycle,
+                        ..Default::default()
+                    },
                 },
             )
             .await?;
@@ -2260,6 +2431,16 @@ fn checkpoint_context(handover: String) -> Message {
 /// `completed` is answered with the error, so the stored turn never ends on a tool call
 /// with no result (issue #58).
 /// `note` appended to a user message, after what the person sent.
+/// What [`VizierAgent::admit_attachments`] did with a request's files.
+struct AdmittedFiles {
+    /// Every attached file's name, for labelling the session files once the request is saved.
+    names: Vec<String>,
+    /// The attachments history shows under the message (references only, never bytes).
+    shown: Vec<VizierAttachment>,
+    /// What the model is told about them, appended to the message's text.
+    note: String,
+}
+
 fn with_note(message: Message, note: String) -> Message {
     match message {
         Message::User(mut content) => {
@@ -2279,7 +2460,28 @@ fn completion_request(
     tools: &[ToolDefinition],
     answer_only: bool,
 ) -> CompletionRequest {
-    let mut messages = messages_for_model(history);
+    request_from(messages_for_model(history), message, tools, answer_only)
+}
+
+/// [`completion_request`] with old tool outputs pruned from `history` (spec 060). The current
+/// `message` is the newest round, never pruned, so it is not walked. Every turn that can reach
+/// `recall_history` uses this; the dream cycle, which cannot, uses [`completion_request`].
+fn pruned_completion_request(
+    history: &[Message],
+    message: &Message,
+    tools: &[ToolDefinition],
+    answer_only: bool,
+) -> (CompletionRequest, PruneStats) {
+    let (messages, stats) = prune_for_model(&messages_for_model(history));
+    (request_from(messages, message, tools, answer_only), stats)
+}
+
+fn request_from(
+    mut messages: Vec<Message>,
+    message: &Message,
+    tools: &[ToolDefinition],
+    answer_only: bool,
+) -> CompletionRequest {
     messages.push(message_for_model(message));
     CompletionRequest {
         messages,
@@ -2354,9 +2556,14 @@ fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
         Message::ToolResult {
             call_id,
             mut content,
+            record,
         } => {
             content.push(Part::Text(note));
-            Message::ToolResult { call_id, content }
+            Message::ToolResult {
+                call_id,
+                content,
+                record,
+            }
         }
         other => other,
     }
@@ -2443,7 +2650,9 @@ pub async fn generate_handover_with_model(
     reactions: Option<&str>,
     scope: &UsageScope,
 ) -> Result<Option<String>> {
-    let mut summary_history = messages_for_model(history);
+    // The pruned view (spec 060): compaction triggers on its size, so the full one may not
+    // fit the window the handover runs in.
+    let (mut summary_history, _) = prune_for_model(&messages_for_model(history));
 
     if let Some(list) = reactions {
         summary_history.push(Message::user_text(format!(
@@ -2544,7 +2753,7 @@ mod wrap_up_tests {
     #[test]
     fn the_note_follows_the_tool_results_in_the_same_message() {
         let results = Message::tool_result("call-1", "done");
-        let Message::ToolResult { call_id, content } = with_wrap_up_note(results, 3) else {
+        let Message::ToolResult { call_id, content, .. } = with_wrap_up_note(results, 3) else {
             panic!("still a tool result");
         };
         assert_eq!(call_id, "call-1");
@@ -2838,6 +3047,7 @@ mod attachment_note_tests {
                 None,
                 None,
                 TurnRef::default(),
+                None,
             )
             .await
             .unwrap();
@@ -2952,5 +3162,120 @@ mod attachment_note_tests {
             "{text}"
         );
         assert!(!text.contains("# Attached Files"), "{text}");
+    }
+}
+
+/// Everything the system prompt is built from, read once per turn.
+struct PromptParts {
+    name: String,
+    description: String,
+    system_prompt: Option<String>,
+    sandbox: String,
+    owner: Option<String>,
+    identity: String,
+    project: Option<String>,
+    documents: Vec<String>,
+}
+
+/// The system messages of a turn, in order. Pure, so both layouts are pinned by tests.
+///
+/// A subagent worker (spec 059) is the same agent told it is a temporary worker for it: selected
+/// on the session's channel, like the scheduled-run framing, never on the request kind. The
+/// conversational doctrine and the agent's own system prompt (its persona) are not a worker's,
+/// and its identity and owner are presented as its employer's (contracts/worker-turn.md).
+fn system_prompt_layout(parts: PromptParts, session: &VizierSession) -> Vec<String> {
+    let PromptParts {
+        name,
+        description,
+        system_prompt,
+        sandbox,
+        owner,
+        identity,
+        project,
+        documents,
+    } = parts;
+
+    if matches!(session.1, crate::schema::VizierChannelId::Subagent) {
+        let mut res = vec![worker_md(&name, &description), sandbox];
+        if let Some(owner) = owner {
+            res.push(served_owner_md(&name, &owner));
+        }
+        res.push(employer_identity_md(&name, &identity));
+        res.extend(project);
+        res.extend(documents);
+        return res;
+    }
+
+    let mut res = vec![
+        boot_md(name, description),
+        sandbox,
+        system_prompt.unwrap_or(
+            "You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md."
+                .into(),
+        ),
+    ];
+    res.extend(owner);
+    res.push(identity);
+    // After the identity block and before configured documents (FR-015/FR-016): project
+    // identity is stable across a project session's turns, and no other session kind gets it.
+    res.extend(project);
+    res.extend(documents);
+    // Appended last, after the identity block and documents, so the cacheable boot/identity
+    // prefix stays byte-identical to an interactive turn's.
+    if session.is_scheduled_task() {
+        res.push(scheduled_run_md());
+    }
+    res
+}
+
+#[cfg(test)]
+mod system_prompt_layout_tests {
+    use super::*;
+    use crate::schema::VizierChannelId;
+
+    fn parts() -> PromptParts {
+        PromptParts {
+            name: "Oz".into(),
+            description: "a researcher".into(),
+            system_prompt: Some("PERSONA".into()),
+            sandbox: "SANDBOX".into(),
+            owner: Some("OWNER".into()),
+            identity: "IDENTITY".into(),
+            project: Some("PROJECT".into()),
+            documents: vec!["DOC".into()],
+        }
+    }
+
+    fn session(channel: VizierChannelId) -> VizierSession {
+        VizierSession("oz".into(), channel, Some("t".into()))
+    }
+
+    #[test]
+    fn a_main_turn_keeps_its_layout() {
+        let got = system_prompt_layout(parts(), &session(VizierChannelId::HTTP("u".into(), "c".into())));
+        assert!(got[0].starts_with("# BOOT.md"));
+        assert_eq!(&got[1..], &["SANDBOX", "PERSONA", "OWNER", "IDENTITY", "PROJECT", "DOC"]);
+    }
+
+    #[test]
+    fn a_worker_is_framed_as_working_for_the_agent() {
+        let got = system_prompt_layout(parts(), &session(VizierChannelId::Subagent));
+        assert!(got[0].starts_with("# WORKER.md"), "{}", got[0]);
+        assert!(got[0].contains("temporary worker for Oz"));
+        assert_eq!(got[1], "SANDBOX");
+        assert!(got[2].starts_with("## The person Oz serves") && got[2].ends_with("OWNER"));
+        assert!(got[3].starts_with("## The agent you work for") && got[3].ends_with("IDENTITY"));
+        assert_eq!(&got[4..], &["PROJECT", "DOC"]);
+        assert!(!got.iter().any(|m| m == "PERSONA" || m.contains("BOOT.md")), "no persona, no conversational doctrine");
+    }
+
+    #[test]
+    fn a_worker_without_an_owner_or_project_skips_them() {
+        let mut p = parts();
+        p.owner = None;
+        p.project = None;
+        let got = system_prompt_layout(p, &session(VizierChannelId::Subagent));
+        assert_eq!(got.len(), 4);
+        assert!(got[2].starts_with("## The agent you work for"));
     }
 }

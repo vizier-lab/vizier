@@ -1,4 +1,4 @@
-//! Shared chat snapshots (`specs/056-shared-chat/contracts/share-api.md`).
+//! Shared chat snapshots (`specs/063-shared-chat/contracts/share-api.md`).
 //!
 //! Vectors must not change state (the harness sends each twice), so every `POST /shares` here
 //! is refused before anything is stored: `403` for a person who may not share (or an agent that

@@ -23,6 +23,10 @@ pub struct ToolFunctionDoc {
     pub returns: String,
     /// Generated: `result = name(required_a="…", required_b=0)`.
     pub example: String,
+    /// A custom tool's version, author, model backing and attention
+    /// (`specs/061-agent-custom-tools` FR-010).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,6 +97,7 @@ pub fn describe_as(
             || "any JSON value".to_string(),
             |schema| render(schema, schema, 0),
         ),
+        custom: None,
     }
 }
 
