@@ -31,6 +31,6 @@
 
 ## Notes
 
-- FR-011 resolved 2026-11-15: steer by default, with a per-message choice to queue as a new turn (WebUI composer control; `/queue` on Discord, Telegram and Workspaces).
+- FR-011 resolved 2026-11-15: steer by default, with a per-message choice to queue as a new turn (Ctrl+Enter / Cmd+Enter in the WebUI, with a hint while busy; `/queue` on Discord, Telegram and Workspaces).
 - FR-010 settled 2026-11-15: a steered message splits the trail (trail, message, trail, reply), both parts labelled "Worked", same order after reload. All items pass.
 - Command names (`/abort`, `/btw`, …) are product vocabulary, not implementation detail.
