@@ -46,6 +46,7 @@ fn content_kind(content: &VizierResponseContent) -> &'static str {
         VizierResponseContent::Error { .. } => "error",
         VizierResponseContent::Empty => "empty",
         VizierResponseContent::Abort => "abort",
+        VizierResponseContent::Steered => "steered",
         VizierResponseContent::Checkpoint { .. } => "checkpoint",
     }
 }

@@ -1803,3 +1803,347 @@ async fn custom_tools_are_saved_and_called_through_the_agent_loop() {
 
     runtime.shutdown().await.unwrap();
 }
+
+// --- spec 062: steering a busy turn (quickstart E1–E6) -------------------------------------------
+
+/// A run request dummyplug answers with an `execute_python` call after `delay_ms`: the window in
+/// which a test sends a second message while the turn is busy (contracts/dummyplug-steer.md).
+fn slow_tool(delay_ms: u64) -> String {
+    serde_json::json!({
+        "tool": "execute_python",
+        "arguments": { "intent": "e2e", "code": "1 + 1" },
+        "delay_ms": delay_ms,
+    })
+    .to_string()
+}
+
+/// A final answer after `delay_ms` with no tool call: a busy turn with no round boundary.
+fn slow_answer(say: &str, delay_ms: u64) -> String {
+    serde_json::json!({ "say": say, "delay_ms": delay_ms }).to_string()
+}
+
+/// Sends a person's message with its own reply stream, as a channel does.
+async fn send_message(
+    transport: &VizierTransport,
+    session: &VizierSession,
+    text: &str,
+    queue: bool,
+) -> vizier_core::transport::ResponseStream {
+    let (tx, rx) = transport
+        .reply_channel()
+        .await
+        .expect("open a reply stream");
+    let request = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        user: "e2e".into(),
+        content: VizierRequestContent::Chat(text.into()),
+        metadata: serde_json::json!({}),
+        queue,
+        ..Default::default()
+    };
+    transport
+        .send_request(session.clone(), request, Some(tx))
+        .await
+        .expect("send the request");
+    rx
+}
+
+/// How one message's own reply stream ended: its reply text, or that a running turn read it.
+#[derive(Debug, PartialEq)]
+enum Ending {
+    Reply(String),
+    Steered,
+    Closed,
+}
+
+async fn ending(rx: vizier_core::transport::ResponseStream) -> Ending {
+    tokio::time::timeout(TURN_TIMEOUT, async move {
+        while let Ok(response) = rx.recv_async().await {
+            match response.content {
+                VizierResponseContent::Message { content, .. } => return Ending::Reply(content),
+                VizierResponseContent::Steered => return Ending::Steered,
+                VizierResponseContent::Error { kind, message } => {
+                    panic!("turn failed ({kind:?}): {message}")
+                }
+                _ => {}
+            }
+        }
+        Ending::Closed
+    })
+    .await
+    .expect("the reply stream ended in time")
+}
+
+fn kinds(history: &[vizier_core::schema::SessionHistory]) -> Vec<&'static str> {
+    history
+        .iter()
+        .map(|h| match &h.content {
+            SessionHistoryContent::Request(_) => "Request",
+            SessionHistoryContent::ToolCall { .. } => "ToolCall",
+            SessionHistoryContent::ToolResult { .. } => "ToolResult",
+            SessionHistoryContent::Response(_) => "Response",
+            SessionHistoryContent::AssistantMessage(_) => "AssistantMessage",
+            _ => "other",
+        })
+        .collect()
+}
+
+/// The texts of the requests read mid-turn, in stored order.
+fn read_mid_turn(history: &[vizier_core::schema::SessionHistory]) -> Vec<String> {
+    history
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) if r.mid_turn => Some(r.content.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn chat_texts(history: &[vizier_core::schema::SessionHistory]) -> Vec<(String, bool, bool)> {
+    history
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r)
+                if matches!(r.content, VizierRequestContent::Chat(_)) =>
+            {
+                Some((r.content.to_string(), r.mid_turn, r.queue))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+async fn journal_rows(runtime: &VizierRuntime) -> usize {
+    use vizier_core::storage::turn::TurnStorage;
+    runtime
+        .deps()
+        .storage
+        .pending_turns("plug")
+        .await
+        .unwrap()
+        .len()
+}
+
+/// E1 + E2: messages sent while a round runs reach the next step, in order, in one reply.
+#[tokio::test(flavor = "multi_thread")]
+async fn messages_sent_while_busy_steer_the_running_turn() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let session = web_session("steer");
+
+    let first = send_message(transport, &session, &slow_tool(2000), false).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let one = send_message(transport, &session, "keep the old token format", false).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let two = send_message(transport, &session, "and the logs", false).await;
+
+    assert_eq!(
+        ending(first).await,
+        Ending::Reply("**Read mid-turn**:\nkeep the old token format\nand the logs".into())
+    );
+    assert_eq!(ending(one).await, Ending::Steered);
+    assert_eq!(ending(two).await, Ending::Steered);
+
+    // Give a wrong extra turn the chance to appear before counting.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let history = history_of(&runtime, &session).await;
+    assert_eq!(
+        kinds(&history),
+        [
+            "Request",
+            "ToolCall",
+            "ToolResult",
+            "Request",
+            "Request",
+            "Response"
+        ],
+        "{history:#?}"
+    );
+    assert_eq!(
+        read_mid_turn(&history),
+        ["keep the old token format", "and the logs"]
+    );
+    assert_eq!(journal_rows(&runtime).await, 0, "every journal row is gone");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// E3: `/queue` and `queue: true` keep the old behaviour; a bare `/queue` is answered and saved
+/// nowhere.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_queued_message_runs_as_its_own_turn() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let session = web_session("queue");
+
+    let first = send_message(transport, &session, &slow_tool(1500), false).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let by_command = send_message(transport, &session, "/queue lorem please", false).await;
+    let by_flag = send_message(transport, &session, "flagged", true).await;
+
+    let Ending::Reply(reply) = ending(first).await else {
+        panic!("the first turn replied")
+    };
+    assert!(
+        reply.starts_with("**Tool result**"),
+        "nothing was read mid-turn: {reply}"
+    );
+    assert!(
+        matches!(ending(by_command).await, Ending::Reply(_)),
+        "its own turn"
+    );
+    assert!(
+        matches!(ending(by_flag).await, Ending::Reply(_)),
+        "its own turn"
+    );
+
+    let history = history_of(&runtime, &session).await;
+    assert!(read_mid_turn(&history).is_empty(), "{history:#?}");
+    let texts = chat_texts(&history);
+    assert!(
+        texts.contains(&("lorem please".into(), false, true)),
+        "the command became the flag: {texts:?}"
+    );
+    assert!(
+        texts.contains(&("flagged".into(), false, true)),
+        "{texts:?}"
+    );
+
+    let before = history.len();
+    let bare = send_message(transport, &session, "/queue", false).await;
+    let Ending::Reply(usage) = ending(bare).await else {
+        panic!("a usage reply")
+    };
+    assert!(usage.starts_with("Usage: `/queue"), "{usage}");
+    assert_eq!(
+        history_of(&runtime, &session).await.len(),
+        before,
+        "a bare /queue saves nothing"
+    );
+    assert_eq!(journal_rows(&runtime).await, 0);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// E4: a turn that ends with no further round leaves the message for a turn of its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_the_turn_never_reaches_runs_after_it() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let session = web_session("fallback");
+
+    let first = send_message(transport, &session, &slow_answer("done", 1500), false).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let second = send_message(transport, &session, "second", false).await;
+
+    assert_eq!(ending(first).await, Ending::Reply("done".into()));
+    assert!(
+        matches!(ending(second).await, Ending::Reply(_)),
+        "its own turn"
+    );
+    let history = history_of(&runtime, &session).await;
+    assert!(read_mid_turn(&history).is_empty(), "{history:#?}");
+    assert!(chat_texts(&history).contains(&("second".into(), false, false)));
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// E5: `/abort` drops a message that was waiting for the turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn abort_drops_a_waiting_message() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let session = web_session("abort");
+
+    let _first = send_message(transport, &session, &slow_tool(2000), false).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let _waiting = send_message(transport, &session, "wait", false).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let abort = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        user: "e2e".into(),
+        content: VizierRequestContent::Command("abort".into()),
+        metadata: serde_json::json!({}),
+        ..Default::default()
+    };
+    transport
+        .send_request(session.clone(), abort, None)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let history = history_of(&runtime, &session).await;
+    assert!(
+        !chat_texts(&history).iter().any(|(text, ..)| text == "wait"),
+        "{history:#?}"
+    );
+    assert_eq!(journal_rows(&runtime).await, 0);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// E6: vizier stops mid-turn with a message waiting; the next start resumes the turn and reads
+/// the message exactly once (FR-003, SC-002). An in-process agent update is not used here: a
+/// turn cut off before its first step is not resumed by an update today, steering or not.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_mid_turn_reads_the_message_exactly_once() {
+    let Some((_dummyplug, runtime, dir)) = detached_harness().await else {
+        return;
+    };
+    let session = web_session("restart");
+
+    let _first = send_message(runtime.transport(), &session, &slow_tool(2500), false).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let _waiting = send_message(runtime.transport(), &session, "after restart", false).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    runtime.shutdown().await.unwrap();
+
+    // The next start takes the agent over and re-sends what the last one left, in order.
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    eventually(45, || async {
+        history_of(&runtime, &session)
+            .await
+            .iter()
+            .any(|h| matches!(h.content, SessionHistoryContent::Response(_)))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let history = history_of(&runtime, &session).await;
+    let copies = chat_texts(&history)
+        .into_iter()
+        .filter(|(text, ..)| text == "after restart")
+        .count();
+    assert_eq!(copies, 1, "in history exactly once: {history:#?}");
+    let replies: Vec<String> = history
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Response(r) => match &r.content {
+                VizierResponseContent::Message { content, .. } => Some(content.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies.len(), 1, "answered once: {history:#?}");
+    assert_eq!(
+        replies[0], "**Read mid-turn**:\nafter restart",
+        "{history:#?}"
+    );
+    assert_eq!(read_mid_turn(&history), ["after restart"]);
+    assert_eq!(journal_rows(&runtime).await, 0);
+
+    runtime.shutdown().await.unwrap();
+}

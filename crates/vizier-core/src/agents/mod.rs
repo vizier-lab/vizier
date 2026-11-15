@@ -33,6 +33,7 @@ pub mod placement;
 pub mod views;
 pub mod process;
 pub mod shell;
+pub mod steer;
 pub mod skill;
 pub mod subagents;
 pub mod steps;

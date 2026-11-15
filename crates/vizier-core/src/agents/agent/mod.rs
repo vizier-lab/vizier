@@ -508,6 +508,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
         turn: TurnRef,
+        steer: Option<crate::agents::steer::SteerInbox>,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
         let result = self
@@ -521,6 +522,7 @@ impl VizierAgent {
                 hooks,
                 checkpoint_handover,
                 turn,
+                steer,
             )
             .instrument(span.clone())
             .await;
@@ -597,6 +599,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
         turn: TurnRef,
+        steer: Option<crate::agents::steer::SteerInbox>,
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
         let subagent_depth = req.subagent_depth;
@@ -841,42 +844,11 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
-        // Store attachments in SessionFiles via FileManager. One that fails is left out and
-        // the model told so, rather than failing the turn over one file (#47).
-        let mut unavailable = vec![];
-        // The ones that are now session files: the request is about to lose its attachments, so
-        // this is the only record of them the turn's own message can be built from.
-        let mut stored_attachments: Vec<VizierAttachment> = vec![];
-        for attachment in &req.attachments {
-            match self.store_session_file(&session, attachment).await {
-                Ok(()) => stored_attachments.push(attachment.clone()),
-                Err(e) => {
-                    tracing::warn!(
-                        "attachment '{}' could not be stored, continuing without it: {}",
-                        attachment.filename,
-                        e
-                    );
-                    unavailable.push(attachment.filename.clone());
-                }
-            }
-        }
-        let attachment_names: Vec<String> =
-            req.attachments.iter().map(|a| a.filename.clone()).collect();
-        // What history shows under the person's message: only attachments that are a reference
-        // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
-        let shown_attachments: Vec<VizierAttachment> = req
-            .attachments
-            .iter()
-            .filter(|a| {
-                matches!(
-                    a.content,
-                    VizierAttachmentContent::Local(_) | VizierAttachmentContent::Url(_)
-                )
-            })
-            .cloned()
-            .collect();
-        // Clear attachments so they don't get injected directly into the conversation
-        req.attachments.clear();
+        let AdmittedFiles {
+            names: attachment_names,
+            shown: shown_attachments,
+            note: files_note,
+        } = self.admit_attachments(&session, &mut req).await;
 
         // Always save request to history (even for SilentRead that may not get a response)
         let request_uid = match resumed_request_uid {
@@ -905,16 +877,13 @@ impl VizierAgent {
                 }
             }
         };
-        // Files the person attached are theirs, and belong to this request.
-        for name in &attachment_names {
-            if let Err(e) = self
-                .storage
-                .label_session_file(&session, name, Some(&req.user), request_uid.as_deref())
-                .await
-            {
-                tracing::warn!("could not label session file '{name}': {e}");
-            }
-        }
+        self.label_attachments(
+            &session,
+            &attachment_names,
+            &req.user,
+            request_uid.as_deref(),
+        )
+        .await;
         if let (Some(id), Some(uid)) = (turn.id, request_uid.as_deref())
             && let Err(e) = self.storage.set_turn_request_uid(id, uid).await
         {
@@ -946,24 +915,8 @@ impl VizierAgent {
             }
             None => req.to_message(self.deps.artifacts.as_ref()).await?,
         };
-        // What became of the person's files, on their own message: the ones that could not be
-        // stored (loudly, #47) and the ones that did. Without the second, the model is handed a
-        // request whose attachments were just moved into the session files and reads a message
-        // that mentions a file it was never told exists — so it only finds it if it happens to
-        // call `list_session_files`. The stored bytes never ride the message; the names do.
-        let mut note = String::new();
-        if !unavailable.is_empty() {
-            note.push_str(&format!(
-                "[These attachments could not be loaded: {}]",
-                unavailable.join(", ")
-            ));
-        }
-        if let Some(added) = crate::schema::attachments_note(&stored_attachments) {
-            // The block brings its own leading blank line, which separates it from a failure.
-            note.push_str(&added);
-        }
-        if !note.is_empty() {
-            message = with_note(message, note);
+        if !files_note.is_empty() {
+            message = with_note(message, files_note);
         }
 
         let progress = resume_steps
@@ -1019,6 +972,7 @@ impl VizierAgent {
                 &ctx,
                 Some(&mut recorder),
                 progress,
+                steer.as_ref(),
             )
             .await;
 
@@ -1141,8 +1095,175 @@ impl VizierAgent {
             ctx,
             None,
             vec![],
+            None,
         )
         .await
+    }
+
+    /// A person's attachments, moved into the conversation's session files (spec 062 R6: one
+    /// path for a turn's own request and for a message read mid-turn). One that fails is left
+    /// out and the model told so, rather than failing the turn over one file (#47). Takes the
+    /// attachments off `req`.
+    async fn admit_attachments(
+        &self,
+        session: &VizierSession,
+        req: &mut VizierRequest,
+    ) -> AdmittedFiles {
+        let mut unavailable = vec![];
+        // The ones that are now session files: the request is about to lose its attachments, so
+        // this is the only record of them the message can be built from.
+        let mut stored: Vec<VizierAttachment> = vec![];
+        for attachment in &req.attachments {
+            match self.store_session_file(session, attachment).await {
+                Ok(()) => stored.push(attachment.clone()),
+                Err(e) => {
+                    tracing::warn!(
+                        "attachment '{}' could not be stored, continuing without it: {}",
+                        attachment.filename,
+                        e
+                    );
+                    unavailable.push(attachment.filename.clone());
+                }
+            }
+        }
+        let names = req.attachments.iter().map(|a| a.filename.clone()).collect();
+        // What history shows under the person's message: only attachments that are a reference
+        // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
+        let shown = req
+            .attachments
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a.content,
+                    VizierAttachmentContent::Local(_) | VizierAttachmentContent::Url(_)
+                )
+            })
+            .cloned()
+            .collect();
+        // Clear attachments so they don't get injected directly into the conversation
+        req.attachments.clear();
+        // What became of the files, for the person's own message: the ones that could not be
+        // stored (loudly, #47) and the ones that did. Without the second, the model reads a
+        // message that mentions a file it was never told exists. The bytes never ride the
+        // message; the names do.
+        let mut note = String::new();
+        if !unavailable.is_empty() {
+            note.push_str(&format!(
+                "[These attachments could not be loaded: {}]",
+                unavailable.join(", ")
+            ));
+        }
+        if let Some(added) = crate::schema::attachments_note(&stored) {
+            // The block brings its own leading blank line, which separates it from a failure.
+            note.push_str(&added);
+        }
+        AdmittedFiles { names, shown, note }
+    }
+
+    /// Files the person attached are theirs, and belong to the request saved under `uid`.
+    async fn label_attachments(
+        &self,
+        session: &VizierSession,
+        names: &[String],
+        user: &str,
+        uid: Option<&str>,
+    ) {
+        for name in names {
+            if let Err(e) = self
+                .storage
+                .label_session_file(session, name, Some(user), uid)
+                .await
+            {
+                tracing::warn!("could not label session file '{name}': {e}");
+            }
+        }
+    }
+
+    /// The messages waiting to steer this turn, read at a round boundary
+    /// (`specs/062-steer-busy-turn` contracts/steering.md S2): taken from the session's queue,
+    /// saved where they were read in one transaction with the removal of their journal rows,
+    /// shown to watchers, and returned as the text parts the model reads next. Each one's own
+    /// sender is told it was read (`Steered`). A message the save did not take (an `/abort` got
+    /// there first) is dropped; a save that failed puts every message back, so each still runs
+    /// as a turn of its own.
+    async fn read_steered(
+        &self,
+        inbox: &crate::agents::steer::SteerInbox,
+        session: &VizierSession,
+    ) -> Vec<Part> {
+        let taken = inbox.take();
+        if taken.is_empty() {
+            return vec![];
+        }
+        let mut prepared = Vec::with_capacity(taken.len());
+        for item in &taken {
+            let mut request = item.request.clone();
+            let files = self.admit_attachments(session, &mut request).await;
+            request.mid_turn = true;
+            let mut text = request
+                .to_prompt()
+                .unwrap_or_else(|_| request.content.to_string());
+            text.push_str(&files.note);
+            let mut saved = request;
+            saved.attachments = files.shown;
+            prepared.push((saved, text, files.names));
+        }
+        let items: Vec<(Option<i64>, VizierRequest)> = taken
+            .iter()
+            .zip(&prepared)
+            .map(|(item, (saved, _, _))| (item.turn.id, saved.clone()))
+            .collect();
+        let saved = match self.storage.steer_turns(session, &items).await {
+            Ok(saved) => saved,
+            Err(e) => {
+                tracing::warn!(agent_id = %session.0, "could not read waiting messages into the turn, leaving them queued: {e}");
+                let mut queue = crate::agents::steer::lock(&inbox.0);
+                for item in taken.into_iter().rev() {
+                    queue.push_front(item);
+                }
+                return vec![];
+            }
+        };
+        let mut parts = Vec::with_capacity(saved.len());
+        let mut taken: Vec<Option<crate::agents::steer::Queued>> =
+            taken.into_iter().map(Some).collect();
+        for steered in saved {
+            let (request, text, names) = &prepared[steered.index];
+            self.label_attachments(session, names, &request.user, Some(&steered.history_uid))
+                .await;
+            self.transport
+                .publish_session_event(crate::transport::SessionEvent {
+                    session: session.clone(),
+                    frame: crate::transport::SessionFrame::HistoryEntry(
+                        crate::schema::SessionHistory {
+                            uid: steered.history_uid.clone(),
+                            vizier_session: session.clone(),
+                            content: SessionHistoryContent::Request(request.clone()),
+                            // Where it was read, not when it was sent: the order a reload shows.
+                            timestamp: crate::time::now(),
+                            reactions: vec![],
+                            seq: None,
+                        },
+                    ),
+                });
+            parts.push(Part::Text(text.clone()));
+            if let Some(item) = taken[steered.index].take()
+                && let Some(tx) = item.response_tx
+            {
+                let _ = tx
+                    .send_async(VizierResponse {
+                        timestamp: crate::time::now(),
+                        content: VizierResponseContent::Steered,
+                        attachments: vec![],
+                        ..Default::default()
+                    })
+                    .await;
+            }
+        }
+        for skipped in taken.into_iter().flatten() {
+            tracing::debug!(agent_id = %session.0, turn = ?skipped.turn.id, "a waiting message was cancelled before the turn could read it");
+        }
+        parts
     }
 
     async fn prompt_with(
@@ -1157,6 +1278,7 @@ impl VizierAgent {
         ctx: &ToolContext,
         mut steps: Option<&mut StepRecorder>,
         progress: Vec<Message>,
+        steer: Option<&crate::agents::steer::SteerInbox>,
     ) -> std::result::Result<
         (
             String,
@@ -1533,29 +1655,36 @@ impl VizierAgent {
             // subagent workers, spec 059): delivered now,
             // after the round's results and before the next completion, as one user message.
             // The claim is the exactly-once guard: a waiting wake-up poke then finds nothing.
-            let delivery = match self.deps.deliveries.claim(&ctx.session).await {
-                None => None,
-                Some(text) => {
-                    let request = VizierRequest {
-                        timestamp: crate::time::now(),
-                        user: ctx.session.0.clone(),
-                        content: VizierRequestContent::DetachedDelivery(text),
-                        metadata: serde_json::json!({}),
-                        ..Default::default()
-                    };
-                    let text = request.to_prompt().unwrap_or_else(|_| request.content.to_string());
-                    if let Some(recorder) = steps.as_deref_mut() {
-                        recorder
-                            .record_entry(
-                                &self.storage,
-                                &self.transport,
-                                SessionHistoryContent::Request(request),
-                            )
-                            .await;
-                    }
-                    Some(Message::User(vec![Part::Text(text)]))
+            //
+            // Messages the person sent while this round ran come right after it (spec 062), in
+            // the same user message, so the model reads everything that arrived before its next
+            // step. The delivery is saved first and the messages after it, which is the order a
+            // replay rebuilds (`history_entries_to_messages`).
+            let mut arrived: Vec<Part> = vec![];
+            if let Some(text) = self.deps.deliveries.claim(&ctx.session).await {
+                let request = VizierRequest {
+                    timestamp: crate::time::now(),
+                    user: ctx.session.0.clone(),
+                    content: VizierRequestContent::DetachedDelivery(text),
+                    metadata: serde_json::json!({}),
+                    ..Default::default()
+                };
+                let text = request.to_prompt().unwrap_or_else(|_| request.content.to_string());
+                if let Some(recorder) = steps.as_deref_mut() {
+                    recorder
+                        .record_entry(
+                            &self.storage,
+                            &self.transport,
+                            SessionHistoryContent::Request(request),
+                        )
+                        .await;
                 }
-            };
+                arrived.push(Part::Text(text));
+            }
+            if let Some(inbox) = steer {
+                arrived.extend(self.read_steered(inbox, &ctx.session).await);
+            }
+            let delivery = (!arrived.is_empty()).then_some(Message::User(arrived));
 
             if let Some(delivery) = delivery {
                 history.extend(tool_responses.iter().cloned());
@@ -2302,6 +2431,16 @@ fn checkpoint_context(handover: String) -> Message {
 /// `completed` is answered with the error, so the stored turn never ends on a tool call
 /// with no result (issue #58).
 /// `note` appended to a user message, after what the person sent.
+/// What [`VizierAgent::admit_attachments`] did with a request's files.
+struct AdmittedFiles {
+    /// Every attached file's name, for labelling the session files once the request is saved.
+    names: Vec<String>,
+    /// The attachments history shows under the message (references only, never bytes).
+    shown: Vec<VizierAttachment>,
+    /// What the model is told about them, appended to the message's text.
+    note: String,
+}
+
 fn with_note(message: Message, note: String) -> Message {
     match message {
         Message::User(mut content) => {
@@ -2908,6 +3047,7 @@ mod attachment_note_tests {
                 None,
                 None,
                 TurnRef::default(),
+                None,
             )
             .await
             .unwrap();

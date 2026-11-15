@@ -41,12 +41,16 @@ use crate::{
     transport::{DreamCommand, SessionEvent, SessionFrame, VizierRequestEnvelope, VizierTransport},
 };
 
-/// Requests waiting for the session's running job, each with where its response goes.
-type SessionQueue = VecDeque<(
-    VizierRequest,
-    Option<crate::transport::ResponseSender>,
-    TurnRef,
-)>;
+use crate::agents::steer::{self, Queued, SessionQueue};
+
+/// A session's queue, made when first needed. The running turn of the session holds a clone
+/// (`specs/062-steer-busy-turn` R1), so it is the same queue for as long as the entry lives.
+fn queue_of(
+    session_queues: &mut HashMap<VizierSession, SessionQueue>,
+    session: &VizierSession,
+) -> SessionQueue {
+    session_queues.entry(session.clone()).or_default().clone()
+}
 
 fn abort_session_silent(
     session: &VizierSession,
@@ -66,7 +70,11 @@ fn abort_session_silent(
             .update_thinking_state(session_clone.0, session_clone.1, session_clone.2, false)
             .await;
     });
-    session_queues.remove(session);
+    // The aborted turn may still hold the queue for a moment: empty it, so nothing in it is
+    // read into the turn or run after it (spec 062 FR-009).
+    if let Some(queue) = session_queues.remove(session) {
+        steer::lock(&queue).clear();
+    }
 
     had_in_flight
 }
@@ -181,6 +189,33 @@ pub async fn agent_process(
                     }
                 }
 
+                // `/queue <message>` on any channel (spec 062 contracts/queue-command.md): the
+                // command becomes the `queue` flag, so everything downstream sees only the message.
+                // A bare `/queue` is answered here and runs nothing.
+                if crate::agents::steer::strip_queue_command(&mut request)
+                    == crate::agents::steer::QueueCommand::UsageOnly
+                {
+                    if let Some(tx) = &response_tx {
+                        let _ = tx
+                            .send_async(VizierResponse {
+                                timestamp: crate::time::now(),
+                                content: VizierResponseContent::Message {
+                                    content: crate::agents::steer::QUEUE_USAGE.to_string(),
+                                    stats: None,
+                                },
+                                attachments: vec![],
+                                ..Default::default()
+                            })
+                            .await;
+                    }
+                    if let Some(id) = turn.id
+                        && let Err(e) = deps.storage.finish_turn(id).await
+                    {
+                        tracing::warn!(agent_id = %agent_id, "could not close a usage-only turn's row: {e}");
+                    }
+                    continue;
+                }
+
                 // Finished background work (spec 058). An idle conversation claims at once, so a
                 // poke that finds nothing (a round boundary took the rows first) leaves no trace;
                 // a busy one queues it and claims when it comes up (`handle_request`).
@@ -287,23 +322,27 @@ pub async fn agent_process(
                 // the turn in progress finishes first, and messages sent before or during
                 // the handover carry on after it, reading the new checkpoint (#57).
                 if is_handover_command(&request) && session_is_busy(&turns, &session_queues, &session) {
-                    queue_handover(session_queues.entry(session.clone()).or_default(), (request, response_tx, turn));
+                    let item = Queued::new(request, response_tx, turn, &session);
+                    queue_handover(&mut steer::lock(&queue_of(&mut session_queues, &session)), item);
                     continue;
                 }
 
                 // Queue message if a task is already running for this session
                 if session_is_busy(&turns, &session_queues, &session) {
                     tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
-                    session_queues.entry(session.clone()).or_default().push_back((request, response_tx, turn));
+                    let item = Queued::new(request, response_tx, turn, &session);
+                    steer::lock(&queue_of(&mut session_queues, &session)).push_back(item);
                     continue;
                 }
 
+                let steer = steer::SteerInbox(queue_of(&mut session_queues, &session));
                 start_session_job(
                     &jobs,
                     session,
                     request,
                     response_tx,
                     turn,
+                    steer,
                     &mut turns,
                     &mut thinking_handles,
                 );
@@ -354,16 +393,18 @@ pub async fn agent_process(
                     recover_failed_turn(&session, finished.outcome, finished.response_tx, &mut thinking_handles, &deps.storage);
                 }
 
-                if let Some((next_request, response_tx, next_turn)) = session_queues
-                    .get_mut(&session)
-                    .and_then(|queue| queue.pop_front())
-                {
+                let next = session_queues
+                    .get(&session)
+                    .and_then(|queue| steer::lock(queue).pop_front());
+                if let Some(Queued { request: next_request, response_tx, turn: next_turn, .. }) = next {
+                    let steer = steer::SteerInbox(queue_of(&mut session_queues, &session));
                     start_session_job(
                         &jobs,
                         session,
                         next_request,
                         response_tx,
                         next_turn,
+                        steer,
                         &mut turns,
                         &mut thinking_handles,
                     );
@@ -426,7 +467,7 @@ pub async fn agent_process(
         // A session whose queue is handed on carries on in the next instance, scratch and all.
         if session_queues
             .get(&session)
-            .is_none_or(|queue| queue.is_empty())
+            .is_none_or(|queue| steer::lock(queue).is_empty())
         {
             clear_idle_scratch(&deps.storage, &session).await;
         }
@@ -436,17 +477,10 @@ pub async fn agent_process(
 }
 
 /// Queues a handover ahead of the queued messages and behind any handover already waiting.
-fn queue_handover(
-    queue: &mut SessionQueue,
-    item: (
-        VizierRequest,
-        Option<crate::transport::ResponseSender>,
-        TurnRef,
-    ),
-) {
+fn queue_handover(queue: &mut VecDeque<Queued>, item: Queued) {
     let position = queue
         .iter()
-        .position(|(queued, _, _)| !is_handover_command(queued))
+        .position(|queued| !is_handover_command(&queued.request))
         .unwrap_or(queue.len());
     queue.insert(position, item);
 }
@@ -538,7 +572,14 @@ async fn hand_on_queued(
         }
     }
     for (session, queue) in session_queues {
-        for (request, response_tx, turn) in queue {
+        let items: Vec<Queued> = steer::lock(&queue).drain(..).collect();
+        for Queued {
+            request,
+            response_tx,
+            turn,
+            ..
+        } in items
+        {
             if let Err(e) = deps
                 .transport
                 .resend(VizierRequestEnvelope {
@@ -946,7 +987,7 @@ fn session_is_busy(
     turns.is_running(session)
         || session_queues
             .get(session)
-            .is_some_and(|queue| !queue.is_empty())
+            .is_some_and(|queue| !steer::lock(queue).is_empty())
 }
 
 /// Runs one request as the session's job. Registered in `turns`, so anything that
@@ -958,6 +999,7 @@ fn start_session_job(
     request: VizierRequest,
     response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
+    steer: steer::SteerInbox,
     turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
 ) {
@@ -1044,6 +1086,7 @@ fn start_session_job(
                     indexer.clone(),
                     &deps,
                     turn,
+                    Some(steer),
                 )
                 .await
             }
@@ -1490,6 +1533,9 @@ pub async fn handle_request(
     indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
     turn: TurnRef,
+    // The session's queue, for a chat turn to read waiting messages from at its round
+    // boundaries (`specs/062-steer-busy-turn`).
+    steer: Option<steer::SteerInbox>,
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new().hook(DebugHook(session.clone()));
 
@@ -1676,6 +1722,7 @@ pub async fn handle_request(
                     Some(hooks),
                     checkpoint_handover,
                     turn,
+                    steer.clone(),
                 )
                 .await?;
             // FR-032: the hit/miss signal the threshold is tuned against. Whether the agent went
@@ -1752,6 +1799,7 @@ pub async fn handle_request(
                     Some(hooks),
                     checkpoint_handover,
                     turn,
+                    None,
                 )
                 .await?;
             if let Some(injected) = injected_context {
@@ -1894,6 +1942,7 @@ pub async fn handle_request(
                             Some(hooks),
                             None,
                             turn,
+                            None,
                         )
                         .await?
                 }
@@ -2450,18 +2499,19 @@ mod session_turns_tests {
         };
         let chat = |t: &str| req(VizierRequestContent::Chat(t.into()));
         let handover = || req(VizierRequestContent::Command("checkpoint".into()));
-        let mut queue = SessionQueue::new();
+        let mut queue = VecDeque::new();
         // Re-sent in acceptance order: message A, handover H, message B.
         for item in [chat("A"), handover(), chat("B")] {
-            if is_handover_command(&item) {
-                queue_handover(&mut queue, (item, None, TurnRef::default()));
+            let item = Queued::new(item, None, TurnRef::default(), &session("a"));
+            if is_handover_command(&item.request) {
+                queue_handover(&mut queue, item);
             } else {
-                queue.push_back((item, None, TurnRef::default()));
+                queue.push_back(item);
             }
         }
         let order: Vec<_> = queue
             .iter()
-            .map(|(r, _, _)| is_handover_command(r))
+            .map(|q| is_handover_command(&q.request))
             .collect();
         assert_eq!(order, vec![true, false, false]);
     }
@@ -2472,13 +2522,14 @@ mod session_turns_tests {
         let mut queues = HashMap::<VizierSession, SessionQueue>::new();
         assert!(!session_is_busy(&turns, &queues, &session("a")));
 
-        queues.entry(session("a")).or_default().push_back((
+        steer::lock(&queue_of(&mut queues, &session("a"))).push_back(Queued::new(
             VizierRequest {
                 content: VizierRequestContent::Chat("queued".into()),
                 ..Default::default()
             },
             None,
             TurnRef::default(),
+            &session("a"),
         ));
         assert!(session_is_busy(&turns, &queues, &session("a")));
     }

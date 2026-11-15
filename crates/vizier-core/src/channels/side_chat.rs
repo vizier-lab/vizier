@@ -122,6 +122,8 @@ pub async fn await_reply(
             | VizierResponseContent::ToolResponse { .. }
             | VizierResponseContent::AudioReply(..)
             | VizierResponseContent::Empty
+            // A side chat is never read into a running turn (spec 062 FR-007).
+            | VizierResponseContent::Steered
             | VizierResponseContent::Checkpoint { .. } => continue,
         }
     }
