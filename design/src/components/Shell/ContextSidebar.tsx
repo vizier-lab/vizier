@@ -4,7 +4,7 @@ import { cx } from "../../lib/cx";
 import { NavItem } from "../NavItem/NavItem";
 
 /** The agent's essentials (Artifacts shows only to people who may view them), always one click away; everything else lives in the agent card's menu. */
-export type EssentialPage = "memory" | "artifacts" | "tasks" | "skills" | "dreams";
+export type EssentialPage = "memory" | "artifacts" | "tasks" | "skills" | "functions" | "dreams";
 
 /** The pages behind the agent card, in the menu's groups. */
 export type MenuPage = "channels" | "addons" | "mcp" | "usage" | "secrets" | "config";
@@ -14,6 +14,7 @@ export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[
   { page: "artifacts", label: "Artifacts", icon: "folder" },
   { page: "tasks", label: "Schedule", icon: "calendar" },
   { page: "skills", label: "Skills", icon: "skills" },
+  { page: "functions", label: "Functions", icon: "code" },
   { page: "dreams", label: "Dreams", icon: "dreams" },
 ];
 

@@ -108,6 +108,7 @@ export * from "./components/Pagination";
 export * from "./components/PlanCard";
 export * from "./components/PanelHeader";
 export * from "./components/PermissionRow";
+export * from "./components/FunctionRow";
 export * from "./components/Picker";
 export * from "./components/ProfileHeader";
 export * from "./components/ProgressBar";
