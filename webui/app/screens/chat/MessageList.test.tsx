@@ -134,6 +134,16 @@ describe('a message the turn read while it worked (spec 062)', () => {
         expect(html.match(/All done\./g) ?? []).toHaveLength(1)
     })
 
+    it('starts the part after the message with the agent, as the turn starts', () => {
+        const html = draw(finished)
+        const heads = [...html.matchAll(/>Oz</g)].map((m) => m.index!)
+        expect(heads).toHaveLength(2)
+        const message = html.indexOf('keep the old token format')
+        expect(heads[0]).toBeLessThan(message)
+        expect(heads[1]).toBeGreaterThan(message)
+        expect(heads[1]).toBeLessThan(html.lastIndexOf('Worked'))
+    })
+
     it('draws the message once, inside the turn, after the request that started it', () => {
         const html = draw(finished)
         expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)

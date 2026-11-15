@@ -11,7 +11,7 @@ import {
     StoppedNote,
     UserMessage,
 } from '@vizier/design'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Presence } from '@vizier/design'
 import type { ChatMessage, Turn } from '../../api/frames'
@@ -240,7 +240,17 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
         return turn.blocks.map((block, i) => {
             if (block.kind === 'message') return <Markdown key={block.id}>{block.text}</Markdown>
-            if (block.kind === 'steer') return personMessage(block.entry)
+            if (block.kind === 'steer') {
+                // The agent carries on after the person's message: its head starts the next part,
+                // as it starts the turn. Only after the last of messages read together.
+                const resumes = turn.blocks[i + 1]?.kind !== 'steer'
+                return (
+                    <Fragment key={block.id}>
+                        {personMessage(block.entry)}
+                        {resumes && <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />}
+                    </Fragment>
+                )
+            }
             const open = live && i === turn.blocks.length - 1
             return (
                 <Trail
