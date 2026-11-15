@@ -198,6 +198,13 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       // splitting there left the work before it with no reply and no place in the
       // conversation. Only a delivery that woke an idle agent starts a turn of its own.
       const delivered = content.Request.content
+      // A message the person sent while this turn ran, read at a round boundary (spec 062): it
+      // splits the turn's trail, so the work before it and after it are two parts of one turn
+      // with one reply. Only a chat splits; anything else read mid-turn stays out of the bubble.
+      if (open && content.Request.mid_turn && 'chat' in delivered) {
+        open.blocks.push({ kind: 'steer', id: entry.uid, entry })
+        continue
+      }
       if (open && 'detached_delivery' in delivered) {
         let block = open.blocks[open.blocks.length - 1]
         if (block?.kind !== 'trail') {

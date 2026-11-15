@@ -292,6 +292,10 @@ export interface VizierRequestMessage {
   content: VizierRequestContent
   metadata?: Record<string, unknown>
   attachments?: VizierAttachment[]
+  // Run as a new turn after the running one instead of steering it (spec 062): Ctrl/Cmd+Enter.
+  queue?: boolean
+  // Set by the server only: the running turn read this message at a round boundary (spec 062).
+  mid_turn?: boolean
 }
 
 // VizierAttachment - matches backend VizierAttachment
@@ -408,6 +412,9 @@ export type TrailEvent =
 export type TurnBlock =
   | { kind: 'trail'; events: TrailEvent[]; startedAt?: string; endedAt?: string }
   | { kind: 'message'; id: string; text: string; at?: string }
+  // A message the person sent while the turn ran, read at a round boundary (spec 062): drawn as
+  // their bubble between the trail before it and the trail after it.
+  | { kind: 'steer'; id: string; entry: ChatMessage }
 
 // One exchange: what was asked, what the agent did on the way, and what came back.
 export interface Turn {

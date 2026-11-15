@@ -62,7 +62,9 @@ type Props = {
         text: string,
         attachments: VizierAttachment[],
         spoken: boolean,
-        mentions?: string[]
+        mentions?: string[],
+        /** Run it as a new turn after the one in progress (Ctrl/Cmd+Enter while busy, spec 062). */
+        queue?: boolean
     ) => void
     onSendAudio: (attachment: VizierAttachment) => void
     onCommand: (command: 'abort' | 'checkpoint' | 'lobotomy') => void
@@ -78,6 +80,14 @@ type Props = {
 let pendingId = 1
 
 /** The library Composer wired to uploads, voice, the slash menu and the context ring. */
+
+/** Under the composer while the agent works (spec 062 contracts/webui.md W1): what Enter does now,
+ * and the shortcut that keeps the old behaviour. Never on a phone, which has no shortcut. */
+function BusyHint() {
+    const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+    return <>Enter adds to the current turn · {mac ? '⌘↵' : 'Ctrl+Enter'} queues it</>
+}
+
 export function Composer({
     agentId,
     agentName,
@@ -233,7 +243,7 @@ export function Composer({
         ])
     }, [])
 
-    const send = async () => {
+    const send = async (queue = false) => {
         const text = value.trim()
         // Before the command regex and before anything is uploaded or sent: a side chat is never saved.
         const btw = /^\/btw(?:\s+([\s\S]*))?$/.exec(text)
@@ -268,7 +278,7 @@ export function Composer({
             const uploaded = await Promise.all(
                 ready.map((p) => uploadFile(p.file))
             )
-            onSend(text, uploaded, spoken, pickedMentions(text, picked))
+            onSend(text, uploaded, spoken, pickedMentions(text, picked), queue)
             setValue('')
             setPicked([])
             setSuggestions(null)
@@ -393,10 +403,11 @@ export function Composer({
                 }
                 value={value}
                 onValueChange={setValue}
-                onSend={() =>
-                    void (voice ? sendVoice() : send())
+                onSend={(options) =>
+                    void (voice ? sendVoice() : send(options?.queue))
                 }
                 busy={busy}
+                hint={busy && !mobile && !voice ? <BusyHint /> : undefined}
                 onStop={onStop}
                 disabledReason={disabledReason}
                 skills={skills}

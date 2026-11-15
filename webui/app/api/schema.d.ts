@@ -6451,9 +6451,22 @@ export interface components {
              */
             mentions?: string[];
             metadata: unknown;
+            /**
+             * @description Engine-only: this request was read by a turn already running, at a round boundary
+             *     (`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client
+             *     input on receipt and before a request is queued. A `mid_turn` request never opens a turn.
+             */
+            mid_turn?: boolean;
             model_override?: components["schemas"]["ModelOverride"] | null;
             platform_message_id?: components["schemas"]["PlatformMessageId"] | null;
             project_scope?: components["schemas"]["ProjectScope"] | null;
+            /**
+             * @description The person chose to run this message as a turn of its own after the running one rather
+             *     than steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the
+             *     WebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the
+             *     choice survives a restart. Ignored while the agent is idle.
+             */
+            queue?: boolean;
             /**
              * @description The slug of the task this request is a scheduled run of.
              *
@@ -6562,7 +6575,7 @@ export interface components {
                 kind: components["schemas"]["ErrorKind"];
                 message: string;
             };
-        } | "empty" | "abort" | {
+        } | "empty" | "abort" | "steered" | {
             checkpoint: {
                 handover?: string | null;
             };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Frame, WebSocketResponse } from '../api/frames'
-import { emptyTopic, reduce, type Action, type TopicState } from './frames'
+import { emptyTopic, reduce, sentToQueue, storedText, type Action, type TopicState } from './frames'
 import { groupHistory, openTurn, turnEvents } from './trail'
 
 const session = { agent_id: 'plug', channel: 'webui', topic: 't' }
@@ -33,6 +33,32 @@ describe('turn state machine', () => {
         expect(s.label).toBeNull()
         expect(s.context).toEqual({ used: 21000, window: 200000 })
         expect(s.entries.at(-1)?.uid).toBe('rep1')
+    })
+
+    // spec 062: a waiting message says what will happen to it, and the stored request (the text
+    // without `/queue`) still ends the wait.
+    it('marks a message sent with Ctrl+Enter or /queue as queued, and matches it without the command', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'steer me', now: '2026-10-23T10:00:05Z' })
+        s = run(s, { type: 'send', id: '3', text: 'flagged', queue: true, now: '2026-10-23T10:00:06Z' })
+        s = run(s, { type: 'send', id: '4', text: '/queue later please', now: '2026-10-23T10:00:07Z' })
+        expect(s.queued.map((q) => [q.text, !!q.queue])).toEqual([
+            ['steer me', false],
+            ['flagged', true],
+            ['/queue later please', true],
+        ])
+        s = run(s, { type: 'sent', request: { chat: 'later please' }, timestamp: '2030-01-01T00:00:00Z' })
+        expect(s.queued.map((q) => q.text)).toEqual(['steer me', 'flagged'])
+    })
+
+    it('reads /queue the way the server does', () => {
+        expect(storedText('/queue check the logs')).toBe('check the logs')
+        expect(storedText('/QUEUE@bot  check')).toBe('check')
+        expect(storedText('/queueing is fun')).toBe('/queueing is fun')
+        expect(storedText('plain')).toBe('plain')
+        expect(sentToQueue('plain')).toBe(false)
+        expect(sentToQueue('plain', true)).toBe(true)
+        expect(sentToQueue('/queue x')).toBe(true)
     })
 
     it('clears a waiting message once the stored request arrives', () => {

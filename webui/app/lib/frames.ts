@@ -37,6 +37,20 @@ export interface QueuedMessage {
     spoken?: boolean
     /** When it was sent, to pair it with the stored request that ends the wait. */
     sentAt?: string
+    /** Sent to run as a new turn (Ctrl/Cmd+Enter or `/queue`) rather than into the turn in progress (spec 062). */
+    queue?: boolean
+}
+
+/** The text the server stores for a message sent as typed: `/queue` is read as the queue flag and
+ * removed on receipt (spec 062), so that is what a waiting row is matched against. */
+export function storedText(text: string): string {
+    const match = /^\s*\/queue(?:@\S+)?(?:\s+([\s\S]*))?$/i.exec(text)
+    return match ? (match[1] ?? '').trim() : text
+}
+
+/** Whether a message as typed is sent to run as a new turn: the flag, or `/queue`. */
+export function sentToQueue(text: string, queue?: boolean): boolean {
+    return !!queue || storedText(text) !== text
 }
 
 export interface TopicError {
@@ -78,7 +92,7 @@ export type Action =
     | { type: 'frame'; frame: Frame; now?: string }
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
-    | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
+    | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string; queue?: boolean }
     | { type: 'dequeue' }
     /** The server stored a request this page was drawing as waiting. */
     | { type: 'sent'; request: VizierRequestContent; timestamp?: string }
@@ -370,7 +384,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     !stored.some(
                         (s) =>
                             s.content.Request &&
-                            (JSON.stringify(s.content.Request.content) === JSON.stringify({ chat: q.text }) ||
+                            (JSON.stringify(s.content.Request.content) === JSON.stringify({ chat: storedText(q.text) }) ||
                                 stampedNear(s.content.Request.timestamp, q.sentAt))
                     )
             )
@@ -396,7 +410,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     ...state,
                     queued: [
                         ...state.queued,
-                        { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken, sentAt: action.now },
+                        { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken, sentAt: action.now, queue: sentToQueue(action.text, action.queue) },
                     ],
                 }
             }
@@ -421,7 +435,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'sent': {
             // The server stored a message that was waiting: it is history now, not a wait.
             const at = state.queued.findIndex(
-                (q) => JSON.stringify({ chat: q.text }) === JSON.stringify(action.request) || stampedNear(q.sentAt, action.timestamp)
+                (q) => JSON.stringify({ chat: storedText(q.text) }) === JSON.stringify(action.request) || stampedNear(q.sentAt, action.timestamp)
             )
             return at < 0 ? state : { ...state, queued: state.queued.filter((_, i) => i !== at) }
         }

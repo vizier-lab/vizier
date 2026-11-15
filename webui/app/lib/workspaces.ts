@@ -79,7 +79,17 @@ export function mergeSteps(held: readonly WorkspaceStep[], incoming: readonly Wo
     return [...byUid.values()]
 }
 
-const blockTime = (block: TurnBlock) => ms(block.kind === 'trail' ? block.startedAt : block.at)
+const blockTime = (block: TurnBlock) =>
+    ms(block.kind === 'trail' ? block.startedAt : block.kind === 'steer' ? block.entry.timestamp : block.at)
+
+/**
+ * A turn's parts as the timeline draws them. A person's message the turn read mid-turn (spec 062)
+ * is already on the timeline as their own entry, and the turn is split where it lands, so its
+ * `steer` block is left out here rather than drawn twice.
+ */
+function timelineBlocks(blocks: TurnBlock[]): TurnBlock[] {
+    return blocks.filter((block) => block.kind !== 'steer')
+}
 
 /** Splits one agent turn where `interruptions` (ms) land between its parts. */
 function segmentsOf(
@@ -177,7 +187,7 @@ export function buildTimeline(entries: readonly WorkspaceEntry[], steps: readonl
         const others = entries.filter((e) => e.author.id !== agentId || e.kind !== 'agent').map((e) => e.at)
         for (const turn of groupHistory(ordered)) {
             if (turn.blocks.length === 0 && !turn.outcome) continue
-            for (const { key, at, segment } of segmentsOf(agentId, turn.key, turn.blocks, turn.outcome, turn.aborted, others)) {
+            for (const { key, at, segment } of segmentsOf(agentId, turn.key, timelineBlocks(turn.blocks), turn.outcome, turn.aborted, others)) {
                 items.push({ kind: 'run', key, at, segment })
             }
         }
