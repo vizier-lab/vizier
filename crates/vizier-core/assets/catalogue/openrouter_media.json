@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "fetched_at": "2026-11-15T15:48:07Z",
+  "fetched_at": "2026-11-15T17:41:03Z",
   "speech": [
     {"id": "speechify/simba-3.5", "name": "Speechify: Simba 3.5", "voices": ["geffen_32", "alec", "alfonso", "alicia", "alton", "amon", "ankit", "anthony", "archie", "arun", "beatrice_32", "belinda", "benjamin", "bertha", "beth", "beverly", "brenda", "bridget", "bwyneth", "byronagent"]},
     {"id": "assemblyai/assemblyai-tts-1", "name": "AssemblyAI: TTS 1", "voices": ["aai-antonioluis", "aai-audrey", "aai-carrie", "aai-constanza", "aai-donatien", "aai-ernest", "aai-ewald", "aai-gunther", "aai-hailey", "aai-jorg", "aai-kyla", "aai-magdalena", "aai-malvina", "aai-nancy", "aai-oriol", "aai-peter", "aai-sara", "aai-steven", "aai-titus", "aai-troy"]},

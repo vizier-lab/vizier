@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - *(app)* Allow https images in the desktop app's CSP
 - *(webui)* Align the composer, cap markdown images, crop thumbnails from the top
 - *(chat)* Keep client tools on the turn a question answer starts
+- *(scheduler)* Fire a cron task that has never run
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -30,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui (strip icons, subagents default tab, error after reload)
 - Bump webui (intent on the running trail head)
 - Bump design (house icon on the home tile)
+- Bump version to 0.16.0-rc.2
 ## [0.16.0-rc.1] - 2026-11-13
 
 ### 🚀 Features
