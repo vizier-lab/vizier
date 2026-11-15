@@ -11,6 +11,8 @@ pub enum ServiceError {
     Invalid { status: u16, message: String, code: Option<String> },
     Conflict { message: String, code: Option<String>, data: Option<serde_json::Value> },
     Gone { code: String, message: String },
+    /// `422` with a body the client reads (spec 061: every problem of a definition at once).
+    Unprocessable { code: String, message: String, data: serde_json::Value },
     TooLarge(String),
     RateLimited(String),
     Unavailable(String),
@@ -30,6 +32,7 @@ impl ServiceError {
             Self::Invalid { status, .. } => *status,
             Self::Conflict { .. } => 409,
             Self::Gone { .. } => 410,
+            Self::Unprocessable { .. } => 422,
             Self::TooLarge(_) => 413,
             Self::RateLimited(_) => 429,
             Self::Unavailable(_) => 503,
@@ -46,14 +49,17 @@ impl ServiceError {
             | Self::RateLimited(m)
             | Self::Unavailable(m)
             | Self::Internal(m) => m,
-            Self::Invalid { message, .. } | Self::Conflict { message, .. } | Self::Gone { message, .. } => message,
+            Self::Invalid { message, .. }
+            | Self::Conflict { message, .. }
+            | Self::Gone { message, .. }
+            | Self::Unprocessable { message, .. } => message,
         }
     }
 
     pub fn code(&self) -> Option<&str> {
         match self {
             Self::Invalid { code, .. } | Self::Conflict { code, .. } => code.as_deref(),
-            Self::Gone { code, .. } => Some(code),
+            Self::Gone { code, .. } | Self::Unprocessable { code, .. } => Some(code),
             _ => None,
         }
     }

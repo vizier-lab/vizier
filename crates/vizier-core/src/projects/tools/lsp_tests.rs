@@ -79,6 +79,7 @@ fn world(script: &str, extra: &[&str], mode: ProjectMode, lsp_enabled: bool) -> 
         project: Some(Arc::new(project)),
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     };
     World { dir, ctx, log }
 }

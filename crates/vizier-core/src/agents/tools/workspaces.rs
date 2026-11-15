@@ -200,6 +200,11 @@ impl VizierTool for MentionAgent {
         "mention_agent".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn category() -> Option<ToolCategory> {
         Some(ToolCategory::Workspaces)
     }
@@ -555,6 +560,7 @@ mod tests {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 

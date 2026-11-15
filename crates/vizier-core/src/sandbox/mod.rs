@@ -12,7 +12,7 @@ pub mod runtime;
 
 pub use docs::ToolFunctionDoc;
 pub use report::{ExecutionError, ExecutionErrorKind, ExecutionReport, ToolInvocationRecord};
-pub use runtime::execute;
+pub use runtime::{execute, execute_with_input};
 
 /// Monty's per-operation allocation pre-check. A guard against a single huge
 /// allocation (`"a" * 10**10`), not a cumulative memory ceiling.

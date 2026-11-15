@@ -15,7 +15,7 @@ use crate::{
 
 /// The full documentation of one catalogue entry, output schema included for native tools
 /// and for client tools that declared one.
-pub(super) fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &CatalogueEntry) -> ToolFunctionDoc {
+pub(super) async fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &CatalogueEntry) -> ToolFunctionDoc {
     let output_schema = match &entry.target {
         ToolTarget::Native(tool) => router
             .default_toolset
@@ -24,19 +24,28 @@ pub(super) fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &Catalogu
             .ok()
             .map(|tool| tool.output_schema()),
         ToolTarget::Mcp { .. } => None,
-        ToolTarget::Client { .. } => ctx
-            .client
-            .as_ref()
-            .and_then(|client| client.declaration(&entry.name))
-            .and_then(|declaration| declaration.output_schema.clone()),
-        ToolTarget::Project => crate::projects::tools::output_schema(&entry.name),
+        ToolTarget::Turn { source } => crate::agents::tools::turn_source::source(source)
+            .and_then(|source| source.output_schema(ctx, &entry.name)),
     };
-    docs::describe_as(
+    let mut doc = docs::describe_as(
         entry.name.clone(),
         &entry.definition,
         output_schema.as_ref(),
         Some(entry.category.clone()),
-    )
+    );
+    if let ToolTarget::Turn { source } = &entry.target {
+        if let Some(source) = crate::agents::tools::turn_source::source(source) {
+            if let Some(extra) = source.describe_extra(ctx, &entry.name).await {
+                doc.custom = extra.get("custom").cloned();
+            }
+        }
+    }
+    doc
+}
+
+/// A custom tool's entry in the full listing (spec 061 FR-010).
+fn is_custom(entry: &CatalogueEntry) -> bool {
+    entry.target == (ToolTarget::Turn { source: crate::custom_tools::catalogue::CustomSource::ID })
 }
 
 pub struct ListToolFunctions {
@@ -86,11 +95,15 @@ impl VizierTool for ListToolFunctions {
             let functions: Vec<serde_json::Value> = catalogue
                 .iter()
                 .map(|entry| {
-                    serde_json::json!({
+                    let mut row = serde_json::json!({
                         "name": entry.name,
                         "summary": docs::summary(&entry.definition.description),
                         "category": entry.category,
-                    })
+                    });
+                    if is_custom(entry) {
+                        row["custom"] = serde_json::json!(true);
+                    }
+                    row
                 })
                 .collect();
             return Ok(serde_json::json!({ "count": functions.len(), "functions": functions }));
@@ -174,7 +187,7 @@ impl VizierTool for DescribeToolFunction {
         let catalogue = turn_catalogue(&self.router, ctx).await;
 
         Ok(match catalogue.iter().find(|entry| entry.name == args.name) {
-            Some(entry) => serde_json::to_value(entry_doc(&self.router, ctx, entry))
+            Some(entry) => serde_json::to_value(entry_doc(&self.router, ctx, entry).await)
                 .map_err(|err| VizierError(err.to_string()))?,
             None => {
                 let known: Vec<String> = catalogue.into_iter().map(|entry| entry.name).collect();

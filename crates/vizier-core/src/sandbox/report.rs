@@ -56,6 +56,10 @@ pub struct ToolInvocationRecord {
     /// The dispatched function ends the turn when it succeeds (spec 026).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ends_turn: bool,
+    /// The calls a custom tool's script made (`specs/061-agent-custom-tools` FR-016), in order;
+    /// empty for every other tool.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<ToolInvocationRecord>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -195,6 +199,7 @@ mod tests {
                 error: None,
                 duration_ms: 12,
                 ends_turn: false,
+                calls: vec![],
             }],
             duration_ms: 34,
         }
@@ -285,6 +290,7 @@ mod tests {
             error: None,
             duration_ms: 1,
             ends_turn,
+            calls: vec![],
         }
     }
 

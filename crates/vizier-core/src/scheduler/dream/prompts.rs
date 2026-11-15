@@ -19,6 +19,11 @@ Review the provided session history and extract the following into a structured 
 ### Learnings
 - New patterns discovered, useful information, lessons learned
 
+### Reusable Workflows
+- Sequences of tool calls you ran more than once, or that the person asked you to repeat.
+- For each: the steps in order, the inputs that changed between runs, whether any step needed
+  your judgment (and which), how many times you saw it, and the script if one ran.
+
 ### Action Items
 - Follow-ups needed, reminders, unresolved questions
 - For each item, note:
@@ -58,7 +63,16 @@ Now do the following:
 
    Do NOT skip any action item. Every item must be persisted or explicitly noted as intentionally dropped in your final report.
 
-4. **Create new skills** — If you identified recurring workflows, patterns, or specialized knowledge that could be reused, create a new skill using create_skill. First check list_skills to avoid duplicating existing skills.
+4. **Create or update skills and custom tools** — For every reusable workflow in the reports:
+   - steps fixed, only the inputs vary → a custom tool (`create_custom_tool`; `input` holds the
+     arguments, the last expression is the result);
+   - steps need judgment → a skill (`create_skill`);
+   - a one-off → nothing.
+   First check `list_custom_tools` and `list_skills`; update an existing one rather than create a
+   near-duplicate. Put a new custom tool in a fitting existing category before making a new one,
+   and if categories hold only one or two related tools, merge them
+   (`update_custom_tool` with another `category`, `update_custom_tool_category`). Specialized
+   knowledge worth reusing is a skill too.
 
 5. **Link knowledge** — Connect new memories to existing ones. Check memory_list and memory_graph for related memories.
 
@@ -72,7 +86,22 @@ Now do the following:
    delete, send or clear anything.
 
 8. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
-   - State the count: N tasks scheduled, X Core updates, Y memories written
-   - List any action items you intentionally dropped and why
+   - State the count: N tasks scheduled, X Core updates, Y memories written, N skills and M custom tools created or updated
+   - List any action items you intentionally dropped and why, and the reusable workflows you left alone and why
 
-9. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;
+9. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy, and list the custom tools you created or updated by name."#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `specs/061-agent-custom-tools` contracts/prompt-and-dream.md §2–§3.
+    #[test]
+    fn the_dream_looks_for_reusable_workflows_and_says_where_each_goes() {
+        assert!(EXTRACTION_PROMPT.contains("### Reusable Workflows"));
+        for needle in ["create_custom_tool", "list_custom_tools", "a one-off → nothing", "M custom tools"] {
+            assert!(CONSOLIDATION_PROMPT_TEMPLATE.contains(needle), "{needle}");
+        }
+        assert!(CONSOLIDATION_PROMPT_TEMPLATE.contains("{extraction_content}"));
+    }
+}

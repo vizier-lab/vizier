@@ -208,6 +208,7 @@ mod tests {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 

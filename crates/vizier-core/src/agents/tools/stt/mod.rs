@@ -44,6 +44,11 @@ impl VizierTool for SttTranscribe {
         "stt_transcribe".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn description(&self) -> String {
         let lang_hint = self
             .language

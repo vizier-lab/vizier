@@ -26,6 +26,7 @@ pub mod setup;
 pub mod providers;
 pub mod providers_sso;
 pub mod custom_providers;
+pub mod custom_tools;
 pub mod usage;
 pub mod catalogue;
 pub mod embedding;

@@ -695,6 +695,7 @@ async fn refresh_session_detail(
         project: None,
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     };
     let Ok((title, _, _, _)) = agent
         .prompt(
@@ -1177,6 +1178,7 @@ async fn run_checkpoint(
         project: None,
         detached: false,
         parent_detached_id: None,
+        custom: Default::default(),
     };
 
     // Generate handover

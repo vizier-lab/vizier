@@ -10819,6 +10819,8 @@ dependencies = [
  "reqwest 0.13.5",
  "ring",
  "rmcp",
+ "ruff_python_ast",
+ "ruff_python_parser",
  "rusqlite",
  "rust-embed",
  "rust_xlsxwriter",

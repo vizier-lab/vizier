@@ -59,6 +59,7 @@ use crate::{
 };
 
 mod artifacts;
+mod custom_tools;
 mod detached;
 pub mod brave_search;
 #[cfg(feature = "channel-discord")]
@@ -70,7 +71,7 @@ pub mod http_client;
 mod image_gen;
 #[cfg(feature = "addon-documents")]
 pub mod office;
-mod python;
+pub(crate) mod python;
 mod read_image;
 mod scheduler;
 mod scratchpad;
@@ -86,6 +87,7 @@ pub mod telegram;
 mod think;
 mod time;
 pub mod tts;
+pub mod turn_source;
 mod vector_memory;
 mod webui;
 mod workspaces;
@@ -131,10 +133,13 @@ pub enum ToolCategory {
     Subagents,
     /// Recall tool outputs pruned from the model's view (`specs/060-prune-tool-outputs`).
     History,
+    /// Make, change and organise the agent's own custom tools (`specs/061-agent-custom-tools`).
+    /// The custom tools themselves are listed under the agent's own categories.
+    CustomTools,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 21] = [
+    pub const ALL: [ToolCategory; 22] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -156,6 +161,7 @@ impl ToolCategory {
         Self::Workspaces,
         Self::Subagents,
         Self::History,
+        Self::CustomTools,
     ];
 
     pub fn name(self) -> &'static str {
@@ -181,6 +187,7 @@ impl ToolCategory {
             Self::Time => "time",
             Self::Workspaces => "workspaces",
             Self::Subagents => "subagents",
+            Self::CustomTools => "custom_tools",
         }
     }
 
@@ -225,6 +232,7 @@ impl ToolCategory {
             Self::Subagents => {
                 "Hire temporary workers for parts of a task, wait for them, answer their questions and stop them"
             }
+            Self::CustomTools => "Make, change and organise your own custom tools",
         }
     }
 }
@@ -329,6 +337,9 @@ pub struct ToolContext {
     /// onto its requests (`VizierRequest.parent_detached_id`), so a script launched by a
     /// sub-agent records its parent and a cancel cascades to it.
     pub parent_detached_id: Option<String>,
+    /// The agent's custom tools for this turn (`specs/061-agent-custom-tools`): the service while
+    /// they are offered, the category snapshot, the call chain and the script router.
+    pub custom: crate::custom_tools::CustomTurn,
 }
 
 /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question` research R2).
@@ -593,6 +604,18 @@ pub struct ToolRouter {
 }
 
 impl ToolRouter {
+    /// A router with no tools: for tests and for contexts that call nothing.
+    pub fn empty() -> Self {
+        Self {
+            default_toolset: VizierToolSet::new(),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: Default::default(),
+            mcp: Default::default(),
+            reserved: Arc::new(vec![]),
+        }
+    }
+
     /// Category names a client category may not take: the addon ids, the MCP server keys,
     /// and the categories those servers are listed under.
     pub fn client_reserved_categories(&self) -> Vec<String> {
@@ -621,15 +644,10 @@ pub enum ToolTarget {
         server: String,
         tool: String,
     },
-    /// A tool the person's client declared for this turn, by the client's own names. Only
+    /// A tool of one of this turn's [`turn_source::TurnToolSource`]s (the person's client, the
+    /// project coding tools, the agent's custom tools), by the source's id. Only
     /// [`turn_catalogue`] produces it, and only `RouterBridge` dispatches it.
-    Client {
-        category: String,
-        tool: String,
-    },
-    /// The per-turn project workspace shell. Only [`turn_catalogue`] produces it, only while a
-    /// project session may run commands, and only `RouterBridge` dispatches it.
-    Project,
+    Turn { source: &'static str },
 }
 
 /// One script-callable function: the single source for its name, category and dispatch.
@@ -696,6 +714,10 @@ pub trait VizierToolDyn {
     /// Whether a successful call is the turn's final answer.
     fn ends_turn(&self) -> bool;
 
+    /// Whether the tool's result comes from a model (`specs/061-agent-custom-tools` R7), so a
+    /// custom tool that calls it is marked model-backed.
+    fn model_backed(&self) -> bool;
+
     /// Whether this turn is offered the tool at all. False takes it out of the catalogue, out of
     /// the category lines and out of reach of a script, so an agent never sees a tool it cannot
     /// use here (`specs/042-agent-asking-question` FR-007, FR-028, FR-046).
@@ -724,6 +746,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
 
     fn ends_turn(&self) -> bool {
         <Self as VizierTool>::ends_turn()
+    }
+
+    fn model_backed(&self) -> bool {
+        <Self as VizierTool>::model_backed()
     }
 
     fn available(&self, ctx: &ToolContext) -> bool {
@@ -775,6 +801,12 @@ pub trait VizierTool {
         false
     }
 
+    /// Whether the result comes from a model: sub-agents, other agents, image generation,
+    /// vision, speech. Default false.
+    fn model_backed() -> bool {
+        false
+    }
+
     /// Whether this turn is offered the tool. Every ordinary tool is; one that needs a person on
     /// the other end overrides this and decides per turn.
     fn available(&self, _ctx: &ToolContext) -> bool {
@@ -814,7 +846,7 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
 
 /// `name`, or `{name}_{suffix}` when it is a built-in category's name or in `reserved`: the
 /// one clash rule MCP servers and client categories share.
-fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
+pub(crate) fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
     if ToolCategory::ALL
         .iter()
         .any(|category| category.name() == name)
@@ -837,16 +869,19 @@ pub fn client_category_name(category: &str, reserved: &[String]) -> String {
     reserved_category_name(category, reserved, "client")
 }
 
-/// The functions a script in this turn can call: the router's, then the client's.
+/// The functions a script in this turn can call: the router's, then each turn source's
+/// (client, project, custom; `specs/061-agent-custom-tools` R1).
 pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<CatalogueEntry> {
     let mut entries = router.catalogue(ctx).await;
-    if let Some(client) = &ctx.client {
-        entries.extend(client.catalogue().iter().cloned());
-    }
-    // The project coding tools, filtered by this turn's saved mode (`specs/041-project-coding-
-    // workspace` R10): Plan offers reads and `propose_plan`; Build adds writes and commands.
-    if let Some(project) = &ctx.project {
-        entries.extend(crate::projects::tools::offered(project));
+    // First wins (spec 061 FR-011): a later source never takes a name an earlier one has, so a
+    // custom tool whose name a tool attached later took is not offered until it is renamed.
+    let mut taken: HashSet<String> = entries.iter().map(|entry| entry.name.clone()).collect();
+    for source in turn_source::sources() {
+        for entry in source.entries(router, ctx).await {
+            if taken.insert(entry.name.clone()) {
+                entries.push(entry);
+            }
+        }
     }
     // A detached script has no turn to end (spec 058 contracts/detached-flag.md §2).
     if ctx.detached {
@@ -855,13 +890,14 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
     entries
 }
 
-/// The category lines of this turn: the agent's, then the client's in declaration order, plus
-/// `coding` whenever a project context exists. It is listed in both modes (and while the folder
-/// is unavailable) so `SANDBOX.md` stays byte-identical within a chat (contract §1/§4).
+/// The category lines of this turn: the agent's, then each turn source's — the client's in
+/// declaration order, `coding` whenever a project context exists (listed in both modes and while
+/// the folder is unavailable, so `SANDBOX.md` stays byte-identical within a chat), then the
+/// agent's custom categories as snapshotted at turn start.
 ///
 /// A built-in category with no tool available this turn is dropped, so an unattended prompt never
-/// advertises an area it cannot use (`specs/042-agent-asking-question` FR-007). Addon, MCP and
-/// client categories are not built-ins and are left alone.
+/// advertises an area it cannot use (`specs/042-agent-asking-question` FR-007). Addon, MCP,
+/// client and custom categories are not built-ins and are left alone.
 pub fn turn_categories(
     base: &[CategorySummary],
     router: &ToolRouter,
@@ -883,14 +919,12 @@ pub fn turn_categories(
         })
         .cloned()
         .collect();
-    if let Some(client) = &ctx.client {
-        categories.extend(client.categories().iter().cloned());
-    }
-    if ctx.project.is_some() && !categories.iter().any(|category| category.name == "coding") {
-        categories.push(CategorySummary {
-            name: ToolCategory::Coding.name().into(),
-            description: ToolCategory::Coding.description().into(),
-        });
+    for source in turn_source::sources() {
+        for line in source.categories(router, ctx) {
+            if !categories.iter().any(|category| category.name == line.name) {
+                categories.push(line);
+            }
+        }
     }
     categories
 }
@@ -1003,9 +1037,32 @@ impl ToolRouter {
     /// agent cannot call what it cannot use (`specs/042-agent-asking-question` research R1).
     /// MCP tools have no such say: a server either lists a tool or it does not.
     pub async fn catalogue(&self, ctx: &ToolContext) -> Vec<CatalogueEntry> {
+        self.entries(Some(ctx)).await
+    }
+
+    /// Every function name the router offers anywhere, availability aside: what a custom tool's
+    /// calls are checked against, and what `agent.{id}.tool_names` publishes.
+    pub async fn all_names(&self) -> Vec<String> {
+        self.entries(None).await.into_iter().map(|entry| entry.name).collect()
+    }
+
+    /// The catalogue names of the native and addon tools whose results come from a model.
+    pub fn model_backed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .native_tools()
+            .chain(self.addon_tools().map(|(_, tool)| tool))
+            .filter(|tool| tool.model_backed())
+            .map(|tool| python_identifier(&tool.tool_name()))
+            .collect();
+        names.sort();
+        names
+    }
+
+    async fn entries(&self, ctx: Option<&ToolContext>) -> Vec<CatalogueEntry> {
+        let offered = |tool: &&VizierToolDef| ctx.is_none_or(|ctx| tool.available(ctx));
         let mut entries: Vec<CatalogueEntry> = self
             .native_tools()
-            .filter(|tool| tool.available(ctx))
+            .filter(offered)
             .filter_map(|tool| {
                 Some(CatalogueEntry {
                     name: python_identifier(&tool.tool_name()),
@@ -1018,7 +1075,7 @@ impl ToolRouter {
             .collect();
         entries.extend(
             self.addon_tools()
-                .filter(|(_, tool)| tool.available(ctx))
+                .filter(|(_, tool)| ctx.is_none_or(|ctx| tool.available(ctx)))
                 .map(|(addon, tool)| CatalogueEntry {
                     name: python_identifier(&tool.tool_name()),
                     category: addon.clone(),
@@ -1075,8 +1132,7 @@ impl ToolRouter {
                 .position(|category| category.name() == entry.category)
                 .unwrap_or(ToolCategory::ALL.len()),
             ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
-            ToolTarget::Client { .. } => ToolCategory::ALL.len() + 2,
-            ToolTarget::Project => ToolCategory::ALL.len() + 3,
+            ToolTarget::Turn { .. } => ToolCategory::ALL.len() + 2,
         };
         entries
             .sort_by(|a, b| (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name)));
@@ -1139,14 +1195,10 @@ impl ToolRouter {
                     .call(tool, serde_json::from_str(&params)?)
                     .await
             }
-            Some(ToolTarget::Client { .. }) => Err(VizierError(format!(
-                "{function_name} is provided by the person's client and is called from a script"
-            ))
-            .into()),
-            // The project shell is dispatched by `RouterBridge`, which owns the per-turn
-            // catalogue; reaching it here would mean the entry leaked outside a turn.
-            Some(ToolTarget::Project) => Err(VizierError(format!(
-                "{function_name} is only available inside a project session"
+            // Per-turn tools are dispatched by `RouterBridge`, which owns the turn's catalogue;
+            // reaching one here means it was called outside a script.
+            Some(ToolTarget::Turn { .. }) => Err(VizierError(format!(
+                "{function_name} is only callable from a script in this turn"
             ))
             .into()),
             None => Err(VizierError(format!("{} not found", function_name)).into()),
@@ -1231,7 +1283,22 @@ impl VizierTools {
         "list_artifacts",
         "attach_artifact_to_memory",
         "detach_attachment_from_memory",
+        // Custom tools (spec 061 R14): a dream may write and tidy them, never delete, switch
+        // off or call one.
+        "list_custom_tools",
+        "get_custom_tool",
+        "custom_tool_history",
+        "diff_custom_tool",
+        "create_custom_tool",
+        "update_custom_tool",
+        "rollback_custom_tool",
+        "update_custom_tool_category",
     ];
+
+    /// Whether a dream may call `name`: its toolset plus the journal reader.
+    pub fn dream_may_call(name: &str) -> bool {
+        name == "read_dream_journal" || Self::DREAM_TOOL_NAMES.contains(&name)
+    }
 
     pub async fn dream_tools(
         &self,
@@ -1282,9 +1349,21 @@ impl VizierTools {
             _ => {}
         }
 
+        // Only what the dream was offered: a guessed name (`delete_custom_tool`, a
+        // custom tool, `set_secret`) is refused, not dispatched (spec 061 R14).
+        if !Self::dream_may_call(&function_name) {
+            return Err(VizierError(format!("{function_name} is not in the dream toolset")).into());
+        }
+        // The custom tool authoring tools validate against the agent's full toolset and are
+        // authored by the dream, never sample-run (spec 061 R9, R14).
+        let mut ctx = ctx.clone();
+        ctx.custom.script_router = Some(self.router.clone());
+        if ctx.custom.dream_cycle.is_none() {
+            ctx.custom.dream_cycle = Some("unknown".into());
+        }
         // Delegate to default_toolset for memory, workspace, scheduler, skill tools. The dream
         // loop already opened this call's span, so the router's own is skipped.
-        self.router.dispatch(function_name, params, ctx).await
+        self.router.dispatch(function_name, params, &ctx).await
     }
 }
 
@@ -1446,6 +1525,18 @@ impl BaseTools {
             .tool(RecallHistory {
                 storage: deps.storage.clone(),
             })
+            // The agent's own custom tools (spec 061): authoring is always available; the
+            // tools themselves come from the per-turn custom source.
+            .tool(custom_tools::CreateCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::UpdateCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::ListCustomTools::new(deps.custom_tools.clone()))
+            .tool(custom_tools::GetCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::CustomToolHistory::new(deps.custom_tools.clone()))
+            .tool(custom_tools::DiffCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::RollbackCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::DeleteCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::SetCustomToolEnabled::new(deps.custom_tools.clone()))
+            .tool(custom_tools::UpdateCustomToolCategory::new(deps.custom_tools.clone()))
             // The agent's own credentials (`specs/027-agent-secrets`): always available, never
             // to the dream cycle, because a dream turn is unattended.
             .tool(SetSecret {
@@ -1789,6 +1880,16 @@ mod tests {
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
             entry::<RecallHistory>(),
+            entry::<custom_tools::CreateCustomTool>(),
+            entry::<custom_tools::UpdateCustomTool>(),
+            entry::<custom_tools::ListCustomTools>(),
+            entry::<custom_tools::GetCustomTool>(),
+            entry::<custom_tools::CustomToolHistory>(),
+            entry::<custom_tools::DiffCustomTool>(),
+            entry::<custom_tools::RollbackCustomTool>(),
+            entry::<custom_tools::DeleteCustomTool>(),
+            entry::<custom_tools::SetCustomToolEnabled>(),
+            entry::<custom_tools::UpdateCustomToolCategory>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
             #[cfg(feature = "addon-documents")]
@@ -1915,6 +2016,16 @@ mod tests {
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
             ("recall_history", History),
+            ("create_custom_tool", CustomTools),
+            ("update_custom_tool", CustomTools),
+            ("list_custom_tools", CustomTools),
+            ("get_custom_tool", CustomTools),
+            ("custom_tool_history", CustomTools),
+            ("diff_custom_tool", CustomTools),
+            ("rollback_custom_tool", CustomTools),
+            ("delete_custom_tool", CustomTools),
+            ("set_custom_tool_enabled", CustomTools),
+            ("update_custom_tool_category", CustomTools),
             ("fetch", Web),
             ("http_client", Web),
             ("tts_generate", Audio),
@@ -2124,6 +2235,24 @@ mod tests {
         assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"get_secret"));
     }
 
+    /// A dream writes and tidies custom tools; it never deletes, switches off or calls one
+    /// (`specs/061-agent-custom-tools` R14).
+    #[test]
+    fn custom_tool_authoring_reaches_the_dream_cycle_but_not_delete_toggle_or_calls() {
+        for name in ["create_custom_tool", "update_custom_tool", "list_custom_tools", "update_custom_tool_category"] {
+            assert!(VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name}");
+        }
+        for name in ["delete_custom_tool", "set_custom_tool_enabled"] {
+            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+        }
+        // A guessed name is refused at dispatch, not only left out of the offer.
+        for name in ["delete_custom_tool", "set_custom_tool_enabled", "echo_sum", "set_secret"] {
+            assert!(!VizierTools::dream_may_call(name), "{name}");
+        }
+        assert!(VizierTools::dream_may_call("create_custom_tool"));
+        assert!(VizierTools::dream_may_call("read_dream_journal"));
+    }
+
     /// A new category is appended, never slotted in among the categories older prompts and
     /// scripts already saw. `questions` (spec 042) is the last; `secrets` is the one before it.
     /// `identity` left the list in spec 043 — identity is reached through the memory tools now.
@@ -2133,10 +2262,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `history` (spec 060) is the last; `subagents` (spec 059) is the one before it.
-        assert_eq!(names.last(), Some(&"history"));
-        assert_eq!(names[names.len() - 2], "subagents");
-        assert_eq!(names.len(), 21);
+        // `custom_tools` (spec 061) is the last; `history` (spec 060) is the one before it.
+        assert_eq!(names.last(), Some(&"custom_tools"));
+        assert_eq!(names[names.len() - 2], "history");
+        assert_eq!(names.len(), 22);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2403,6 +2532,7 @@ mod tests {
             project: None,
             detached: false,
             parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 
@@ -2603,10 +2733,7 @@ mod tests {
         assert_eq!(last.name, "palette_pick_color");
         assert_eq!(
             last.target,
-            ToolTarget::Client {
-                category: "palette".into(),
-                tool: "pick_color".into()
-            }
+            ToolTarget::Turn { source: "client" }
         );
         let categories = turn_categories(&base, &router, &ctx);
         assert_eq!(&categories[..base.len()], &base[..]);

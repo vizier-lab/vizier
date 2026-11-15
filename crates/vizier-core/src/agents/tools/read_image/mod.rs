@@ -56,6 +56,11 @@ impl VizierTool for ReadImageFile {
         "read_image_file".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn description(&self) -> String {
         match &self.vision {
             Some(_) => "Read an image file from the current session and return a text \

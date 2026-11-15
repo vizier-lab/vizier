@@ -79,6 +79,11 @@ impl VizierTool for SpawnSubagentsTool {
         "spawn_subagents".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn description(&self) -> String {
         SPAWN_DESCRIPTION.into()
     }

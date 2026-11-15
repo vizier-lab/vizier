@@ -56,6 +56,11 @@ impl VizierTool for ImageGenerate {
         "image_generate".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn description(&self) -> String {
         let size = match self.default_size.as_deref() {
             Some(size) => format!("Default size: \"{size}\"."),

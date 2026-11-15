@@ -60,6 +60,8 @@ pub struct VizierDependencies {
     pub subagents: crate::agents::subagents::Subagents,
     /// Detached `execute_python` scripts (spec 058).
     pub detached: crate::agents::detached::DetachedScripts,
+    /// Agent custom tools (spec 061): the one write path for agents, dreams and people.
+    pub custom_tools: crate::custom_tools::CustomTools,
     /// Every background delivery source (detached scripts, subagent workers), claimed together
     /// at the three delivery sites (spec 059 research D9).
     pub deliveries: crate::agents::delivery::Deliveries,
@@ -317,7 +319,13 @@ impl VizierDependencies {
         setup.install_publisher(crate::agents::views::Publisher::new(&transport));
         setup.install_inbox(transport.clone());
 
+        let custom_tools = crate::custom_tools::CustomTools::new(
+            storage.clone(),
+            Some(transport.bus().state.clone()),
+        );
+
         let deps = Self {
+            custom_tools,
             config: Arc::new(config.clone()),
             storage,
             sql,

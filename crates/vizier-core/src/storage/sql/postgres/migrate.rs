@@ -63,6 +63,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "0009_subagents",
         sql: include_str!("migrations/0009_subagents.sql"),
     },
+    Migration {
+        version: 10,
+        name: "0010_custom_tools",
+        sql: include_str!("migrations/0010_custom_tools.sql"),
+    },
 ];
 
 /// Bring the schema `conn` sees (its `search_path`) up to the newest embedded migration.

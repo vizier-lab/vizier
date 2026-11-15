@@ -1,0 +1,51 @@
+# Specification Quality Checklist: Agent custom tools
+
+**Purpose**: Validate specification completeness and quality before proceeding to planning
+**Created**: 2026-11-15
+**Feature**: [spec.md](../spec.md)
+
+## Content Quality
+
+- [x] No implementation details (languages, frameworks, APIs)
+- [x] Focused on user value and business needs
+- [x] Written for non-technical stakeholders
+- [x] All mandatory sections completed
+
+## Requirement Completeness
+
+- [x] No [NEEDS CLARIFICATION] markers remain
+- [x] Requirements are testable and unambiguous
+- [x] Success criteria are measurable
+- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] All acceptance scenarios are defined
+- [x] Edge cases are identified
+- [x] Scope is clearly bounded
+- [x] Dependencies and assumptions identified
+
+## Feature Readiness
+
+- [x] All functional requirements have clear acceptance criteria
+- [x] User scenarios cover primary flows
+- [x] Feature meets measurable outcomes defined in Success Criteria
+- [x] No implementation details leak into specification
+
+## Notes
+
+- Three clarifications resolved with the requester on 2026-11-15: no approval step (callable at
+  once), per-agent only (no sharing/export), WebUI includes an editor for existing tools.
+- "Python in the existing sandbox" (FR-003) is named on purpose: the issue frames the feature as
+  composing tools in the sandbox agents already use, so it is a product boundary, not a tech choice.
+- Second pass (2026-11-15): dreams author custom tools (Story 7, FR-009–FR-009d, SC-008), the dream
+  extraction/consolidation prompts change to look for reusable workflows, and all limits are
+  removed (FR-015, FR-015a); cycles stay refused and the calling script's time limit bounds a call.
+  Re-validated: every item still passes.
+- Third pass (2026-11-15): security checks removed (old FR-007 secret refusal, the turn-ending /
+  person-waiting refusal, Story 3's redaction and refusal scenarios, SC-003's bypass metric) and
+  deferred to a later pass, recorded in Assumptions. Re-validated: every item still passes.
+- Fourth pass (2026-11-15): agent-owned categories (Story 8, FR-010–FR-011, SC-009/SC-010), one
+  discovery path for built-in and custom tools, WebUI grouped by category with rename/redescribe/move
+  (Story 5 scenarios 7–8, FR-021/FR-022), dreams may tidy categories (Story 7 scenario 7).
+  Re-validated: every item still passes.
+- Planning pass (2026-11-15): SC-007 reworded — the authoring tools add one always-present
+  category line, so "byte-identical" now means "today's prompt plus that one line, no custom
+  category lines until a tool exists" (contracts/prompt-and-dream.md §1).

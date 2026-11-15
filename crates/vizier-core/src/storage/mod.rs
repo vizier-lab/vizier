@@ -31,6 +31,7 @@ use crate::{
         reaction::ReactionStorage,
         scratch::ScratchStorage,
         secret::SecretStorage,
+        custom_tool::CustomToolStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
         sso_session::SsoSessionStorage,
@@ -72,6 +73,7 @@ pub mod reaction;
 pub mod rerank;
 pub mod scratch;
 pub mod secret;
+pub mod custom_tool;
 pub mod session;
 pub mod session_file;
 pub mod migrate;
@@ -149,6 +151,7 @@ where
         + ScratchStorage
         + TurnStorage
         + SecretStorage
+        + CustomToolStorage
         + NotificationStorage
         + ProjectStorage
         + WorkspaceStorage

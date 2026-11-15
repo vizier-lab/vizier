@@ -304,6 +304,7 @@ mod tests {
                 error: Some(format!("401 for {TOKEN}")),
                 duration_ms: 1,
                 ends_turn: false,
+                calls: vec![],
             }],
             duration_ms: 1,
         };

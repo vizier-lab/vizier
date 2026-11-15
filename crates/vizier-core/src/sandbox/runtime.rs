@@ -51,6 +51,17 @@ pub async fn execute(
     limits: SandboxLimits,
     bridge: Arc<dyn SandboxBridge>,
 ) -> ExecutionReport {
+    execute_with_input(code, None, limits, bridge).await
+}
+
+/// [`execute`], with `input` bound as the script's `input` global when given — how a custom
+/// tool's script receives its validated arguments (`specs/061-agent-custom-tools` R2).
+pub async fn execute_with_input(
+    code: &str,
+    input: Option<serde_json::Value>,
+    limits: SandboxLimits,
+    bridge: Arc<dyn SandboxBridge>,
+) -> ExecutionReport {
     if code.len() > MAX_SCRIPT_BYTES {
         return ExecutionReport::failed(
             ExecutionErrorKind::Limit,
@@ -82,7 +93,7 @@ pub async fn execute(
             cancelled,
             last_tool_error: None,
         }
-        .run(code);
+        .run(code, input);
         report.duration_ms = started.elapsed().as_millis() as u64;
         span.record("duration_ms", report.duration_ms);
         report
@@ -129,9 +140,13 @@ impl Interpreter {
 
     /// Every `MontyRun` and `MontyObject` is created and dropped inside this
     /// function; only the plain-data report leaves it.
-    fn run(mut self, code: String) -> ExecutionReport {
+    fn run(mut self, code: String, input: Option<serde_json::Value>) -> ExecutionReport {
         let started = Instant::now();
-        let runner = match MontyRun::new(code, "main.py", vec![], CompileOptions::default()) {
+        let names = match input {
+            Some(_) => vec!["input".to_string()],
+            None => vec![],
+        };
+        let runner = match MontyRun::new(code, "main.py", names, CompileOptions::default()) {
             Ok(runner) => runner,
             Err(exc) => return ExecutionReport::from_monty_exception(&exc, started.elapsed()),
         };
@@ -153,7 +168,8 @@ impl Interpreter {
             };
         }
 
-        let mut progress = runner.start(vec![], tracker, pw!());
+        let inputs = input.map(super::convert::json_to_monty).into_iter().collect();
+        let mut progress = runner.start(inputs, tracker, pw!());
         let outcome = loop {
             let step = match progress {
                 Ok(step) => step,
@@ -566,6 +582,7 @@ mod tests {
                 .collect(),
             returns: "any JSON value".into(),
             example: String::new(),
+            custom: None,
         }
     }
 
