@@ -2,8 +2,7 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
 import { ChatStatusStrip } from './ChatStatusStrip'
-import type { BackgroundJobSnapshot, SessionFileRecord } from '../../api/frames'
-import type { Recalled } from '../../lib/recall'
+import type { DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 
 // renderToString reads a zustand store's initial state, so the strip is drawn against a stand-in.
 const fake = vi.hoisted(() => ({
@@ -15,30 +14,16 @@ vi.mock('../../stores/projects', () => ({
   }),
 }))
 
-const recalled: Recalled[] = [
-  { bundle: 'ops', path: 'on-call.md', ordinal: 1, score: 0.84, origin: 'auto', uid: 'u1' },
-]
-
-const job = (state: BackgroundJobSnapshot['state']): BackgroundJobSnapshot => ({
-  id: 'j1',
-  kind: 'batch',
-  delegated_to: null,
+const job = (state: DetachedScriptSnapshot['state']): DetachedScriptSnapshot => ({
+  id: `d_${state}`,
+  intent: 'run the tests',
   state,
   created_at: '2026-11-04T09:00:00Z',
-  finished_at: null,
+  finished_at: state === 'running' ? null : '2026-11-04T09:01:00Z',
   timeout_secs: 600,
-  pieces: [
-    {
-      ordinal: 0,
-      prompt: 'draft the follow-up',
-      state: state === 'running' ? 'running' : 'answered',
-      reason: null,
-      agent_id: 'a',
-      topic: null,
-      started_at: '2026-11-04T09:00:00Z',
-      finished_at: null,
-    },
-  ],
+  parent_id: null,
+  delivered: state !== 'running',
+  tool_call_count: 1,
 })
 
 const file: SessionFileRecord = {
@@ -53,17 +38,18 @@ const file: SessionFileRecord = {
 }
 
 const draw = (
-  jobs: BackgroundJobSnapshot[] = [],
+  jobs: DetachedScriptSnapshot[] = [],
   files: SessionFileRecord[] = [],
-  passages = recalled
+  workers: SubagentSnapshot[] = []
 ) =>
   renderToString(
     <MemoryRouter initialEntries={['/oz/chat/t1']}>
       <ChatStatusStrip
         agentId="oz"
         topicId="t1"
-        recalled={passages}
-        jobs={jobs}
+        scripts={jobs}
+        workers={workers}
+        agentName="Oz"
         files={files}
         canPromote={false}
         onFilesCleared={() => {}}
@@ -72,31 +58,67 @@ const draw = (
   )
 
 describe("the chat's status strip", () => {
-  it('draws a count for what the agent recalled, what it runs and what it left', () => {
+  it('draws a count for what the agent runs and what it left', () => {
     const html = draw([job('running')], [file])
-    expect(html).toContain('aria-label="1 recalled passages"')
-    expect(html).toContain('aria-label="1 background jobs running"')
+    expect(html).toContain('aria-label="1 background work running"')
     expect(html).toContain('aria-label="1 session files"')
+    expect(html).not.toContain('recalled passages')
   })
 
   it('shows every section, even the empty ones', () => {
     const html = draw([], [])
-    expect(html).toContain('aria-label="1 recalled passages"')
-    expect(html).toContain('aria-label="0 background jobs running"')
+    expect(html).toContain('aria-label="0 background work running"')
     expect(html).toContain('aria-label="0 session files"')
   })
 
-  it('counts only the jobs that are running, and marks them live', () => {
-    const html = draw([job('running'), job('reported')])
-    expect(html).toContain('aria-label="1 background jobs running"')
+  it('counts only the scripts that are running, and marks them live', () => {
+    const html = draw([job('running'), job('succeeded')])
+    expect(html).toContain('aria-label="1 background work running"')
     expect(html).toContain('bg-live')
   })
 
   it('shows zeroes when nothing has happened yet', () => {
-    const html = draw([], [], [])
-    expect(html).toContain('aria-label="0 recalled passages"')
-    expect(html).toContain('aria-label="0 background jobs running"')
+    const html = draw([], [])
+    expect(html).toContain('aria-label="0 background work running"')
     expect(html).toContain('aria-label="0 session files"')
+  })
+})
+
+const worker = (id: string, state: SubagentSnapshot['state']): SubagentSnapshot => ({
+  id,
+  position: 1,
+  group_size: 2,
+  task: 'compare prices',
+  state,
+  stop_reason: null,
+  question: state === 'asking' ? 'Which sheet?' : null,
+  result: null,
+  truncated: false,
+  error: null,
+  started_at: '2026-11-04T09:00:00Z',
+  ended_at: null,
+  topic: `w_${id}`,
+  group: 'g_1',
+  parent_detached_id: null,
+  handed_over: false,
+  updated_at: '2026-11-04T09:00:00Z',
+})
+
+describe('the subagents item', () => {
+  it('is its own item, apart from background work', () => {
+    const html = draw([job('running')], [], [worker('s_1', 'running')])
+    expect(html).toContain('aria-label="1 subagents at work"')
+    expect(html).toContain('aria-label="1 background work running"')
+  })
+
+  it('counts running and asking workers, and says when one is asking', () => {
+    const html = draw([], [], [worker('s_1', 'running'), worker('s_2', 'asking'), worker('s_3', 'answered')])
+    expect(html).toContain('aria-label="2 subagents at work, one is asking"')
+    expect(html).toContain('bg-retrying')
+  })
+
+  it('shows zero with no workers', () => {
+    expect(draw()).toContain('aria-label="0 subagents at work"')
   })
 })
 
@@ -117,8 +139,9 @@ describe('the language-server item', () => {
         <ChatStatusStrip
           agentId="oz"
           topicId="t1"
-          recalled={[]}
-          jobs={[]}
+          scripts={[]}
+          workers={[]}
+          agentName="Oz"
           files={[]}
           canPromote={false}
           onFilesCleared={() => {}}

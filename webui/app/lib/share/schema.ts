@@ -1,4 +1,4 @@
-// The snapshot format v1 (specs/056-shared-chat/contracts/snapshot-format.md), as the single
+// The snapshot format v1 (specs/063-shared-chat/contracts/snapshot-format.md), as the single
 // definition the serializer, the preview, the viewer and the tests share. Every document is hostile
 // input: unknown keys are dropped, unknown or malformed parts become placeholders, caps are enforced,
 // and only a structural failure of the whole document is "damaged".

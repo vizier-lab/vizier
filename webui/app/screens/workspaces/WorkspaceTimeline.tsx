@@ -97,6 +97,8 @@ function Run({
                         </div>
                     )
                 }
+                // Left out of the timeline's segments already: the person's message is its own entry.
+                if (block.kind === 'steer') return null
                 const open = live && i === segment.blocks.length - 1
                 return (
                     <Trail

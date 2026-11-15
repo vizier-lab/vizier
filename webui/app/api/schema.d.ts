@@ -148,6 +148,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_detached_scripts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_detached_script"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files": {
         parameters: {
             query?: never;
@@ -196,14 +228,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_jobs"];
+        get: operations["list_subagents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -212,14 +244,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["get_job"];
+        get: operations["get_subagent"];
         put?: never;
         post?: never;
         delete?: never;
@@ -228,30 +260,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/cancel": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}/history": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        post: operations["cancel_job"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/pieces/{ordinal}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_piece_history"];
+        get: operations["subagent_history"];
         put?: never;
         post?: never;
         delete?: never;
@@ -355,6 +371,134 @@ export interface paths {
          * @description DEPRECATED — this restores a memory revision of `core/soul`. Use the memory rollback endpoint for `core/soul` instead.
          */
         post: operations["rollback_core"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tool-categories/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_category"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/{tool}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["detail"];
+        put: operations["edit"];
+        post?: never;
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/{tool}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/{tool}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_enabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/{tool}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rollback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/custom-tools/{tool}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["versions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2152,27 +2296,6 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
-        APIResponse_BackgroundJobSnapshot: {
-            /** @description The WebUI wire shape (`contracts/http-api.md`). */
-            data?: {
-                cancelled_by?: components["schemas"]["Canceller"] | null;
-                /** Format: date-time */
-                created_at: string;
-                delegated_to?: components["schemas"]["String"] | null;
-                /** Format: date-time */
-                finished_at?: string | null;
-                id: components["schemas"]["String"];
-                kind: components["schemas"]["JobKind"];
-                pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-                reason?: string | null;
-                state: components["schemas"]["JobState"];
-                /** Format: int64 */
-                timeout_secs: number;
-            };
-            message?: string | null;
-            /** Format: int32 */
-            status: number;
-        };
         APIResponse_BtwResponse: {
             data?: {
                 answer: string;
@@ -2378,6 +2501,19 @@ export interface components {
                 protocol: components["schemas"]["CustomProtocol"];
                 reachable?: boolean | null;
                 used_by: components["schemas"]["UsedBy"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_DetachedScriptDetail: {
+            /** @description One script as the panel draws it: the activity trail's run detail. */
+            data?: components["schemas"]["DetachedScriptSnapshot"] & {
+                code: string;
+                /** @description The `ExecutionReport` once final (or the failure message as a string). */
+                report?: Record<string, never> | null;
+                /** @description `[{seq, name, arguments, ok, error?, duration_ms}]`. */
+                tool_calls: Record<string, never>[];
             };
             message?: string | null;
             /** Format: int32 */
@@ -2993,6 +3129,20 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_SubagentSnapshot: {
+            /** @description The `subagent` session frame, published on the hiring conversation after every change. */
+            data?: components["schemas"]["SubagentSummary"] & {
+                group: string;
+                /** @description The main agent has the newest outcome (an answer, a failure or a question). */
+                handed_over?: boolean;
+                parent_detached_id?: string | null;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_TaskResponse: {
             data?: {
                 instruction: string;
@@ -3072,8 +3222,8 @@ export interface components {
                 agent_id: string;
                 channel: string;
                 is_thinking: boolean;
-                /** @description Background jobs launched from this topic that are still in flight. */
-                running_jobs: number;
+                /** @description Detached scripts launched from this topic that are still running (spec 058). */
+                running_scripts: number;
                 title: string;
                 topic_id: string;
             };
@@ -3143,6 +3293,12 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Value: {
+            data?: unknown;
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_AgentListItem: {
             data?: (components["schemas"]["AgentSummary"] & {
                 /** Format: date-time */
@@ -3178,26 +3334,6 @@ export interface components {
                 name: string;
                 /** @description The first characters of the key; empty for a key made before they were kept. */
                 prefix?: string | null;
-            }[];
-            message?: string | null;
-            /** Format: int32 */
-            status: number;
-        };
-        APIResponse_Vec_BackgroundJobSnapshot: {
-            data?: {
-                cancelled_by?: components["schemas"]["Canceller"] | null;
-                /** Format: date-time */
-                created_at: string;
-                delegated_to?: components["schemas"]["String"] | null;
-                /** Format: date-time */
-                finished_at?: string | null;
-                id: components["schemas"]["String"];
-                kind: components["schemas"]["JobKind"];
-                pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-                reason?: string | null;
-                state: components["schemas"]["JobState"];
-                /** Format: int64 */
-                timeout_secs: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3247,6 +3383,26 @@ export interface components {
                 protocol: components["schemas"]["CustomProtocol"];
                 reachable?: boolean | null;
                 used_by: components["schemas"]["UsedBy"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_DetachedScriptSnapshot: {
+            data?: {
+                /** Format: date-time */
+                created_at: string;
+                delivered: boolean;
+                /** Format: date-time */
+                finished_at?: string | null;
+                id: components["schemas"]["String"];
+                intent: string;
+                parent_id?: components["schemas"]["String"] | null;
+                state: components["schemas"]["DetachedScriptState"];
+                /** Format: int64 */
+                timeout_secs: number;
+                /** Format: int32 */
+                tool_call_count: number;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3630,6 +3786,19 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_SubagentSnapshot: {
+            data?: (components["schemas"]["SubagentSummary"] & {
+                group: string;
+                /** @description The main agent has the newest outcome (an answer, a failure or a question). */
+                handed_over?: boolean;
+                parent_detached_id?: string | null;
+                /** Format: date-time */
+                updated_at: string;
+            })[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_TaskResponse: {
             data?: {
                 instruction: string;
@@ -3659,8 +3828,8 @@ export interface components {
                 agent_id: string;
                 channel: string;
                 is_thinking: boolean;
-                /** @description Background jobs launched from this topic that are still in flight. */
-                running_jobs: number;
+                /** @description Detached scripts launched from this topic that are still running (spec 058). */
+                running_scripts: number;
                 title: string;
                 topic_id: string;
             }[];
@@ -4093,43 +4262,6 @@ export interface components {
             kind: string;
             name: string;
         };
-        /** @description The WebUI wire shape (`contracts/http-api.md`). */
-        BackgroundJobSnapshot: {
-            cancelled_by?: components["schemas"]["Canceller"] | null;
-            /** Format: date-time */
-            created_at: string;
-            delegated_to?: components["schemas"]["String"] | null;
-            /** Format: date-time */
-            finished_at?: string | null;
-            id: components["schemas"]["String"];
-            kind: components["schemas"]["JobKind"];
-            pieces: components["schemas"]["BackgroundPieceSnapshot"][];
-            reason?: string | null;
-            state: components["schemas"]["JobState"];
-            /** Format: int64 */
-            timeout_secs: number;
-        };
-        BackgroundPieceSnapshot: {
-            agent_id: components["schemas"]["String"];
-            /** Format: date-time */
-            finished_at?: string | null;
-            /** Format: int32 */
-            ordinal: number;
-            prompt: string;
-            reason?: string | null;
-            /** Format: date-time */
-            started_at: string;
-            state: components["schemas"]["PieceState"];
-            topic?: components["schemas"]["String"] | null;
-        };
-        /** @description What `VizierRequestContent::BackgroundReport` carries; rendered for the model by `Display`. */
-        BackgroundReport: {
-            delegated_to?: components["schemas"]["String"] | null;
-            /** @description One per piece, in ordinal order. */
-            entries: components["schemas"]["ReportEntry"][];
-            job_id: components["schemas"]["String"];
-            kind: components["schemas"]["JobKind"];
-        };
         BranchHolder: {
             name: string;
             /** @description `None` for the project's own folder. */
@@ -4194,14 +4326,6 @@ export interface components {
             /** Format: int32 */
             round?: number | null;
             served_model?: string | null;
-        };
-        CancelJobBody: {
-            reason?: string | null;
-        };
-        Canceller: {
-            agent: components["schemas"]["String"];
-        } | {
-            person: string;
         };
         CandidateGroup_AgentCandidate: {
             items: {
@@ -4683,6 +4807,39 @@ export interface components {
         DeleteAgentQuery: {
             delete_workspace?: boolean;
         };
+        /** @description One script as the panel draws it: the activity trail's run detail. */
+        DetachedScriptDetail: components["schemas"]["DetachedScriptSnapshot"] & {
+            code: string;
+            /** @description The `ExecutionReport` once final (or the failure message as a string). */
+            report?: Record<string, never> | null;
+            /** @description `[{seq, name, arguments, ok, error?, duration_ms}]`. */
+            tool_calls: Record<string, never>[];
+        };
+        /**
+         * @description The list route's rows and the `detached_script` session frame. Small enough to push on
+         *     every change.
+         */
+        DetachedScriptSnapshot: {
+            /** Format: date-time */
+            created_at: string;
+            delivered: boolean;
+            /** Format: date-time */
+            finished_at?: string | null;
+            id: components["schemas"]["String"];
+            intent: string;
+            parent_id?: components["schemas"]["String"] | null;
+            state: components["schemas"]["DetachedScriptState"];
+            /** Format: int64 */
+            timeout_secs: number;
+            /** Format: int32 */
+            tool_call_count: number;
+        };
+        /**
+         * @description Every transition out of `running` is one guarded update, so of two racing causes
+         *     (a cancel and the script finishing, say) exactly one wins.
+         * @enum {string}
+         */
+        DetachedScriptState: "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "interrupted";
         /** @enum {string} */
         DialectKind: "open_ai_chat" | "open_ai_responses" | "anthropic" | "bedrock" | "gemini" | "ollama";
         DiffHunk: {
@@ -4822,6 +4979,23 @@ export interface components {
              *     outside every cycle's journal window.
              */
             unattributed: number;
+        };
+        /** @description A person's edit (`PUT /agents/{id}/custom-tools/{tool}`). */
+        EditCustomToolRequest: {
+            category?: string | null;
+            /** @description Required when `category` is new. */
+            category_description?: string | null;
+            description?: string | null;
+            /**
+             * Format: int64
+             * @description The version the person was editing; a newer one is `409 out_of_date`.
+             */
+            expected_version: number;
+            input_schema?: Record<string, never>;
+            name?: string | null;
+            output_description?: string | null;
+            reason?: string | null;
+            script?: string | null;
         };
         EmbeddingConfig: {
             model: string;
@@ -5113,15 +5287,6 @@ export interface components {
             name: string;
             settings: Record<string, never>;
         };
-        /** @enum {string} */
-        JobKind: "batch" | "delegation";
-        /**
-         * @description `running` and `reporting` are the in-flight states. Cancel and the runner race on one
-         *     guarded transition out of `running`, which is what makes a job end exactly once: either
-         *     reported or cancelled, never both.
-         * @enum {string}
-         */
-        JobState: "running" | "reporting" | "reported" | "undelivered" | "cancelled" | "interrupted";
         KindField: {
             default?: Record<string, never> | null;
             key: string;
@@ -5429,7 +5594,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "chat_reply" | "workspace_message";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_work" | "integration" | "chat_reply" | "workspace_message";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */
@@ -5547,8 +5712,6 @@ export interface components {
             user_id: string;
             username: string;
         };
-        /** @enum {string} */
-        PieceState: "running" | "answered" | "failed" | "timed_out" | "cancelled" | "interrupted";
         PlatformMessageId: {
             /** Format: int64 */
             discord: number;
@@ -5930,16 +6093,6 @@ export interface components {
         RenameTopicRequest: {
             title: string;
         };
-        ReportEntry: {
-            /** Format: int32 */
-            ordinal: number;
-            prompt: string;
-            /** @description Never `Running`/`Interrupted`; `Cancelled` only in a cancel's tool result. */
-            state: components["schemas"]["PieceState"];
-            /** @description The answer (truncated) or the reason it did not answer. */
-            text: string;
-            truncated: boolean;
-        };
         /**
          * @description Who wanted a task to exist.
          *
@@ -6033,6 +6186,13 @@ export interface components {
         RoleView: {
             account_id: string;
             role_name: string;
+        };
+        RollbackCustomToolRequest: {
+            /** Format: int64 */
+            expected_version: number;
+            reason?: string | null;
+            /** Format: int64 */
+            to_version: number;
         };
         RollbackRequest: {
             /** Format: int64 */
@@ -6210,7 +6370,8 @@ export interface components {
         } | {
             /**
              * @description Memory passages the agent was given or went looking for during a turn
-             *     (`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.
+             *     (`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can
+             *     still be read (#82). Never part of the model's input.
              */
             Recall: {
                 origin: components["schemas"]["RecallOrigin"];
@@ -6246,6 +6407,9 @@ export interface components {
                 purpose: string;
                 state: components["schemas"]["AskState"];
             };
+        };
+        SetCustomToolEnabledRequest: {
+            enabled: boolean;
         };
         SetGrants: {
             addon?: boolean | null;
@@ -6424,6 +6588,63 @@ export interface components {
             /** @default whisper */
             provider: components["schemas"]["SttProvider"];
         };
+        /** @description The first request a worker receives (`VizierRequestContent::SubagentTask`). */
+        SubagentBrief: {
+            /** Format: int32 */
+            group_size: number;
+            /** Format: int32 */
+            position: number;
+            subagent_id: components["schemas"]["String"];
+            text: string;
+        };
+        /** @description The main agent's answer to a worker's question (`VizierRequestContent::SubagentReply`). */
+        SubagentReplyText: {
+            subagent_id: components["schemas"]["String"];
+            text: string;
+        };
+        /** @description The `subagent` session frame, published on the hiring conversation after every change. */
+        SubagentSnapshot: components["schemas"]["SubagentSummary"] & {
+            group: string;
+            /** @description The main agent has the newest outcome (an answer, a failure or a question). */
+            handed_over?: boolean;
+            parent_detached_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description `answered`, `failed`, `timed_out` and `stopped` are final. `asking` returns to `running` only
+         *     through a reply. Every transition is one guarded update, so of two racing causes exactly one
+         *     wins.
+         * @enum {string}
+         */
+        SubagentState: "running" | "asking" | "answered" | "failed" | "timed_out" | "stopped";
+        /**
+         * @description Why a worker is `stopped`.
+         * @enum {string}
+         */
+        SubagentStopReason: "by_agent" | "conversation_deleted" | "agent_deleted";
+        /** @description One worker as the subagent tools return it (contracts/subagent-tools.md). */
+        SubagentSummary: {
+            /** Format: date-time */
+            ended_at?: string | null;
+            error?: string | null;
+            /** Format: int32 */
+            group_size: number;
+            id: components["schemas"]["String"];
+            /** Format: int32 */
+            position: number;
+            /** @description The open question, only while `asking`. */
+            question?: string | null;
+            result?: string | null;
+            /** Format: date-time */
+            started_at: string;
+            state: components["schemas"]["SubagentState"];
+            stop_reason?: components["schemas"]["SubagentStopReason"] | null;
+            task: string;
+            /** @description The worker's conversation topic, where its full history stays. */
+            topic: string;
+            truncated: boolean;
+        };
         SwitchBranchRequest: {
             branch: string;
             create?: boolean | null;
@@ -6535,8 +6756,8 @@ export interface components {
             agent_id: string;
             channel: string;
             is_thinking: boolean;
-            /** @description Background jobs launched from this topic that are still in flight. */
-            running_jobs: number;
+            /** @description Detached scripts launched from this topic that are still running (spec 058). */
+            running_scripts: number;
             title: string;
             topic_id: string;
         };
@@ -6578,6 +6799,10 @@ export interface components {
              */
             base_seq?: number | null;
             content: string;
+        };
+        UpdateCustomToolCategoryRequest: {
+            description?: string | null;
+            new_name?: string | null;
         };
         UpdateIntegration: {
             enabled?: boolean | null;
@@ -6788,9 +7013,22 @@ export interface components {
              */
             mentions?: string[];
             metadata: unknown;
+            /**
+             * @description Engine-only: this request was read by a turn already running, at a round boundary
+             *     (`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client
+             *     input on receipt and before a request is queued. A `mid_turn` request never opens a turn.
+             */
+            mid_turn?: boolean;
             model_override?: components["schemas"]["ModelOverride"] | null;
             platform_message_id?: components["schemas"]["PlatformMessageId"] | null;
             project_scope?: components["schemas"]["ProjectScope"] | null;
+            /**
+             * @description The person chose to run this message as a turn of its own after the running one rather
+             *     than steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the
+             *     WebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the
+             *     choice survives a restart. Ignored while the agent is idle.
+             */
+            queue?: boolean;
             /**
              * @description The slug of the task this request is a scheduled run of.
              *
@@ -6800,6 +7038,13 @@ export interface components {
              *     site, so no interactive turn's frontmatter changes.
              */
             scheduled_task?: string | null;
+            /**
+             * Format: int32
+             * @description How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring
+             *     context's depth + 1 for a worker. The subagent management tools are offered only below
+             *     `subagents.max_depth`. Independent of `background_depth`.
+             */
+            subagent_depth?: number;
             /** Format: date-time */
             timestamp: string;
             user: string;
@@ -6827,10 +7072,21 @@ export interface components {
             audio_prompt: Record<string, never>[];
         } | {
             /**
-             * @description The outcome of background work this conversation started (`background_subagents`,
-             *     `delegate_agent`), delivered as a turn of its own. Not a message from a person.
+             * @description A background-job report saved before spec 058, read so old conversations keep their
+             *     history; never sent any more. Its text is rendered from the stored JSON. Tracked for
+             *     removal in #82.
              */
-            background_report: components["schemas"]["BackgroundReport"];
+            background_report: unknown;
+        } | {
+            /**
+             * @description Background delivery for this conversation: finished detached scripts (spec 058) and
+             *     subagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles
+             *     it claims from every source and, only if it got something, runs a turn whose request
+             *     carries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).
+             *     Never journaled: the rows are the durable part, and recovery pokes again. The name is
+             *     kept because it is stored in history and read by the WebUI.
+             */
+            detached_delivery: string;
         } | {
             /**
              * @description A message a client sent on the person's behalf, such as a click inside a page the
@@ -6850,6 +7106,18 @@ export interface components {
              *     like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
              */
             question_answer: components["schemas"]["QuestionAnswer"];
+        } | {
+            /**
+             * @description A worker's task from its main agent (spec 059): the first request of a `Subagent`
+             *     conversation. It starts a turn like `Chat`, framed as a worker's.
+             */
+            subagent_task: components["schemas"]["SubagentBrief"];
+        } | {
+            /**
+             * @description The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues
+             *     the worker's conversation like `Chat`.
+             */
+            subagent_reply: components["schemas"]["SubagentReplyText"];
         };
         VizierResponse: {
             attachments: components["schemas"]["VizierAttachment"][];
@@ -6890,7 +7158,7 @@ export interface components {
                 kind: components["schemas"]["ErrorKind"];
                 message: string;
             };
-        } | "empty" | "abort" | {
+        } | "empty" | "abort" | "steered" | {
             checkpoint: {
                 handover?: string | null;
             };
@@ -7620,6 +7888,80 @@ export interface operations {
             };
         };
     };
+    list_detached_scripts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The topic's detached scripts: the running ones, then the last 50 that ended, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_DetachedScriptSnapshot"];
+                };
+            };
+            /** @description Conversation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    get_detached_script: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+                /** @description Script ID, e.g. d_k3x9a1b2 */
+                script_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One script with its code, the calls it made and, once final, its report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_DetachedScriptDetail"];
+                };
+            };
+            /** @description Script not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
     list_topic_files: {
         parameters: {
             query?: never;
@@ -7774,7 +8116,7 @@ export interface operations {
             };
         };
     };
-    list_jobs: {
+    list_subagents: {
         parameters: {
             query?: never;
             header?: never;
@@ -7790,16 +8132,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description In-flight background jobs launched from this topic, oldest first */
+            /** @description The topic's workers: the running and asking ones, then the last 50 that ended, oldest first */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["APIResponse_Vec_BackgroundJobSnapshot"];
+                    "application/json": components["schemas"]["APIResponse_Vec_SubagentSnapshot"];
                 };
             };
-            /** @description Agent not found */
+            /** @description Conversation not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7810,7 +8152,7 @@ export interface operations {
             };
         };
     };
-    get_job: {
+    get_subagent: {
         parameters: {
             query?: never;
             header?: never;
@@ -7821,23 +8163,23 @@ export interface operations {
                 channel_id: string;
                 /** @description Topic ID */
                 topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
+                /** @description Worker ID, e.g. s_k3x9a1b2 */
+                subagent_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The job, in any state */
+            /** @description One worker with its whole task and result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
+                    "application/json": components["schemas"]["APIResponse_SubagentSnapshot"];
                 };
             };
-            /** @description No job with that id was launched from this topic */
+            /** @description Worker not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7848,7 +8190,7 @@ export interface operations {
             };
         };
     };
-    cancel_job: {
+    subagent_history: {
         parameters: {
             query?: never;
             header?: never;
@@ -7859,71 +8201,14 @@ export interface operations {
                 channel_id: string;
                 /** @description Topic ID */
                 topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
+                /** @description Worker ID, e.g. s_k3x9a1b2 */
+                subagent_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CancelJobBody"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description The job, now cancelled */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
-                };
-            };
-            /** @description No job with that id was launched from this topic */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-            /** @description The job already finished; its final state */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_BackgroundJobSnapshot"];
-                };
-            };
-        };
-    };
-    get_piece_history: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Channel ID */
-                channel_id: string;
-                /** @description Topic ID */
-                topic_id: string;
-                /** @description Background job ID */
-                job_id: string;
-                /** @description 0-based piece position */
-                ordinal: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HistoryQuery"];
-            };
-        };
-        responses: {
-            /** @description The piece's own conversation */
+            /** @description The worker's own conversation, in stored order */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7932,7 +8217,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIResponse_Vec_SessionHistory"];
                 };
             };
-            /** @description Unknown job or piece */
+            /** @description Worker not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8243,6 +8528,419 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
+            };
+        };
+    };
+    update_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Category name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCustomToolCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed or redescribed; the agent sees it from its next turn */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description The caller may view but not edit this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or category not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `name_taken` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every custom tool, grouped by category (by name, `custom` last) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description Agent not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Exclusive bound: a version number for versions, epoch milliseconds for events. */
+                before: number | null;
+                /** @description Default 50, max 200. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switches, deletions and category edits, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description Agent not found or not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+                /** @description A past version; the current one when left out. */
+                version: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One version's definition, what it calls, who calls it and whether it needs attention */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description Agent or tool not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditCustomToolRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved as a new version authored by the caller */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description The caller may view but not edit this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or tool not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `out_of_date`: the tool changed since `expected_version` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid`: every problem in `data.problems` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted; the deletion stays in the events */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller may view but not edit this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or tool not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    diff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+                from: number;
+                /** @description The current version when left out. */
+                to: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Line diffs of description, input schema and script */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description Agent, tool or version not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCustomToolEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Switched; a tool a person switched off stays off until a person switches it on */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description The caller may view but not edit this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent or tool not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rollback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackCustomToolRequest"];
+            };
+        };
+        responses: {
+            /** @description The old version saved as a new one */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description The caller may view but not edit this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent, tool or version not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `out_of_date` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `invalid`: the old version no longer passes the checks */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Tool id or name */
+                tool: string;
+                /** @description Exclusive bound: a version number for versions, epoch milliseconds for events. */
+                before: number | null;
+                /** @description Default 50, max 200. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions, newest first, with `next` for the following page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Value"];
+                };
+            };
+            /** @description Agent or tool not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

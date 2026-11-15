@@ -5,7 +5,6 @@ import { motion } from 'motion/react'
 import { motionDurations, motionEases } from '@vizier/design'
 import { useMobile } from '../lib/useMobile'
 import { isUnreachable } from '../lib/pwa/connectivity'
-import { useInsecureNetwork } from '../lib/pwa/origin'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
 import { useConnection } from '../stores/connection'
@@ -14,7 +13,6 @@ import { useNotifications } from '../stores/notifications'
 import { NotificationsPopup } from '../screens/notifications/NotificationsPopup'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
-import { InsecureNetworkNotice } from '../screens/shared/InsecureNetworkNotice'
 import { OfflineBanner } from '../screens/shared/OfflineBanner'
 import { NewAgentDialog } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
@@ -91,8 +89,6 @@ export default function AppShell() {
     const offline = useConnectivity((s) => s.offline)
     const topicStates = useConnection((s) => s.state)
     const unreachable = useMemo(() => isUnreachable(offline, topicStates), [offline, topicStates])
-    // The browser refuses the worker on a plain-HTTP address that is not loopback.
-    const insecure = useInsecureNetwork()
     useEffect(() => {
         const update = () => useConnectivity.getState().setOffline(!navigator.onLine)
         update()
@@ -198,10 +194,9 @@ export default function AppShell() {
 
     // Above the page, in the same place the chat draws its own connection banner.
     const notices =
-        unreachable || insecure ? (
+        unreachable ? (
             <div className="flex flex-col gap-8 px-24 pt-12">
-                {unreachable && <OfflineBanner onRetry={retry} />}
-                {insecure && <InsecureNetworkNotice />}
+                <OfflineBanner onRetry={retry} />
             </div>
         ) : null
 

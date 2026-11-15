@@ -987,6 +987,133 @@
         }
       }
     },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
+      "get": {
+        "tags": [
+          "api::v1::agents::detached"
+        ],
+        "operationId": "list_detached_scripts",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The topic's detached scripts: the running ones, then the last 50 that ended, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_DetachedScriptSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::detached"
+        ],
+        "operationId": "get_detached_script",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "script_id",
+            "in": "path",
+            "description": "Script ID, e.g. d_k3x9a1b2",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One script with its code, the calls it made and, once final, its report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_DetachedScriptDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files": {
       "get": {
         "tags": [
@@ -1248,12 +1375,12 @@
         }
       }
     },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents": {
       "get": {
         "tags": [
-          "api::v1::agents::jobs"
+          "api::v1::agents::subagents"
         ],
-        "operationId": "list_jobs",
+        "operationId": "list_subagents",
         "parameters": [
           {
             "name": "agent_id",
@@ -1285,17 +1412,17 @@
         ],
         "responses": {
           "200": {
-            "description": "In-flight background jobs launched from this topic, oldest first",
+            "description": "The topic's workers: the running and asking ones, then the last 50 that ended, oldest first",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_BackgroundJobSnapshot"
+                  "$ref": "#/components/schemas/APIResponse_Vec_SubagentSnapshot"
                 }
               }
             }
           },
           "404": {
-            "description": "Agent not found",
+            "description": "Conversation not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1307,12 +1434,12 @@
         }
       }
     },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}": {
       "get": {
         "tags": [
-          "api::v1::agents::jobs"
+          "api::v1::agents::subagents"
         ],
-        "operationId": "get_job",
+        "operationId": "get_subagent",
         "parameters": [
           {
             "name": "agent_id",
@@ -1342,9 +1469,9 @@
             }
           },
           {
-            "name": "job_id",
+            "name": "subagent_id",
             "in": "path",
-            "description": "Background job ID",
+            "description": "Worker ID, e.g. s_k3x9a1b2",
             "required": true,
             "schema": {
               "type": "string"
@@ -1353,17 +1480,17 @@
         ],
         "responses": {
           "200": {
-            "description": "The job, in any state",
+            "description": "One worker with its whole task and result",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
+                  "$ref": "#/components/schemas/APIResponse_SubagentSnapshot"
                 }
               }
             }
           },
           "404": {
-            "description": "No job with that id was launched from this topic",
+            "description": "Worker not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1375,100 +1502,12 @@
         }
       }
     },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/cancel": {
-      "post": {
-        "tags": [
-          "api::v1::agents::jobs"
-        ],
-        "operationId": "cancel_job",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "channel_id",
-            "in": "path",
-            "description": "Channel ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "topic_id",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Background job ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelJobBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The job, now cancelled",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No job with that id was launched from this topic",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The job already finished; its final state",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/pieces/{ordinal}/history": {
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}/history": {
       "get": {
         "tags": [
-          "api::v1::agents::jobs"
+          "api::v1::agents::subagents"
         ],
-        "operationId": "get_piece_history",
+        "operationId": "subagent_history",
         "parameters": [
           {
             "name": "agent_id",
@@ -1498,39 +1537,18 @@
             }
           },
           {
-            "name": "job_id",
+            "name": "subagent_id",
             "in": "path",
-            "description": "Background job ID",
+            "description": "Worker ID, e.g. s_k3x9a1b2",
             "required": true,
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "ordinal",
-            "in": "path",
-            "description": "0-based piece position",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HistoryQuery"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
-            "description": "The piece's own conversation",
+            "description": "The worker's own conversation, in stored order",
             "content": {
               "application/json": {
                 "schema": {
@@ -1540,7 +1558,7 @@
             }
           },
           "404": {
-            "description": "Unknown job or piece",
+            "description": "Worker not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2026,6 +2044,564 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tool-categories/{name}": {
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "update_category",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Category name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomToolCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed or redescribed; the agent sees it from its next turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or category not found"
+          },
+          "409": {
+            "description": "`name_taken`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every custom tool, grouped by category (by name, `custom` last)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found or not visible"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/events": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "Exclusive bound: a version number for versions, epoch milliseconds for events.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Default 50, max 200.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Switches, deletions and category edits, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found or not visible"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "A past version; the current one when left out.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One version's definition, what it calls, who calls it and whether it needs attention",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "edit",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditCustomToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved as a new version authored by the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          },
+          "409": {
+            "description": "`out_of_date`: the tool changed since `expected_version`"
+          },
+          "422": {
+            "description": "`invalid`: every problem in `data.problems`"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted; the deletion stays in the events"
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/diff": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "diff",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "The current version when left out.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Line diffs of description, input schema and script",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent, tool or version not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/enabled": {
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "set_enabled",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCustomToolEnabledRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Switched; a tool a person switched off stays off until a person switches it on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/rollback": {
+      "post": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "rollback",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackCustomToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The old version saved as a new one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent, tool or version not found"
+          },
+          "409": {
+            "description": "`out_of_date`"
+          },
+          "422": {
+            "description": "`invalid`: the old version no longer passes the checks"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/versions": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "versions",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "Exclusive bound: a version number for versions, epoch milliseconds for events.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Default 50, max 200.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versions, newest first, with `next` for the following page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or tool not found"
           }
         }
       }
@@ -10093,96 +10669,6 @@
           }
         }
       },
-      "APIResponse_BackgroundJobSnapshot": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "description": "The WebUI wire shape (`contracts/http-api.md`).",
-            "required": [
-              "id",
-              "kind",
-              "state",
-              "created_at",
-              "timeout_secs",
-              "pieces"
-            ],
-            "properties": {
-              "cancelled_by": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Canceller"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "created_at": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "delegated_to": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/String"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "finished_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              },
-              "id": {
-                "$ref": "#/components/schemas/String"
-              },
-              "kind": {
-                "$ref": "#/components/schemas/JobKind"
-              },
-              "pieces": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-                }
-              },
-              "reason": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "$ref": "#/components/schemas/JobState"
-              },
-              "timeout_secs": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_BtwResponse": {
         "type": "object",
         "required": [
@@ -10967,6 +11453,59 @@
                 "$ref": "#/components/schemas/UsedBy"
               }
             }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_DetachedScriptDetail": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DetachedScriptSnapshot"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "code",
+                  "tool_calls"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "report": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "The `ExecutionReport` once final (or the failure message as a string)."
+                  },
+                  "tool_calls": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`."
+                  }
+                }
+              }
+            ],
+            "description": "One script as the panel draws it: the activity trail's run detail."
           },
           "message": {
             "type": [
@@ -13209,6 +13748,59 @@
           }
         }
       },
+      "APIResponse_SubagentSnapshot": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubagentSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "group",
+                  "updated_at"
+                ],
+                "properties": {
+                  "group": {
+                    "type": "string"
+                  },
+                  "handed_over": {
+                    "type": "boolean",
+                    "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+                  },
+                  "parent_detached_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            ],
+            "description": "The `subagent` session frame, published on the hiring conversation after every change."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_TaskResponse": {
         "type": "object",
         "required": [
@@ -13458,7 +14050,7 @@
               "agent_id",
               "channel",
               "is_thinking",
-              "running_jobs"
+              "running_scripts"
             ],
             "properties": {
               "agent_id": {
@@ -13470,9 +14062,9 @@
               "is_thinking": {
                 "type": "boolean"
               },
-              "running_jobs": {
+              "running_scripts": {
                 "type": "integer",
-                "description": "Background jobs launched from this topic that are still in flight.",
+                "description": "Detached scripts launched from this topic that are still running (spec 058).",
                 "minimum": 0
               },
               "title": {
@@ -13739,6 +14331,26 @@
           }
         }
       },
+      "APIResponse_Value": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {},
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_AgentListItem": {
         "type": "object",
         "required": [
@@ -13894,99 +14506,6 @@
                     "null"
                   ],
                   "description": "The first characters of the key; empty for a key made before they were kept."
-                }
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_Vec_BackgroundJobSnapshot": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "description": "The WebUI wire shape (`contracts/http-api.md`).",
-              "required": [
-                "id",
-                "kind",
-                "state",
-                "created_at",
-                "timeout_secs",
-                "pieces"
-              ],
-              "properties": {
-                "cancelled_by": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Canceller"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "delegated_to": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/String"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "finished_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
-                },
-                "id": {
-                  "$ref": "#/components/schemas/String"
-                },
-                "kind": {
-                  "$ref": "#/components/schemas/JobKind"
-                },
-                "pieces": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-                  }
-                },
-                "reason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "state": {
-                  "$ref": "#/components/schemas/JobState"
-                },
-                "timeout_secs": {
-                  "type": "integer",
-                  "format": "int64",
-                  "minimum": 0
                 }
               }
             }
@@ -14168,6 +14687,86 @@
                 },
                 "used_by": {
                   "$ref": "#/components/schemas/UsedBy"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_DetachedScriptSnapshot": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+              "required": [
+                "id",
+                "intent",
+                "state",
+                "created_at",
+                "timeout_secs",
+                "delivered",
+                "tool_call_count"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "delivered": {
+                  "type": "boolean"
+                },
+                "finished_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "$ref": "#/components/schemas/String"
+                },
+                "intent": {
+                  "type": "string"
+                },
+                "parent_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/String"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "$ref": "#/components/schemas/DetachedScriptState"
+                },
+                "timeout_secs": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "tool_call_count": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
                 }
               }
             }
@@ -15567,6 +16166,62 @@
           }
         }
       },
+      "APIResponse_Vec_SubagentSnapshot": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SubagentSummary"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "group",
+                    "updated_at"
+                  ],
+                  "properties": {
+                    "group": {
+                      "type": "string"
+                    },
+                    "handed_over": {
+                      "type": "boolean",
+                      "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+                    },
+                    "parent_detached_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "updated_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              ],
+              "description": "The `subagent` session frame, published on the hiring conversation after every change."
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_TaskResponse": {
         "type": "object",
         "required": [
@@ -15667,7 +16322,7 @@
                 "agent_id",
                 "channel",
                 "is_thinking",
-                "running_jobs"
+                "running_scripts"
               ],
               "properties": {
                 "agent_id": {
@@ -15679,9 +16334,9 @@
                 "is_thinking": {
                   "type": "boolean"
                 },
-                "running_jobs": {
+                "running_scripts": {
                   "type": "integer",
-                  "description": "Background jobs launched from this topic that are still in flight.",
+                  "description": "Detached scripts launched from this topic that are still running (spec 058).",
                   "minimum": 0
                 },
                 "title": {
@@ -17247,164 +17902,6 @@
           }
         }
       },
-      "BackgroundJobSnapshot": {
-        "type": "object",
-        "description": "The WebUI wire shape (`contracts/http-api.md`).",
-        "required": [
-          "id",
-          "kind",
-          "state",
-          "created_at",
-          "timeout_secs",
-          "pieces"
-        ],
-        "properties": {
-          "cancelled_by": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Canceller"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "delegated_to": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/JobKind"
-          },
-          "pieces": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-            }
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "state": {
-            "$ref": "#/components/schemas/JobState"
-          },
-          "timeout_secs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "BackgroundPieceSnapshot": {
-        "type": "object",
-        "required": [
-          "ordinal",
-          "prompt",
-          "state",
-          "agent_id",
-          "started_at"
-        ],
-        "properties": {
-          "agent_id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "ordinal": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "started_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "state": {
-            "$ref": "#/components/schemas/PieceState"
-          },
-          "topic": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        }
-      },
-      "BackgroundReport": {
-        "type": "object",
-        "description": "What `VizierRequestContent::BackgroundReport` carries; rendered for the model by `Display`.",
-        "required": [
-          "job_id",
-          "kind",
-          "entries"
-        ],
-        "properties": {
-          "delegated_to": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ReportEntry"
-            },
-            "description": "One per piece, in ordinal order."
-          },
-          "job_id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/JobKind"
-          }
-        }
-      },
       "BranchHolder": {
         "type": "object",
         "required": [
@@ -17617,43 +18114,6 @@
             ]
           }
         }
-      },
-      "CancelJobBody": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "Canceller": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "agent"
-            ],
-            "properties": {
-              "agent": {
-                "$ref": "#/components/schemas/String"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "person"
-            ],
-            "properties": {
-              "person": {
-                "type": "string"
-              }
-            }
-          }
-        ]
       },
       "CandidateGroup_AgentCandidate": {
         "type": "object",
@@ -19450,6 +19910,110 @@
           }
         }
       },
+      "DetachedScriptDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DetachedScriptSnapshot"
+          },
+          {
+            "type": "object",
+            "required": [
+              "code",
+              "tool_calls"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "report": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The `ExecutionReport` once final (or the failure message as a string)."
+              },
+              "tool_calls": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`."
+              }
+            }
+          }
+        ],
+        "description": "One script as the panel draws it: the activity trail's run detail."
+      },
+      "DetachedScriptSnapshot": {
+        "type": "object",
+        "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+        "required": [
+          "id",
+          "intent",
+          "state",
+          "created_at",
+          "timeout_secs",
+          "delivered",
+          "tool_call_count"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "delivered": {
+            "type": "boolean"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/String"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/DetachedScriptState"
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tool_call_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DetachedScriptState": {
+        "type": "string",
+        "description": "Every transition out of `running` is one guarded update, so of two racing causes\n(a cancel and the script finishing, say) exactly one wins.",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "cancelled",
+          "interrupted"
+        ]
+      },
       "DialectKind": {
         "type": "string",
         "enum": [
@@ -19872,6 +20436,66 @@
             "format": "int32",
             "description": "Dream revisions that belong to no cycle: written before cycles were recorded and\noutside every cycle's journal window.",
             "minimum": 0
+          }
+        }
+      },
+      "EditCustomToolRequest": {
+        "type": "object",
+        "description": "A person's edit (`PUT /agents/{id}/custom-tools/{tool}`).",
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category_description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when `category` is new."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The version the person was editing; a newer one is `409 out_of_date`."
+          },
+          "input_schema": {
+            "type": "object"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -20947,25 +21571,6 @@
           }
         }
       },
-      "JobKind": {
-        "type": "string",
-        "enum": [
-          "batch",
-          "delegation"
-        ]
-      },
-      "JobState": {
-        "type": "string",
-        "description": "`running` and `reporting` are the in-flight states. Cancel and the runner race on one\nguarded transition out of `running`, which is what makes a job end exactly once: either\nreported or cancelled, never both.",
-        "enum": [
-          "running",
-          "reporting",
-          "reported",
-          "undelivered",
-          "cancelled",
-          "interrupted"
-        ]
-      },
       "KindField": {
         "type": "object",
         "required": [
@@ -22035,7 +22640,7 @@
           "agent_setup_ready",
           "task_run",
           "dream_cycle",
-          "background_job",
+          "background_work",
           "integration",
           "chat_reply",
           "workspace_message"
@@ -22391,17 +22996,6 @@
             "type": "string"
           }
         }
-      },
-      "PieceState": {
-        "type": "string",
-        "enum": [
-          "running",
-          "answered",
-          "failed",
-          "timed_out",
-          "cancelled",
-          "interrupted"
-        ]
       },
       "PlatformMessageId": {
         "oneOf": [
@@ -23579,37 +24173,6 @@
           }
         }
       },
-      "ReportEntry": {
-        "type": "object",
-        "required": [
-          "ordinal",
-          "prompt",
-          "state",
-          "text",
-          "truncated"
-        ],
-        "properties": {
-          "ordinal": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/PieceState",
-            "description": "Never `Running`/`Interrupted`; `Cancelled` only in a cancel's tool result."
-          },
-          "text": {
-            "type": "string",
-            "description": "The answer (truncated) or the reason it did not answer."
-          },
-          "truncated": {
-            "type": "boolean"
-          }
-        }
-      },
       "Requester": {
         "oneOf": [
           {
@@ -23941,6 +24504,29 @@
           },
           "role_name": {
             "type": "string"
+          }
+        }
+      },
+      "RollbackCustomToolRequest": {
+        "type": "object",
+        "required": [
+          "to_version",
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -24502,14 +25088,14 @@
           },
           {
             "type": "object",
-            "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.",
+            "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can\nstill be read (#82). Never part of the model's input.",
             "required": [
               "Recall"
             ],
             "properties": {
               "Recall": {
                 "type": "object",
-                "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.",
+                "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can\nstill be read (#82). Never part of the model's input.",
                 "required": [
                   "origin",
                   "passages"
@@ -24635,6 +25221,17 @@
             }
           }
         ]
+      },
+      "SetCustomToolEnabledRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "SetGrants": {
         "type": "object",
@@ -25200,6 +25797,187 @@
           }
         }
       },
+      "SubagentBrief": {
+        "type": "object",
+        "description": "The first request a worker receives (`VizierRequestContent::SubagentTask`).",
+        "required": [
+          "subagent_id",
+          "position",
+          "group_size",
+          "text"
+        ],
+        "properties": {
+          "group_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "subagent_id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SubagentReplyText": {
+        "type": "object",
+        "description": "The main agent's answer to a worker's question (`VizierRequestContent::SubagentReply`).",
+        "required": [
+          "subagent_id",
+          "text"
+        ],
+        "properties": {
+          "subagent_id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SubagentSnapshot": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SubagentSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "group",
+              "updated_at"
+            ],
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "handed_over": {
+                "type": "boolean",
+                "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+              },
+              "parent_detached_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ],
+        "description": "The `subagent` session frame, published on the hiring conversation after every change."
+      },
+      "SubagentState": {
+        "type": "string",
+        "description": "`answered`, `failed`, `timed_out` and `stopped` are final. `asking` returns to `running` only\nthrough a reply. Every transition is one guarded update, so of two racing causes exactly one\nwins.",
+        "enum": [
+          "running",
+          "asking",
+          "answered",
+          "failed",
+          "timed_out",
+          "stopped"
+        ]
+      },
+      "SubagentStopReason": {
+        "type": "string",
+        "description": "Why a worker is `stopped`.",
+        "enum": [
+          "by_agent",
+          "conversation_deleted",
+          "agent_deleted"
+        ]
+      },
+      "SubagentSummary": {
+        "type": "object",
+        "description": "One worker as the subagent tools return it (contracts/subagent-tools.md).",
+        "required": [
+          "id",
+          "position",
+          "group_size",
+          "task",
+          "state",
+          "truncated",
+          "started_at",
+          "topic"
+        ],
+        "properties": {
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "question": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The open question, only while `asking`."
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SubagentState"
+          },
+          "stop_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubagentStopReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string",
+            "description": "The worker's conversation topic, where its full history stays."
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "SwitchBranchRequest": {
         "type": "object",
         "required": [
@@ -25500,7 +26278,7 @@
           "agent_id",
           "channel",
           "is_thinking",
-          "running_jobs"
+          "running_scripts"
         ],
         "properties": {
           "agent_id": {
@@ -25512,9 +26290,9 @@
           "is_thinking": {
             "type": "boolean"
           },
-          "running_jobs": {
+          "running_scripts": {
             "type": "integer",
-            "description": "Background jobs launched from this topic that are still in flight.",
+            "description": "Detached scripts launched from this topic that are still running (spec 058).",
             "minimum": 0
           },
           "title": {
@@ -25625,6 +26403,23 @@
           },
           "content": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateCustomToolCategoryRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -26289,6 +27084,10 @@
             "description": "Files and folders a project chat's message mentions (FR-018). Their contents are\nresolved when the turn starts and never stored."
           },
           "metadata": {},
+          "mid_turn": {
+            "type": "boolean",
+            "description": "Engine-only: this request was read by a turn already running, at a round boundary\n(`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client\ninput on receipt and before a request is queued. A `mid_turn` request never opens a turn."
+          },
           "model_override": {
             "oneOf": [
               {
@@ -26321,12 +27120,22 @@
               }
             ]
           },
+          "queue": {
+            "type": "boolean",
+            "description": "The person chose to run this message as a turn of its own after the running one rather\nthan steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the\nWebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the\nchoice survives a restart. Ignored while the agent is idle."
+          },
           "scheduled_task": {
             "type": [
               "string",
               "null"
             ],
             "description": "The slug of the task this request is a scheduled run of.\n\nSet by the scheduler and by nothing else, which is what makes it safe where the\nrequest content kind is not: the dream cycle sends `Unattended` too and must not be\nattributed to the scheduler. `Default` leaves it `None` for every other construction\nsite, so no interactive turn's frontmatter changes."
+          },
+          "subagent_depth": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring\ncontext's depth + 1 for a worker. The subagent management tools are offered only below\n`subagents.max_depth`. Independent of `background_depth`.",
+            "minimum": 0
           },
           "timestamp": {
             "type": "string",
@@ -26430,14 +27239,26 @@
           },
           {
             "type": "object",
-            "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person.",
+            "description": "A background-job report saved before spec 058, read so old conversations keep their\nhistory; never sent any more. Its text is rendered from the stored JSON. Tracked for\nremoval in #82.",
             "required": [
               "background_report"
             ],
             "properties": {
               "background_report": {
-                "$ref": "#/components/schemas/BackgroundReport",
-                "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person."
+                "description": "A background-job report saved before spec 058, read so old conversations keep their\nhistory; never sent any more. Its text is rendered from the stored JSON. Tracked for\nremoval in #82."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Background delivery for this conversation: finished detached scripts (spec 058) and\nsubagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles\nit claims from every source and, only if it got something, runs a turn whose request\ncarries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).\nNever journaled: the rows are the durable part, and recovery pokes again. The name is\nkept because it is stored in history and read by the WebUI.",
+            "required": [
+              "detached_delivery"
+            ],
+            "properties": {
+              "detached_delivery": {
+                "type": "string",
+                "description": "Background delivery for this conversation: finished detached scripts (spec 058) and\nsubagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles\nit claims from every source and, only if it got something, runs a turn whose request\ncarries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).\nNever journaled: the rows are the durable part, and recovery pokes again. The name is\nkept because it is stored in history and read by the WebUI."
               }
             }
           },
@@ -26477,6 +27298,32 @@
               "question_answer": {
                 "$ref": "#/components/schemas/QuestionAnswer",
                 "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015)."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A worker's task from its main agent (spec 059): the first request of a `Subagent`\nconversation. It starts a turn like `Chat`, framed as a worker's.",
+            "required": [
+              "subagent_task"
+            ],
+            "properties": {
+              "subagent_task": {
+                "$ref": "#/components/schemas/SubagentBrief",
+                "description": "A worker's task from its main agent (spec 059): the first request of a `Subagent`\nconversation. It starts a turn like `Chat`, framed as a worker's."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues\nthe worker's conversation like `Chat`.",
+            "required": [
+              "subagent_reply"
+            ],
+            "properties": {
+              "subagent_reply": {
+                "$ref": "#/components/schemas/SubagentReplyText",
+                "description": "The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues\nthe worker's conversation like `Chat`."
               }
             }
           }
@@ -26651,6 +27498,13 @@
             "type": "string",
             "enum": [
               "abort"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "Sent once on a waiting message's own sender when a running turn read it at a round\nboundary (`specs/062-steer-busy-turn` R7): that message has no turn of its own, and the\nrunning turn's reply answers it. Renderers end quietly on it.",
+            "enum": [
+              "steered"
             ]
           },
           {

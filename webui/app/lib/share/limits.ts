@@ -1,4 +1,4 @@
-// Every limit of the shared-conversation feature in one place (specs/056-shared-chat research R12).
+// Every limit of the shared-conversation feature in one place (specs/063-shared-chat research R12).
 // The Rust twin is the consts at the top of `crates/vizier-core/src/service/shares.rs`; keep them equal.
 import { LIMITS } from '../generativeUi/limits'
 

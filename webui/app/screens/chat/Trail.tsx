@@ -8,19 +8,24 @@ import {
     TrailCall,
     TrailItem,
 } from '@vizier/design'
-import { useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { highlightCode } from '../../lib/highlight'
 import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
-import { miniDots, trailSummary } from '../../lib/trail'
+import { latestIntent, miniDots, trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
+import { detachedScript } from '../../api/endpoints/chat'
+import type { DetachedScriptDetail } from '../../api/frames'
+import { detachedReport, type DeliveredScript } from '../../lib/detached'
+import { DetachedSource } from './detachedSource'
+import type { WorkerUpdate } from '../../lib/subagents'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
 
-function counts(trail: TrailEvent[], recalled: number): string {
+function counts(trail: TrailEvent[]): string {
     const python = trail.filter((e) => e.kind === 'python').length
     const failed = trail.filter(
         (e) => e.kind === 'python' && e.report && !e.report.ok
@@ -32,8 +37,11 @@ function counts(trail: TrailEvent[], recalled: number): string {
         )
     const tools = trail.filter((e) => e.kind === 'tool').length
     if (tools) parts.push(`${tools} tool${tools === 1 ? '' : 's'}`)
-    if (recalled)
-        parts.push(`${recalled} passage${recalled === 1 ? '' : 's'} recalled`)
+    const delivered = trail.filter((e) => e.kind === 'delivery').length
+    if (delivered)
+        parts.push(`${delivered} background result${delivered === 1 ? '' : 's'}`)
+    const updates = trail.filter((e) => e.kind === 'worker_update').length
+    if (updates) parts.push(`${updates} subagent update${updates === 1 ? '' : 's'}`)
     return parts.join(' · ')
 }
 
@@ -48,6 +56,8 @@ function pythonState(
     live: boolean
 ) {
     if (event.stopped) return 'failed' as const
+    // Detached: it handed back a handle at once, and its own outcome arrives later.
+    if (event.detachedId) return 'done' as const
     if (!event.report) return live ? ('running' as const) : ('failed' as const)
     if (event.report.error?.kind === 'limit') return 'limit' as const
     return event.report.ok ? ('done' as const) : ('failed' as const)
@@ -66,10 +76,77 @@ function miniDot(
               ? 'done'
               : 'failed'
     }
+    if (event.kind === 'delivery') return deliveryState(event.state) === 'done' ? 'done' : 'failed'
+    if (event.kind === 'worker_update') return workerUpdateState(event.state) === 'failed' ? 'failed' : 'done'
     return event.kind === 'tool' && event.stopped ? 'failed' : 'done'
 }
 
-function Run({
+/** A delivered script's dot: done on its own, failed, or stopped by its time limit. */
+function deliveryState(state: string) {
+    if (state === 'succeeded') return 'done' as const
+    if (state === 'timed out') return 'limit' as const
+    return 'failed' as const
+}
+
+/** A worker update's dot: answered, asking (amber: it waits on the agent), or failed. */
+function workerUpdateState(state: string) {
+    if (state === 'answered') return 'done' as const
+    if (state === 'asking') return 'limit' as const
+    return 'failed' as const
+}
+
+/** One worker's answer, question or failure on the trail, or in the card of an update that woke the agent. */
+export function WorkerUpdateRow({ update }: { update: WorkerUpdate }) {
+    return (
+        <TrailCall
+            name="subagent"
+            intent={`${update.position} · ${update.title}`}
+            state={workerUpdateState(update.state)}
+            duration={`${update.handle} · ${update.state.replace('_', ' ')}`}
+        >
+            {update.body ? (
+                <pre className="whitespace-pre-wrap break-words type-code-block text-soft">{update.body}</pre>
+            ) : null}
+        </TrailCall>
+    )
+}
+
+/** A delivered script's own record (code, calls, result), read when its row opens. */
+function DeliveredRun({ handle, body }: { handle: string; body: string }) {
+    const source = useContext(DetachedSource)
+    const [detail, setDetail] = useState<DetachedScriptDetail | null>(null)
+    const [failed, setFailed] = useState(false)
+    useEffect(() => {
+        if (!source) return
+        let live = true
+        detachedScript(source.agentId, source.topicId, handle)
+            .then((d) => live && setDetail(d))
+            .catch(() => live && setFailed(true))
+        return () => {
+            live = false
+        }
+    }, [source, handle])
+    if (detail) return <Run report={detachedReport(detail)} code={detail.code} intent={null} />
+    if (!source || failed)
+        return body ? <pre className="whitespace-pre-wrap break-words type-code-block text-soft">{body}</pre> : null
+    return <p className="type-small text-faint">Loading...</p>
+}
+
+/** One delivered script on the trail, or in the card of a delivery that woke the agent. */
+export function DeliveryRow({ script }: { script: DeliveredScript }) {
+    return (
+        <TrailCall
+            name="background"
+            intent={script.intent}
+            state={deliveryState(script.state)}
+            duration={`${script.handle} · ${script.state} in ${script.took}`}
+        >
+            <DeliveredRun handle={script.handle} body={script.body} />
+        </TrailCall>
+    )
+}
+
+export function Run({
     report,
     code,
     intent,
@@ -145,6 +222,10 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
                     intent={previewArgs(event.args)}
                 />
             )
+        case 'delivery':
+            return <DeliveryRow script={event} />
+        case 'worker_update':
+            return <WorkerUpdateRow update={event} />
         case 'python': {
             const state = pythonState(event, live)
             return (
@@ -153,12 +234,18 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
                     intent={event.intent ?? undefined}
                     state={state}
                     duration={
-                        event.report
-                            ? duration(event.report.duration_ms)
-                            : undefined
+                        event.detachedId
+                            ? `in the background · ${event.detachedId}`
+                            : event.report
+                              ? duration(event.report.duration_ms)
+                              : undefined
                     }
                 >
-                    {event.stopped ? (
+                    {event.detachedId ? (
+                        <Notice compact>
+                            Running in the background as {event.detachedId}. Its result arrives as a later step.
+                        </Notice>
+                    ) : event.stopped ? (
                         <Notice compact tone="failed">
                             Stopped before it finished.
                         </Notice>
@@ -180,7 +267,6 @@ type Props = {
     live: boolean
     /** Milliseconds the turn took, once it ended. */
     durationMs?: number
-    recalled?: number
     failed?: boolean
     aborted?: boolean
     /** The agent's name, for the line shown while it works. */
@@ -197,21 +283,22 @@ export function Trail({
     trail,
     live,
     durationMs,
-    recalled = 0,
     failed,
     aborted,
     agentName,
     turnRunning,
 }: Props) {
     const [all, setAll] = useState(false)
-    // The line says what the agent is doing, and changes while the turn works.
+    // The line says what the agent is doing: the intent of its newest script, or, before it has
+    // stated one, an idle word that changes while the turn works.
     const word = useThinkingWord(live)
+    const intent = live ? latestIntent(trail) : null
     const mobile = useMobile()
     if (trail.length === 0 && !live) return null
     const hidden = !all && trail.length > VISIBLE ? trail.length - VISIBLE : 0
     const shown = hidden ? trail.slice(hidden) : trail
     const title = live
-        ? `${agentName ? `${agentName} is ` : ''}${word}`
+        ? intent ?? `${agentName ? `${agentName} is ` : ''}${word}`
         : failed
           ? `Failed${durationMs != null ? ` after ${duration(durationMs)}` : ''}`
           : aborted
@@ -223,7 +310,7 @@ export function Trail({
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
             counts={
-                counts(trail, recalled) ||
+                counts(trail) ||
                 trailSummary(trail).replace('Reasoning · ', '')
             }
             defaultExpanded={live}
@@ -237,7 +324,9 @@ export function Trail({
                                   .filter(
                                       (e) =>
                                           e.kind === 'python' ||
-                                          e.kind === 'tool'
+                                          e.kind === 'tool' ||
+                                          e.kind === 'delivery' ||
+                                          e.kind === 'worker_update'
                                   )
                                   .map((e) => miniDot(e, live || !!turnRunning))
                           ),

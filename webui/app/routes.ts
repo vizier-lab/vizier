@@ -35,6 +35,8 @@ export default [
             route(':agentId/skills', 'routes/skills.tsx'),
             route(':agentId/skills/:slug', 'routes/skill.tsx'),
             route(':agentId/skills/:slug/edit', 'routes/skill-edit.tsx'),
+            route(':agentId/functions', 'routes/functions.tsx'),
+            route(':agentId/functions/:name', 'routes/function.tsx'),
             route(':agentId/dream', 'routes/agent-dream.tsx'),
             route(':agentId/usage', 'routes/usage.tsx'),
             route(':agentId/secrets', 'routes/secrets.tsx'),

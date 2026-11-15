@@ -39,8 +39,13 @@ export function requestAttachments(
     return isAudioRequest(content) ? [content.audio_chat[0], ...(attachments ?? [])] : (attachments ?? [])
 }
 
+/** A pre-058 background job report, read from old history only (#82). */
 export const isBackgroundReport = (c: VizierRequestContent): c is Extract<VizierRequestContent, { background_report: unknown }> =>
     'background_report' in c
+
+/** Finished detached scripts, delivered to the agent (spec 058). */
+export const isDetachedDelivery = (c: VizierRequestContent): c is Extract<VizierRequestContent, { detached_delivery: string }> =>
+    'detached_delivery' in c
 
 export function replyText(content: VizierResponseContent): string | null {
     if (typeof content !== 'object' || content === null) return null

@@ -20,6 +20,7 @@ import {
     isAudioReply,
     isAudioRequest,
     isBackgroundReport,
+    isDetachedDelivery,
     replyAttachments,
     replyError,
     replyStats,
@@ -29,6 +30,8 @@ import {
     statsLine,
     time,
 } from '../../lib/messages'
+import { parseDelivery } from '../../lib/detached'
+import { splitDelivery } from '../../lib/subagents'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
@@ -37,12 +40,15 @@ import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
-import { Trail } from './Trail'
+import { DeliveryRow, Trail, WorkerUpdateRow } from './Trail'
+import { DetachedSource } from './detachedSource'
 import { mentionsAsCode } from '../../lib/mentions'
 import { planActionsVisible, planOf } from '../../lib/plans'
 import { PlanCard } from './client/PlanCard'
 
 type Props = {
+    /** The conversation, so a delivered script's row can read its record (spec 058). */
+    topicId?: string
     state: TopicState
     /** `live`: the agent is up (live or running), which lights its sigil's dot. */
     agent: { id: string; name: string; live?: boolean }
@@ -54,6 +60,8 @@ type Props = {
     bottomInset?: number
     /** Room kept free at the right edge for a panel floating over the list. */
     insetRight?: number
+    /** Told the width of the list's scroll bar, so what floats over the list can centre on the same column. */
+    onScrollbarWidth?: (px: number) => void
     loadingOlder: boolean
     onLoadOlder: () => void
     onReact: (uid: string, emoji: string, action: 'added' | 'removed') => void
@@ -67,8 +75,6 @@ type Props = {
     onBuildPlan?: (plan: { title: string; steps: string[] }) => void
     /** Build was pressed and the chat is switching mode. */
     buildingPlan?: boolean
-    /** How many passages the turn recalled, for its trail summary. */
-    recalledFor?: (turn: Turn) => number
     /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
     byPlatformName?: boolean
     /** Shown under the greeting of an empty conversation, e.g. "Open a Project" on desktop. */
@@ -107,12 +113,23 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, insetRight = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, recalledFor, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const el = scroller.current
+        if (!el || !onScrollbarWidth) return
+        const measure = () => onScrollbarWidth(el.offsetWidth - el.clientWidth)
+        measure()
+        // The bar comes and goes with the content's height, not only the box's size.
+        const ro = new ResizeObserver(measure)
+        ro.observe(el)
+        if (el.firstElementChild) ro.observe(el.firstElementChild)
+        return () => ro.disconnect()
+    }, [onScrollbarWidth])
     const [pinned, setPinned] = useState(true)
     const [unseen, setUnseen] = useState(0)
     const lastCount = useRef(entries.length)
@@ -137,6 +154,34 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         else if (!t.outcome && !t.aborted) open = t
     }
     const running = state.phase !== 'idle'
+    // The deliveries that started a turn of their own, while the agent was idle.
+    const wakers = new Set(turns.flatMap((t) => (t.request ? [t.request.uid] : [])))
+    // Messages a running turn read mid-turn (spec 062): drawn inside that turn, between its parts.
+    const steered = new Set(turns.flatMap((t) => t.blocks.flatMap((b) => (b.kind === 'steer' ? [b.id] : []))))
+
+    // A person's message, in the conversation or between the parts of the turn that read it.
+    const personMessage = (e: ChatMessage) => {
+        const request = e.content.Request!
+        const content = request.content
+        const skill = (request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
+        const mentioned = (request.metadata as { mentions?: string[] } | undefined)?.mentions
+        const attachments = requestAttachments(content, request.attachments)
+        const spoken = isAudioRequest(content)
+        const text = requestText(content)
+        return (
+            <UserMessage
+                key={e.uid}
+                name={byPlatformName && request.user ? personName(request.user) : 'You'}
+                seed={request.user || me?.username}
+                time={time(request.timestamp)}
+                skill={skill}
+                attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
+            >
+                {/* A voice message's transcript sits behind "Show transcript" in its player. */}
+                {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
+            </UserMessage>
+        )
+    }
 
     const reply = (turn: Turn) => {
         const outcome = turn.outcome
@@ -191,11 +236,27 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     // A turn's parts in the order they happened: each stretch of work folded into the flow, and
     // what the agent said on the way at the size of its reply. `live`: the last part is still open.
     const parts = (turn: Turn, live: boolean) => {
-        const firstTrail = turn.blocks.findIndex((b) => b.kind === 'trail')
         const lastTrail = lastBlockOf(turn, 'trail')
         const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
         return turn.blocks.map((block, i) => {
             if (block.kind === 'message') return <Markdown key={block.id}>{block.text}</Markdown>
+            if (block.kind === 'steer') {
+                // The agent carries on after the person's message: its head starts the next part,
+                // as it starts the turn. Only after the last of messages read together.
+                // Spaced like separate messages (20px), not like the parts of one turn (10px); the
+                // head's time is when the agent read the message, the row's own time.
+                const resumes = turn.blocks[i + 1]?.kind !== 'steer'
+                return (
+                    <div key={block.id} className="mt-10 flex flex-col gap-10">
+                        {personMessage(block.entry)}
+                        {resumes && (
+                            <div className="mt-10">
+                                <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} time={time(block.entry.timestamp)} />
+                            </div>
+                        )}
+                    </div>
+                )
+            }
             const open = live && i === turn.blocks.length - 1
             return (
                 <Trail
@@ -205,7 +266,6 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     live={open}
                     turnRunning={live}
                     durationMs={inParts(turn) ? blockDurationMs(block) : (outcomeDurationMs(turn.outcome) ?? blockDurationMs(block))}
-                    recalled={i === firstTrail ? recalledFor?.(turn) : undefined}
                     failed={i === lastTrail && failed}
                     aborted={i === lastTrail && turn.aborted}
                     agentName={agent.name}
@@ -241,21 +301,55 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         if (c.Request) {
             const content = c.Request.content
             if ('unattended' in content) continue
-            if (isBackgroundReport(content)) {
-                const r = content.background_report
+            if (isDetachedDelivery(content)) {
+                // Delivered mid-turn, it is a step of that turn's trail (`groupHistory`); only a
+                // delivery that woke an idle agent is drawn here, as the card its turn answers.
+                if (!wakers.has(e.uid)) continue
+                // One delivery may carry finished scripts and worker updates (spec 059).
+                const parts = splitDelivery(content.detached_delivery)
+                const scripts = parseDelivery(parts.scripts)
+                const workers = parts.workers
+                const meta = [
+                    scripts.length ? (scripts.length === 1 ? '1 script' : `${scripts.length} scripts`) : null,
+                    workers.length ? (workers.length === 1 ? '1 subagent' : `${workers.length} subagents`) : null,
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
                 arrive(
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
-                        meta={`${r.kind === 'delegation' ? `delegate_agent → ${r.delegated_to ?? ''}` : 'background_subagents'} · ${r.entries.length} piece${r.entries.length === 1 ? '' : 's'}`}
+                        title={workers.length && !scripts.length ? 'Subagent update' : 'Background work finished'}
+                        meta={meta || '0 scripts'}
+                    >
+                        <ul className="flex flex-col gap-8">
+                            {scripts.map((script) => (
+                                <DeliveryRow key={script.handle} script={script} />
+                            ))}
+                            {workers.map((update) => (
+                                <WorkerUpdateRow key={update.handle} update={update} />
+                            ))}
+                        </ul>
+                    </BackgroundReportCard>,
+                    e.uid
+                )
+                continue
+            }
+            if (isBackgroundReport(content)) {
+                const r = content.background_report
+                const found = r.entries ?? []
+                arrive(
+                    <BackgroundReportCard
+                        key={e.uid}
+                        agentId={agent.id}
+                        meta={`${found.length} piece${found.length === 1 ? '' : 's'}`}
                         linkLabel="What each piece found"
-                        details={r.entries.map((en) => (
-                            <div key={en.ordinal} className="flex flex-col gap-4">
+                        details={found.map((en, i) => (
+                            <div key={i} className="flex flex-col gap-4">
                                 <p className="type-small text-faint">
-                                    {en.ordinal + 1}. {en.prompt} · {en.state}
+                                    {i + 1}. {en.prompt} · {en.state}
                                 </p>
                                 <Markdown size="document">{en.text || '_No answer._'}</Markdown>
-                                {en.truncated && <p className="type-small text-faint">The answer was cut short here.</p>}
                             </div>
                         ))}
                     />,
@@ -263,25 +357,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 )
                 continue
             }
-            const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
-            const mentioned = (c.Request.metadata as { mentions?: string[] } | undefined)?.mentions
-            const attachments = requestAttachments(content, c.Request.attachments)
-            const spoken = isAudioRequest(content)
-            const text = requestText(content)
-            arrive(
-                <UserMessage
-                    key={e.uid}
-                    name={byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'}
-                    seed={c.Request.user || me?.username}
-                    time={time(c.Request.timestamp)}
-                    skill={skill}
-                    attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
-                >
-                    {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                    {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
-                </UserMessage>,
-                e.uid
-            )
+            // Read mid-turn: it is drawn inside the turn that read it, between that turn's parts.
+            if (steered.has(e.uid)) continue
+            arrive(personMessage(e), e.uid)
             continue
         }
         const turn = byAnchor.get(e.uid)
@@ -311,7 +389,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
                 {parts(open, running)}
                 {/* Between rounds there is no open trail yet, but the agent is still working. */}
-                {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live recalled={open.blocks.length ? undefined : recalledFor?.(open)} agentName={agent.name} />}
+                {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live agentName={agent.name} />}
                 {clientCalls?.(open, true)}
                 {questions?.(open)}
             </div>
@@ -329,7 +407,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         arrive(
             <UserMessage
                 key={`q-${q.id}`}
-                queued={{ agentName: agent.name }}
+                queued={{ agentName: agent.name, mode: q.queue ? 'queue' : 'steer' }}
                 seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
             >
@@ -340,7 +418,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     )
     if (error) arrive(<div key="error">{error}</div>, 'error')
 
+    const source = useMemo(() => (topicId ? { agentId: agent.id, topicId } : null), [agent.id, topicId])
     return (
+        <DetachedSource.Provider value={source}>
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
@@ -388,6 +468,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 )}
             </Presence>
         </div>
+        </DetachedSource.Provider>
     )
 }
 

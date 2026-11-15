@@ -120,7 +120,7 @@ test.describe('Keyboard only (quickstart §8.3)', () => {
     })
 })
 
-test.describe('Sharing (spec 056, T078)', () => {
+test.describe('Sharing (spec 063, T078)', () => {
     test.beforeEach(async ({ page }, info) => {
         test.skip(!info.project.name.startsWith('desktop'), 'checked at desktop width in both themes')
         await login(page)

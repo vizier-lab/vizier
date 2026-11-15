@@ -28,6 +28,17 @@ export function canManageSecrets(agent: { owner_id?: string }): boolean {
     )
 }
 
+/** Whether the current person may edit, switch off, roll back or delete `agent`'s functions and
+ * rename their categories. Mirrors `custom_tools/access.rs`; seeing them needs only the agent. */
+export function canManageFunctions(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:manage_functions') ||
+        (can('owned_agents:manage_functions') && agent.owner_id === user.user_id)
+    )
+}
+
 /** Whether the current person may see `agent`'s artifact gallery and content. Mirrors
  * `src/artifacts/access.rs`: manage implies view, owned requires ownership. */
 export function canViewArtifacts(agent: { owner_id?: string }): boolean {

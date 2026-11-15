@@ -1,6 +1,14 @@
 import { api, paged, request, type Page } from '../client'
 import type { components } from '../schema'
-import type { BackgroundJobSnapshot, ChatMessage, ModelOverride, SessionFileRecord, Topic } from '../frames'
+import type {
+    ChatMessage,
+    DetachedScriptDetail,
+    DetachedScriptSnapshot,
+    ModelOverride,
+    SessionFileRecord,
+    SubagentSnapshot,
+    Topic,
+} from '../frames'
 
 /** The channel every WebUI conversation lives on. */
 export const CHANNEL = 'vizier-webui'
@@ -31,19 +39,27 @@ export function topicHistory(agentId: string, topicId: string, cursor: HistoryCu
     return api.get<ChatMessage[]>(`${base(agentId, topicId, cursor.channel)}/history?${qs}`)
 }
 
-export const topicJobs = (agentId: string, topicId: string, channel: string = CHANNEL) =>
-    api.get<BackgroundJobSnapshot[]>(`${base(agentId, topicId, channel)}/jobs`)
+/** The topic's detached scripts: the running ones, then the last 50 that ended. Read-only. */
+export const topicDetachedScripts = (agentId: string, topicId: string, channel: string = CHANNEL) =>
+    api.get<DetachedScriptSnapshot[]>(`${base(agentId, topicId, channel)}/detached-scripts`)
 
-export const cancelJob = (
-    agentId: string,
-    topicId: string,
-    jobId: string,
-    channel: string = CHANNEL
-) =>
-    api.post<BackgroundJobSnapshot>(
-        `${base(agentId, topicId, channel)}/jobs/${encodeURIComponent(jobId)}/cancel`,
-        {}
+/** One script with its code, its calls and, once final, its report. */
+export const detachedScript = (agentId: string, topicId: string, scriptId: string, channel: string = CHANNEL) =>
+    api.get<DetachedScriptDetail>(
+        `${base(agentId, topicId, channel)}/detached-scripts/${encodeURIComponent(scriptId)}`
     )
+
+/** The topic's workers: the running and asking ones, then the last 50 that ended. Read-only. */
+export const topicSubagents = (agentId: string, topicId: string, channel: string = CHANNEL) =>
+    api.get<SubagentSnapshot[]>(`${base(agentId, topicId, channel)}/subagents`)
+
+/** One worker with its whole task and result. */
+export const subagent = (agentId: string, topicId: string, id: string, channel: string = CHANNEL) =>
+    api.get<SubagentSnapshot>(`${base(agentId, topicId, channel)}/subagents/${encodeURIComponent(id)}`)
+
+/** A worker's own conversation, in stored order: its steps. */
+export const subagentHistory = (agentId: string, topicId: string, id: string, channel: string = CHANNEL) =>
+    api.get<ChatMessage[]>(`${base(agentId, topicId, channel)}/subagents/${encodeURIComponent(id)}/history`)
 
 export const topicFiles = (
     agentId: string,
