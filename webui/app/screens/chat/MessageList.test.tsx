@@ -142,6 +142,9 @@ describe('a message the turn read while it worked (spec 062)', () => {
         expect(heads[0]).toBeLessThan(message)
         expect(heads[1]).toBeGreaterThan(message)
         expect(heads[1]).toBeLessThan(html.lastIndexOf('Worked'))
+        // The second head says when the agent read the message (10:00:04), the row's own time.
+        const second = html.slice(heads[1], html.lastIndexOf('Worked'))
+        expect(second).toMatch(/type-mono-xs text-faint">\d{2}:\d{2}</)
     })
 
     it('draws the message once, inside the turn, after the request that started it', () => {
