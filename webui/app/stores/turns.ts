@@ -38,7 +38,9 @@ type TurnStore = {
         attachments?: object[],
         spoken?: boolean,
         mentions?: string[],
-        modelOverride?: ModelOverride | null
+        modelOverride?: ModelOverride | null,
+        /** Run as a new turn after the one in progress instead of steering it (spec 062). */
+        queue?: boolean
     ) => void
     sendAudio: (agentId: string, topicId: string, attachment: object, modelOverride?: ModelOverride | null) => void
     clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
@@ -221,14 +223,15 @@ export const useTurns = create<TurnStore>()((set, get) => {
             })
         },
 
-        send: (agentId, topicId, text, attachments, spoken, mentions, modelOverride) => {
+        send: (agentId, topicId, text, attachments, spoken, mentions, modelOverride, queue) => {
             const id = String(nextId++)
             const now = new Date().toISOString()
             // Sent whether or not a turn is running: the agent queues it the same way, and a
             // message held in this tab is gone the moment the page is left. The wait is drawn
             // until the server stores it (`sent`, or the next history read).
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions, modelOverride))
-            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now })
+            const frame = { ...request({ chat: text }, attachments, spoken, mentions, modelOverride), ...(queue ? { queue: true } : {}) }
+            const sent = useConnection.getState().send(agentId, topicId, frame)
+            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now, queue })
         },
 
         sendAudio: (agentId, topicId, attachment, modelOverride) => {

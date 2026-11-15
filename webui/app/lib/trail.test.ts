@@ -104,7 +104,8 @@ test('T3 adjacent thoughts merge', () => {
 
 const say = (text: string, timestamp?: string) => ({ ...entry({ AssistantMessage: text }), timestamp })
 const at = (message: ChatMessage, timestamp: string) => ({ ...message, timestamp })
-const shape = (blocks: TurnBlock[]) => blocks.map((b) => (b.kind === 'trail' ? kinds(b.events).join('+') : `"${b.text}"`))
+const shape = (blocks: TurnBlock[]) =>
+  blocks.map((b) => (b.kind === 'trail' ? kinds(b.events).join('+') : b.kind === 'message' ? `"${b.text}"` : `you: ${b.entry.content.Request?.content && 'chat' in b.entry.content.Request.content ? b.entry.content.Request.content.chat : ''}`))
 
 test('text between two rounds stays in the one trail, where it was written', () => {
   const turns = groupHistory([
@@ -768,4 +769,48 @@ test('latestIntent is the newest python run that stated one', () => {
   assert.equal(latestIntent([py('1', 'Read the config'), py('2', 'Search memory')]), 'Search memory')
   // A later run with no intent (or only whitespace) keeps the last stated one.
   assert.equal(latestIntent([py('1', 'Read the config'), py('2', null), py('3', '  ')]), 'Read the config')
+})
+
+// ---------------------------------------------------------------------------------------------
+// Messages read mid-turn (specs/062-steer-busy-turn contracts/webui.md W3)
+// ---------------------------------------------------------------------------------------------
+
+const steered = (chat: string) =>
+  entry({ Request: { timestamp: '2026-10-03T00:00:00Z', user: 'someone', content: { chat }, mid_turn: true } })
+
+test('a message read mid-turn splits the turn into two trails with one reply', () => {
+  const turns = groupHistory([
+    request('refactor the auth module'),
+    tool('fetch'),
+    steered('keep the old token format'),
+    tool('memory_search'),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1, 'one turn, not two')
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: keep the old token format', 'tool'])
+  assert.ok(turns[0].outcome)
+})
+
+test('two messages read at two boundaries make three trail parts', () => {
+  const turns = groupHistory([
+    request('go'),
+    tool('fetch'),
+    steered('one'),
+    tool('fetch'),
+    steered('two'),
+    tool('fetch'),
+    response('done'),
+  ])
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: one', 'tool', 'you: two', 'tool'])
+})
+
+test('several messages read at one boundary sit together between the same two trails', () => {
+  const turns = groupHistory([request('go'), tool('fetch'), steered('one'), steered('two'), tool('fetch'), response('done')])
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: one', 'you: two', 'tool'])
+})
+
+test('a message the turn never read opens a turn of its own', () => {
+  const turns = groupHistory([request('go'), tool('fetch'), response('done'), request('second'), response('ok')])
+  assert.equal(turns.length, 2)
+  assert.deepEqual(shape(turns[0].blocks), ['tool'])
 })

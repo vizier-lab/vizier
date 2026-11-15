@@ -542,7 +542,7 @@ export default function Chat() {
                                 ? { ...state.context, detail: modelName }
                                 : null
                         }
-                        onSend={(text, attachments, spoken, mentions) =>
+                        onSend={(text, attachments, spoken, mentions, queue) =>
                             send(
                                 agentId,
                                 topicId ?? '',
@@ -550,7 +550,8 @@ export default function Chat() {
                                 attachments,
                                 spoken,
                                 mentions,
-                                canOverrideModel && channel && userId ? modelOverride : null
+                                canOverrideModel && channel && userId ? modelOverride : null,
+                                queue
                             )
                         }
                         onSendAudio={(attachment) =>

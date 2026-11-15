@@ -156,6 +156,32 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     const running = state.phase !== 'idle'
     // The deliveries that started a turn of their own, while the agent was idle.
     const wakers = new Set(turns.flatMap((t) => (t.request ? [t.request.uid] : [])))
+    // Messages a running turn read mid-turn (spec 062): drawn inside that turn, between its parts.
+    const steered = new Set(turns.flatMap((t) => t.blocks.flatMap((b) => (b.kind === 'steer' ? [b.id] : []))))
+
+    // A person's message, in the conversation or between the parts of the turn that read it.
+    const personMessage = (e: ChatMessage) => {
+        const request = e.content.Request!
+        const content = request.content
+        const skill = (request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
+        const mentioned = (request.metadata as { mentions?: string[] } | undefined)?.mentions
+        const attachments = requestAttachments(content, request.attachments)
+        const spoken = isAudioRequest(content)
+        const text = requestText(content)
+        return (
+            <UserMessage
+                key={e.uid}
+                name={byPlatformName && request.user ? personName(request.user) : 'You'}
+                seed={request.user || me?.username}
+                time={time(request.timestamp)}
+                skill={skill}
+                attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
+            >
+                {/* A voice message's transcript sits behind "Show transcript" in its player. */}
+                {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
+            </UserMessage>
+        )
+    }
 
     const reply = (turn: Turn) => {
         const outcome = turn.outcome
@@ -214,6 +240,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
         return turn.blocks.map((block, i) => {
             if (block.kind === 'message') return <Markdown key={block.id}>{block.text}</Markdown>
+            if (block.kind === 'steer') return personMessage(block.entry)
             const open = live && i === turn.blocks.length - 1
             return (
                 <Trail
@@ -314,25 +341,9 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 )
                 continue
             }
-            const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
-            const mentioned = (c.Request.metadata as { mentions?: string[] } | undefined)?.mentions
-            const attachments = requestAttachments(content, c.Request.attachments)
-            const spoken = isAudioRequest(content)
-            const text = requestText(content)
-            arrive(
-                <UserMessage
-                    key={e.uid}
-                    name={byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'}
-                    seed={c.Request.user || me?.username}
-                    time={time(c.Request.timestamp)}
-                    skill={skill}
-                    attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
-                >
-                    {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                    {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
-                </UserMessage>,
-                e.uid
-            )
+            // Read mid-turn: it is drawn inside the turn that read it, between that turn's parts.
+            if (steered.has(e.uid)) continue
+            arrive(personMessage(e), e.uid)
             continue
         }
         const turn = byAnchor.get(e.uid)
@@ -380,7 +391,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         arrive(
             <UserMessage
                 key={`q-${q.id}`}
-                queued={{ agentName: agent.name }}
+                queued={{ agentName: agent.name, mode: q.queue ? 'queue' : 'steer' }}
                 seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
             >
