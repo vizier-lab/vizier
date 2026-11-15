@@ -527,6 +527,120 @@ fn claim_waits_for_inflight_write() {
     assert!(is_ownership_lost(&late.unwrap_err()));
 }
 
+fn chat_request(text: &str) -> VizierRequest {
+    VizierRequest {
+        content: VizierRequestContent::Chat(text.into()),
+        ..Default::default()
+    }
+}
+
+/// The steered entries of a session, in stored order: their text and `mid_turn`.
+async fn steered(storage: &SqlStorage, s: &VizierSession) -> Vec<(String, bool)> {
+    storage
+        .list_session_history(s.clone(), None, None, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|entry| match entry.content {
+            SessionHistoryContent::Request(r) => Some((r.content.to_string(), r.mid_turn)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// spec 062 R2: the journal row goes and the history entry arrives in one transaction.
+#[tokio::test]
+async fn steer_turns_reads_a_message_once() {
+    let n = nodes();
+    n.a_then_b(&Scope::Agent("x".into())).await;
+    let s = session("x");
+    let first = n.a.accept_turn(&s, &chat_request("one")).await.unwrap();
+    let second = n.a.accept_turn(&s, &chat_request("two")).await.unwrap();
+    let items = [
+        (Some(first), chat_request("one")),
+        (Some(second), chat_request("two")),
+        (None, chat_request("unjournaled")),
+    ];
+
+    let saved = n.a.steer_turns(&s, &items).await.unwrap();
+
+    assert_eq!(saved.iter().map(|t| t.index).collect::<Vec<_>>(), [0, 1, 2]);
+    assert!(
+        n.a.pending_turns("x").await.unwrap().is_empty(),
+        "both rows went"
+    );
+    assert_eq!(
+        steered(&n.a, &s).await,
+        [
+            ("one".to_string(), true),
+            ("two".to_string(), true),
+            ("unjournaled".to_string(), true),
+        ]
+    );
+    // A second boundary finds the rows gone and saves nothing more.
+    let again = n.a.steer_turns(&s, &items[..2]).await.unwrap();
+    assert!(again.is_empty());
+    assert_eq!(steered(&n.a, &s).await.len(), 3);
+}
+
+/// An `/abort` that cancelled the rows first wins; a running row is never taken.
+#[tokio::test]
+async fn steer_turns_skips_cancelled_and_running_rows() {
+    let n = nodes();
+    n.a_then_b(&Scope::Agent("x".into())).await;
+    let s = session("x");
+    let cancelled = n.a.accept_turn(&s, &chat_request("aborted")).await.unwrap();
+    n.a.cancel_session_turns(&s).await.unwrap();
+    let running = n.a.accept_turn(&s, &chat_request("running")).await.unwrap();
+    n.a.start_turn(running).await.unwrap();
+
+    let saved =
+        n.a.steer_turns(
+            &s,
+            &[
+                (Some(cancelled), chat_request("aborted")),
+                (Some(running), chat_request("running")),
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert!(saved.is_empty());
+    assert!(steered(&n.a, &s).await.is_empty(), "nothing was saved");
+    assert_eq!(
+        n.a.pending_turns("x").await.unwrap()[0].state,
+        TurnState::Running
+    );
+}
+
+#[tokio::test]
+async fn stale_steer_refused() {
+    let n = nodes();
+    let scope = Scope::Agent("x".into());
+    n.a_then_b(&scope).await;
+    let s = session("x");
+    let id = n.a.accept_turn(&s, &chat_request("late")).await.unwrap();
+    n.b_takes_over(&scope).await;
+
+    n.assert_refused(
+        &scope,
+        n.a.steer_turns(&s, &[(Some(id), chat_request("late"))])
+            .await,
+    );
+    assert_eq!(
+        n.b.pending_turns("x").await.unwrap().len(),
+        1,
+        "the row survived"
+    );
+    assert!(steered(&n.b, &s).await.is_empty(), "nothing was saved");
+
+    let saved =
+        n.b.steer_turns(&s, &[(Some(id), chat_request("late"))])
+            .await
+            .unwrap();
+    assert_eq!(saved.len(), 1);
+}
+
 crate::postgres_tests!(
     stale_history_save_refused,
     stale_turn_transition_refused,
@@ -540,4 +654,7 @@ crate::postgres_tests!(
     opened_rows_carry_the_owner,
     unfenced_writer_unaffected,
     claim_waits_for_inflight_write,
+    steer_turns_reads_a_message_once,
+    steer_turns_skips_cancelled_and_running_rows,
+    stale_steer_refused,
 );

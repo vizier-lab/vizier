@@ -79,6 +79,27 @@ pub trait TurnStorage {
     /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
     /// (specs/057 contracts/ownership.md).
     async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool>;
+    /// Messages a running turn read at a round boundary (`specs/062-steer-busy-turn` R2): in
+    /// **one** transaction, each item's journal row is deleted if it is still `queued`, and only
+    /// then is the request saved to the session's history with `mid_turn` set. An item whose row
+    /// is gone (an `/abort` got there first) is skipped; an item without a row (not journaled) is
+    /// saved. Returns what was saved, in order, so a message is never both read and run, and never
+    /// lost, whatever stops the process.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
+    /// (specs/057 contracts/ownership.md).
+    async fn steer_turns(
+        &self,
+        session: &VizierSession,
+        items: &[(Option<i64>, VizierRequest)],
+    ) -> Result<Vec<SteeredTurn>>;
+}
+
+/// One message `steer_turns` saved: its position in the items given, and its history uid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SteeredTurn {
+    pub index: usize,
+    pub history_uid: String,
 }
 
 #[async_trait::async_trait]
@@ -125,5 +146,13 @@ impl TurnStorage for VizierStorage {
 
     async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool> {
         self.0.claim_turn_on_receipt(id).await
+    }
+
+    async fn steer_turns(
+        &self,
+        session: &VizierSession,
+        items: &[(Option<i64>, VizierRequest)],
+    ) -> Result<Vec<SteeredTurn>> {
+        self.0.steer_turns(session, items).await
     }
 }

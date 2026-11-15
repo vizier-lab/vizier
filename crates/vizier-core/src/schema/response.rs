@@ -142,6 +142,10 @@ pub enum VizierResponseContent {
     #[default]
     Empty,
     Abort,
+    /// Sent once on a waiting message's own sender when a running turn read it at a round
+    /// boundary (`specs/062-steer-busy-turn` R7): that message has no turn of its own, and the
+    /// running turn's reply answers it. Renderers end quietly on it.
+    Steered,
     Checkpoint {
         handover: Option<String>,
     },
@@ -161,6 +165,7 @@ impl VizierResponse {
             VizierResponseContent::Message { .. }
                 | VizierResponseContent::AudioReply(..)
                 | VizierResponseContent::Abort
+                | VizierResponseContent::Steered
                 | VizierResponseContent::Empty
                 | VizierResponseContent::Error { .. }
         )

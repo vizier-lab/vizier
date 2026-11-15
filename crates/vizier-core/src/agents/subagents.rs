@@ -179,7 +179,11 @@ impl Watch {
         for id in ids {
             *watched.entry(id.clone()).or_default() += 1;
         }
-        Self { inner: inner.clone(), ids: ids.to_vec(), session: session.clone() }
+        Self {
+            inner: inner.clone(),
+            ids: ids.to_vec(),
+            session: session.clone(),
+        }
     }
 }
 
@@ -201,7 +205,8 @@ impl Drop for Watch {
         let transport = self.inner.transport.clone();
         let session = self.session.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move { crate::agents::delivery::poke(&transport, session, 0).await });
+            handle
+                .spawn(async move { crate::agents::delivery::poke(&transport, session, 0).await });
         }
     }
 }
@@ -358,7 +363,12 @@ impl Subagents {
             .ask_subagent(&row.id, question.trim(), remaining_ms, now)
             .await
             .map_err(|e| VizierError(format!("could not record the question: {e}")))?
-            .ok_or_else(|| VizierError(format!("this worker is {}, not running", row.state.as_str())))?;
+            .ok_or_else(|| {
+                VizierError(format!(
+                    "this worker is {}, not running",
+                    row.state.as_str()
+                ))
+            })?;
         self.inner.disarm(&asked.id);
         self.inner.publish(&asked);
         self.inner.poke(&asked);
@@ -378,10 +388,14 @@ impl Subagents {
             Err(refusal) => return Ok(Err(refusal)),
         };
         if row.state != SubagentState::Asking {
-            return Ok(Err(Refusal::NotAsking { id: row.id, state: row.state }));
+            return Ok(Err(Refusal::NotAsking {
+                id: row.id,
+                state: row.state,
+            }));
         }
         let now = crate::time::now();
-        let deadline = now + chrono::Duration::milliseconds(row.remaining_ms.unwrap_or(0).max(1_000));
+        let deadline =
+            now + chrono::Duration::milliseconds(row.remaining_ms.unwrap_or(0).max(1_000));
         let Some(replied) = self
             .inner
             .storage
@@ -390,7 +404,11 @@ impl Subagents {
             .map_err(|e| VizierError(format!("could not record the reply: {e}")))?
         else {
             // Stopped or answered in between.
-            let state = self.inner.read(&row.id).await.map_or(SubagentState::Stopped, |r| r.state);
+            let state = self
+                .inner
+                .read(&row.id)
+                .await
+                .map_or(SubagentState::Stopped, |r| r.state);
             return Ok(Err(Refusal::NotAsking { id: row.id, state }));
         };
         self.inner.publish(&replied);
@@ -417,7 +435,10 @@ impl Subagents {
         {
             tracing::warn!(subagent = %replied.id, "could not deliver a reply: {e}");
             self.inner
-                .settle_row(&replied.id, Settled::Failed(format!("could not deliver the reply: {e}")))
+                .settle_row(
+                    &replied.id,
+                    Settled::Failed(format!("could not deliver the reply: {e}")),
+                )
                 .await;
         }
         Ok(Ok(replied))
@@ -536,7 +557,12 @@ impl Subagents {
     /// owner are re-owned and their time limits re-armed. Their turns are resumed by the turn
     /// recovery; asking workers need nothing.
     pub async fn recover_agent(&self, agent_id: &AgentId, below: u64) {
-        match self.inner.storage.reown_running_subagents(agent_id, below).await {
+        match self
+            .inner
+            .storage
+            .reown_running_subagents(agent_id, below)
+            .await
+        {
             Ok(rows) => {
                 for row in &rows {
                     self.inner.arm(row);
@@ -552,7 +578,11 @@ impl Subagents {
         match self
             .inner
             .storage
-            .stop_session_subagents(session, SubagentStopReason::ConversationDeleted, crate::time::now())
+            .stop_session_subagents(
+                session,
+                SubagentStopReason::ConversationDeleted,
+                crate::time::now(),
+            )
             .await
         {
             Ok(stopped) => {
@@ -561,7 +591,9 @@ impl Subagents {
                     self.inner.abort_worker(row).await;
                 }
             }
-            Err(e) => tracing::warn!(session = %session.to_slug(), "could not stop a conversation's workers: {e}"),
+            Err(e) => {
+                tracing::warn!(session = %session.to_slug(), "could not stop a conversation's workers: {e}")
+            }
         }
         match self.inner.storage.delete_session_subagents(session).await {
             Ok(rows) => rows.iter().map(Subagent::worker_session).collect(),
@@ -614,7 +646,11 @@ impl Inner {
 
     /// Settle a running worker; on success publish, drop its timer and poke its conversation.
     async fn settle_row(&self, id: &str, settled: Settled) {
-        match self.storage.settle_subagent(id, settled, crate::time::now()).await {
+        match self
+            .storage
+            .settle_subagent(id, settled, crate::time::now())
+            .await
+        {
             Ok(Some(row)) => {
                 self.disarm(&row.id);
                 self.publish(&row);
@@ -641,7 +677,11 @@ impl Inner {
             metadata: serde_json::json!({}),
             ..Default::default()
         };
-        if let Err(e) = self.transport.send_request(row.worker_session(), request, None).await {
+        if let Err(e) = self
+            .transport
+            .send_request(row.worker_session(), request, None)
+            .await
+        {
             tracing::debug!(subagent = %row.id, "could not abort a worker: {e}");
         }
     }
@@ -683,7 +723,11 @@ impl Inner {
             inner.timers.lock().remove(&id);
             match inner
                 .storage
-                .settle_subagent(&id, Settled::TimedOut(timed_out_reason(secs)), crate::time::now())
+                .settle_subagent(
+                    &id,
+                    Settled::TimedOut(timed_out_reason(secs)),
+                    crate::time::now(),
+                )
                 .await
             {
                 Ok(Some(row)) => {
@@ -695,7 +739,11 @@ impl Inner {
                 Err(e) => tracing::warn!(subagent = %id, "could not time out a worker: {e}"),
             }
         });
-        if let Some(old) = self.timers.lock().insert(row.id.clone(), task.abort_handle()) {
+        if let Some(old) = self
+            .timers
+            .lock()
+            .insert(row.id.clone(), task.abort_handle())
+        {
             old.abort();
         }
     }
@@ -737,7 +785,12 @@ pub async fn delete_worker_conversations(
 impl crate::agents::delivery::DeliverySource for Subagents {
     async fn claim(&self, session: &VizierSession) -> Vec<String> {
         let watched: Vec<SubagentId> = self.inner.watched.lock().keys().cloned().collect();
-        match self.inner.storage.claim_subagent_deliveries(session, &watched).await {
+        match self
+            .inner
+            .storage
+            .claim_subagent_deliveries(session, &watched)
+            .await
+        {
             Ok(rows) => rows
                 .iter()
                 .map(|row| {
@@ -753,7 +806,12 @@ impl crate::agents::delivery::DeliverySource for Subagents {
     }
 
     async fn sessions_with_deliveries(&self, agent_id: &AgentId) -> Vec<VizierSession> {
-        match self.inner.storage.subagent_delivery_sessions(agent_id).await {
+        match self
+            .inner
+            .storage
+            .subagent_delivery_sessions(agent_id)
+            .await
+        {
             Ok(sessions) => sessions,
             Err(e) => {
                 tracing::warn!(agent_id = %agent_id, "could not list undelivered worker outcomes: {e}");
@@ -787,10 +845,14 @@ pub fn render_update(row: &Subagent) -> String {
             ));
         }
         SubagentState::Answered => {
-            let (result, cut_here) = cut(row.result.as_deref().unwrap_or(""), DELIVERED_RESULT_CHARS);
+            let (result, cut_here) =
+                cut(row.result.as_deref().unwrap_or(""), DELIVERED_RESULT_CHARS);
             out.push_str(&format!("\nresult: {result}"));
             if cut_here || row.result_truncated {
-                out.push_str(&format!("\n(read the whole result with get_subagent(id=\"{}\"))", row.id));
+                out.push_str(&format!(
+                    "\n(read the whole result with get_subagent(id=\"{}\"))",
+                    row.id
+                ));
             }
         }
         _ => {
@@ -839,6 +901,9 @@ pub fn classify(content: &crate::schema::VizierResponseContent) -> Option<PieceO
         | VizierResponseContent::Thinking(_)
         | VizierResponseContent::ToolChoice { .. }
         | VizierResponseContent::ToolResponse { .. }
+        // A worker's conversation has no person on it, so nothing is ever steered into one
+        // (spec 062 FR-008).
+        | VizierResponseContent::Steered
         | VizierResponseContent::Checkpoint { .. } => None,
     }
 }

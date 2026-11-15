@@ -194,6 +194,25 @@ mod tests {
         assert_eq!(parse("/lobotomy @alpha", AGENTS), Parsed::Lobotomy { agents: vec!["alpha".into()] });
     }
 
+    /// spec 062: `/queue @a <message>` reaches the agent as `/queue <message>`, which core turns
+    /// into a message queued behind the agent's running turn.
+    #[test]
+    fn queue_reaches_the_agent_as_a_queue_command() {
+        let parsed = parse("/queue @beta check the logs too", AGENTS);
+        assert_eq!(
+            parsed,
+            Parsed::Skill {
+                name: "queue".into(),
+                agents: vec!["beta".into()],
+                input: "check the logs too".into()
+            }
+        );
+        assert_eq!(
+            command_text(&parsed).as_deref(),
+            Some("/queue check the logs too")
+        );
+    }
+
     #[test]
     fn abort_alone_is_stop_all() {
         assert_eq!(parse("/abort", AGENTS), Parsed::StopAll);

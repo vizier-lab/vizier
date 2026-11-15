@@ -135,16 +135,15 @@ pub async fn seal_open_calls(
 
     let start = match request_uid {
         Some(uid) => entries.iter().position(|e| e.uid == uid),
-        // A detached script's delivery is saved mid-turn as a `Request` (spec 058), so the
-        // turn starts at the last request that is not one; a turn a delivery woke has only
-        // deliveries since the last person's request, and starting earlier only scans calls
-        // that are already answered.
+        // A detached script's delivery (spec 058) and a message read mid-turn (spec 062) are
+        // saved mid-turn as a `Request`, so the turn starts at the last request that opens one;
+        // a turn a delivery woke has only deliveries since the last person's request, and
+        // starting earlier only scans calls that are already answered.
         None => entries
             .iter()
-            .rposition(|e| {
-                matches!(&e.content, SessionHistoryContent::Request(r)
-                    if !matches!(r.content, crate::schema::VizierRequestContent::DetachedDelivery(_)))
-            })
+            .rposition(
+                |e| matches!(&e.content, SessionHistoryContent::Request(r) if r.opens_turn()),
+            )
             .or_else(|| {
                 entries
                     .iter()

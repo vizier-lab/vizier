@@ -322,8 +322,13 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     // call and its result; a provider refuses a user message there, so it waits for the results.
     let mut open_calls: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut held: Vec<Message> = Vec::new();
+    // The last message came from a request saved at a round boundary (a delivery, or a message
+    // read mid-turn, spec 062). The live turn sent everything that arrived at one boundary as one
+    // user message, so the replay joins them the same way (research R6).
+    let mut after_boundary_request = false;
 
     for entry in entries {
+        let joins_boundary = std::mem::take(&mut after_boundary_request);
         match &entry.content {
             SessionHistoryContent::Request(req) if !open_calls.is_empty() => {
                 if let Ok(text) = req.to_prompt()
@@ -338,7 +343,13 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 if let Ok(text) = req.to_prompt()
                     && !text.is_empty()
                 {
-                    messages.push(Message::User(vec![Part::Text(text)]));
+                    match messages.last_mut() {
+                        Some(Message::User(parts)) if joins_boundary && !req.opens_turn() => {
+                            parts.push(Part::Text(text));
+                        }
+                        _ => messages.push(Message::User(vec![Part::Text(text)])),
+                    }
+                    after_boundary_request = !req.opens_turn();
                 }
             }
             SessionHistoryContent::Response(res) => {
@@ -850,6 +861,83 @@ mod tests {
             reactions: vec![],
             seq: None,
         }
+    }
+
+    /// spec 062 R6: what arrived at one boundary (a delivery, then messages read mid-turn) is
+    /// replayed as the one user message the live turn sent, never as adjacent user messages.
+    #[test]
+    fn a_boundary_replays_as_one_user_message() {
+        let request = |content, mid_turn| {
+            entry(SessionHistoryContent::Request(VizierRequest {
+                content,
+                mid_turn,
+                metadata: serde_json::json!({}),
+                ..Default::default()
+            }))
+        };
+        let chat = |text: &str, mid_turn| {
+            request(
+                crate::schema::VizierRequestContent::Chat(text.into()),
+                mid_turn,
+            )
+        };
+        let entries = vec![
+            chat("refactor auth", false),
+            entry(SessionHistoryContent::ToolCall {
+                call_id: "c1".into(),
+                name: "execute_python".into(),
+                arguments: serde_json::json!({}),
+            }),
+            entry(SessionHistoryContent::ToolResult {
+                call_id: "c1".into(),
+                content: "ok".into(),
+            }),
+            request(
+                crate::schema::VizierRequestContent::DetachedDelivery(
+                    "[Background work finished]".into(),
+                ),
+                false,
+            ),
+            chat("keep the old token format", true),
+            chat("and the logs", true),
+            entry(SessionHistoryContent::Response(VizierResponse {
+                content: VizierResponseContent::Message {
+                    content: "done".into(),
+                    stats: None,
+                },
+                ..Default::default()
+            })),
+            // A later turn's own message opens a new user message.
+            chat("thanks", false),
+        ];
+        let messages = history_entries_to_messages(&entries);
+        let users: Vec<Vec<String>> = messages
+            .iter()
+            .filter_map(|m| match m {
+                Message::User(parts) => Some(
+                    parts
+                        .iter()
+                        .map(|p| match p {
+                            Part::Text(t) => t.rsplit("---\n\n").next().unwrap_or(t).to_string(),
+                            _ => String::new(),
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            users,
+            vec![
+                vec!["refactor auth".to_string()],
+                vec![
+                    "[Background work finished]".to_string(),
+                    "keep the old token format".to_string(),
+                    "and the logs".to_string(),
+                ],
+                vec!["thanks".to_string()],
+            ]
+        );
     }
 
     fn kinds(entries: &[SessionHistoryContent]) -> Vec<&'static str> {

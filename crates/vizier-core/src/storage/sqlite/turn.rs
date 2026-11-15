@@ -8,7 +8,7 @@ use crate::{
     schema::{VizierRequest, VizierSession},
     storage::{
         sqlite::SqlStorage,
-        turn::{PendingTurn, TurnState, TurnStorage},
+        turn::{PendingTurn, SteeredTurn, TurnState, TurnStorage},
     },
 };
 
@@ -236,6 +236,40 @@ impl TurnStorage for SqlStorage {
             }
         }
         Ok(out)
+    }
+
+    async fn steer_turns(
+        &self,
+        session: &VizierSession,
+        items: &[(Option<i64>, VizierRequest)],
+    ) -> Result<Vec<SteeredTurn>> {
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))?;
+        let mut saved = vec![];
+        for (index, (id, request)) in items.iter().enumerate() {
+            // The guarded delete is the claim: a row `/abort` cancelled, or one already running,
+            // is not this boundary's to read.
+            if let Some(id) = id {
+                let taken = tx.execute(
+                    "DELETE FROM session_turn WHERE id = ?1 AND state = 'queued'",
+                    params![id],
+                )?;
+                if taken == 0 {
+                    continue;
+                }
+            }
+            let mut request = request.clone();
+            request.mid_turn = true;
+            let history_uid = super::history::write_history_entry(
+                &tx,
+                session,
+                crate::schema::SessionHistoryContent::Request(request),
+            )?;
+            saved.push(SteeredTurn { index, history_uid });
+        }
+        tx.commit()?;
+        Ok(saved)
     }
 }
 

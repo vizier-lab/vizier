@@ -33,6 +33,88 @@ fn insert_history_sql(dialect: &dyn sql::Dialect) -> String {
     )
 }
 
+/// Saves one history entry on the caller's transaction: the row, its artifact references and,
+/// in a Workspace, the shared timeline entry, so the three cannot drift (spec 053 R3). The caller
+/// checks the fence and commits. `save_session_history` is this in a transaction of its own;
+/// `steer_turns` runs it beside the delete of the message's journal row (spec 062 R2).
+pub(super) fn write_history_entry(
+    tx: &sql::Connection,
+    session: &VizierSession,
+    content: SessionHistoryContent,
+) -> Result<String> {
+    let uid = Uuid::new_v4().to_string();
+    let entry = SessionHistory {
+        uid: uid.clone(),
+        vizier_session: session.clone(),
+        content,
+        timestamp: crate::time::now(),
+        reactions: vec![],
+        seq: None,
+    };
+
+    let data = serde_json::to_string(&entry)?;
+    let content_type = content_type_discriminant(&entry.content);
+    let session_slug = session.to_slug();
+    let references: Vec<(String, String)> = entry
+        .content
+        .attachments()
+        .into_iter()
+        .filter_map(|attachment| match &attachment.content {
+            VizierAttachmentContent::Artifact {
+                agent_id,
+                artifact_id,
+                ..
+            } => Some((agent_id.clone(), artifact_id.clone())),
+            _ => None,
+        })
+        .collect();
+
+    tx.execute(
+        &insert_history_sql(tx.dialect()),
+        params![
+            uid,
+            session.0,
+            session.1.to_slug(),
+            session.2,
+            entry.timestamp.timestamp_millis(),
+            content_type,
+            data
+        ],
+    )?;
+    for (agent_id, artifact_id) in references {
+        tx.execute(
+                "INSERT INTO artifact_reference \
+                 (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
+                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9) \
+                 ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
+                 session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
+                 channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
+                 path = excluded.path, label = excluded.label, created_at = excluded.created_at",
+                params![
+                    artifact_id,
+                    agent_id,
+                    format!("message:{session_slug}:{uid}"),
+                    session_slug,
+                    uid,
+                    session.1.to_slug(),
+                    session.2,
+                    session.1.to_slug(),
+                    entry.timestamp.timestamp_millis(),
+                ],
+            )?;
+    }
+    // An agent's shown messages in a Workspace also go into the shared timeline, in this same
+    // transaction, so the two cannot drift (spec 053 R3).
+    super::workspace::index_history_entry(
+        tx,
+        session,
+        &uid,
+        &entry.content,
+        entry.timestamp.timestamp_millis(),
+    )?;
+    Ok(uid)
+}
+
 /// `(data, seq)` as every ordered read selects it. `seq` lives on the column, not inside the
 /// serialized `data` blob, so it has to be read back and set on the deserialized entry.
 pub(super) fn history_row(row: &sql::Row) -> sql::Result<(String, Option<i64>)> {
@@ -317,79 +399,10 @@ impl HistoryStorage for SqlStorage {
         session: VizierSession,
         content: SessionHistoryContent,
     ) -> Result<String> {
-        let uid = Uuid::new_v4().to_string();
-        let entry = SessionHistory {
-            uid: uid.clone(),
-            vizier_session: session.clone(),
-            content,
-            timestamp: crate::time::now(),
-            reactions: vec![],
-            seq: None,
-        };
-
-        let data = serde_json::to_string(&entry)?;
-        let content_type = content_type_discriminant(&entry.content);
-        let session_slug = session.to_slug();
-        let references: Vec<(String, String)> = entry
-            .content
-            .attachments()
-            .into_iter()
-            .filter_map(|attachment| match &attachment.content {
-                VizierAttachmentContent::Artifact {
-                    agent_id,
-                    artifact_id,
-                    ..
-                } => Some((agent_id.clone(), artifact_id.clone())),
-                _ => None,
-            })
-            .collect();
-
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         super::fence::check_fence(&tx, &self.fences, &Scope::Agent(session.0.clone()))?;
-        tx.execute(
-            &insert_history_sql(tx.dialect()),
-            params![
-                uid,
-                session.0,
-                session.1.to_slug(),
-                session.2,
-                entry.timestamp.timestamp_millis(),
-                content_type,
-                data
-            ],
-        )?;
-        for (agent_id, artifact_id) in references {
-            tx.execute(
-                "INSERT INTO artifact_reference \
-                 (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-                 VALUES (?1, ?2, 'message', ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9) \
-                 ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
-                 session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
-                 channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
-                 path = excluded.path, label = excluded.label, created_at = excluded.created_at",
-                params![
-                    artifact_id,
-                    agent_id,
-                    format!("message:{session_slug}:{uid}"),
-                    session_slug,
-                    uid,
-                    session.1.to_slug(),
-                    session.2,
-                    session.1.to_slug(),
-                    entry.timestamp.timestamp_millis(),
-                ],
-            )?;
-        }
-        // An agent's shown messages in a Workspace also go into the shared timeline, in this same
-        // transaction, so the two cannot drift (spec 053 R3).
-        super::workspace::index_history_entry(
-            &tx,
-            &session,
-            &uid,
-            &entry.content,
-            entry.timestamp.timestamp_millis(),
-        )?;
+        let uid = write_history_entry(&tx, &session, content)?;
         tx.commit()?;
         Ok(uid)
     }

@@ -344,6 +344,17 @@ pub struct VizierRequest {
     /// resolved when the turn starts and never stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// The person chose to run this message as a turn of its own after the running one rather
+    /// than steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the
+    /// WebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the
+    /// choice survives a restart. Ignored while the agent is idle.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub queue: bool,
+    /// Engine-only: this request was read by a turn already running, at a round boundary
+    /// (`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client
+    /// input on receipt and before a request is queued. A `mid_turn` request never opens a turn.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mid_turn: bool,
     /// What the client that sent this request says about itself: what it renders, what it
     /// offers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.
     ///
@@ -406,6 +417,11 @@ fn is_zero(value: &u8) -> bool {
     *value == 0
 }
 
+/// `skip_serializing_if` for a flag that is still off.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 pub fn attachments_note(attachments: &[VizierAttachment]) -> Option<String> {
     if attachments.is_empty() {
         return None;
@@ -436,6 +452,13 @@ impl VizierRequest {
             return false;
         }
         !matches!(session.1, crate::schema::VizierChannelId::Dream(..))
+    }
+
+    /// Whether this request starts a turn of its own in the record. A delivery saved at a round
+    /// boundary (spec 058) and a message read mid-turn (spec 062) are steps of the turn that
+    /// read them, so every search for "where this turn started" skips them.
+    pub fn opens_turn(&self) -> bool {
+        !(self.mid_turn || matches!(self.content, VizierRequestContent::DetachedDelivery(_)))
     }
 
     pub fn to_prompt(&self) -> anyhow::Result<String> {
@@ -557,6 +580,17 @@ impl VizierRequest {
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
+        // A message the person sent while the agent was working, read at a round boundary of
+        // that turn (`specs/062-steer-busy-turn` contracts/steering.md S5).
+        if self.mid_turn {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("mid_turn"));
+            frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+            frontmatter.insert("metadata".into(), self.shown_metadata());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
+        }
+
         Ok(serde_yaml::to_string(&json!({
             "sender": self.user,
             "sent_at": self.sent_at(),
@@ -578,6 +612,65 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    /// spec 062: both flags are off unless set, and an older row without them reads that way.
+    #[test]
+    fn queue_and_mid_turn_default_off_and_round_trip() {
+        let old: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-11-04T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(!old.queue && !old.mid_turn);
+        let plain = serde_json::to_value(&old).unwrap();
+        assert!(plain.get("queue").is_none() && plain.get("mid_turn").is_none());
+
+        let set = VizierRequest {
+            queue: true,
+            mid_turn: true,
+            ..old
+        };
+        let back: VizierRequest =
+            serde_json::from_value(serde_json::to_value(&set).unwrap()).unwrap();
+        assert!(back.queue && back.mid_turn);
+    }
+
+    #[test]
+    fn only_a_request_that_starts_a_turn_opens_one() {
+        let chat = VizierRequest {
+            content: VizierRequestContent::Chat("x".into()),
+            ..Default::default()
+        };
+        assert!(chat.opens_turn());
+        let read_mid_turn = VizierRequest {
+            mid_turn: true,
+            ..chat.clone()
+        };
+        assert!(!read_mid_turn.opens_turn());
+        let delivery = VizierRequest {
+            content: VizierRequestContent::DetachedDelivery("done".into()),
+            ..Default::default()
+        };
+        assert!(!delivery.opens_turn());
+    }
+
+    /// contracts/steering.md S5: the sender stays the person, `via` says it was read mid-turn.
+    #[test]
+    fn a_mid_turn_message_says_so_in_its_frontmatter() {
+        let request = VizierRequest {
+            user: "dana".into(),
+            content: VizierRequestContent::Chat("keep the old token format".into()),
+            mid_turn: true,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        assert!(prompt.contains("sender: dana"), "{prompt}");
+        assert!(prompt.contains("via: mid_turn"), "{prompt}");
+        assert!(prompt.ends_with("keep the old token format"), "{prompt}");
+    }
+
     #[test]
     fn model_override_is_optional_and_preserves_slashes_in_model_ids() {
         let legacy: VizierRequest = serde_json::from_value(serde_json::json!({

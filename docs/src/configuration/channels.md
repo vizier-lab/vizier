@@ -73,6 +73,7 @@ Set the agent's `discord_token` (WebUI agent settings, or `PUT /api/v1/agents/{i
 | `/lobotomy` | Save a checkpoint **without** a handover — clean break |
 | `/thinking` | Toggle streaming the model's thinking output and the activity trail (tool calls) into the channel |
 | `/btw message:<text>` | Ask a side question: answered in the channel, visible to everyone, not remembered (see [Side chats](#side-chats-btw)) |
+| `/queue message:<text>` | While the agent is working: run the message as a new turn after the current one, instead of adding it to the turn in progress (see [Messages sent while the agent works](#messages-sent-while-the-agent-works)) |
 
 **Discord tools** (enabled with `tools.discord = true`; require `discord_token`):
 
@@ -106,6 +107,7 @@ Set the agent's `telegram_token`. Same lifecycle as Discord.
 | `/lobotomy` | Checkpoint without handover |
 | `/thinking` | Toggle thinking output and the activity trail (tool calls) |
 | `/btw <text>` | Ask a side question: not saved, and deleted after 2 minutes of inactivity (see [Side chats](#side-chats-btw)) |
+| `/queue <text>` | While the agent is working: run the message as a new turn after the current one (see [Messages sent while the agent works](#messages-sent-while-the-agent-works)) |
 
 **Telegram tools** (enabled with `tools.telegram = true`; require `telegram_token`):
 
@@ -114,6 +116,28 @@ Set the agent's `telegram_token`. Same lifecycle as Discord.
 | `telegram_send_message` | Send a message to a chat |
 | `telegram_react_message` | React with an emoji |
 | `telegram_get_message_by_id` | Fetch a message |
+
+## Messages sent while the agent works
+
+A message you send while the agent is in the middle of a turn **joins that turn**: the agent reads it at its next step (once the tools it is running return, before it decides what to do next) and carries on with it in mind, so a correction such as "no, keep the old token format" lands while it still matters. The turn ends with one reply that answers both. Several messages sent during one step are read together, in the order you sent them.
+
+If the agent is already writing its final answer and takes no further step, your message is not lost: it runs as a turn of its own right after, exactly as before.
+
+To line up a separate task instead, so it waits for the current turn to finish and runs as a new one:
+
+| Where | How |
+|-------|-----|
+| WebUI (desktop) | **Ctrl+Enter** (**⌘↵** on macOS) instead of Enter. A hint under the composer says so while the agent works. |
+| WebUI (any size, including a phone) | `/queue <message>` |
+| Discord | `/queue message:<text>`, or type `/queue <text>` |
+| Telegram | `/queue <text>` |
+| Workspaces | `/queue @<agent-id> <message>` |
+
+`/queue` sent while the agent is idle simply starts a turn. `/queue` on its own is answered with how to use it. A skill named `queue` gets no `/queue` command of its own; run it with `/skill queue`.
+
+In the WebUI, a message waiting for the agent's next step shows as **Waiting for the agent**, and one sent with Ctrl+Enter or `/queue` as **Queued · runs after this turn**. Once the agent reads a message mid-turn, the turn is drawn as its work before your message, your message, its work after, then the reply, the same on reload and in every tab.
+
+Not affected: `/abort` (stops the turn and drops anything waiting), side chats, checkpoints, `/skill` and `/<skill>` commands, voice messages and answers to the agent's questions all keep their place in line. Scheduled tasks, dream cycles and subagent workers have no person in them, so nothing steers them. Messages the agent only reads silently (group messages not addressed to it, Workspace posts that don't mention it) are unchanged.
 
 ## Side chats (`/btw`)
 

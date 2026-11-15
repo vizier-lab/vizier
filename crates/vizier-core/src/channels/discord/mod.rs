@@ -277,6 +277,13 @@ fn builtin_commands() -> Vec<CommandEntry> {
                 ..CommandOption::text("message", "Your question")
             },
         ),
+        // spec 062: a message for after the current turn, instead of the turn in progress.
+        CommandEntry::new("queue", "send this after my current turn, as a new one").option(
+            CommandOption {
+                required: true,
+                ..CommandOption::text("message", "Your message")
+            },
+        ),
     ]
 }
 
@@ -328,6 +335,10 @@ fn skill_command_text(
     command: &str,
     options: &[twilight_model::application::interaction::application_command::CommandDataOption],
 ) -> String {
+    // `/queue` carries a message, not a skill's input (spec 062); core reads `/queue <message>`.
+    if command == "queue" {
+        return format!("/queue {}", option_text(options, "message").trim());
+    }
     let input = option_text(options, "input").trim();
     let head = match command {
         "skill" => format!("/skill {}", option_text(options, "name").trim()),
@@ -1856,6 +1867,10 @@ mod tests {
             "/skill standup today"
         );
         assert_eq!(skill_command_text("skills", &[]), "/skills");
+        assert_eq!(
+            skill_command_text("queue", &[option("message", " check the logs ")]),
+            "/queue check the logs"
+        );
     }
 
     #[test]
