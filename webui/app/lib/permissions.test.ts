@@ -15,6 +15,14 @@ describe('groupsFor', () => {
     })
 })
 
+describe('functions', () => {
+    it('groups the function permissions under Functions', () => {
+        const groups = groupsFor(['all_agents:manage_functions', 'owned_agents:manage_functions'])
+        expect(groups.map((g) => g.title)).toEqual(['Functions'])
+        expect(groups[0].items).toHaveLength(2)
+    })
+})
+
 describe('permissionCount', () => {
     it('words a count', () => {
         expect(permissionCount(4, 15)).toBe('4 permissions')
