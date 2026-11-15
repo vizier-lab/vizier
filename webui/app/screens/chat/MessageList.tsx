@@ -280,8 +280,9 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
             <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} time={time(turn.outcome?.timestamp)} />
             {parts(turn, false)}
             {clientCalls?.(turn, false)}
-            {turn.outcome && reply(turn)}
+            {/* The card is part of what the agent said, so the reply's reactions and model line close the turn below it. */}
             {questions?.(turn)}
+            {turn.outcome && reply(turn)}
         </div>
     )
 
