@@ -16,7 +16,7 @@ Frontmatter (`generate_frontmatter`): a `mid_turn` request keeps `sender: <perso
 ## `Mode` and `Queued` (`agents/steer.rs`, in memory)
 
 ```text
-enum Mode { Steer, Queue }
+enum Mode { Steer, Absorb, Queue }   // Absorb: a SilentRead, taken at every boundary (R12)
 
 struct Queued {
     request:     VizierRequest,
@@ -29,9 +29,9 @@ type SessionQueue = Arc<std::sync::Mutex<VecDeque<Queued>>>;   // shared: loop +
 struct SteerInbox(SessionQueue);   // the turn's clone; ToolContext.steer: Option<SteerInbox>
 ```
 
-`mode(request, session)` → `Queue` when any of: `request.queue`; `request.transient`; content is not `Chat`; the text parses as a skill command; the session has no person (`Task`, `Dream`, `Subagent`, inter-agent activation). Otherwise `Steer`.
+`mode(request, session)` → `Queue` when any of: `request.queue`; `request.transient`; content is not `Chat`; the text parses as a skill command; the session has no person (`Task`, `Dream`, `Subagent`, inter-agent activation). A `SilentRead` in a person session (not transient) → `Absorb`. Otherwise `Steer`.
 
-`SteerInbox::take() -> Vec<Queued>` removes every `Steer` item, keeping the others in place and in order.
+`SteerInbox::take() -> Vec<Queued>` removes every `Steer` and `Absorb` item, keeping the others in place and in order.
 
 ### Lifecycle of a waiting message
 
@@ -74,10 +74,12 @@ A steered message is a `SessionHistoryContent::Request` row:
 | `request.attachments` | as sent (moved into session files at read, as at a turn start) |
 | `request.mid_turn` | `true` |
 
+An absorbed silent read is the same, with `SilentRead` content. In a Workspace session, the boundary's catch-up copies unread entries as `SilentRead` rows with the entry's own time (as an activation does).
+
 ## WebUI types (`webui/app/lib/trail.ts`)
 
 ```text
 type Block = … | { kind: 'steer'; entry: ChatMessage }   // inside Turn.blocks
 ```
 
-`groupHistory`: a `Request` with `mid_turn` while a turn is open → push a `steer` block to that turn. Rendering splits `Turn.blocks` at each `steer` block into trail parts.
+`groupHistory`: a `Request` with `mid_turn` and `chat` content while a turn is open → push a `steer` block to that turn. Rendering splits `Turn.blocks` at each `steer` block into trail parts.

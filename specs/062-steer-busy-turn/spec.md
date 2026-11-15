@@ -108,6 +108,23 @@ While the agent works, a person wants to line up an unrelated request without in
 
 ---
 
+### User Story 6 - The agent keeps up with the room while it works (Priority: P3)
+
+In a group channel or a Workspace, people keep talking while the agent works on someone's request, without addressing it. The agent sees those messages at its next step, in order, the same way it would have seen them if it had been idle, so its work and its reply can take the conversation into account, and the record keeps the order in which things happened.
+
+**Why this priority**: It keeps the agent's view of a shared conversation current and its history in true order, but the core value (Stories 1, 2) does not depend on it.
+
+**Independent Test**: In a Workspace topic (or a Discord guild channel), start a multi-step turn by mentioning the agent, post a message that does not mention it during the first step, and verify the agent's next step received it as a silent message, that it is stored before the reply, and that no extra turn or chime-in follows for it.
+
+**Acceptance Scenarios**:
+
+1. **Given** a busy agent in a group conversation, **When** someone posts without addressing it, **Then** at the next step boundary the message is given to the agent as silently read, and recorded at that point.
+2. **Given** such a message was taken in, **When** the turn ends, **Then** it is not processed again and gives the agent no separate chance to speak.
+3. **Given** silent messages and a steering message arrive in the same round, **When** the round ends, **Then** both are taken in, in sending order, with the steering message distinguishable as addressed to the agent.
+4. **Given** a Workspace topic, **When** a boundary is reached, **Then** every unread entry of the topic up to that moment is taken in.
+
+---
+
 ### Edge Cases
 
 - **Commands and special messages**: `/abort` keeps stopping the turn immediately. Side chats (`/btw`), handovers/checkpoints, `/lobotomy`, `/clear-files`, explicit skill invocations (`/<skill>`), and answers to the agent's own questions keep their current behaviour and are never delivered mid-turn.
@@ -117,7 +134,7 @@ While the agent works, a person wants to line up an unrelated request without in
 - **Restart or agent update mid-turn**: a message already delivered into a turn is part of that turn's record and is resumed with it; a message not yet delivered is still waiting and is either delivered at the resumed turn's next boundary or run as its own turn — exactly once.
 - **Agent deleted**: waiting messages are rejected as queued messages are today.
 - **Conversations with no person in them** (scheduled tasks, dreams, subagent workers, inter-agent mentions): unchanged; this feature only concerns messages people send.
-- **Group conversations** (Discord guild channels, Telegram groups, Workspaces): a message that addresses the agent while it is busy in that conversation is delivered mid-turn, attributed to whoever sent it; messages the agent only reads silently (not addressed to it) are unchanged.
+- **Group conversations** (Discord guild channels, Telegram groups, Workspaces): a message that addresses the agent while it is busy in that conversation is delivered mid-turn, attributed to whoever sent it. Messages the agent only reads silently (not addressed to it) are also taken in at every step boundary (FR-013), but they never start, split or redirect anything on their own.
 - **Very long messages or many messages**: the delivery is subject to the same size handling as any person's message; nothing waiting is dropped.
 - **Context compaction**: a delivered message survives a checkpoint/handover the same way any other message in the turn does.
 
@@ -139,6 +156,7 @@ While the agent works, a person wants to line up an unrelated request without in
 - **FR-011**: Steering MUST be the default for a message sent while busy, and the person MUST be able to choose, per message, to queue it as a new turn instead (today's behaviour). In the WebUI the choice is a keyboard shortcut: while the agent is busy, Enter sends a message that steers and Ctrl+Enter (Cmd+Enter on macOS) sends one queued as a new turn; while the agent is idle both simply send, as today. The composer shows a short hint naming the shortcut only while the agent is busy, and the shortcut never fires while a mention or suggestion list is open in the composer (Enter there still picks the item). The WebUI also accepts `/queue <message>` on every screen size, so a phone (which has no shortcut) can queue too; a plain message steers; channels without such a control offer it as a `/queue` command — a Discord slash command `/queue` taking the message, `/queue <message>` on Telegram (listed in the bot's command menu), and `/queue @<agent-id> <message>` in Workspaces — and a message sent without it steers. `/queue` sent while the agent is idle simply starts a turn.
 - **FR-011a**: A message queued as a new turn by choice MUST never be delivered into the running turn; it runs after it, in arrival order with other queued messages.
 - **FR-011b**: The choice MUST be made at send time and is not changed afterwards by the system; a steered message that falls back to the queue (FR-004) runs as its own turn.
+- **FR-013**: At every step boundary, the system MUST also take in the messages the agent reads silently in that conversation that arrived since the turn last looked (group-channel messages not addressed to it; unread Workspace entries), whether or not a steering message arrives at the same boundary. They MUST be recorded at the point they were read, in the order they were sent, marked as not addressed to the agent, exactly once (never again after the turn), and MUST NOT get a separate chance to make the agent speak, split the WebUI trail, or count as a person's message for notifications.
 - **FR-012**: The reply of a turn that received mid-turn messages MUST be one reply, notified once, as for any turn.
 
 ### Key Entities
