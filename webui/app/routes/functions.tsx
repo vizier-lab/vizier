@@ -10,11 +10,11 @@ import {
     type FunctionList,
     type FunctionSummary,
 } from '../api/endpoints/functions'
+import { canManageFunctions } from '../lib/access'
 import { relativeTime } from '../lib/format'
 import { NAME_PATTERN, authorLabel, missingCalls, nameTaken, offNote } from '../lib/functions'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { useAgents } from '../stores/agents'
-import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback)
@@ -27,8 +27,7 @@ const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.mes
 export default function Functions() {
     const { agentId = '' } = useParams()
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
-    const { canEditAgent } = useSession()
-    const canEdit = agent ? canEditAgent(agent) : false
+    const canEdit = agent ? canManageFunctions(agent) : false
     const agentName = agent?.name
     const [list, setList] = useState<FunctionList | null>(null)
     const [error, setError] = useState<unknown>()

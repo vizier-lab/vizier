@@ -34,6 +34,7 @@ import {
     type FunctionProblem,
     type FunctionVersion,
 } from '../api/endpoints/functions'
+import { canManageFunctions } from '../lib/access'
 import { relativeTime } from '../lib/format'
 import {
     NAME_PATTERN,
@@ -52,7 +53,6 @@ import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { Panes } from '../screens/shared/Panes'
 import { useAgents } from '../stores/agents'
-import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback)
@@ -65,8 +65,7 @@ export default function FunctionPage() {
     const { agentId = '', name = '' } = useParams()
     const navigate = useNavigate()
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
-    const { canEditAgent } = useSession()
-    const canEdit = agent ? canEditAgent(agent) : false
+    const canEdit = agent ? canManageFunctions(agent) : false
     const agentName = agent?.name
     const [fn, setFn] = useState<FunctionDetail | null>(null)
     const [missing, setMissing] = useState(false)
