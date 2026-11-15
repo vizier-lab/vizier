@@ -98,18 +98,6 @@ On replay, `history_entries_to_messages` already holds a mid-round request until
 
 **Alternatives considered**: a slow `execute_python` loop — timing depends on machine speed and the sandbox's CPU limit.
 
-## R12 — Silent reads at every boundary (FR-013, Story 6)
-
-**Decision**:
-- **Discord / Telegram**: `steer::mode` returns a third mode, `Absorb`, for a `SilentRead` request (in a person session, not transient). `SteerInbox::take()` takes `Steer` **and** `Absorb` items together, in arrival order, so one `steer_turns` transaction covers both (same guarded row delete, same history insert; the saved `SilentRead` request also gets `mid_turn = true`). Their model text is what a silent read renders today, plus `via: mid_turn` and `addressed: false` in the frontmatter; they go into the boundary's one user message in arrival order with the steered messages. They get **no initiative roll** (the `silent_read_initiative_chance` check in `VizierAgent::chat` is for an idle agent) and no `refresh_session_detail`/notification. A boundary that takes only `Absorb` items still saves and sends them (FR-013: "whether or not a steering message arrives").
-- **Workspaces**: silent reading there is not a request but the lazy `catch_up`. Each boundary of a turn in a `Workspace` session calls `catch_up::to_head`-style copying (up to the topic's head, cap 500) **before** taking the inbox, so unread entries land first and a steered mention after them. The copied rows keep the entry's own time, as today, and the existing replay rule (hold a request that falls between a `ToolCall` and its `ToolResult` until the round's results are in) places them correctly. A catch-up that copies nothing costs one indexed read.
-- **WebUI**: only a `mid_turn` request with `Chat` content splits the trail (contracts/webui.md W4); a `mid_turn` `SilentRead` is drawn as silent reads are today.
-- **Ordering in `opens_turn`**: a `mid_turn` request never opens a turn, whatever its content.
-
-**Rationale**: Reusing the steer path gives silent reads the same exactly-once guarantee and fixes their order in history (today a silent read queued behind a turn is saved after the reply). Copying Workspace entries at the boundary keeps both silent-read mechanisms behaving the same from the agent's point of view.
-
-**Alternatives considered**: (a) only at a boundary that also steers — leaves history out of order whenever nobody steers (rejected by the person); (b) a separate absorb path for silent reads — a second exactly-once mechanism (Principle II).
-
 ## R11 — Design pass
 
 **Decision**: The composer hint and the split trail are UI changes. FigCraft was unreachable this session, so the mockups are ASCII in `contracts/webui.md`, reviewed before UI code (constitution v2.2.0). If FigCraft is reachable at implementation time, the `Chat` page of `Vizier.figcraft` is updated first.

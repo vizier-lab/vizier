@@ -46,7 +46,7 @@ ASCII mockups for the design review (FigCraft was unreachable; constitution v2.2
 
 ## W4 — Rules
 
-- Only `Request` entries with `mid_turn: true` **and chat content** split a trail; a mid-turn silent read is drawn as silent reads are today.
+- Only `Request` entries with `mid_turn: true` split a trail.
 - Trail part durations/step counts come from that part's own steps.
 - Reactions, copy, and other bubble actions work on a mid-turn bubble as on any person message.
 - Every popup involved (none new) follows the dismissal convention.

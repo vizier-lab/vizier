@@ -48,18 +48,9 @@ Same as E1, sending `one`, `two`, `three` within the delay. **Expect** `**Read m
 
 While a delayed turn runs: `/btw what time is it` → answered beside the turn, nothing steered; `/skills` → answered after the turn as today; a scheduled task firing on the agent → unaffected.
 
-## E7a — Silent reads at a boundary (Story 6, FR-013)
-
-In a Workspace with `steer-test` as a member (needs the `say` key, as `scripts/workspace-e2e.mjs`):
-
-1. Post `@steer-test {"tool": "current_time", "arguments": {}, "delay_ms": 2000}`.
-2. Within 2 s, post `the deploy is done` **without** a mention.
-3. **Expect** the reply lists it under **Read mid-turn** (dummyplug §8 lists silent reads with a `silent:` prefix), the agent's history holds it as a `SilentRead` before the `Response`, and no second turn or chime-in follows.
-4. Post one more message without a mention after the reply; **expect** it is copied only at the agent's next activation (unchanged lazy reading).
-
 ## E8 — Chat platforms (manual, needs a Discord or Telegram test bot)
 
-Same as E1 through the platform: the reply is posted **once**, no "agent unavailable" message for the steered message; `/queue <message>` behaves as E3; a guild/group message not addressed to the bot during the turn is saved before the reply and gets no chime-in; on Discord `/queue` appears in the slash-command list.
+Same as E1 through the platform: the reply is posted **once**, no "agent unavailable" message for the steered message; `/queue <message>` behaves as E3; on Discord `/queue` appears in the slash-command list.
 
 ## E9 — WebUI (manual, after the design review)
 

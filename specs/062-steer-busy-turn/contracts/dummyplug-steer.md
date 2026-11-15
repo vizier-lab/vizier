@@ -23,6 +23,6 @@ When a request's messages after the **last tool result** contain user text (the 
 <text of the next one>
 ```
 
-instead of the §4 tool-result echo. A background delivery's text in the same user message is listed too, prefixed `background:`, and a silent read (frontmatter `addressed: false`) is prefixed `silent:`. Frontmatter is removed by cutting at the closing `---`; `via: mid_turn` lines are therefore not shown, but the §6 `context` command still echoes the context block.
+instead of the §4 tool-result echo. A background delivery's text in the same user message is listed too, prefixed `background:`. Frontmatter is removed by cutting at the closing `---`; `via: mid_turn` lines are therefore not shown, but the §6 `context` command still echoes the context block.
 
 With no user text after the last tool result, §4 applies unchanged.
