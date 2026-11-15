@@ -163,7 +163,7 @@ delete it.
 **Why this priority**: People must be able to see and stop what an agent has built for itself; the
 issue sets a read-only gallery with enable/disable and delete as the minimum.
 
-**Independent Test**: With a person who may edit the agent, open the page, disable a tool and
+**Independent Test**: With a person who may manage the agent's functions, open the page, disable a tool and
 confirm the agent can no longer list or call it; re-enable it; delete it and confirm it is gone.
 With a person who may only view the agent, confirm the page is read-only.
 
@@ -171,14 +171,14 @@ With a person who may only view the agent, confirm the page is read-only.
 
 1. **Given** a person who may view the agent, **When** they open Custom tools, **Then** they see
    every tool, its current script and its version history, and no controls that change anything.
-2. **Given** a person who may edit the agent, **When** they disable a tool, **Then** it disappears
+2. **Given** a person who may manage the agent's functions, **When** they disable a tool, **Then** it disappears
    from the agent's listings and a call to it is refused as disabled, starting with the agent's next
    tool lookup — no restart, no running turn aborted.
-3. **Given** a person who may edit the agent, **When** they delete a tool, **Then** it and its
+3. **Given** a person who may manage the agent's functions, **When** they delete a tool, **Then** it and its
    history are removed after they confirm, and a later call is refused as unknown.
 4. **Given** a disabled tool, **When** the agent tries to update or call it, **Then** it is told the
    tool was disabled by a person and cannot re-enable it itself.
-5. **Given** a person who may edit the agent, **When** they edit a tool's description, schema or
+5. **Given** a person who may manage the agent's functions, **When** they edit a tool's description, schema or
    script and save, **Then** it is checked like an agent's save, refused with every problem found
    or stored as a new version authored by that person, and the agent's next call runs it.
 6. **Given** a person who may only view the agent, **When** they open a tool, **Then** no editor is
@@ -186,7 +186,7 @@ With a person who may only view the agent, confirm the page is read-only.
 7. **Given** the Custom tools page, **When** it opens, **Then** tools are grouped by category, each
    group headed by its name and description, and each row shows version, author, last change,
    enabled state and any *needs attention* warning.
-8. **Given** a person who may edit the agent, **When** they edit a category from its heading,
+8. **Given** a person who may manage the agent's functions, **When** they edit a category from its heading,
    **Then** they can rename it or change its description; **when** they pick another category (or
    type a new one, which asks for a description) in a tool's editor, **Then** the tool moves there
    as a new version authored by them.
@@ -439,7 +439,7 @@ the category is gone.
   definition, who made it (the agent in a turn, the agent during a dream cycle, or a person), when,
   and an optional reason; earlier versions
   MUST be kept.
-- **FR-019**: The agent and people who may edit the agent MUST be able to see the difference between
+- **FR-019**: The agent and people who may manage the agent's functions MUST be able to see the difference between
   any two versions and roll back to any earlier version; a rollback MUST be validated as an update.
 - **FR-020**: Concurrent updates of one tool MUST NOT lose a version: the second is refused as out of
   date.
@@ -450,8 +450,9 @@ the category is gone.
   group headed by its name and description, listing each tool with its name, description, version,
   author, last change, last call, enabled state and *needs attention* state, with its current
   script, schema, version history and diffs readable.
-- **FR-022**: People who may view the agent MUST be able to read the page; people who may edit the
-  agent MUST be able to enable, disable, roll back and delete (with confirmation), edit an existing
+- **FR-022**: People who may view the agent MUST be able to read the page; people who may manage the
+  agent's functions (`all_agents:manage_functions`, or `owned_agents:manage_functions` on an agent
+  they own) MUST be able to enable, disable, roll back and delete (with confirmation), edit an existing
   tool's description, category, input schema, output description and script, and rename or
   redescribe a category from its heading. Choosing a new category in a tool's editor MUST ask for
   its description.
@@ -531,8 +532,11 @@ the category is gone.
 - Decided with the requester (2026-11-15, fourth pass): one discovery path for every tool; the agent
   names and describes its own categories, created implicitly by the first save; the WebUI groups by
   category and lets editors rename, redescribe and move.
-- "May view / may edit the agent" uses the existing agent permissions; no new permission is
-  introduced unless planning shows one is needed.
+- Viewing an agent's custom tools uses the existing right to view the agent. Changing them
+  (edit, switch, roll back, delete, category edits) needs one of two new permissions,
+  `all_agents:manage_functions` (every agent) or `owned_agents:manage_functions` (agents the person
+  owns), added 2026-11-15 at the requester's request; the system role holds both. Editing the agent
+  alone is not enough.
 - The new WebUI page is drawn in FigCraft (or a mockup) before it is built, as the project requires.
 - Workers, detached scripts and scheduled tasks can call custom tools because they are the agent.
   Dreams author custom tools but do not call them.

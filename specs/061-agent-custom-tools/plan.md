@@ -128,7 +128,7 @@ crates/vizier-core/src/
 ├── agents/views.rs                 # publish agent.{id}.tool_names
 ├── agents/agent/mod.rs             # snapshot custom categories into ToolContext at turn start
 ├── scheduler/dream/prompts.rs      # reusable workflows (extraction), tool-vs-skill rule, audit counts
-├── service/custom_tools.rs         # NEW: HTTP-facing operations + authorization (can_view/can_edit_agent)
+├── service/custom_tools.rs         # NEW: HTTP-facing operations + authorization (can_view_agent / custom_tools::access::can_manage)
 ├── storage/custom_tool.rs          # NEW: CustomToolStorage trait + value types
 ├── storage/sqlite/custom_tool.rs   # NEW: SQL implementation + init_custom_tool_schema
 └── storage/sql/postgres/migrations/0010_custom_tools.sql

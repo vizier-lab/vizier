@@ -1,7 +1,8 @@
 # Contract: HTTP API
 
 Under `/api/v1`, `require_auth`. Authorization in `core::service::custom_tools`: **view** =
-`access::can_view_agent`, **edit** = `access::can_edit_agent`. Another agent's tool, or an agent
+`access::can_view_agent`, **edit** = `custom_tools::access::can_manage` (`all_agents:manage_functions`, or
+`owned_agents:manage_functions` on an agent the person owns; the system role always). Another agent's tool, or an agent
 the person cannot view, is `404`. Errors use the standard envelope (`vizier-http/src/error.rs`);
 validation failures are `422 invalid` with the same `problems` list as the agent tools.
 Every route needs a conformance vector (`tests/conformance/groups/custom_tools.rs`); vectors must
@@ -11,14 +12,14 @@ not change state between the harness's two sends (use `PUT` with idempotent bodi
 |---|---|---|---|
 | `GET /agents/{id}/custom-tools` | view | — | `{categories: [{name, description, updated_by, tools: [ToolSummary]}]}` grouped and ordered by category name, `custom` last |
 | `GET /agents/{id}/custom-tools/{tool_id}` | view | `?version=` | `ToolDetail` (definition of that version, `calls`, `callers`, `needs_attention`, `model_backed`, `enabled`, `disabled_by`) |
-| `PUT /agents/{id}/custom-tools/{tool_id}` | edit | `{expected_version, name?, category?, category_description?, description?, input_schema?, output_description?, script?, reason?}` | `200 {tool, version}`; `409 out_of_date {current_version}`; `422 invalid {problems, warnings}` |
-| `DELETE /agents/{id}/custom-tools/{tool_id}` | edit | — | `204`; callers become *needs attention* (spec edge) |
-| `PUT /agents/{id}/custom-tools/{tool_id}/enabled` | edit | `{enabled: bool}` | `200 {enabled}` |
+| `PUT /agents/{id}/custom-tools/{tool_id}` | manage | `{expected_version, name?, category?, category_description?, description?, input_schema?, output_description?, script?, reason?}` | `200 {tool, version}`; `409 out_of_date {current_version}`; `422 invalid {problems, warnings}` |
+| `DELETE /agents/{id}/custom-tools/{tool_id}` | manage | — | `204`; callers become *needs attention* (spec edge) |
+| `PUT /agents/{id}/custom-tools/{tool_id}/enabled` | manage | `{enabled: bool}` | `200 {enabled}` |
 | `GET /agents/{id}/custom-tools/{tool_id}/versions` | view | `?before=&limit=` | `{versions: [VersionSummary], next}` |
 | `GET /agents/{id}/custom-tools/{tool_id}/diff` | view | `?from=&to=` | `{description, input_schema, script: RevisionDiff, category?}` |
-| `POST /agents/{id}/custom-tools/{tool_id}/rollback` | edit | `{to_version, expected_version, reason?}` | `200 {version, restored_from}` (validated as an update) |
+| `POST /agents/{id}/custom-tools/{tool_id}/rollback` | manage | `{to_version, expected_version, reason?}` | `200 {version, restored_from}` (validated as an update) |
 | `GET /agents/{id}/custom-tools/events` | view | `?before=&limit=` | `{events: [Event], next}` (includes deletions) |
-| `PUT /agents/{id}/custom-tool-categories/{name}` | edit | `{description?, new_name?}` | `200 {category}`; `409 name_taken` |
+| `PUT /agents/{id}/custom-tool-categories/{name}` | manage | `{description?, new_name?}` | `200 {category}`; `409 name_taken` |
 
 There is no `POST` (create) and no run endpoint: people inspect, edit and govern; agents create
 (spec Assumptions). A person's edit performs no sample run and checks called tools against the

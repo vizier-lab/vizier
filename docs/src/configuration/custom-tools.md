@@ -93,7 +93,7 @@ Every change is a new version: `update_custom_tool`, a move to another category,
 
 In the WebUI, custom tools are called **functions**. People who can view an agent see its **Functions** page (beside Skills), grouped by category. Each tool shows its version, author, last change, whether it is model-backed, and *needs attention* when it calls a tool the agent no longer has.
 
-People who can edit the agent can also:
+People with **Manage functions** (`all_agents:manage_functions` for every agent, or `owned_agents:manage_functions` for the agents they own; Settings › Roles, group Functions) can also:
 
 - switch a tool off or on (a tool a person switched off stays off until a person switches it on);
 - edit it, which saves a new version authored by them;

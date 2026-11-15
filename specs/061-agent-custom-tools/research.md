@@ -214,7 +214,7 @@ read in the WebUI.
 agent in a dream with the cycle id, or person) and returning `status`-shaped outcomes. The agent's
 authoring tools, `dream_call` and `service::custom_tools` (HTTP) all call it, the way
 `integrations/service.rs` is shared by tools and handlers. Authorization for people lives in
-`service::custom_tools` using `access::can_view_agent` / `can_edit_agent` (new authorization goes
+`service::custom_tools` using `access::can_view_agent` / `custom_tools::access::can_manage` (the `manage_functions` permissions) (new authorization goes
 in core). Rules owned by the actor: the agent cannot re-enable a person-disabled tool (FR-023);
 dreams cannot delete, enable or disable (FR-009).
 

@@ -24,6 +24,7 @@ use crate::{
     },
 };
 
+pub mod access;
 pub mod calls;
 pub mod catalogue;
 pub mod naming;

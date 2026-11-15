@@ -1,6 +1,7 @@
 //! An agent's custom tools for people (`specs/061-agent-custom-tools/contracts/http-api.md`): see
 //! them grouped by category, read a version, edit, switch off, delete, roll back and rename a
-//! category. Authorization lives here: view is `can_view_agent`, every change `can_edit_agent`,
+//! category. Authorization lives here: view is `can_view_agent`, every change
+//! `custom_tools::access::can_manage` (`all_agents:manage_functions` / `owned_agents:manage_functions`),
 //! and an agent the person cannot view is `404`. The work goes through the same
 //! [`crate::custom_tools::CustomTools`] the agent's own tools use, with the person as the actor.
 
@@ -11,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{ServiceError, Services};
 use crate::{
-    access::{can_edit_agent, can_view_agent},
+    access::{Caller, can_view_agent},
     auth::Principal,
     custom_tools::{Env, ToolNames, UpdateInput, naming, validate},
     schema::AgentConfig,
@@ -82,8 +83,8 @@ async fn agent_for(s: &Services, who: &Principal, agent_id: &str, edit: bool) ->
     if !can_view_agent(who, &agent) {
         return Err(ServiceError::NotFound("agent not found".into()));
     }
-    if edit && !can_edit_agent(who, &agent) {
-        return Err(ServiceError::Forbidden("you may not change this agent's custom tools".into()));
+    if edit && !crate::custom_tools::access::can_manage(Caller::from(who), &agent) {
+        return Err(ServiceError::Forbidden("you may not manage this agent's functions".into()));
     }
     Ok(agent)
 }
