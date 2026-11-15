@@ -231,9 +231,7 @@ impl VizierScheduler {
                             continue;
                         }
                     };
-                    let schedule = match cron
-                        .find_next_occurrence(&task.last_executed_at.unwrap_or(now), true)
-                    {
+                    let schedule = match cron.find_next_occurrence(&cron_anchor(task), true) {
                         Ok(s) => s,
                         Err(e) => {
                             tracing::warn!(
@@ -449,6 +447,14 @@ impl VizierScheduler {
     }
 }
 
+/// Where a cron task's next occurrence is counted from: its last run, or, for a task that has
+/// never run, the moment it was saved. A task created or edited over HTTP has no last run, and
+/// counting from the tick itself would never come due: the next occurrence after "now" is
+/// always still ahead when the tick compares it with "now".
+fn cron_anchor(task: &Task) -> Timestamp {
+    task.last_executed_at.unwrap_or(task.timestamp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,6 +534,37 @@ mod tests {
             runs.is_empty(),
             "a deleted task was fired from stale scheduler state"
         );
+    }
+
+    /// A cron task that has never run (one made on the Schedule page) comes due at its first
+    /// occurrence after it was saved, whatever second of the minute the tick lands on.
+    #[test]
+    fn a_cron_task_that_never_ran_comes_due_after_it_was_saved() {
+        use chrono::Timelike;
+        let now = crate::time::now();
+        let saved = now - chrono::Duration::minutes(3);
+        let fires = saved + chrono::Duration::minutes(1);
+        let expression = format!("{} {} * * *", fires.minute(), fires.hour());
+        let task = Task {
+            slug: "morning".into(),
+            requester: crate::schema::Requester::User("alex".into()),
+            agent_id: "agent".into(),
+            title: "Morning papers".into(),
+            instruction: "list them".into(),
+            is_active: true,
+            schedule: TaskSchedule::CronTask(expression.clone()),
+            last_executed_at: None,
+            timestamp: saved,
+        };
+        let cron = Cron::from_str(&expression).unwrap();
+
+        let due = cron.find_next_occurrence(&cron_anchor(&task), true).unwrap();
+        assert!(due <= now, "its minute has passed, so it is due: {due} vs {now}");
+
+        // Once it has run, the next occurrence is counted from that run: not due again today.
+        let ran = Task { last_executed_at: Some(now), ..task };
+        let next = cron.find_next_occurrence(&cron_anchor(&ran), true).unwrap();
+        assert!(next > now, "one run per occurrence: {next}");
     }
 
     /// Spec 052: a cron expression means the clock of the zone it is evaluated in. The scheduler
