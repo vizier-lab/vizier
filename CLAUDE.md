@@ -428,5 +428,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information for the current feature, read
-`specs/061-agent-custom-tools/plan.md`.
+`specs/062-steer-busy-turn/plan.md`.
 <!-- SPECKIT END -->
