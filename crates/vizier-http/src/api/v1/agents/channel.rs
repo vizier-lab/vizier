@@ -693,7 +693,8 @@ pub(crate) fn check_client_context(request: &mut VizierRequest) -> Result<(), se
 }
 
 /// Move a request's checked declarations into its binding to `connection`. Only a request
-/// that starts a chat turn takes client tools; on any other they are dropped unread.
+/// that starts a chat turn takes client tools (a question answer is one: it is the person's
+/// next message); on any other they are dropped unread.
 pub(crate) fn bind_client_tools(
     request: &mut VizierRequest,
     connection: &std::sync::Arc<ClientConnection>,
@@ -707,6 +708,7 @@ pub(crate) fn bind_client_tools(
         VizierRequestContent::Chat(_)
             | VizierRequestContent::AudioChat(..)
             | VizierRequestContent::ClientEvent(_)
+            | VizierRequestContent::QuestionAnswer(_)
     );
     if tools.is_empty() || !takes_tools {
         return Ok(());
@@ -714,6 +716,18 @@ pub(crate) fn bind_client_tools(
     declare::validate(&tools, &categories).map_err(|err| err.frame())?;
     request.client = Some(connections.bind(connection, tools, categories));
     Ok(())
+}
+
+/// The turn a submitted question answer starts, with what the socket's own request said about
+/// its client: `questions::submit` builds that turn's request anew, so the binding and the
+/// client's notes are put back here. Without them the turn would have no client tools, and an
+/// agent that asked a question could not draw its answer.
+pub(crate) fn answer_turn(received: &mut VizierRequest, prepared: VizierRequest) -> VizierRequest {
+    VizierRequest {
+        client: received.client.take(),
+        client_context: std::mem::take(&mut received.client_context),
+        ..prepared
+    }
 }
 
 /// A reaction from this socket, applied through the shared ingest path. The new set reaches
@@ -841,6 +855,87 @@ pub async fn handle_socket(
     }
     drop(write_tx);
     let _ = write_handle.await;
+}
+
+#[cfg(test)]
+mod question_answer_client_tests {
+    use super::*;
+    use vizier_core::{
+        agents::client::{ClientConnections, declare::ClientToolDeclaration},
+        questions::model::QuestionAnswer,
+    };
+
+    fn declaration() -> ClientToolDeclaration {
+        serde_json::from_value(serde_json::json!({
+            "name": "render",
+            "category": "ui",
+            "description": "Draws a page.",
+            "input_schema": { "type": "object" },
+        }))
+        .unwrap()
+    }
+
+    fn answer(tools: Vec<ClientToolDeclaration>) -> VizierRequest {
+        VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::QuestionAnswer(QuestionAnswer {
+                set_id: "set-1".into(),
+                text: String::new(),
+                answers: Vec::new(),
+                answerer: None,
+                declined: false,
+            }),
+            client_tools: tools,
+            client_context: vec!["This client renders mermaid.".into()],
+            ..Default::default()
+        }
+    }
+
+    /// An answer is the person's next message, so its turn takes the client's tools like a chat
+    /// message does: an agent that asked first can still draw its reply.
+    #[test]
+    fn a_question_answer_is_bound_to_its_connection() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut request = answer(vec![declaration()]);
+        bind_client_tools(&mut request, &connection, &ClientConnections::new()).unwrap();
+        let binding = request.client.as_ref().expect("the answer is bound");
+        assert_eq!(binding.tools.len(), 1);
+        assert!(request.client_tools.is_empty());
+    }
+
+    /// The request `submit` builds knows nothing of the socket; the binding and the notes are
+    /// carried over to it, and everything else is the prepared request's.
+    #[test]
+    fn the_prepared_turn_keeps_the_binding_and_the_notes() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut received = answer(vec![declaration()]);
+        bind_client_tools(&mut received, &connection, &ClientConnections::new()).unwrap();
+        let prepared = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("prepared".into()),
+            metadata: serde_json::json!({ "via": "question_answer" }),
+            ..Default::default()
+        };
+
+        let turn = answer_turn(&mut received, prepared);
+
+        assert!(turn.client.is_some());
+        assert_eq!(turn.client_context, vec!["This client renders mermaid."]);
+        assert!(matches!(turn.content, VizierRequestContent::Chat(ref text) if text == "prepared"));
+        assert_eq!(turn.metadata["via"], "question_answer");
+    }
+
+    /// An answer with no declarations starts an ordinary turn.
+    #[test]
+    fn an_answer_without_declarations_has_no_binding() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut request = answer(Vec::new());
+        bind_client_tools(&mut request, &connection, &ClientConnections::new()).unwrap();
+        assert!(request.client.is_none());
+    }
 }
 
 #[cfg(test)]

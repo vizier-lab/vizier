@@ -55,7 +55,7 @@ Any request (`chat`, `audio_chat`, `client_event`) may carry:
 
 At most 32 tools and 16 categories per request.
 
-**Scope**: the tools exist for the one turn this request starts, and only while this connection stays open. They are not remembered. The next request must declare them again; the WebUI declares them on every request. Requests over REST cannot declare tools. `prompt` and `silent_read` requests ignore declarations in version 1.
+**Scope**: the tools exist for the one turn this request starts, and only while this connection stays open. They are not remembered. The next request must declare them again; the WebUI declares them on every request. Requests over REST cannot declare tools. `prompt` and `silent_read` requests ignore declarations in version 1. A `question_answer` request takes them like a chat message, so an agent that asked a question first can still call your tools in the turn the answer starts.
 
 **Caching advice**: the agent's system prompt lists your categories (not your tools). Sending the same declaration on every request keeps that prompt identical from turn to turn, which keeps provider prompt caching effective. Changing your declared set between requests works, but costs cache hits.
 

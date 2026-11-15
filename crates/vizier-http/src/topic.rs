@@ -21,7 +21,7 @@ use vizier_core::{
 
 use crate::{
     api::v1::agents::channel::{
-        ClientLimits, WebSocketReactionMessage, bind_client_tools, check_client_context, check_client_event,
+        ClientLimits, WebSocketReactionMessage, answer_turn, bind_client_tools, check_client_context, check_client_event,
         client_call_state, client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
     },
     state::HTTPState,
@@ -440,7 +440,8 @@ impl TopicConnection {
                             // turn (spec 042 FR-017).
                             if matches!(request.content, VizierRequestContent::QuestionAnswer(_))
                             {
-                                let VizierRequestContent::QuestionAnswer(answer) = request.content
+                                let VizierRequestContent::QuestionAnswer(answer) =
+                                    std::mem::take(&mut request.content)
                                 else {
                                     unreachable!("just matched a question answer")
                                 };
@@ -455,7 +456,7 @@ impl TopicConnection {
                                 )
                                 .await
                                 {
-                                    Ok(prepared) => request = prepared,
+                                    Ok(prepared) => request = answer_turn(&mut request, prepared),
                                     Err(error) => {
                                         send_frame(question_error(&set_id, &error)).await;
                                         return;
