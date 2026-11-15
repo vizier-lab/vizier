@@ -74,8 +74,21 @@ While a message waits for the agent's next step, the person can see that it is w
 
 **Acceptance Scenarios**:
 
-1. **Given** a message sent during a busy turn, **When** it has not yet been read, **Then** the WebUI shows it as waiting for the agent.
-2. **Given** the agent read it mid-turn, **When** the conversation is viewed (including after a reload or in a second tab), **Then** it appears inside that turn at the point it was read.
+1. **Given** a message sent during a busy turn, **When** it has not yet been read, **Then** the WebUI shows it below the live activity trail as waiting for the agent.
+2. **Given** the agent read it mid-turn, **When** the conversation is viewed, **Then** the turn is drawn as: the activity trail up to that point, then the person's message, then a new activity trail continuing the turn, then the turn's one reply.
+3. **Given** a turn split this way, **When** the page is reloaded or opened in a second tab, **Then** the order is exactly the same as it was live.
+4. **Given** a turn split this way, **When** its trail parts are shown, **Then** each part carries the ordinary "Worked" label with its own step count and duration; no special wording marks the split (the message itself shows it).
+5. **Given** a steered message that fell back to its own turn (FR-004), **When** the conversation is viewed, **Then** it appears after the earlier turn's reply as an ordinary new turn.
+
+Sketch:
+
+```
+you:    refactor the auth module
+  ▸ Worked · 3 steps · 12s
+you:    wait, keep the old token format     ← where the agent read it
+  ▸ Worked · 5 steps · 40s
+agent:  Done. I kept the v1 token…           ← one reply for the whole turn
+```
 
 ---
 
@@ -120,8 +133,9 @@ While the agent works, a person wants to line up an unrelated request without in
 - **FR-007**: Commands and special message kinds (abort, side chats, handovers, lobotomy, clear-files, explicit skill invocations, question answers) MUST keep their current behaviour.
 - **FR-008**: Conversations without a person (scheduled tasks, dreams, subagent workers, agent-to-agent activations) MUST keep their current behaviour.
 - **FR-009**: Aborting a turn MUST treat messages still waiting for that turn exactly as queued messages are treated on abort today; messages already delivered into the turn remain in its record.
-- **FR-010**: The WebUI MUST show a message as waiting while it waits and, once read mid-turn, show it inside that turn's activity where it was read.
-- **FR-011**: Steering MUST be the default for a message sent while busy, and the person MUST be able to choose, per message, to queue it as a new turn instead (today's behaviour). The WebUI offers this choice in the composer while the agent is busy; channels without such a control (Discord, Telegram, Workspaces) offer it as a text command, and a message sent without it steers.
+- **FR-010**: The WebUI MUST show a message as waiting (below the live trail) while it waits and, once read mid-turn, split the turn's activity trail at that point: trail before, the message, trail after, then the reply. Both trail parts use the ordinary "Worked" label. The order MUST come from the saved conversation record, so it is identical live, after reload and in every tab.
+- **FR-010a**: Background results delivered at a step boundary MUST keep their current presentation inside the trail; only a person's message splits it.
+- **FR-011**: Steering MUST be the default for a message sent while busy, and the person MUST be able to choose, per message, to queue it as a new turn instead (today's behaviour). The WebUI offers this choice in the composer while the agent is busy; channels without such a control offer it as a `/queue` command — a Discord slash command `/queue` taking the message, `/queue <message>` on Telegram (listed in the bot's command menu), and `/queue @<agent-id> <message>` in Workspaces — and a message sent without it steers. `/queue` sent while the agent is idle simply starts a turn.
 - **FR-011a**: A message queued as a new turn by choice MUST never be delivered into the running turn; it runs after it, in arrival order with other queued messages.
 - **FR-011b**: The choice MUST be made at send time and is not changed afterwards by the system; a steered message that falls back to the queue (FR-004) runs as its own turn.
 - **FR-012**: The reply of a turn that received mid-turn messages MUST be one reply, notified once, as for any turn.
