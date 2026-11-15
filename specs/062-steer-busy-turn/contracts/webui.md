@@ -2,6 +2,8 @@
 
 ASCII mockups for the design review (FigCraft was unreachable; constitution v2.2.0 accepts ASCII). Match the existing chat page in both themes; no new colors (the WebUI stays monochrome).
 
+**Status**: approved 2026-11-15.
+
 ## W1 — Composer while busy
 
 ```text

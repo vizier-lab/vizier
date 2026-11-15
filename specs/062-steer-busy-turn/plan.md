@@ -43,12 +43,12 @@ Technically: the per-session queue in `agent_process` becomes a shared handle th
 | V. Errors & observability | ✅ | `crate::Result`; `tracing` for the race-drop path (`debug!`). |
 | Fenced writes (#164) | ✅ | `steer_turns` calls `check_fence` in its transaction; a test row is added to `fence_tests.rs`. |
 | Migration code → #82 | ✅ | None added (new fields default to false; old rows read unchanged). |
-| Design before UI code | ✅ (pending review) | FigCraft unreachable; ASCII mockups in [contracts/webui.md](contracts/webui.md) must be reviewed before UI code. |
+| Design before UI code | ✅ | FigCraft unreachable; ASCII mockups in [contracts/webui.md](contracts/webui.md) approved 2026-11-15, including the copy "Waiting for the agent", "Queued · runs after this turn" and the busy hint. |
 | dummyplug e2e | ✅ | [quickstart.md](quickstart.md) scripts every story; dummyplug protocol change documented and kept backward compatible. |
 | Matching submodule branches | ⚠ to do | `just checkout 062-steer-busy-turn` before touching `design/`, `webui/`, `dummyplug/` (the spec hook created the workspace branch only; submodules currently have uncommitted changes, so run it once those are settled). Commit order design → webui → dummyplug → vizier. |
 | Conventional commits | ✅ | e.g. `feat(agents): steer a busy turn with a person's message`. |
 
-Post-design re-check: unchanged — all gates pass; the design review gate is open until the mockups are approved.
+Post-design re-check: unchanged — all gates pass; the mockups were approved 2026-11-15.
 
 ## Project Structure
 
