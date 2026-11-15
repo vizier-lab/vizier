@@ -23,7 +23,7 @@ const meta = {
   tags: ["approved"],
   parameters: {
     vizier: { id: "D46", replaces: null },
-    docs: { description: { component: "Enter sends, Shift+Enter breaks the line. Type / for the skill menu: ↑ ↓ move, Tab completes, Enter runs. Send stays disabled until there is text or an attachment; while the agent works it becomes Stop." } },
+    docs: { description: { component: "Enter sends, Shift+Enter breaks the line. Type / for the skill menu: ↑ ↓ move, Tab completes, Enter runs. Send stays disabled until there is text or an attachment; while the agent works it becomes Stop, and once you type, Send adds the message to the turn in progress (Ctrl+Enter or Cmd+Enter queues it as a new turn instead)." } },
   },
   args: { agentName: "Archivist", value: "", onValueChange: () => {}, onSend: () => {}, skills: SKILLS, context: CONTEXT },
   decorators: [(Story) => <div className="flex min-h-260 w-720 flex-col justify-end">{Story()}</div>],
@@ -62,6 +62,35 @@ export const States: Story = {
           { cells: [{ label: "Disabled", node: c({ disabledReason: "Reconnecting… you can send once the connection is back" }) }] },
         ]}
       />
+    );
+  },
+};
+
+/**
+ * While the agent works (spec 062): Enter adds the message to the turn in progress, Ctrl+Enter
+ * (Cmd+Enter on macOS) queues it as a new turn. The host shows the shortcut under the box only
+ * while busy; there is no hint on a phone, where `/queue` does the same.
+ */
+export const BusyWithHint: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState("also check the error logs");
+    const [sent, setSent] = useState<string | null>(null);
+    return (
+      <div className="flex flex-col gap-12">
+        <Composer
+          {...args}
+          value={v}
+          onValueChange={setV}
+          busy
+          onStop={() => {}}
+          onSend={(options) => {
+            setSent(options?.queue ? "queued as a new turn" : "added to the current turn");
+            setV("");
+          }}
+          hint="Enter adds to the current turn · Ctrl+Enter queues it"
+        />
+        {sent && <p className="type-small text-muted">Last message: {sent}</p>}
+      </div>
     );
   },
 };

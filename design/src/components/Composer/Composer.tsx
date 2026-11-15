@@ -24,10 +24,16 @@ export type ComposerProps = {
   agentName: string;
   value: string;
   onValueChange: (value: string) => void;
-  /** Sends the text (or "/skill input"). */
-  onSend: () => void;
-  /** The agent is working: Send turns into Stop, which sends /abort. With text typed it queues the message instead. */
+  /**
+   * Sends the text (or "/skill input"). While the agent is busy, Ctrl+Enter (Cmd+Enter on macOS)
+   * sends with `queue: true`: run it as a new turn after the current one, instead of adding it to
+   * the turn in progress.
+   */
+  onSend: (options?: { queue: boolean }) => void;
+  /** The agent is working: Send turns into Stop, which sends /abort. With text typed, Send adds the message to the turn in progress. */
   busy?: boolean;
+  /** One muted line under the box, e.g. the busy shortcut: "Enter adds to the current turn · Ctrl+Enter queues it". */
+  hint?: ReactNode;
   onStop?: () => void;
   /** Can't send: the reason replaces the placeholder ("Archivist can't answer until it restarts"). */
   disabledReason?: string;
@@ -63,7 +69,7 @@ export type ComposerProps = {
  * Where a person writes (D46). Attach, "/", voice and the context ring on the
  * left; a host's switch and Send on the right; a host's toggle can end the
  * left group. "/" opens the skill menu. Text entry focuses emerald. Enter
- * sends, Shift+Enter breaks the line.
+ * sends, Shift+Enter breaks the line; while busy, Ctrl/Cmd+Enter queues.
  */
 export function Composer({
   agentName,
@@ -87,6 +93,7 @@ export function Composer({
   placeholder,
   context,
   tokenText,
+  hint,
   className,
   ...rest
 }: ComposerProps) {
@@ -145,8 +152,14 @@ export function Composer({
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (menuOpen && matches.length) onValueChange(`/${matches[active].name}`);
-      if (canSend || (menuOpen && matches.length)) onSend();
+      if (menuOpen && matches.length) {
+        onValueChange(`/${matches[active].name}`);
+        onSend();
+        return;
+      }
+      // Ctrl+Enter (Cmd+Enter on macOS) queues while the agent works; idle, it simply sends.
+      const queue = !!busy && (e.ctrlKey || e.metaKey);
+      if (canSend) onSend(queue ? { queue } : undefined);
     }
   };
 
@@ -251,8 +264,8 @@ export function Composer({
             ) : (
               <button
                 type="button"
-                aria-label={busy ? "Queue message" : "Send"}
-                onClick={onSend}
+                aria-label={busy ? "Add to the current turn" : "Send"}
+                onClick={() => onSend()}
                 disabled={!canSend}
                 className="flex size-34 items-center justify-center rounded-pill bg-ink text-ground enabled:hover:bg-ink-hover enabled:active:bg-ink-pressed disabled:opacity-40"
               >
@@ -263,6 +276,7 @@ export function Composer({
         </div>
         {overlay}
       </div>
+      {hint && <p className="px-4 type-small text-faint">{hint}</p>}
     </div>
   );
 }
