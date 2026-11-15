@@ -16,13 +16,20 @@ export type UserMessageProps = {
   skill?: string;
   /** Attachment chips above the text. */
   attachments?: ReactNode;
-  /** Waiting behind a running turn: outlined, with when it sends. */
-  queued?: { agentName: string };
+  /**
+   * Sent while the agent works: outlined, with what happens to it. `steer` (the default) goes into
+   * the turn in progress at its next step; `queue` runs as a new turn after it.
+   */
+  queued?: { agentName: string; mode?: "steer" | "queue" };
   /** Right is the signed-in person (the default). Left is someone else in a Workspace, with the avatar first. */
   side?: "right" | "left";
   /** It names the signed-in person: a lapis edge on the bubble. */
   mentioned?: boolean;
 } & HTMLAttributes<HTMLDivElement>;
+
+function queuedLabel(queued: NonNullable<UserMessageProps["queued"]>) {
+  return queued.mode === "queue" ? "Queued · runs after this turn" : "Waiting for the agent";
+}
 
 /** A person's message, right-aligned: a meta row (time, name, avatar) above its container (D43). */
 export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attachments, queued, side = "right", mentioned, className, children, ...rest }: UserMessageProps) {
@@ -38,7 +45,7 @@ export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attach
           </>
         ) : (
           <>
-            <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : time}</span>
+            <span className="type-mono-xs text-faint">{queued ? queuedLabel(queued) : time}</span>
             <span className="type-body-strong text-fg">{name}</span>
           </>
         )}

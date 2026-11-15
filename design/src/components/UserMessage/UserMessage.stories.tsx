@@ -50,4 +50,8 @@ export const Mentioned: Story = {
 };
 
 /** Sent while a turn runs: waits, outlined. */
+/** Sent while the agent works: it goes into the turn in progress at the agent's next step (spec 062). */
 export const Queued: Story = { args: { children: "Also check the retry path", queued: { agentName: "Archivist" } } };
+
+/** Sent with Ctrl+Enter (or `/queue`) while the agent works: it runs as a new turn after this one. */
+export const QueuedAsNewTurn: Story = { args: { children: "Then draft the release notes", queued: { agentName: "Archivist", mode: "queue" } } };
