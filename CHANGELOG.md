@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0-rc.2] - 2026-11-15
+
+### 🚀 Features
+
+- *(core)* Fleet row ownership, fencing and lease-based recovery (#205)
+- *(agents)* [**breaking**] Replace background jobs with detached scripts (#206)
+- *(agents)* [**breaking**] Subagents as temporary workers (#207)
+- *(agents)* [**breaking**] Stop recording recalled passages
+- *(agents)* Prune old tool outputs from the model's view and add recall_history (#209)
+- *(tools)* Let http_client save a download as a session file
+- *(agents)* [**breaking**] Let agents save scripts as custom tools (#210)
+- *(agents)* Steer a busy turn with a person's message (#211)
+
+### 🐛 Bug Fixes
+
+- *(dream)* Extract only the conversation since the last dream
+- *(dream)* Show a cycle as running from the moment it starts
+- *(app)* Allow https images in the desktop app's CSP
+- *(webui)* Align the composer, cap markdown images, crop thumbnails from the top
+- *(chat)* Keep client tools on the turn a question answer starts
+
+### ⚙️ Miscellaneous Tasks
+
+- Build Linux binaries on ubuntu-24.04 to match the image's glibc (#208)
+- Bump landing
+- Bump design and webui (strip icons, subagents default tab, error after reload)
+- Bump webui (intent on the running trail head)
+- Bump design (house icon on the home tile)
 ## [0.16.0-rc.1] - 2026-11-13
 
 ### 🚀 Features
@@ -22,6 +50,7 @@ All notable changes to this project will be documented in this file.
 
 - *(submodules)* Pick up the trail spine and narration fixes
 - *(submodules)* Drop the host-execution and install notices
+- Bump version to 0.16.0-rc.1
 ## [0.15.1] - 2026-11-07
 
 ### 🚀 Features

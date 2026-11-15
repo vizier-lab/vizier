@@ -1,12 +1,13 @@
 {
-  "etag": "\"294a94ed23c855b19aa859e1c00c40a2\"",
-  "fetched_at": "2026-11-13T02:42:01Z",
-  "models": 9129,
+  "etag": "\"9fabd07856d8107b1a4df7eec63ea4fe\"",
+  "fetched_at": "2026-11-15T15:48:10Z",
+  "models": 9878,
   "no_logo": [
     "aion-labs",
     "aisingapore",
     "aleph-alpha",
     "alibaba-token-plan-cn",
+    "allenai",
     "amazon",
     "anthracite-org",
     "apodex",
@@ -26,6 +27,7 @@
     "fireworks",
     "gmicloud",
     "gryphe",
+    "huawei",
     "ibm",
     "inclusionai",
     "inference-net",
@@ -41,6 +43,7 @@
     "nex-agi",
     "nousresearch",
     "openbmb",
+    "opendatalab",
     "paddlepaddle",
     "perceptron",
     "quiverai",
@@ -59,13 +62,12 @@
     "tencent",
     "thedrummer",
     "trendyol",
-    "unbiased",
     "undi95",
     "upstage",
     "voyageai",
     "writer"
   ],
-  "providers": 236,
+  "providers": 324,
   "schema": 1,
   "source_url": "https://models.dev/api.json"
 }
