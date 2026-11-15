@@ -8,11 +8,13 @@ A request received while its session is busy (a turn running, or a queue not yet
 
 ## S2 — The boundary
 
+Silent reads (Discord/Telegram `SilentRead`, Workspace catch-up) are untouched by this contract: they keep today's behaviour and are deferred to a separate spec.
+
 The only place a waiting message enters a turn is the round boundary of a chat turn's loop: after every tool call of the round has a result, before the next completion. Order at a boundary:
 
 1. take every `Steer` item of the session (in arrival order);
 2. `steer_turns` in one transaction (R2); drop what it did not save;
-3. for each saved message, in order: Workspace catch-up, attachments to session files, project mentions, model text from `to_prompt` (`via: mid_turn`);
+3. for each saved message, in order: attachments to session files, project mentions, model text from `to_prompt` (`via: mid_turn`);
 4. claim background deliveries (unchanged);
 5. send **one** user message: delivery text first (if any), then each person message as its own text part;
 6. push each saved entry as `SessionFrame::HistoryEntry`; send `Steered` on each message's own sender and drop it.

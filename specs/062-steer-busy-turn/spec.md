@@ -117,7 +117,7 @@ While the agent works, a person wants to line up an unrelated request without in
 - **Restart or agent update mid-turn**: a message already delivered into a turn is part of that turn's record and is resumed with it; a message not yet delivered is still waiting and is either delivered at the resumed turn's next boundary or run as its own turn — exactly once.
 - **Agent deleted**: waiting messages are rejected as queued messages are today.
 - **Conversations with no person in them** (scheduled tasks, dreams, subagent workers, inter-agent mentions): unchanged; this feature only concerns messages people send.
-- **Group conversations** (Discord guild channels, Telegram groups, Workspaces): a message that addresses the agent while it is busy in that conversation is delivered mid-turn, attributed to whoever sent it; messages the agent only reads silently (not addressed to it) are unchanged.
+- **Group conversations** (Discord guild channels, Telegram groups, Workspaces): a message that addresses the agent while it is busy in that conversation is delivered mid-turn, attributed to whoever sent it; messages the agent only reads silently (not addressed to it) are unchanged and out of scope (see Assumptions).
 - **Very long messages or many messages**: the delivery is subject to the same size handling as any person's message; nothing waiting is dropped.
 - **Context compaction**: a delivered message survives a checkpoint/handover the same way any other message in the turn does.
 
@@ -164,4 +164,5 @@ While the agent works, a person wants to line up an unrelated request without in
 - Messages are not interleaved into the middle of a round of tool calls; a round always finishes first.
 - All person-facing channels (WebUI, Discord, Telegram, Workspaces, projects) get the behaviour; how each channel shows a waiting message beyond the WebUI is left to the current presentation of queued messages.
 - The WebUI changes in FR-010 are a UI change and need a design pass (FigCraft, or an HTML/ASCII mockup if FigCraft is unavailable) before code, per the project's design-first rule.
+- Silent reading (group-channel messages not addressed to the agent, and Workspace entries copied lazily) is out of scope and keeps its current behaviour: such messages still wait behind a busy turn or for the next activation. How they should behave around a running turn needs its own discussion and spec.
 - No new permissions: whoever may send a message to the conversation may steer its turn.

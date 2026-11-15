@@ -14,7 +14,7 @@ Technically: the per-session queue in `agent_process` becomes a shared handle th
 
 **Language/Version**: Rust 2024 (workspace toolchain); TypeScript 5 / React 19 for `webui/` and `design/`
 
-**Primary Dependencies**: existing only — tokio, serde, the in-tree `llm` layer, React Router 7, Zustand, Tailwind v4. No new crates or npm packages.
+**Primary Dependencies**: existing only — tokio, serde, the in-tree `llm` layer, React Router 7, Zustand, Tailwind v4. No new crates or npm packages. Silent reads are out of scope (deferred to their own spec).
 
 **Storage**: SQLite (default) and PostgreSQL through the shared `SqlStorage`; one new fenced `TurnStorage` method (`steer_turns`), no schema change (new request fields ride the existing JSON columns of `session_turn` and `session_history`).
 
