@@ -198,6 +198,8 @@ Akibatnya persis yang diperingatkan `session.rs:236-238`: agen tetap bekerja, ja
 
 **Batas:** tes #2 harus gagal di kode sekarang dan lulus sesudahnya — kalau ia lulus sebelum perbaikan, tesnya salah tempat, bukan kodenya benar. Lampirkan **dua** keluaran itu di laporan.
 
+> **Catatan 2026-11-16 (C17):** dua perintah di tabel ini memakai `--features provider-live-voice`, yang **sudah dihapus** — menjalankannya sekarang gagal keras (`does not contain this feature`), bukan lulus. Baris di atas **tidak diubah** karena ia catatan hasil gate yang dijalankan tanggal itu. Padanan hari ini: `cargo test -p vizier-core --lib live_voice::` (56 tes) dan `cargo test -p vizier-http` (32 tes di empat binary) — tanpa `--features`.
+
 **WIP:** `T110` kembali ke `aktif` (ronde 1 dari maks 2). Ini ronde yang sama, bukan task baru — tidak menambah slot.
 
 

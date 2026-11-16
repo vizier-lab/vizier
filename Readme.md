@@ -155,19 +155,21 @@ telemetry stack at once. On a 16 GB machine that peaks near **10 GB of RAM and a
 Name the crate and the features the work actually uses instead, one `cargo` at a time:
 
 ```sh
-# the engine's live voice path only
-cargo build -p vizier-http --features live-voice
+# the gateway crate alone (live voice is always compiled in; there is no flag)
+cargo build -p vizier-http
 
 # the shipped binary, default features (role-all + core `full`)
 cargo build -p vizier
 
-# the feature-off path still builds: same crate, no --features
+# the gateway's tests, including the live voice ones
 cargo test -p vizier-http
 ```
 
-Measured on 8 cores, cold target, `-j4`, 2026-11-09: `-p vizier-http --features live-voice`
-**8m45s, peak RSS 4.8 GB, `target` 6.0 GB**; `-p vizier` (defaults) **23m22s, peak RSS 10.0 GB,
-`target` 17 GB**. The expensive optional features are `provider-media` (whisper-rs, symphonia),
+Measured on 8 cores, cold target, `-j4`, 2026-11-09: `-p vizier-http` (then still with
+`--features live-voice`) **8m45s, peak RSS 4.8 GB, `target` 6.0 GB**; `-p vizier` (defaults)
+**23m22s, peak RSS 10.0 GB, `target` 17 GB**. The flag was removed on 2026-11-16: live voice adds
+no dependency, so it is compiled into every build and switched per agent instead
+(`docs/src/configuration/build-flavours.md`). The expensive optional features are `provider-media` (whisper-rs, symphonia),
 `addon-documents` (pdf-extract, ironcalc), `addon-docker` (bollard) and
 `channel-discord`/`channel-telegram`.
 

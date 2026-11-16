@@ -12,7 +12,6 @@ never changes the API shape, it only adds or removes a capability.
 | `channel-discord` | The Discord reader and its tools | `twilight-gateway`, `twilight-http`, `twilight-model`, `twilight-util` | `channel/discord` |
 | `channel-telegram` | The Telegram reader and its tools | `teloxide` | `channel/telegram` |
 | `provider-media` | Speech-to-text and text-to-speech | `whisper-rs`, `any-tts`, `symphonia`, `symphonia-adapter-opus-rs`, `hound` | `provider/media` |
-| `provider-live-voice` | The live voice conversation: the session manager, the frame types and the cascade engines. It **reuses** the speech providers, so it pulls in no dependency of its own | none | `provider/live-voice` |
 | `addon-docker` | The Docker shell backend | `bollard`, `indicatif` | `addon/docker` |
 | `addon-documents` | The Office addon (PDF, Word, Excel) | `pdf-extract`, `docx-rs`, `calamine`, `rust_xlsxwriter`, `ironcalc` | `addon/documents` |
 | `utoipa` | OpenAPI schemas on the API types | `utoipa` | `utoipa` |
@@ -27,22 +26,26 @@ Names are grouped as `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nat
 `default = []` for `vizier-core`, so an app that embeds the engine pays only for what it asks for.
 The `vizier` binary and the desktop app depend on `vizier-core` with `full`.
 
-### `provider-live-voice` and the gateway
+### Live voice has no flag (since 2026-11-16)
 
-The engine's `provider-live-voice` flag carries the session manager, the frame types and the cascade
-engines; it adds no dependency, because it reuses whichever speech providers are already compiled in.
-Turning it on in `vizier-core` is **not enough** on its own: the HTTP adapter has a matching
-`live-voice` feature (`vizier-http`) that makes the conversation socket understand `live_voice_*`
-frames at all, and it is what turns `vizier-core/provider-live-voice` on:
+Live voice is **compiled into every build** of the engine and the gateway. There is no
+`provider-live-voice` in `vizier-core` and no `live-voice` in `vizier-http`: the flags were removed,
+not renamed, because the capability pulled in **no dependency of its own** (`cargo tree -p vizier-core
+--no-default-features -e normal --prefix none | sort -u` gives the same 625 crates with and without
+it). A flag that buys no build saving only invites the question "why is this gated", which is the
+question the project owner asked.
+
+What turns live voice on for a person is the **per-agent `live_voice.enabled` setting**, off unless
+it is configured. With it off, a `live_voice_start` is ignored **without closing the socket**, no
+`live_voice` frame is ever emitted, and every existing chat and speech capability works exactly as
+before (FR-041). The capability itself — what the row shows, what is stored — is
+[Live Voice](./live-voice.md).
+
+Because the tests are no longer behind a file-level `#![cfg]`, they run on every `cargo test`:
 
 ```sh
-cargo test -p vizier-http --features live-voice
+cargo test -p vizier-http          # the four live_voice_* binaries report 7 / 8 / 11 / 6
 ```
-
-With the flag off nothing changes: a `live_voice_start` is ignored without closing the socket and no
-`live_voice` frame is ever emitted, so a build without the feature keeps every existing chat and speech
-capability working. The capability itself — turning it on per agent, what the row shows, what is stored
-— is [Live Voice](./live-voice.md).
 
 ### The binary's role flags
 
