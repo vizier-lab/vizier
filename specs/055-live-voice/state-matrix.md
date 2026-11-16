@@ -7,19 +7,27 @@ itu ditulis di blok `code_ref` alih-alih dibiarkan sebagai pin tua yang tampak s
 
 ```
 flow:         Live Voice — panggilan sebagai satu baris di dalam percakapan (C11 / surface B1-1)
-spec_ref:     specs/055-live-voice/spec.md@fb4315fc — bukan @bf7971a5, bukan @25b796ac, dan tiap gantinya
+spec_ref:     specs/055-live-voice/spec.md@d34103c7 — bukan @fb4315fc, bukan @bf7971a5, bukan @25b796ac, dan tiap gantinya
              berangka: `25b796ac` (09:33) menua 36 menit kemudian; `bf7971a5` (11:16) benar 27 menit, lalu **pin
              rule di dalamnya sendiri berubah jadi tiga ref** — matriks yang menunjuk spec yang tidak lagi
              memuat aturannya sedang mengutip teks yang sudah tidak ada. `2d9adcbe` (11:43, +20/−4) memuat
              aturan itu. **Pin ini sah selama `spec.md` tidak berubah sesudahnya**:
-             `git log -1 --format=%h -- specs/055-live-voice/spec.md` harus mengembalikan `fb4315fc`.
+             `git log -1 --format=%h -- specs/055-live-voice/spec.md` harus mengembalikan `d34103c7`.
              **Riwayat pin, supaya tidak ada yang mengulang kesalahannya:** `2d9adcbe` patah 2026-11-16 karena C17
              (`5d7a188e`, FR-041 keluar dari feature gate) lalu delta FR-004 (`live_voice_missing`); `fb4315fc` memuat
-             **keduanya** dan tes di atas **lulus** (`git log -1 --format=%h -- …spec.md` → `fb4315fc`, dicek sebelum baris
-             ini ditulis). Yang tidak boleh dilakukan tetap sama: menaikkan angka pin ke commit yang belum ada, atau
+             **keduanya**. `fb4315fc` lalu patah **hari yang sama, 13:49**, ketika amendemen FR-004 mendarat
+             (`d34103c7`: `live_voice_missing` dilaporkan **hanya saat saklar on**, delta 13:05) bersama paket `625`,
+             `:1509` dan `:1618` — teks sesudahnya bukan lagi teks yang dipin, jadi pin itu berhenti sah tanpa ada yang
+             menyentuhnya. `d34103c7` memuat teks final dan tes di atas **lulus**
+             (`git log -1 --format=%h -- …spec.md` → `d34103c7`, dijalankan 2026-11-16 14:01, sebelum baris ini
+             ditulis). Yang tidak boleh dilakukan tetap sama: menaikkan angka pin ke commit yang belum ada, atau
              membiarkan pin lama terbaca sebagai sah.
-             **Status dokumen: DRAFT — dan sekarang bukan karena pin spec.** Pin spec lulus; yang belum lulus adalah ref
-             ketiga, lihat `code_ref` di bawah. Aturan tiga ref tidak dilonggarkan oleh keberhasilan satu ref.
+             **Status dokumen: DRAFT — alasannya `code_ref`, bukan `spec_ref`.** Pin spec **lulus** per commit `d34103c7`
+             (tes di atas dijalankan, bukan dikutip). Yang belum lulus adalah ref ketiga: `8929bbed` vs checkout
+             `0d5255f`, lihat `code_ref` di bawah. Aturan tiga ref tidak dilonggarkan oleh keberhasilan satu ref.
+             *(Baris ini sampai 2026-11-16 14:01 berbunyi "bukan karena pin spec. **Pin spec lulus**" — benar saat
+             ditulis, lalu salah ketika `d34103c7` mendarat dan `spec_ref` tidak ikut naik. Pin yang dipulihkan lebih
+             murah daripada kalimat yang mengklaim tes lulus padahal tesnya gagal.)*
 design_ref:   055-live-voice-screen.figcraft@02ddd7b4 (291 259 B) — B1-1, frame `9679` + app `9680`; idle `9462`;
              export `055-B1-1-pil-kiri-light@2x.png` (1 168 623 B, md5 `f1308ffc4b4255aed62acedbd8343ea7`).
              **@02ddd7b4, bukan @7072fe9f:** 2026-11-10 09:17 label `CANONICAL` dicabut dari `6188`/`6190`
