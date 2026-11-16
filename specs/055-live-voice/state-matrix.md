@@ -49,11 +49,13 @@ code_ref:     webui@0d5255f (740 baris `session.ts`) · crates @ `0c158da8` — 
              campur: `LiveVoiceRow.tsx:32`, `:174` dan `session.ts:550` menunjuk hal berbeda di dua pin.
              Hitungannya, metode ditulis: baris tabel `| LV-…` saja, pola
              `[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts|tsx):[0-9]+(-[0-9]+)?`, satu kejadian per kemunculan ->
-             **47 kejadian (39 jenis)** — diukur Lead 2026-11-16 14:26 di HEAD `e6eeffa4` dengan pola yang sama. Pecahan `27 bergeser · 7 nomor sama dan isi sama · 6 hanya ada di pin baru · 2 historis` di bawah **dihitung pada `281e51fd`, saat berkasnya memuat 42 kejadian** (sebelum lima nomor `LV-ST-LISTENING` ditambahkan); ia **tidak** menjumlah 47 dan tidak boleh dipakai bersama angka itu
-             (`session.ts:406`, dibiarkan: menggesernya menghidupkan cacat yang sudah mati).
-             Batas angka: `47`/`39` bisa direproduksi mesin di HEAD dengan pola itu (`grep -E '^\| LV-' … | sort -u | wc -l`); pecahan `27/7/6/2` **tidak** — ia pembacaan
-             per klausa, dan definisi "hanya ada di pin baru" mengubah hasilnya (2 vs 6). `grep` polos memberi 47 token;
-             yang bisa diulang persis adalah diff-nya: `git diff 281e51fd^..281e51fd` -> 38 tambah / 32 hapus.
+             **47 kejadian (39 jenis)** di HEAD — diukur Lead 2026-11-16 14:26 di `e6eeffa4`, dan saya ulang di `6ef314b5`
+             dengan hasil sama. Batas angkanya: `47`/`39` **bisa** direproduksi mesin dengan pola itu; **pecahannya tidak**,
+             dan itu bukan kelemahan hitungan — empat pembacaan atas himpunan yang sama memberi empat pecahan berbeda yang
+             semuanya berjumlah benar. Rinciannya, beserta aturan masing-masing, ada di **§Riwayat hitungan sitasi**,
+             bagian "Pecahan: empat pembacaan, satu total". Yang juga bisa diulang persis: diff-nya,
+             `git diff 281e51fd^..281e51fd` -> 38 tambah / 32 hapus. Satu sitasi dibiarkan di pin lama karena keputusan,
+             bukan karena teksnya tidak bergerak: `session.ts:406` — menggesernya menghidupkan cacat yang sudah mati.
              `crates @ 0c158da8` **belum** dipin, dan itu bukan kelalaian: gate C17 memanjangkan `session.rs` 1692 -> 2517
              dan `topic.rs` 1182 -> 1518 (diukur tiga metode), sehingga **10 dari 19** token Rust menunjuk baris berbeda di
              HEAD; dua di antaranya (`topic.rs:466-470`, `:685-690`) punya jangkar kembar `return;` dan tidak boleh
@@ -127,6 +129,26 @@ pergantian punya sebab, dan sebab yang hilang adalah cara tercepat mengulang kes
 | 2026-11-16 14:07 (`281e51fd`) | "25 berganti nomor (19 jenis) / 4 kebetulan sama / 9 sudah menunjuk `0d5255f` / 1 historis" | jumlahnya 39, sedangkan berkasnya memuat 42 kejadian — dan **cakupannya tidak disebut**. Angka yang cakupannya tidak ditulis tidak bisa diperiksa, jadi ia bukan angka |
 | 2026-11-16 14:15 (`51b8bbd1`, `c60b47e1`) | "42 kejadian (**34** jenis)" | pola yang dipakai melewatkan nama berkas bertitik: `LiveVoiceRow.test.tsx:178` tidak ikut, sehingga hasilnya 41/34. Pola yang benar (`[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts\|tsx):…`) memberi **42/35** |
 | 2026-11-16 14:20 (`e6eeffa4`) | 42/35, tetapi kalimatnya berbunyi "dicek silang `@teteh-qa`" | nama `@teteh-qa` dicabut: ia tidak melakukan pengukuran itu. Recount-nya sendiri memakai definisi lain — **44 kejadian / 36 jenis** (6 nomor sama & isi sama · 9 hanya ada di pin baru · 29 nomor sama tapi isi berbeda) — dan menjawab pertanyaan berbeda: *"apakah nomor yang sama menunjuk hal yang sama?"* vs *"berapa yang harus digeser?"*. **Jangan digabung, dan jangan pilih satu sebagai yang resmi.** 44/36 dicatat sebagai klaim `@teteh-qa` beserta metodenya; Lead belum mengulangnya |
+
+### Pecahan: empat pembacaan, satu total
+
+Himpunan sitasinya stabil — **42 kejadian (35 jenis)** di `afc5e90f` dan `281e51fd`, **47 (39)** sejak `51b8bbd1`, dan
+angka itu bisa direproduksi mesin dengan pola di blok `code_ref`. **Pecahannya tidak**, karena pola regex tidak menjawab
+dua pertanyaan yang dipakai untuk memecah: *apakah sitasi ini menunjuk hal yang benar di pin lama?* dan *kalau teksnya ada
+di pin lama tapi bukan di nomor itu, ia dihitung apa?*
+
+| Sumber | Aturan yang dipakai | Hasil (semuanya berjumlah 42) |
+|---|---|---|
+| blok `code_ref` (Lead, 14:15) | jangkar teks per klausa; "hanya ada di pin baru" = isinya tidak ada di pin lama | 27 bergeser · 7 sama · 6 hanya-di-baru · 2 historis |
+| `@teteh-qa` 14:20 (2617) | partisi lima, memisahkan "nomor sama, isi berbeda, benar hanya di pin baru" | 22 · 7 · 9 · 2 · 2 |
+| `@teteh-qa` 14:25 (2619) | jangkar wajib unik; yang tidak bisa dipastikan masuk "ambigu" | 30 · 7 · 2 baru · 3 ambigu |
+| skrip, 2026-11-16 14:26 | bandingkan teks rentang pada **nomor yang sama** di dua pin; tidak menilai klaim | 33 isi berbeda · 7 isi sama · 2 di luar jangkauan |
+
+Empat-empatnya berjumlah 42, dan itu justru buktinya: yang berbeda bukan aritmetika, melainkan **keputusan
+kategorisasi**. Dua di antaranya datang dari orang yang sama dalam lima menit dengan aturan berbeda. Karena itu tidak ada
+satu pun yang ditulis di sini sebagai "angka mesin" — yang dipakai untuk bekerja bukan pecahannya, melainkan **daftar
+tokennya**: setiap nomor baru dibuka satu per satu di `0d5255f`, dan sebuah sitasi dibiarkan di pin lama hanya kalau
+memindahkannya akan menghidupkan cacat yang sudah mati (`session.ts:406`).
 
 ### Pin `crates` — peta yang **belum** dipindah, supaya ronde berikutnya tidak menebak
 
