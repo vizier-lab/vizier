@@ -401,7 +401,7 @@ akan melanggar aturan `R:`. Dicatat sebagai fakta proses supaya angka dan sisany
 | Submodule setelah merge | `webui@0d5255f` (merge `5f3bef2`) · `design@35d633a` (merge `4c32bc2`) · `dummyplug@fba9813f` · `landing@a15d98d1` |
 | Konflik | 4 path: `docs/src/SUMMARY.md` (Lead: Live Voice **2.23**, Custom Tools **2.24**), `crates/vizier-core/src/agents/agent/mod.rs` (Sepuh: steer **dan** fast path hidup), `webui` (Sepuh: `frames.ts` dua sisi), `design` (Sepuh: 0 konflik) |
 | Gate (dijalankan Lead di tree ini, bukan kutipan) | `cargo check -p vizier-core --features provider-live-voice` 0 · `-p vizier-http --features live-voice` 0 · `key_tests` **6 passed** · `fast_path` **6 passed** · `steer` **13 passed** + `dummyplug_e2e::messages_sent_while_busy_steer_the_running_turn` **1 passed (5,36 s)** · `webui` typecheck 0, `Test Files 114 passed`, `Tests 1298 passed | 1 skipped` · `design` typecheck 0 |
-| Push | **belum** — `rev-list --left-right --count origin/055-live-voice...HEAD` = `0 30`; menunggu ACC kang |
+| Push | **sudah** — `origin/055-live-voice` = `e43a0c18` = HEAD (dicek 16 Nov 11:28, `git log -1 origin/055-live-voice`); baris lama `0 30` / "menunggu ACC" **basi** |
 
 ### Satu tes merah yang bukan tes merah (koreksi diri, 16 Nov 10:05)
 Saya sempat menyimpulkan `messages_sent_while_busy_steer_the_running_turn` **regresi merge** karena gagal 3/3
@@ -415,4 +415,4 @@ tidak ada; diff 78 baris di `src/protocol.mjs`). Worktree pembanding master saya
 ### Sisa yang belum ditutup
 - `webui/app/api/schema.d.ts` **belum** di-regenerate (`node scripts/openapi.mjs` butuh server hidup di `VIZIER_URL`); tidak ditambal tangan.
 - `design npm test` gagal karena `chromium_headless_shell-1248` belum terpasang (`npx playwright install chromium`); typecheck hijau.
-- Push ke `origin/055-live-voice` menunggu ACC kang; belum ada yang di-push.
+- ~~Push ke `origin/055-live-voice` menunggu ACC kang~~ — **basi**: `git log -1 origin/055-live-voice` = `e43a0c18` = HEAD dan `rev-list --left-right --count origin/055-live-voice...HEAD` = `0 0` (dicek 16 Nov 11:28). Commit-commit merge ini sudah di remote.
