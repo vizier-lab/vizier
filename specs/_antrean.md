@@ -551,13 +551,16 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 
 - `cargo test -p vizier-http` **tanpa flag tidak kompilasi** (`E0433`), bukan `running 0 tests`. Premis baseline di brief Lead (dan A4 versi awal) **tidak pernah bisa terjadi**.
 - Klaim FR-041 lama — "a build without it leaves every existing speech feature working" — **salah dalam arti paling harfiah**: build itu tidak menghasilkan build.
-- `app/src-tauri/Cargo.toml:30` bergantung pada `vizier-http` **tanpa** fitur → build desktop **tidak kompilasi** sejak `449aca26`. Gate C17 memperbaikinya sebagai efek samping. **Tidak dibuktikan dengan membangun Tauri** (di luar DoD); yang dibuktikan hanya konfigurasi crate + kegagalan kompilasi di HEAD lama.
+- `app/src-tauri/Cargo.toml:29-30` bergantung pada `vizier-core` dan `vizier-http` **tanpa fitur** → build desktop **tidak kompilasi** sejak `449aca26`. Gate C17 memperbaikinya sebagai efek samping.
+  **DIBUKTIKAN DUA SISI oleh `@sepuh-be` (2026-11-16 14:10):** `cd app && cargo check -p vizier-app --no-default-features` di HEAD `c9e9f0c8` → **EXIT 0** (8m56s, `CARGO_BUILD_JOBS=2`); di worktree `bc5d3235` → **EXIT 101** dengan `E0433: cannot find live_voice in vizier_core` di `vizier-http/src/topic.rs:58`. Bukan argumen lagi.
+  **Batasnya, dan jangan dibaca lebih jauh:** `shell`/Tauri glue **tidak pernah** dikompilasi — mesin ini tidak punya `webkit2gtk-4.1`/`javascriptcoregtk-4.1`/`gtk+-3.0` (`pkg-config` gagal). Jadi yang terbukti = **dependensi crate desktop tidak lagi mustahil dikompilasi**, bukan "aplikasi desktopnya membangun". Pemasangan paket sistem itu keputusan User, bukan wewenang agen.
+  **Ralat yang Sepuh sebut sendiri, dan patut dicatat:** percobaan baseline pertamanya gagal karena `build.rs` menuntut `webui/build/client` yang tidak ada di worktree baru — bukan karena gate. Ia staging `webui/build/client` (gitlink `webui@0d5255f` sama di kedua commit, dicek sebelum menyalin) lalu mengulang; `E0433` baru muncul di percobaan kedua. Dua percobaan, dua sebab berbeda; kalau berhenti di yang pertama, laporannya akan berisi bukti yang tidak tentang gate sama sekali.
 
 **Konsekuensi untuk dokumentasi:** T108 sekarang punya **dua** alasan mati (bukan satu), dan `crates/vizier-http/Cargo.toml:23-25` (komentar "still builds against an engine without the live voice feature") **tidak benar sejak `449aca26`** — hilang bersama blok `[features]` di commit ini.
 
 ### Dua hal yang Sepuh laporkan dan tidak ia sentuh
 1. `topic.rs:44-49` — dua doc comment berbeda (T109/FR-062 dan T110/FR-063) menumpuk di atas satu fungsi `owns_session`. **Pra-ada** (`474ead86`), bukan akibat gate. Keputusan Lead: **tidak dirapikan di ronde gate** (mencampur dua hal dalam satu diff), dan **tidak** dibuat task baru tanpa `R:`; dicatat di sini supaya tidak hilang. Kalau `topic.rs` disentuh lagi untuk T113/T114-era, rapikan sekalian.
-2. Build Tauri tidak dijalankan — lihat tabel temuan di atas.
+2. Build Tauri: `cargo check -p vizier-app --no-default-features` sudah dijalankan dua sisi (lihat di atas). Yang tetap tidak dijalankan: `shell`/Tauri glue dengan fitur default, karena prasyarat sistemnya tidak ada di mesin ini.
 
 ## Status C17 + T113/T114 (16 Nov 2026, setelah gate)
 
