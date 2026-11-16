@@ -573,7 +573,7 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 | FR-004 (wire + amendment) | `@system-analyst` | **`selesai`** — `fb4315fc` lalu `d34103c7` (aturan saklar-nyala) |
 | Dokumen + papan | Lead | **`selesai`** — `ef129ab9` (`build-flavours.md`, `Readme.md`), papan |
 | **T113** (`live_voice_missing` di `AgentDetail`) | `@sepuh-be` | **`selesai`** (kode + gate). Brief 2576; kode `25689640` (+121/−14, 2 berkas), kosmetik `a06afd13`. **Gate AQ-002 PASS** `@teteh-qa`: diukur di `25689640`, diulang identik di `03ce4589`, berlaku di HEAD `5423d393` (`git diff 03ce4589 HEAD -- crates/` = 0 baris) — `git grep -c live_voice_missing HEAD -- crates/` 13 · `--test agents_seam` 12 · `-p vizier-http` 12 blok / 115 passed (114 fungsi + 1 doc-test) · empat `live_voice_*` 7/8/11/6 · `--lib live_voice::` 56 · `--no-default-features` 2015 / 7 ignored · `check --features full` + `clippy` exit 0. A4 naik di `28d8b3bb`, ekor basi `5423d393`. Merah-sebelumnya nyata: guard `if !enabled { return None }` dicabut -> 2 tes FAILED `left: Some(\"recognizer\"), right: None`. |
-| **T114** (alasan pill sampai ke layar) | `@sepuh-be` | **`aktif`** — brief + DoD dikirim 16 Nov (ws seq 2770). Baseline Lead di `webui@0d5255f`: `LiveVoiceRow.test.tsx` 19 passed · `npx vitest run app/lib/liveVoice app/screens/chat` 12 berkas / 177 passed / 1 skipped · `npm run typecheck` exit 0 · `git grep -c live_voice_missing -- app/` exit 1. Harapan: 6 tes fungsi baru (merah dulu) · row 19 -> 22 (karakterisasi) · 13 berkas / 186 passed · typecheck 0 · grep rangkaian >=3 / >=2 / >=1. Commit oleh Lead, gate `@teteh-qa`. |
+| **T114** (alasan pill sampai ke layar) | `@sepuh-be` (kode) / Lead (commit) | **kode `selesai`, gate belum** — brief + DoD ws seq 2770. Baseline Lead di `webui@0d5255f`: `LiveVoiceRow.test.tsx` 19 passed. **Commit `webui@7732f0a`** (16 Nov, 5 berkas, +84/−1) oleh Lead setelah review + ukur sendiri: **`npx vitest run app/lib/liveVoice app/screens/chat` → 13 files, 186 passed \| 1 skipped (187), EXIT=0** · **`npx tsc --noEmit` → EXIT=0, nol `error TS`**. Yang **belum** dibuktikan: `npm run typecheck` (typegen react-router) hanya dari laporan Sepuh, dan gate QA AQ-002 ronde T114 belum jalan |
 | Blok 38 sitasi `code_ref` | `@teteh-qa` | **`aktif`** — ditempel ke `state-matrix.md`, lalu SA yang menaikkan pin |
 | `AQ-002` | — | tertutup oleh T113 + T114 (bukan task terpisah) |
 
@@ -631,4 +631,14 @@ Berlaku termasuk `cargo check`. Dua build bersamaan menahan lock dan merusak dur
 
 ### 7. Kalau angka berbeda pendapat: tulis definisinya, jangan ganti angkanya
 Hari ini empat pembacaan atas himpunan sitasi yang sama (`27/7/6/2`, `22/7/9/2/2`, `30/7/2/3`, `33/7/2`) semuanya berjumlah benar. Yang dipakai untuk bekerja bukan pecahannya, melainkan **daftar tokennya**.
+
+### 8. Branch bersama: tanpa `--amend`, tanpa `--force`, dan baca `git log -1` tepat sebelum commit (16 Nov 2026)
+Empat kejadian hari ini, satu pola: commit **yatim** karena branch bersama dipakai bergantian.
+Aturan yang mengikat:
+
+- **Jangan `git commit --amend`** di branch bersama. `--amend` menulis ulang commit yang mungkin sudah dibaca, diukur, atau dikutip agen lain; angka yang menempel padanya jadi menunjuk objek yang tak ada lagi.
+- Kalau tetap perlu mengubah commit sendiri, **`git log -1` tepat sebelum** perintah itu, dan **hanya** kalau commit teratas masih milik sendiri (dilihat dari isi, bukan dari author — semua agen menulis dengan identitas yang sama di mesin ini).
+- **Jangan `git push --force`** tanpa menyebutnya lebih dulu di papan. Kalau sudah terlanjur, pulihkan dengan `git reset` ke objek yang benar lalu laporkan hash sebelum/sesudahnya, jangan diamkan.
+- `git status` sebelum commit **tidak cukup**: ia tidak melihat commit orang lain yang mendarat di antara baca dan tulis. Yang menangkapnya adalah `git log --oneline -1` + `git rev-list --count` sesudah commit.
+- Kalau hash laporanmu tidak lagi sama dengan `HEAD`, **sebut hash barunya** di laporan berikutnya. Hash lama tetap sah sebagai "diukur di" — asal disebut sebagai masa lalu, bukan keadaan sekarang.
 
