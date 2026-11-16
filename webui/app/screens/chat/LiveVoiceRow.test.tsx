@@ -81,6 +81,28 @@ describe('the idle row', () => {
         expect(html).toContain('a voice is not configured for this agent')
         expect(html).not.toContain('Start live voice')
     })
+
+    // The next three are **regression characterization, not proof of a fix**: the component already
+    // renders all three sentences. What was broken was upstream — nobody passed `missing` — so they
+    // pass before T114 as well. They pin the sentences the row must keep.
+    it('names the recogniser when that is the missing half', () => {
+        const html = render({}, { capability: false, missing: 'recognizer' })
+        expect(html).toContain('a recogniser is not configured for this agent')
+        expect(html).not.toContain('a voice is not configured for this agent')
+    })
+
+    it('falls back to the generic sentence when nothing is named', () => {
+        const html = render({}, { capability: false, missing: null })
+        expect(html).toContain('live voice is not configured for this agent')
+        expect(html).not.toContain('a recogniser is not configured for this agent')
+        expect(html).not.toContain('a voice is not configured for this agent')
+    })
+
+    it('keeps the pill a span, so an unavailable row is never pressable', () => {
+        const html = render({}, { capability: false, missing: 'recognizer' })
+        expect(html).not.toMatch(/<button/)
+        expect(html).toContain('title=')
+    })
 })
 
 describe('the live row', () => {

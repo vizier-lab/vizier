@@ -11,6 +11,7 @@ import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
 import { greeting } from '../lib/greetings'
+import { liveVoiceMissingFrom } from '../lib/liveVoice/voice'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { BranchChip } from '../screens/chat/BranchChip'
@@ -106,6 +107,8 @@ export default function Chat() {
         stt: boolean
         tts: boolean
         liveVoice: boolean
+        /** Which half is missing, for the pill's sentence (FR-004). Never a readiness signal. */
+        missing?: 'recognizer' | 'voice' | null
         /** The agent's hangover, in ms (G1); undefined leaves the spec's default. */
         endOfUtteranceMs?: number
     }>()
@@ -121,12 +124,14 @@ export default function Chat() {
                         stt: detail.stt,
                         tts: detail.tts,
                         liveVoice: detail.live_voice ?? false,
+                        missing: liveVoiceMissingFrom(detail),
                         endOfUtteranceMs: detail.live_voice_end_of_utterance_ms,
                     })
             })
             .catch(() => {
                 /* offer both: the config read is not worth an error on the composer */
-                if (alive) setVoice({ stt: true, tts: true, liveVoice: false })
+                // `missing: null` because we do not know — a failed read is not "complete".
+                if (alive) setVoice({ stt: true, tts: true, liveVoice: false, missing: null })
             })
         return () => {
             alive = false
@@ -542,6 +547,7 @@ export default function Chat() {
                         sttEnabled={voice?.stt ?? false}
                         ttsEnabled={voice?.tts ?? false}
                         liveVoiceEnabled={voice?.liveVoice ?? false}
+                        liveVoiceMissing={voice?.missing ?? null}
                         liveVoiceEndOfUtteranceMs={voice?.endOfUtteranceMs}
                         busy={state.phase !== 'idle'}
                         disabledReason={

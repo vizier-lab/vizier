@@ -96,6 +96,10 @@ export type AgentDetail = {
     /** On only when the agent's own switch is on and it has both a recogniser and a voice
      * (spec 055 FR-004). */
     live_voice?: boolean
+    /** Which half is missing when `live_voice` is false (spec 055 FR-004). Absent on a server
+     * older than the field, and `null` when the switch is off or nothing is missing — so it is
+     * never a readiness signal: read `live_voice` for that. */
+    live_voice_missing?: 'recognizer' | 'voice' | null
     /** How long a silence ends the utterance (G1). Absent on a server older than the field. */
     live_voice_end_of_utterance_ms?: number
     read_image: boolean
