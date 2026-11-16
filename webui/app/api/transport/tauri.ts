@@ -68,6 +68,8 @@ export const tauri: Transport = {
         return fetch(`${assetBase()}${API_BASE}${path}`, { headers, signal: init?.signal })
     },
     assetUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
+    // The asset scheme needs no token in the desktop app, so a frame URL is an asset URL.
+    frameUrl: (path) => `${assetBase()}${API_BASE}${relativeToApi(path)}`,
     saveFile: (path, filename) => invoke('save_file', { path: `${API_BASE}${path}`, filename }),
     saveText: (text, filename) => invoke('save_text', { text, filename }),
     openFile: (path, filename) => invoke('open_file', { path: `${API_BASE}${path}`, filename }),

@@ -67,6 +67,7 @@ export const http: Transport = {
         const sep = path.includes('?') ? '&' : '?'
         return `${API_BASE}${path}${token ? `${sep}token=${encodeURIComponent(token)}` : ''}`
     },
+    frameUrl: (path) => `${API_BASE}${relativeToApi(path)}`,
     async saveFile(path, filename) {
         const res = await this.fetchFile(path)
         // An error's body is not the file: saved under the file's name, it would look like a download.

@@ -606,6 +606,16 @@ export interface SessionFileRecord {
     history_uid?: string | null
 }
 
+/** Server → every socket on the conversation: a page version's check finished (spec 063). */
+export interface UiPageVerifiedFrame {
+    ui_page_verified: { page_id: string; version: number; verification: unknown }
+}
+
+/** Server → every socket on the conversation: a page's newly saved state (spec 063). */
+export interface UiPageStateFrame {
+    ui_page_state: { page_id: string; state: unknown; state_seq: number }
+}
+
 export interface SessionFileFrame {
     session_file: { file: SessionFileRecord }
 }
@@ -624,6 +634,8 @@ export type Frame =
     | { kind: 'question_set'; update: QuestionSetUpdate }
     | { kind: 'sensitive_ask'; ask: SensitiveAsk }
     | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
+    | { kind: 'ui_page_verified'; pageId: string; version: number; verification: unknown }
+    | { kind: 'ui_page_state'; pageId: string; state: unknown; stateSeq: number }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -657,6 +669,14 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
         const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
         return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
+    }
+    if ('ui_page_verified' in raw && isObj(raw.ui_page_verified)) {
+        const v = (raw as unknown as UiPageVerifiedFrame).ui_page_verified
+        return { kind: 'ui_page_verified', pageId: v.page_id, version: v.version, verification: v.verification }
+    }
+    if ('ui_page_state' in raw && isObj(raw.ui_page_state)) {
+        const v = (raw as unknown as UiPageStateFrame).ui_page_state
+        return { kind: 'ui_page_state', pageId: v.page_id, state: v.state, stateSeq: v.state_seq }
     }
     if (CLIENT_KEYS.some((k) => k in raw)) return { kind: 'client', frame: raw as unknown as ClientFrame }
     if ('content' in raw) return { kind: 'response', response: raw as unknown as WebSocketResponse }
