@@ -5,7 +5,7 @@ This is available to every page before its own scripts run.
 ```ts
 interface VizierBridge {
   readonly version: 1
-  readonly abilities: readonly ("state" | "send" | "files")[]
+  readonly abilities: readonly ("state" | "send" | "files" | "worker")[]
   has(ability: string): boolean            // later phases add abilities; v1 pages keep working
 
   state: {
@@ -23,6 +23,17 @@ interface VizierBridge {
     url(name: string): Promise<string>     // the conversation's session file, as a data: URL
     // Rejects with Error("not_found: <available names>").
   }
+
+  worker(source: ((input: any) => any) | string): {
+    // source: a self-contained function (no closures, serialised with toString), or the CSS
+    // selector of a <script type="vz-worker"> block whose code defines `self.run = (input) => ...`.
+    run(input: unknown, options?: { timeoutMs?: number }): Promise<unknown>
+    // Runs in a dedicated worker (its own thread: it cannot freeze the page or the WebUI).
+    // One run at a time per worker; a second call queues. timeoutMs defaults to 10_000 and is
+    // capped at 60_000; passing it terminates the worker and rejects with Error("timeout")
+    // (the next run starts a fresh worker). A throw inside rejects with that error's message.
+    terminate(): void
+  }
 }
 ```
 
@@ -32,6 +43,8 @@ interface VizierBridge {
 - State is checked against `MAX_STATE_BYTES`.
 
 **Theme.** The host posts `{type: "vz:theme", tokens: {...}, dark: bool}` on load and on every appearance change. The kit applies it to `:root` and fires `vizier:theme` on `window`.
+
+**Workers.** A worker inherits the page's CSP, so it has no network access either. It does not get the kit or the bridge: it computes and returns.
 
 **Errors.** The in-frame hooks post `error`, `unhandledrejection`, `console.error`, `securitypolicyviolation` and kit problems, plus a 250 ms heartbeat. The host uses them for verification and for the error indicator.
 

@@ -54,12 +54,12 @@ Every error except `problems` saves nothing.
 
 The guide is `crates/vizier-core/assets/ui-kit/REFERENCE.md`. It contains:
 1. The page model: versions, edits, state across versions.
-2. Rules: no network from script; `https` images, audio and video allowed; use `requestAnimationFrame`, never block; size limits.
+2. Rules: no network from script; `https` images, audio and video allowed; drive loops with `requestAnimationFrame`; put anything that can run longer than about 50 ms in `vizier.worker`; size limits.
 3. Kit CSS: tokens and classes.
 4. Every `<vz-*>` element with its attributes, events and an example.
 5. Bridge v1 (`contracts/bridge.md`).
 6. Libraries and their import names (`import * as THREE from "three"`).
-7. Three short examples: a dashboard, a canvas game loop, a form that sends.
+7. Four short examples: a dashboard, a canvas game loop, a form that sends, and a game opponent searching in `vizier.worker`.
 
 `scripts/ui-kit-reference.test.mjs` keeps the guide in step with the kit's manifest.
 

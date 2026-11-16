@@ -45,6 +45,7 @@ A person asks their agent in a WebUI conversation for something interactive and 
 3. **Given** a page that shows an image, audio or video from an `https` address, **When** it is drawn, **Then** the media loads with no prompt. The same media at a plain `http` address does not load, and the block is reported in verification.
 4. **Given** a rendered page, **When** the person chooses full screen, **Then** the page fills the chat panel and can be returned to its place in the reply.
 5. **Given** a successful render, **When** the turn finishes, **Then** the page is the turn's final answer: no further model call follows it, as with today's `ui_render`.
+6. **Given** a page whose opponent AI thinks for several seconds through the kit's background helper, **When** the person waits for its move, **Then** the page keeps animating and the WebUI keeps responding.
 
 ---
 
@@ -164,7 +165,10 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
 - Two edit sets arrive based on the same version, for example from a retry. The first creates the next version. The second is refused as out of date and names the latest version.
 - The agent edits a page from another conversation. This is refused. In this phase, a page can be edited only in the conversation where it was created, because its content may hold that conversation's private material.
 - A version would exceed the size limit. It is refused with the size and the limit, and the previous version stays current.
-- The page loops forever on load. The WebUI stays responsive, verification reports the page as unresponsive, and the person can still scroll past or close it.
+- The page loops forever on load:
+  - On browsers that run embedded pages in their own process, the WebUI stays responsive, and verification reports the page as unresponsive.
+  - Elsewhere, the tab may freeze until it is reloaded. After the reload, that version is shown paused, and the agent's next turn is told why.
+- The page runs a heavy but finite computation (for example a chess engine searching several moves ahead) through the kit's background helper. The page and the WebUI stay responsive while it runs. A computation that passes its time limit is stopped and reported to the page as timed out.
 - The page throws only later, on a click. That error is not part of the tool's result, because the turn has ended. The person sees a small error indicator on the page.
 - A tab is closed between the start of verification and its report. The tool reports success marked as not verified.
 - The conversation is deleted. All its pages, versions and states are deleted with it. Deleting the agent deletes all of its pages.
@@ -201,7 +205,11 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
 - **FR-014**: A page MUST run isolated from the WebUI: no access to its storage, cookies, sign-in token, parent document or other pages.
 - **FR-015**: A page's scripts MUST NOT reach the network: no requests made by script, no live connections, and no scripts, styles or fonts loaded from outside Vizier. The libraries shipped with the kit MUST be served by Vizier itself and work offline.
 - **FR-015a**: A page MUST be able to show images, audio and video from any `https` address, with no approval step. Other schemes (plain `http` included) MUST be refused for remote media.
-- **FR-016**: A page that hangs or loops MUST NOT freeze the WebUI.
+- **FR-016**: A page MUST NOT be able to freeze the WebUI on browsers that run embedded pages in their own process.
+- **FR-016a**: On other browsers (where an embedded page shares the WebUI's thread):
+  - The kit MUST offer a one-call way to run heavy computation off the page's main thread, with a time limit. The tool's guide MUST tell agents to use it for heavy work (search, AI, simulation steps) and to drive animation and game loops by frames, never by blocking loops.
+  - Verification MUST report a page that stops responding.
+  - A page version that froze the WebUI MUST be shown paused, with a way to run it, the next time the conversation is drawn.
 
 **Verification**
 
@@ -277,6 +285,7 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
   These may be tuned in planning.
 - **The kit's blocks** start from the components of the current catalogue, so the WebUI's look stays the reference. The shipped libraries are a short curated list chosen in planning (at least 3D and charts). A page's scripts still cannot reach the internet, for safety and so pages work in the desktop app offline.
 - **Remote `https` media loads with no approval** (decided 2026-11-16). This is an accepted risk: each load tells the remote host the person's address, and a page's script can put data into a media address, so that address is a narrow way out. Script requests, live connections and outside scripts stay blocked. For an image that must always appear, the kit's reference advises saving it into the conversation's files first.
+- **Freezes are handled by guidance, not interception** (decided 2026-11-16). Only one task that runs too long can freeze a page, and an endless loop is rare. Heavy but finite work is the realistic case, and the guide plus the background helper move it off the main thread. Rewriting the page's code to interrupt loops is out of scope and can follow if freezes happen in practice.
 - **Runtime errors after verification** are only indicated to the person (FR-021). Sending them to the agent automatically is out of scope.
 - **Workspaces** are excluded for now. Page state per person in a shared space needs its own design.
 - **The Vizier look stays monochrome** by default. Pages may use their own colours.

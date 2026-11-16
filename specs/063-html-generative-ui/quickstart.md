@@ -92,7 +92,8 @@ The host-side gesture and rate rules are checked in step 7, because they are enf
 7. **Send rules.** `vizier.send` on load rejects with `no_interaction`. It works after a click, and a second send within 1 s rejects with `rate_limited`.
 8. **Hang.** `while(true){}` on load:
    - Chromium: the chat stays responsive and verification reports `unresponsive`.
-   - WebKit: note the behaviour (research R7 risk).
+   - WebKit (Safari, desktop app on macOS and Linux): the tab may freeze. After a reload, that version shows "paused · Run anyway", and the next turn's context names it.
+8a. **Worker.** A page that runs a 5 s loop through `vizier.worker(fn).run(x)` keeps its `requestAnimationFrame` animation running, and the chat responds. With `{timeoutMs: 1000}`, it rejects with `timeout`. Check this on WebKit too.
 9. **Phone.** At 375 px wide the page fits and full screen works.
 10. **Old pages.** A workspace with saved `render_interactive_ui` and json-render `ui_render` pages draws both, with their state (SC-006).
 11. **Download.** The downloaded file opens offline and keeps the kit look.

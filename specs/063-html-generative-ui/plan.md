@@ -16,7 +16,7 @@ This replaces the json-render client tool `ui_render` with a **native** turn-end
 **Browser.**
 - Pages run in one sandbox host: an opaque-origin iframe whose CSP blocks script network access and allows `https` media.
 - The host loads the **Vizier kit**: tokens, base CSS, `<vz-*>` custom elements that render the existing `@vizier/design` components, and bundled libraries such as `three`.
-- Pages get a versioned bridge, `window.vizier` (state, send, files).
+- Pages get a versioned bridge, `window.vizier` (state, send, files, worker). Heavy work goes to `vizier.worker`, so a page cannot freeze the WebUI even where frames share its thread.
 
 **Retirement.** The tool is offered only in WebUI and project conversations, by channel kind. Both old tools are retired, and their saved pages still draw.
 
@@ -68,7 +68,7 @@ This replaces the json-render client tool `ui_render` with a **native** turn-end
 | **I. Lean** | Pass. No new dependency. One new optional trait method, `VizierTool::guide`, with a real caller (`ui_render`) and an obvious second one: any tool whose reference outgrows its description. The kit reuses the design components instead of re-implementing them. |
 | **II. Trait-based** | Pass. `ui_render` is a `VizierTool` registered in `BaseTools::new()`. Storage is one `UiPageStorage` on `SqlStorage`, with no PostgreSQL copy. Availability is the tool's `available(ctx)`, with no branching in dispatch. The kit elements are data-driven from one manifest. |
 | **III. Self-contained** | Pass. Kit assets are embedded in the binary through the WebUI build. Pages never need the internet (`https` media is optional content). |
-| **IV. Portable** | Pass, with one risk: hang isolation differs per browser engine (WebKit); see Complexity Tracking. Blob keys are ASCII, which passes `windows_segment_problem`. |
+| **IV. Portable** | Pass. Hang isolation differs per browser engine; FR-016a covers WebKit with the worker helper, the guide and the crash-loop marker (research R7). Blob keys are ASCII, which passes `windows_segment_problem`. |
 | **V. Errors / tracing** | Pass. `crate::Result` and `tracing` throughout. Refusals are `VizierError`s carrying a JSON message. |
 | Feature flags | None needed. Generative UI is part of the HTTP surface, not an optional capability. |
 | Roles independent | Pass. Verification goes through `Messaging`. The tool does not know which gateway answers. |
@@ -168,6 +168,5 @@ scripts/
 
 | Deviation | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| **FR-016 not guaranteed on WebKit** (Safari; desktop app on macOS and Linux): a page that loops forever on load can freeze the tab, because WebKit does not put sandboxed frames in their own process | Pages must run arbitrary JS (the point of the feature). Mitigations: a heartbeat reports `unresponsive`; a page version that hung is drawn "paused, press to run" next time; the guide requires `requestAnimationFrame` loops | Running page code in a worker (as json-render logic does) cannot touch the DOM, so it kills games and canvas; a separate window per page breaks "inside the reply". **The person must accept this, or amend FR-016 to "on browsers that isolate sandboxed frames".** |
 | New optional `VizierTool::guide` method | One generative UI tool (the person's requirement), with an on-demand reference (FR-004) | A second reference tool (`ui_components`) was explicitly not wanted; a reference mode would end the turn (R2) |
 | Kit bundles React and the design components inside each frame (~60–80 KB gz, cached) | One source for the look (Principle II); attribute schemas reused | Vanilla re-implementations of every block would drift from `design/` |

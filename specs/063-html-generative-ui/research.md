@@ -131,14 +131,26 @@ The HTML bytes live in `BlobStore` at `ui-pages/{agent_id}/{page_id}/v{n}.html`.
 - The verifier mode mounts the same host off-screen (fixed 1024×768, `visibility: hidden`, outside the viewport). It collects problems for `observe`, and reports **unresponsive** if the frame's 250 ms heartbeat stops.
 - Error indicator (FR-021): a problem raised after mount in chat mode lights an indicator in the frame header. Hovering or pressing it lists the problems.
 
-**Risk: hangs (FR-016).** A sandboxed, opaque-origin frame runs in its own process only where the browser isolates sandboxed frames. Chromium does this by default (Chrome, Edge, WebView2 on Windows), and WebKit does not (Safari, macOS WKWebView and Linux WebKitGTK in the desktop app). On WebKit, a page that loops forever can freeze the tab. This is the reason `generativeUi/logic/` runs logic in a worker inside the frame.
+**Hangs (FR-016, FR-016a).** A sandboxed, opaque-origin frame runs in its own process only where the browser isolates sandboxed frames. Chromium does this by default (Chrome, Edge, WebView2 on Windows), and WebKit does not (Safari, macOS WKWebView and Linux WebKitGTK in the desktop app). On WebKit, a page that loops forever can freeze the tab. This is the reason `generativeUi/logic/` runs logic in a worker inside the frame.
 
-Mitigation in this phase:
-- The heartbeat reports **unresponsive** wherever the parent survives.
-- A page that hung in a previous load is drawn as "paused, press to run" on its next load (a flag in `localStorage` per page version).
-- The reference tells agents to drive loops with `requestAnimationFrame` and never to block.
+Only one task that runs too long freezes a page, and a page that yields between tasks never does: `requestAnimationFrame`, timers and awaited events all yield. Two kinds of task are risky:
+- an endless synchronous loop, which is rare and usually a bug in a draft;
+- a heavy but finite computation, such as a chess search in a click handler. This is the realistic case.
 
-**FR-016 cannot be guaranteed on WebKit.** This is a spec deviation that needs the person's acceptance, listed in plan.md *Complexity Tracking*.
+Decision (2026-11-16): move heavy work off the main thread by guidance and a helper, not by rewriting page code.
+- **Background helper.** Bridge v1 gets a `worker` ability: `vizier.worker(fn | "#script-id")` returns `{run(input, {timeoutMs}), terminate()}`.
+  - It builds a dedicated worker from a `blob:` URL (the CSP already has `worker-src blob:`, and a blob worker inherits `connect-src 'none'`).
+  - `run` rejects with `timeout` and terminates the worker when its limit passes. The default is 10 s, and the maximum is 60 s.
+  - `<script type="vz-worker" id="...">` holds a worker's source without running it on the page.
+- **The guide** says, in its rules section: drive animation and game loops with `requestAnimationFrame`; put search, AI, simulation steps and anything else that can run longer than about 50 ms in `vizier.worker`. It includes one example (a minimax opponent in a worker).
+- **Verification** reports `unresponsive` when the frame's heartbeat stops, wherever the parent survives.
+- **Crash-loop marker.** Before mounting a version, the host writes `vz.mounting = {page, version}` to `localStorage`, and clears it after three heartbeats. If a reload finds the marker set, that version froze the tab: it is drawn "paused · Run anyway". The next turn's per-message context gets one line naming it, so the agent can move the work to a worker.
+
+**Rejected for now:**
+- **Instrumenting loops** (CodePen-style rewriting at mount, which needs a JS parser dependency).
+- **A Tauri watchdog** that reloads a stuck webview.
+
+Both can follow if freezes happen in practice.
 
 ## R8 — CSP and the kit's origin
 
