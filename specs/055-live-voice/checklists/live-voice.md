@@ -51,7 +51,7 @@ exists, the item fails and belongs to the spec or plan owner.
 - [ ] CHK026 - Is the "session keeps listening after a reply ends" path required without the person pressing anything? [Coverage, Spec §FR-015]
 - [ ] CHK027 - Is the case "a second person or a television is speaking" given a requirement outcome the implementer can meet with an energy gate? [Coverage, Gap, Spec §Edge Cases]
 - [ ] CHK028 - Is the case "the agent is working rather than speaking" given exactly one behaviour for both interruption paths? [Coverage, Spec §FR-021/FR-027]
-- [ ] CHK029 - Is a build without the capability stated as a first-class scenario, including what the client sees and what the existing clients see? [Coverage, Spec §FR-041/FR-040]
+- [ ] CHK029 - Is the **switch-off** agent stated as a first-class scenario now that no build omits the capability — what this client sees (`live_voice: false` in `agent_detail`, a non-button pill whose `title` and `sr-only` text give the reason, and no `live_voice` frame ever emitted), what existing clients see (**nothing at all**: no field removed, no signature changed), and is no clause of FR-041 still resting on a build that is never compiled? [Coverage, Spec §FR-041/FR-040 — question rewritten 2026-11-16 by `@teteh-qa` at `fb4315fc`: the earlier wording asked about "a build without the capability", which C17 retired; the number is kept because other documents cite it]
 
 ## Edge Case Coverage
 
