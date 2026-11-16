@@ -4,7 +4,7 @@ Appendix to `specs/055-live-voice/spec.md`. One table, three columns filled by t
 This document is **not** a test checklist while the three refs below have not all resolved (the zero-point rule). Until
 2026-11-16 14:07 the reason it was held was `code_ref` (old pin `8929bbed`); since that day's repin the two refs that can
 be checked with a command **resolve** (`spec_ref` `d34103c7` — `git log -1 -- …,spec.md`; `code_ref` `0d5255f` —
-`git ls-tree HEAD webui`), and the only remaining holder is `approved: —`: nobody has signed. `design_ref`
+`git ls-tree HEAD webui`), and the last holder was `approved: —`: **signed by muruyung (User) on 2026-11-16**, so that holder is now closed and the three-ref rule is satisfied for two refs by command and one by its owner. `design_ref`
 remains **not checkable by command**: its `.figcraft` artifact is not inside the repo (0 files
 `*.figcraft` in the superproject or in the `design` submodule), so its bytes can only be tested by its owner. Per-ref
 detail is in the block below.
@@ -26,7 +26,7 @@ spec_ref:     specs/055-live-voice/spec.md@d34103c7 — not @fb4315fc, not @bf79
              (`git log -1 --format=%h -- …spec.md` → `d34103c7`, run on 2026-11-16 14:01, before this line was
              written). What must not be done stays the same: raising the pin to a commit that does not exist yet, or
              letting an old pin read as valid.
-             **Document status: DRAFT — until the repin of 2026-11-16 14:07 the reason was `code_ref`; now `spec_ref` and `code_ref` resolve and the holder is `approved: —`.** The spec pin **passes** per commit `d34103c7`
+             **Document status: APPROVED — `approved` signed 2026-11-16 by muruyung (User). Until the repin of 2026-11-16 14:07 the reason it was held was `code_ref`; `spec_ref` and `code_ref` resolve by command, `design_ref` by its owner, and the signature closed the last holder.** The spec pin **passes** per commit `d34103c7`
              (the test above was run, not quoted); `code_ref` was repinned to `0d5255f` in the same round. The third ref that used to
              break now resolves, see `code_ref`. The three-ref rule is not loosened by two refs succeeding. *(This line read "the reason is `code_ref`, not `spec_ref`" until the 14:07 repin — true when written, stale when that pin was instead restored.)*
              *(Until 2026-11-16 14:01 this line read "not because of the spec pin. **The spec pin passes**" — true when
@@ -64,7 +64,7 @@ code_ref:     webui@0d5255f (740 lines of `session.ts`) · crates @ `0c158da8` �
 periksa:      git ls-tree HEAD webui | awk '{print $3}'                      # = 0d5255f (pinned 2026-11-16); if it differs, the citations have shifted again
              git log -1 --format=%h -- specs/055-live-voice/spec.md          # ≠ the pin in spec_ref → the spec pin has aged
              git -C webui show 0d5255f:app/lib/liveVoice/session.ts | sed -n '709p'  # one citation, one proof (from the repo root; `webui` is a submodule)
-approved:     — (date + who)
+approved:     2026-11-16 — muruyung (User)
 viewport:     desktop only — min 900×600, default 1280×800 (no phone breakpoint; 375 px is not 055 scope)
 PIC:          design = the "what is drawn" column · data = the "what data it needs" column · QA = the "what passing looks like" column
 api_contract: WS `/api/v1/agents/{channel_id}/topic/{topic_id}/chat` (`crates/vizier-http/src/api/v1/agents/channel.rs:52`); frames `state` / `speech` / `error` / `stall` / `transcript` @ `frame.rs` `b6cc0b40` (owner: data)
@@ -204,7 +204,7 @@ is the **count**, not the citations.
 - **O3 — ~~`design_ref` does not exist yet. Design column 0/14.~~ CLOSED 2026-11-10 09:36** — the design column is
   filled: **7 fully drawn · 1 partial (`unavailable`) · 7 n/a + reason**, counted from
   `document.json` @ `02ddd7b4`; `design_ref` has been versioned since commit `b045a6bc`. The zero-point rule
-  is **not** closed with it: `approved` is still `—`, so this document may not yet be
+  **is** closed as of 2026-11-16: `approved` was signed by muruyung (User), so this document may now be
   used to declare "failing".
 
 - **O5 — `provider_failed` swallows two meanings** (found by sepuh-be while answering O1, 2026-11-10). `topic.rs:390-395` answers a frame that does not match the contract with `kind: provider_failed`, which is the class *worth retrying*. The retry will send the same frame and fail the same way, forever. `kind` itself is already on the wire, so this is not a request for a new field — it is a wrong map. **Owner: Lead (the `reason → class` map)** · visual consequence: design owner (until decided, FORBIDDEN/TRANSIENT/FAILED render identically).
