@@ -73,6 +73,17 @@ pub struct AgentDetail {
     /// Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
     /// it has a usable recogniser and voice. Additive: an older client ignores it.
     pub live_voice: bool,
+    /// Which half of a session is missing, named only while the switch is on (FR-004).
+    ///
+    /// `null` when the switch is off, and when nothing is missing. The pill is drawn for every
+    /// agent whose switch is off — the default — and naming a machine there would send a person to
+    /// the second step while the first (turning the switch on) is still undone.
+    ///
+    /// Because it is `null` for both, a client **must not** read readiness from it: `null` does not
+    /// mean "ready", only "nothing to name". Readiness is [`Self::live_voice`], which is false while
+    /// the switch is off; deciding `missing == null` is enough would offer a start button to every
+    /// agent that never turned the feature on.
+    pub live_voice_missing: Option<&'static str>,
     /// How long a silence ends the utterance, from the agent's live voice settings (G1).
     ///
     /// It travels to the client because the client is where the gate runs: the value used to be
@@ -497,6 +508,26 @@ pub fn has_voice(config: &AgentConfig) -> bool {
         || config.tools.tts.settings.speed.is_some()
 }
 
+/// Which half of a live voice session is missing, when the switch is on (FR-004).
+///
+/// Off names nothing: the pill is drawn for every agent whose switch is off, and "a recogniser is
+/// not configured" would send a person to the second step while the first one — turning the switch
+/// on — is still undone. When the switch is on and both halves are missing the recogniser is named
+/// first: it is the half the session needs before it can answer, and the order `check_live_voice`
+/// takes them in.
+pub fn live_voice_missing(config: &AgentConfig) -> Option<&'static str> {
+    if !config.tools.live_voice.enabled {
+        return None;
+    }
+    if !has_recogniser(config) {
+        return Some("recognizer");
+    }
+    if !has_voice(config) {
+        return Some("voice");
+    }
+    None
+}
+
 /// Apply the live voice block of an update: `Some` sets it, `None` leaves what is stored.
 ///
 /// Extracted so the rule can be tested without a `Services` handle. The "leave it" half is the one
@@ -557,6 +588,7 @@ pub async fn detail(
     // setting — "configured" in the same sense the detail already reports for `stt` / `tts`.
     let has_recogniser = has_recogniser(&config);
     let has_voice = has_voice(&config);
+    let live_voice_missing = live_voice_missing(&config);
 
     Ok(AgentDetail {
         agent_id: agent_id.to_string(),
@@ -603,6 +635,7 @@ pub async fn detail(
         },
         // FR-004: on only when the switch is on and both halves exist.
         live_voice: config.tools.live_voice.enabled && has_recogniser && has_voice,
+        live_voice_missing,
         live_voice_end_of_utterance_ms: config.tools.live_voice.settings.end_of_utterance_ms,
         read_image: config.tools.read_image.enabled,
         read_image_settings: if config.tools.read_image.settings.provider.is_some()
