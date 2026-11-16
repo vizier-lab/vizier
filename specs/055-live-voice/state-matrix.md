@@ -132,7 +132,7 @@ pergantian punya sebab, dan sebab yang hilang adalah cara tercepat mengulang kes
 
 ### Pecahan: empat pembacaan, satu total
 
-Himpunan sitasinya stabil — **42 kejadian (35 jenis)** di `afc5e90f` dan `281e51fd`, **47 (39)** sejak `51b8bbd1`, dan
+Himpunan sitasinya stabil — **42 kejadian (35 jenis)** di `afc5e90f`, **42/34** di `281e51fd` (satu jenis hilang karena `LiveVoiceRow.tsx:251` menyatu ke `:295`), dan **47 (39)** sejak `51b8bbd1`, dan
 angka itu bisa direproduksi mesin dengan pola di blok `code_ref`. **Pecahannya tidak**, karena pola regex tidak menjawab
 dua pertanyaan yang dipakai untuk memecah: *apakah sitasi ini menunjuk hal yang benar di pin lama?* dan *kalau teksnya ada
 di pin lama tapi bukan di nomor itu, ia dihitung apa?*
