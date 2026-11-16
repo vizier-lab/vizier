@@ -416,3 +416,43 @@ tidak ada; diff 78 baris di `src/protocol.mjs`). Worktree pembanding master saya
 - `webui/app/api/schema.d.ts` **belum** di-regenerate (`node scripts/openapi.mjs` butuh server hidup di `VIZIER_URL`); tidak ditambal tangan.
 - `design npm test` gagal karena `chromium_headless_shell-1248` belum terpasang (`npx playwright install chromium`); typecheck hijau.
 - ~~Push ke `origin/055-live-voice` menunggu ACC kang~~ — **basi**: `git log -1 origin/055-live-voice` = `e43a0c18` = HEAD dan `rev-list --left-right --count origin/055-live-voice...HEAD` = `0 0` (dicek 16 Nov 11:28). Commit-commit merge ini sudah di remote.
+
+## ACC: lepas feature gate live voice (16 Nov 2026)
+
+**Keputusan owner, bukan usulan Lead.** `muruyung` di `vizier-dev`/`fitur-live-voice-rev1` seq 2442:
+*"Permintaan owner tuh jangan ada di feature gate."* Lalu seq 2444: *"Yaudah deh gas opsi B mang"*.
+Opsi B = **lepas gate sepenuhnya** (bukan rename flag). Gate Cargo **bukan** tombol user; saklar yang
+benar-benar dipakai user adalah setting per-agent `live_voice.enabled` (default mati,
+`crates/vizier-core/src/schema/agent.rs:205`).
+
+### Kenapa B, dengan angka yang sudah diukur (di `e43a0c18`)
+
+| Hal | Ukuran |
+|---|---|
+| Isi fitur | `provider-live-voice = []` — kosong, 0 dependency (`crates/vizier-core/Cargo.toml:38`) |
+| Titik gerbang | **16** `#[cfg]` (4 di `vizier-core`, 12 di `vizier-http`) + **4** `#![cfg]` di `crates/vizier-http/tests/` |
+| Biaya melepas | 0 dep · `cargo check` **+0,3 s** (~5 %) · RSS **+20 MB** · simbol **+0,14 %** |
+| Yang didapat | **+109 tes http selalu jalan** (wall +68 s, semua hijau) |
+| Nilai bukti yang hilang | kecil: T014 satu-satunya tes "flag off" ternyata **tautologis** (`assert!(cfg!(feature = "live-voice"))` di dalam file yang hanya dikompilasi kalau fitur hidup) |
+| Cacat gate hari ini | tak ada di matriks flag CI (`ci.yml:157`) · `AGENTS.md:16` tak memuatnya · `crates/vizier/Cargo.toml:32` **memaksa** `vizier-http/live-voice`, jadi binary tak pernah tanpa fitur · `app/src-tauri/Cargo.toml:30` justru **tanpa** fitur → app desktop hari ini **tidak** punya live voice |
+
+### Ruang lingkup
+
+- **Kode** (`@sepuh-be`): hapus deklarasi fitur di `crates/vizier-core/Cargo.toml` + `crates/vizier-http/Cargo.toml`, buka 16 `#[cfg]` + 4 `#![cfg]`, lepas `features = ["live-voice"]` di `crates/vizier/Cargo.toml:32`, buang tes tautologis T014.
+- **Spec** (`@system-analyst`): tulis ulang **FR-041** (tak ada lagi "build tanpa live voice"; jaminannya pindah ke saklar per-agent + default mati) + entri Delta Log. Jalur: temuan hilir lewat Lead (aturan §Jalur task SA, butir 2).
+- **Dokumen + papan** (Lead): `docs/src/configuration/build-flavours.md`, `Readme.md:159/168`, `specs/055-live-voice/{plan,architecture,quickstart,tasks}.md` (T014/T108 ditulis ulang), catatan ACC ini.
+
+### Status
+
+| Langkah | Pemilik | Status |
+|---|---|---|
+| Brief + DoD | Lead | ditulis 16 Nov, di `fitur-live-voice-rev1` |
+| Kode | `@sepuh-be` | `aktif` |
+| FR-041 + Delta Log | `@system-analyst` | `aktif` (paralel, tidak menyentuh kode) |
+| Dokumen + papan | Lead | setelah kode mendarat |
+| Gate | Lead | setelah kode + spec |
+
+`R:` **FR-041** (ditulis ulang oleh SA di siklus ini). Riwayatnya: gate ini lahir dari FR-041 versi
+awal ("a build without it MUST leave every existing speech feature working"); owner memutuskan
+jaminan itu dijaga dengan cara lain — selalu dikompilasi, dimatikan per-agent.
+
