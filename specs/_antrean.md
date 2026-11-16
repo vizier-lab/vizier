@@ -726,7 +726,7 @@ Binding rules:
 - Numbers produced in that window are not automatically wrong, but must be declared vulnerable: state the measurement time and that the binary may come from source before/after the mutation.
 
 ### 10. Push the submodule **before** the superproject (16 Nov 2026, found after `origin` already pointed at a commit absent from the remote)
-The incident is real and **still open** as this is written: `origin/055-live-voice` (superproject `vizier`) carries gitlink `webui` = `7732f0a...`, while `git -C webui ls-remote origin | grep 7732f0a` = **0 lines** — that commit exists only on this machine. Anyone who clones/fetches then runs `git submodule update --init webui` will fail (`reference is not a tree`), and no command in the superproject tells them why.
+The incident is real and was **closed on 2026-11-16 18:36** (`webui` pushed `0d5255f..7732f0a`, superproject `f78bd214..1e6ea3ff`; the rule stays binding for every later push). As this was written the state was **still open**: `origin/055-live-voice` (superproject `vizier`) carries gitlink `webui` = `7732f0a...`, while `git -C webui ls-remote origin | grep 7732f0a` = **0 lines** — that commit exists only on this machine. Anyone who clones/fetches then runs `git submodule update --init webui` will fail (`reference is not a tree`), and no command in the superproject tells them why.
 
 Rules:
 - **Mandatory order: submodule first, superproject last.** A superproject pointing at a commit not yet on the remote is a broken repo for everyone except its author.
