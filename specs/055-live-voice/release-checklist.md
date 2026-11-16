@@ -43,13 +43,20 @@ tools:
 ```
 
 - **What failing looks like:** no pill at all, or a greyed pill. A greyed pill is **not** a bug — it is
-  FR-004 (`webui/app/screens/chat/LiveVoiceRow.tsx:169-183`) and its tooltip names the missing half.
-  Two rough edges [QA], both re-checked at `70806654`: (a) `chat.tsx:546` passes `liveVoiceEnabled` but **never**
-  `liveVoiceMissing`, although `Composer.tsx:71,102,472` accepts and forwards it - so the tooltip is always the generic
-  *"live voice is not configured for this agent"* and never names the missing half; (b) the greyed control is a `<span>`
-  (`LiveVoiceRow.tsx:169-189`), not a button, so pressing it cannot open settings: `onOpenSettings` reaches
-  `LiveVoiceControl.tsx:26,75` but `Composer.tsx` never supplies it. **Neither is a release blocker** - FR-004's text is
-  shown, only the *where to set it* half is missing. Do not report it as "the pill is dead" without this line.
+  FR-004 (`webui/app/screens/chat/LiveVoiceRow.tsx:196-214`) — **but its tooltip names the missing half only when a
+  caller supplies it, and today no caller does** *(opening corrected 2026-11-16, `@teteh-qa`, at `44bf167f` +
+  `webui@0d5255f`: the sentence before this correction claimed the tooltip names the missing half while item (a)
+  below said it never does — the two halves of one paragraph contradicted each other, and (a) was right)*.
+  Two rough edges [QA], **re-measured 2026-11-16** (the `70806654` line numbers this paragraph used to carry were stale
+  by 16 Nov): (a) `app/routes/chat.tsx:544` passes `liveVoiceEnabled` but **never**
+  `liveVoiceMissing`, although `Composer.tsx:71,114,487` accepts and forwards it - so the tooltip is always the generic
+  *"live voice is not configured for this agent"* and never names the missing half (this is analysis finding **M1**, and
+  it is **open**, not closed - see the dated correction row in `analysis.md` §6); (b) the greyed control is a `<span>`
+  (`LiveVoiceRow.tsx:204-212`; the words live in `title` `:205` and `sr-only` `:211`), not a button, so pressing it cannot
+  open settings: `onOpenSettings` reaches `LiveVoiceControl.tsx:31,67,133` but `Composer.tsx` never supplies it, and the
+  one branch that would use it (`LiveVoiceControl.tsx:131-135`) is unreachable because the only controls that call
+  `start` are rendered only when `capability` is true. **Neither is a release blocker** - the generic FR-004 sentence is
+  shown; what is missing is *which half* and *where to set it*. Do not report it as "the pill is dead" without this line.
 
 **0.2 A real recogniser and a real voice.** `SttProvider` / `TtsProvider` need saved provider credentials
 (`crates/vizier-core/src/schema/agent.rs:398-408` and `:335-343`). **Do not** write credentials into this file
@@ -60,6 +67,11 @@ and do not open `app-config.json` / `.env`; that choice is the User's and is sti
 [QA] — the feature **is** in the binary. `crates/vizier-http/build.rs:15-33` runs `npm run build` in `webui/`
 when `node_modules` exists and embeds `webui/build/client` [QA], so `just build` is not a prerequisite — but
 `node_modules` is (without it, build.rs panics). Expect ≈23 min, ≈10 GB peak RSS, ≈17 GB `target` [lap, Lead].
+
+  *(Corrected 2026-11-16, `@teteh-qa`: the `live-voice` half of that line stops being true the moment the C17 change
+  lands — the feature is being **deleted, not renamed** (`specs/_antrean.md` section "ACC: lepas feature gate live voice").
+  After it, this line reads `vizier-core` `["full"]` only, and A3 must not point at a flag that no longer exists. As of
+  `44bf167f` the change sits uncommitted in the working tree, so it is a plan, not a fact about this tree.)*
 
 ---
 
@@ -156,7 +168,9 @@ directory that does not exist; the files live in `screens/chat/`.
 **Fixed since my first draft, verified:** SC-001 no longer calls itself a release gate (`spec.md:627` now
 reads *"is the figure this document records"*), so the contradiction in section D below is history, not a
 live defect. The greyed pill is still a `<span>` and `liveVoiceMissing` is still not passed from
-`chat.tsx:558`, so FR-004's *where to set it* half remains unshown - cosmetic, and I say so rather than
+`app/routes/chat.tsx:544` (re-measured 2026-11-16 at `webui@0d5255f`; the `:558` this line used to carry came from an
+older tree, and the file lives in `app/routes/`, not `app/screens/chat/`), so **both** FR-004 halves - *which half* and
+*where to set it* - remain unshown - cosmetic, and I say so rather than
 call it broken.
 
 ## D. The thresholds — recorded today, **not** a gate
