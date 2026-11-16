@@ -449,12 +449,50 @@ benar-benar dipakai user adalah setting per-agent `live_voice.enabled` (default 
 | Brief + DoD | Lead | ditulis 16 Nov, di `fitur-live-voice-rev1` |
 | Kode | `@sepuh-be` | `aktif` |
 | FR-041 + Delta Log | `@system-analyst` | `aktif` (paralel, tidak menyentuh kode) |
-| Dokumen + papan | Lead | setelah kode mendarat |
+| Dokumen + papan | Lead | **antre** — dipicu commit gate C17; daftar berkas + `[DOD+]` di bawah |
 | Gate | Lead | setelah kode + spec |
 
 `R:` **FR-041** (ditulis ulang oleh SA di siklus ini). Riwayatnya: gate ini lahir dari FR-041 versi
 awal ("a build without it MUST leave every existing speech feature working"); owner memutuskan
 jaminan itu dijaga dengan cara lain — selalu dikompilasi, dimatikan per-agent.
+
+### `[DOD+]` — kriteria tambahan dari Lead (bisa dicek mesin)
+
+Ditambahkan 16 Nov 2026 13:03 WIB, atas permintaan kang (task terjadwal `brief-lepas-gate-live-voice`).
+Kriteria di bawah **di luar spec** dan semuanya perintah + output harapan; ini ronde pertama, jadi belum
+kena aturan "3 task → wajib jadi FR atau dicabut".
+
+- **Nol `running 0 tests`.** `cargo test -p vizier-http` (tanpa `--features`) wajib mencetak `running N tests`
+  dengan N>0 di keempat binary `live_voice_{session,frames,barge_in,delivery}`. Satu `running 0 tests` =
+  DoD gagal walau sisanya hijau — justru itu cacat yang membuat gate ini tidak pernah menguji apa pun.
+- **0 dependency.** `cargo tree -p vizier-core --no-default-features -e normal | wc -l` wajib **sama** dengan
+  baseline yang dicatat agen sebelum perubahan (625 di `e43a0c18`). Berubah = temuan, bukan "kenaikan wajar".
+- **Tak ada sisa nama flag** di pohon: `git grep -n 'provider-live-voice\|feature = "live-voice"' -- crates/ docs/
+  Readme.md AGENTS.md .github/` **kosong**; di `specs/055-live-voice/**` hanya boleh tersisa kutipan historis
+  yang bertanda C17.
+- **Angka tes datang dari `cargo test`, bukan dari brief.** Brief Lead (seq 2447) memuat `15 tes / +14` yang
+  salah — yang benar **32**, rincian `7 / 8 / 11 / 6`. Aturannya: selisih dihitung terhadap baseline agen
+  sendiri, dan angka final = keluaran perintah di tree yang di-commit (`repo@hash`).
+- **Saklar runtime tidak berubah**: `live_voice.enabled` tetap `false` secara default
+  (`crates/vizier-core/src/schema/agent.rs:205`) dan `agent_detail.live_voice` tetap **boolean**
+  (`service/agents.rs:75`), bukan objek bersarang.
+
+### Dokumen + papan (Lead, setelah commit gate mendarat)
+
+Tidak dikerjakan sebelum kode mendarat: `build-flavours.md`/`Readme.md` yang menyatakan "tidak ada flag"
+padahal HEAD masih memaksanya adalah dokumen yang berbohong tentang keadaannya sendiri — jenis kesalahan
+yang hari ini sudah tiga kali ditangkap QA. Urutannya: **commit gate dulu, dokumen menyusul di ronde yang sama.**
+
+| Berkas | Yang berubah |
+|---|---|
+| `docs/src/configuration/build-flavours.md` | baris 15 (baris tabel `provider-live-voice`), judul §30, isi §32–36, contoh perintah §39 → bagian ini jadi keterangan bahwa live voice **selalu** dikompilasi dan saklarnya setting per-agent |
+| `Readme.md:159,168` | contoh build `--features live-voice` dan angka 8m45s-nya diganti build tanpa flag |
+| `specs/055-live-voice/tasks.md` | **T014** ditulis ulang (asersi tautologis `assert!(cfg!(feature = "live-voice"))` → tes yang benar-benar merah kalau `topic.rs:798` dicabut; penggantinya `a_start_is_ignored_while_the_agent_switch_is_off`), **T108** perintahnya diganti (`cargo build -p vizier --no-default-features` tidak membuktikan apa pun selama `crates/vizier/Cargo.toml:32` memaksa fitur) |
+
+Cek yang sudah dijalankan 16 Nov 13:03 dan hasilnya **tidak perlu diubah**: `AGENTS.md:16` nol sebutan
+`provider-live-voice` (barisnya memang tidak pernah memuatnya) dan `.github/workflows/ci.yml` nol baris
+mengandung `live` (`grep -n -i live` kosong; matriks flag di `:157` berisi tujuh flag lain). Jadi "CI dan
+AGENTS.md drift" yang tercatat di memori **basi** untuk dua berkas itu.
 
 ### Temuan ronde C17 — antre (bukan aktif)
 
