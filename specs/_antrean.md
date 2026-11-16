@@ -571,7 +571,7 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 | FR-041 + Delta Log | `@system-analyst` | **`selesai`** — `5d7a188e` |
 | FR-004 (wire + amendment) | `@system-analyst` | **`selesai`** — `fb4315fc` lalu `d34103c7` (aturan saklar-nyala) |
 | Dokumen + papan | Lead | **`selesai`** — `ef129ab9` (`build-flavours.md`, `Readme.md`), papan |
-| **T113** (`live_voice_missing` di `AgentDetail`) | `@sepuh-be` | **`aktif`** — brief 2576, 6 kasus di `agents_seam` |
+| **T113** (`live_voice_missing` di `AgentDetail`) | `@sepuh-be` | **`aktif`** — brief 2576. Kode mendarat `25689640` (+121/−14, 2 berkas), kosmetik `a06afd13`; A4 dicatat `@teteh-qa` di `03ce4589`; **review + tanda tangan Lead belum** |
 | **T114** (alasan pill sampai ke layar) | `@sepuh-be` | **`antre`** — WIP=1, menunggu T113 |
 | Blok 38 sitasi `code_ref` | `@teteh-qa` | **`aktif`** — ditempel ke `state-matrix.md`, lalu SA yang menaikkan pin |
 | `AQ-002` | — | tertutup oleh T113 + T114 (bukan task terpisah) |
@@ -582,6 +582,20 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 **Aturan turunan:** angka tes hanya dari `running N tests` di output, atau dari hitungan yang menyebut **pola persisnya**; `cargo test` filter = path, jadi selalu pakai `modul::` untuk modul.
 
 **Sisa yang bukan gate:** `schema.d.ts` belum diregenerasi (butuh server hidup; sekarang dua alasan: `AgentDetail` berubah bentuk), `public-api.txt` basi sejak 2026-11-07 (utang pra-ada, `just public-api`, tidak dijaga CI), `docs` e2e `design npm test` butuh `npx playwright install chromium`, dan `WorkspaceComposer.tsx` tidak mengoper live voice sama sekali (0 hit) — permukaan kedua tanpa pill, belum dijadwalkan.
+
+### Keputusan `@bro-pm`: `GI-05` tetap `antre`, tes sendiri (16 Nov 2026 15:06)
+
+Diterima tanpa bantahan. Tiga hal yang mengikat:
+
+1. **`GI-05` tidak masuk slot WIP sekarang.** Satu artefak per brief; artefak kedua di crate yang sama membuat merah-sebelum tidak bisa dipisahkan milik siapa. Ditambah: `GI-05` **bukan pekerjaan tes saja** — `key_lapsed` (`crates/vizier-http/src/topic.rs:69`) hanya membaca `principal.method` yang distempel **sekali** saat koneksi dibuka, dan `may_start_live_voice` (`crates/vizier-http/src/topic.rs:78`) hanya memeriksa scope, bukan pencabutan (kedua nomor baris diverifikasi di `25689640`, bukan dikutip dari pesan). Tesnya akan merah dan menuntut perubahan kode di jalur sesi, tepat di area yang baru selesai di-merge.
+2. **Tes `GI-05` terpisah** dari ronde FR-004: satu artefak = satu brief = satu commit, bentuknya revoke kunci -> `live_voice_start` **lagi di socket yang sama**, merah dulu.
+3. **Urutan mengikat:** T113 commit -> QA jalankan A4 di hash itu -> baru `GI-05` dapat brief sendiri. Papan mencatat langkah 1 dan 2 sudah terjadi setelah keputusan ini ditulis (T113 `25689640`, A4 dicatat `@teteh-qa` di `03ce4589`); jadi `GI-05` boleh dibrief, **bukan hari itu** — `@bro-pm` menyatakan tidak ada job baru hari ini.
+
+**Target A4 yang dipakai (dari `@teteh-qa`, tidak diubah):** `git grep -c live_voice_missing HEAD -- crates/` >=2 · `--test agents_seam` **12** · `-p vizier-http` **12 blok / 115 passed**, empat `live_voice_*` tetap **7/8/11/6** · `--lib live_voice::` **56** · `-p vizier-core --no-default-features` **2015 / 7 ignored**.
+
+**Yang lebih mendesak dari `GI-05`, dan alasannya:** gate pertama di tree hasil merge. `893543d6` di-push, konflik 0, submodule bersih — itu **bentuk tree**, bukan hasil uji.
+
+**Catatan angka:** kepala yang dipakai `10a3c180`. Kalau ada yang mengutip `e43a0c18` sebagai HEAD, itu catatan `@bro-pm` yang basi, bukan commit baru.
 
 ## Aturan bukti angka (mengikat semua agen, 16 Nov 2026)
 
