@@ -467,8 +467,12 @@ kena aturan "3 task → wajib jadi FR atau dicabut".
 - **Nol `running 0 tests`.** `cargo test -p vizier-http` (tanpa `--features`) wajib mencetak `running N tests`
   dengan N>0 di keempat binary `live_voice_{session,frames,barge_in,delivery}`. Satu `running 0 tests` =
   DoD gagal walau sisanya hijau — justru itu cacat yang membuat gate ini tidak pernah menguji apa pun.
-- **0 dependency.** `cargo tree -p vizier-core --no-default-features -e normal | wc -l` wajib **sama** dengan
-  baseline yang dicatat agen sebelum perubahan (625 di `e43a0c18`). Berubah = temuan, bukan "kenaikan wajar".
+- **0 dependency.** Wajib **sama** dengan baseline yang dicatat agen sebelum perubahan, **diukur dengan perintah
+  yang sama persis**. Angkanya bergantung perintah, jadi sebut perintahnya: `cargo tree -p vizier-core
+  --no-default-features -e normal --prefix none | sort -u | wc -l` -> **625**; bentuk yang sama tanpa `sort -u`
+  -> **1318**; tanpa `-e normal` -> **1498** (diverifikasi Lead 2026-11-16 di `b7001100`, ketiganya dihitung ulang
+  di tree yang sama). Berubah = temuan, bukan "kenaikan wajar". **Jangan kutip angka `cargo tree` tanpa perintahnya**
+  — `625` vs `1318` bukan pertentangan, itu dua pertanyaan berbeda.
 - **Tak ada sisa nama flag** di pohon: `git grep -n 'provider-live-voice\|feature = "live-voice"' -- crates/ docs/
   Readme.md AGENTS.md .github/` **kosong**; di `specs/055-live-voice/**` hanya boleh tersisa kutipan historis
   yang bertanda C17.
