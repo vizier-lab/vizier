@@ -1,0 +1,6 @@
+/* The Vizier kit's stylesheet for agent-made pages (specs/063-html-generative-ui research R11).
+ * Theme tokens, base element styles and the layout classes are filled in by T049; the host
+ * posts the live token values, so this file only needs sensible defaults. */
+:root {
+    color-scheme: light dark;
+}
