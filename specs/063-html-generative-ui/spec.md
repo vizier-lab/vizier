@@ -41,9 +41,10 @@ A person asks their agent in a WebUI conversation for something interactive and 
 **Acceptance Scenarios**:
 
 1. **Given** a WebUI conversation, **When** the agent renders an HTML page containing a canvas game loop, **Then** the game runs inside the reply at interactive speed, and keyboard and pointer input reach it while it has focus.
-2. **Given** a rendered page, **When** its script tries to read the WebUI's storage, cookies, parent document or sign-in token, or tries to reach the network, **Then** the attempt fails and the WebUI is unaffected.
-3. **Given** a rendered page, **When** the person chooses full screen, **Then** the page fills the chat panel and can be returned to its place in the reply.
-4. **Given** a successful render, **When** the turn finishes, **Then** the page is the turn's final answer: no further model call follows it, as with today's `ui_render`.
+2. **Given** a rendered page, **When** its script tries to read the WebUI's storage, cookies, parent document or sign-in token, or tries to make a network request, **Then** the attempt fails and the WebUI is unaffected.
+3. **Given** a page that shows an image, audio or video from an `https` address, **When** it is drawn, **Then** the media loads with no prompt. The same media at a plain `http` address does not load, and the block is reported in verification.
+4. **Given** a rendered page, **When** the person chooses full screen, **Then** the page fills the chat panel and can be returned to its place in the reply.
+5. **Given** a successful render, **When** the turn finishes, **Then** the page is the turn's final answer: no further model call follows it, as with today's `ui_render`.
 
 ---
 
@@ -169,6 +170,7 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
 - The conversation is deleted. All its pages, versions and states are deleted with it. Deleting the agent deletes all of its pages.
 - The person opens a conversation on a phone. The page fits the narrow width and full screen is available.
 - The agent is updated or restarted mid-render. The turn resumes as any interrupted turn does, and a version saved before the stop is not saved twice.
+- A remote `https` image is slow, missing or not an image. The page shows the browser's usual broken-image state, and nothing else on the page is affected.
 - A page refers to a session file by name. It loads that file as today's pages do. A missing file shows a placeholder.
 
 ## Requirements *(mandatory)*
@@ -197,7 +199,8 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
 **Isolation**
 
 - **FR-014**: A page MUST run isolated from the WebUI: no access to its storage, cookies, sign-in token, parent document or other pages.
-- **FR-015**: A page MUST NOT reach the network. The libraries shipped with the kit MUST be served by Vizier itself and work offline.
+- **FR-015**: A page's scripts MUST NOT reach the network: no requests made by script, no live connections, and no scripts, styles or fonts loaded from outside Vizier. The libraries shipped with the kit MUST be served by Vizier itself and work offline.
+- **FR-015a**: A page MUST be able to show images, audio and video from any `https` address, with no approval step. Other schemes (plain `http` included) MUST be refused for remote media.
 - **FR-016**: A page that hangs or loops MUST NOT freeze the WebUI.
 
 **Verification**
@@ -260,7 +263,7 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
 - **SC-005**: A page with no styles of its own is indistinguishable in colour and typography from the surrounding WebUI, in both themes, under a side-by-side review.
 - **SC-006**: 100% of saved pages from the two retired tools in an existing test workspace still draw and keep their state after the upgrade.
 - **SC-007**: In none of the excluded conversation kinds (FR-031) can the agent see or call the tool.
-- **SC-008**: No page can read anything from the WebUI or reach the network in a hostile-page test suite covering storage, cookies, token, parent document, network requests and frame escape attempts.
+- **SC-008**: In a hostile-page test suite covering storage, cookies, token, parent document, script network requests, outside scripts and frame-escape attempts, no page can read anything from the WebUI or make a network request from script. `https` images, audio and video are the only remote loads that succeed.
 
 ## Assumptions
 
@@ -272,7 +275,8 @@ Conversations already hold pages drawn by `render_interactive_ui` and by the cat
   - a verification observation period of about two seconds within an overall limit of about ten seconds;
   - the existing interaction window and send rate for messages.
   These may be tuned in planning.
-- **The kit's blocks** start from the components of the current catalogue, so the WebUI's look stays the reference. The shipped libraries are a short curated list chosen in planning (at least 3D and charts). Pages still cannot reach the internet, for safety and so pages work in the desktop app offline.
+- **The kit's blocks** start from the components of the current catalogue, so the WebUI's look stays the reference. The shipped libraries are a short curated list chosen in planning (at least 3D and charts). A page's scripts still cannot reach the internet, for safety and so pages work in the desktop app offline.
+- **Remote `https` media loads with no approval** (decided 2026-11-16). This is an accepted risk: each load tells the remote host the person's address, and a page's script can put data into a media address, so that address is a narrow way out. Script requests, live connections and outside scripts stay blocked. For an image that must always appear, the kit's reference advises saving it into the conversation's files first.
 - **Runtime errors after verification** are only indicated to the person (FR-021). Sending them to the agent automatically is out of scope.
 - **Workspaces** are excluded for now. Page state per person in a shared space needs its own design.
 - **The Vizier look stays monochrome** by default. Pages may use their own colours.
