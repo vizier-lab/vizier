@@ -456,3 +456,12 @@ benar-benar dipakai user adalah setting per-agent `live_voice.enabled` (default 
 awal ("a build without it MUST leave every existing speech feature working"); owner memutuskan
 jaminan itu dijaga dengan cara lain — selalu dikompilasi, dimatikan per-agent.
 
+### Temuan ronde C17 — antre (bukan aktif)
+
+| Item | R | Pemilik | Status | Isi |
+|---|---|---|---|---|
+| `AQ-002` FR-004 di wire: `agent_detail.live_voice` hanya boolean, tak ada alasan *yang mana* hilang | FR-004 | `@sepuh-be` (setelah brief gate selesai — WIP=1) | **antre** | Ditemukan `@system-analyst` saat menulis ulang FR-041 (16 Nov). `LiveVoiceRow.tsx` punya tiga varian alasan (`voice`, `recognizer`, generik) tapi `liveVoiceMissing` dideklarasikan `Composer.tsx:71`, di-destructure `:114`, dipakai `:487` dengan `?? null` — **pemanggil nol**, jadi dua varian spesifik tak pernah tampil. Di sisi server `agent_detail.live_voice` cuma satu boolean (`service/agents.rs:75`, nilai `:605` = saklar ∧ recogniser ∧ voice). Akibat: alasan menyebut *bahwa* belum diset, bukan *yang mana* hilang, dan tidak menyebut di mana menyetelnya → **FR-004 separuh terpenuhi di wire**. Perbaikan = perubahan wire (reason code di samping boolean) + spec amendment oleh SA. **Belum masuk brief mana pun.** |
+
+Dua cacat webui lain yang tercatat tapi **tidak** diantrekan (bukan blocker, dan bukan milik ronde ini):
+`LiveVoiceControl.tsx:131-135` — cabang `if (!capability) { onOpenSettings?.() }` tak tercapai: satu-satunya pemberi `start` adalah `onStart`/`onRestart` di `LiveVoiceRow.tsx:146/148`, dan keduanya hanya dirender saat `capability` true; `onOpenSettings` juga tidak pernah dioper `Composer.tsx`.
+
