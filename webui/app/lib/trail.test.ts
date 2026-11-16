@@ -814,3 +814,16 @@ test('a message the turn never read opens a turn of its own', () => {
   assert.equal(turns.length, 2)
   assert.deepEqual(shape(turns[0].blocks), ['tool'])
 })
+
+// Spec 063: a page version belongs to the reply of the turn that drew it, in order, and never to
+// its trail; a fixed draft and its fix are both kept so the draft can be drawn collapsed.
+test('page versions belong to the turn that drew them, in order', () => {
+  const page = (version: number) => entry({ UiPage: { page_id: 'pg_1', version, title: 'Chess' } })
+  const turns = groupHistory([request('a chess game'), python('c1', {}), toolResult('c1', '{}'), page(1), page(2), response('')])
+  assert.equal(turns.length, 1)
+  assert.deepEqual(
+    turns[0].pages.map((p) => p.content.UiPage?.version),
+    [1, 2]
+  )
+  assert.ok(turns[0].blocks.every((b) => b.kind !== 'trail' || b.events.every((e) => e.id !== turns[0].pages[0].uid)))
+})

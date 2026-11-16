@@ -229,11 +229,28 @@ function install() {
     installHooks()
     loadLibraries()
 
-    // The host sizes the frame to its content and treats silence as a hang.
-    const sendHeight = () => post('height', { px: Math.ceil(document.documentElement.scrollHeight) })
+    // The host sizes the frame to its content and treats silence as a hang. The observer's first
+    // call comes before the body exists, and a hidden tab defers its later ones, so the height is
+    // also sent at the document's milestones.
+    let lastHeight = -1
+    const sendHeight = () => {
+        const px = Math.ceil(Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0))
+        if (px === lastHeight || (px === 0 && !document.body)) return
+        lastHeight = px
+        post('height', { px })
+    }
     new ResizeObserver(sendHeight).observe(document.documentElement)
-    addEventListener('load', sendHeight)
-    setInterval(() => post('heartbeat'), HEARTBEAT_MS)
+    addEventListener('DOMContentLoaded', sendHeight)
+    addEventListener('load', () => {
+        sendHeight()
+        setTimeout(sendHeight, 250)
+    })
+    // Each beat also re-checks the height (sent only when it changed), so a frame always settles on
+    // its real size even when an observer callback was deferred or lost.
+    setInterval(() => {
+        post('heartbeat')
+        sendHeight()
+    }, HEARTBEAT_MS)
     post('ready', { pageId: boot.pageId, version: boot.version })
 }
 

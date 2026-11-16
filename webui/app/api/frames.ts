@@ -364,6 +364,9 @@ export interface ChatMessage {
     QuestionSet?: QuestionSetEntry
     // That a value was requested and what came of it. Never the value itself.
     SensitiveAsk?: { ask_id: string; purpose: string; label?: string | null; state: string }
+    // A version of an interactive page the agent drew (spec 063). `verification` is filled by
+    // the server on every read and updated live by `ui_page_verified`.
+    UiPage?: { page_id: string; version: number; title: string; verification?: unknown }
   }
   reactions?: ReactionEntry[]
   // False for a live reply that arrived without the server's history uid (an older server):
@@ -434,6 +437,9 @@ export interface Turn {
   clientCalls: ClientCallView[]
   // The question sets the turn asked, in order. Drawn after the reply text they ended it with.
   questions: ChatMessage[]
+  // The page versions the turn drew, in order (spec 063). The last is the reply; any before it
+  // (a draft that failed its check) is drawn collapsed.
+  pages: ChatMessage[]
   // True when the person aborted the turn: no outcome, closed by an `abort` command.
   aborted?: boolean
 }

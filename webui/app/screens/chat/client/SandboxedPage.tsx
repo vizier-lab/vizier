@@ -14,6 +14,8 @@ import { SendGate, StateCoalescer, UNRESPONSIVE_MS, parseFrameMessage, themeToke
 import { useAppearanceKey } from '../../../lib/useDark'
 
 const INITIAL_HEIGHT = 120
+/** The shortest a page's frame gets in a reply, so a page that reports no height stays visible. */
+const MIN_HEIGHT = 48
 
 export type SandboxedPageProps = {
     agentId: string
@@ -126,7 +128,7 @@ export function SandboxedPage(props: SandboxedPageProps) {
                     lastBeat.current = Date.now()
                     return
                 case 'height':
-                    setHeight(message.px)
+                    setHeight(Math.max(MIN_HEIGHT, message.px))
                     return
                 case 'problem':
                     latest.current.onProblem?.(message.problem)

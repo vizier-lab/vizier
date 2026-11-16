@@ -71,6 +71,8 @@ type Props = {
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
     /** The question sets the turn asked, drawn after its reply text (spec 042). */
     questions?: (turn: Turn) => ReactNode
+    /** The page versions the turn drew, drawn as its reply (spec 063). */
+    pages?: (turn: Turn) => ReactNode
     /** A plan card's Build this plan action (spec 041 US2). */
     onBuildPlan?: (plan: { title: string; steps: string[] }) => void
     /** Build was pressed and the chat is switching mode. */
@@ -113,7 +115,7 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
@@ -280,6 +282,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
             <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} time={time(turn.outcome?.timestamp)} />
             {parts(turn, false)}
             {clientCalls?.(turn, false)}
+            {pages?.(turn)}
             {/* The card is part of what the agent said, so the reply's reactions and model line close the turn below it. */}
             {questions?.(turn)}
             {turn.outcome && reply(turn)}
@@ -367,7 +370,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         if (turn && (c.Response || c.Checkpoint !== undefined || c.Command !== undefined)) {
             // The finished turn settles in as one piece: the work it did and
             // what it said arrive together.
-            if (c.Response || turn.blocks.length || turn.clientCalls.length || turn.questions.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
+            if (c.Response || turn.blocks.length || turn.clientCalls.length || turn.questions.length || turn.pages.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
             if (c.Command === 'abort' && turn.aborted) arrive(<StoppedNote key={`stop-${e.uid}`}>Stopped by you at {stopTime(e)}</StoppedNote>, `stop-${e.uid}`)
         }
         if (c.Checkpoint !== undefined) {
@@ -384,7 +387,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         }
     }
 
-    if (open && (running || open.blocks.length || open.clientCalls.length || open.questions.length)) {
+    if (open && (running || open.blocks.length || open.clientCalls.length || open.questions.length || open.pages.length)) {
         items.push(
             <div key="live" className="flex flex-col gap-10">
                 <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
@@ -392,6 +395,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 {/* Between rounds there is no open trail yet, but the agent is still working. */}
                 {running && open.blocks[open.blocks.length - 1]?.kind !== 'trail' && <Trail trail={[]} live agentName={agent.name} />}
                 {clientCalls?.(open, true)}
+                {pages?.(open)}
                 {questions?.(open)}
             </div>
         )
