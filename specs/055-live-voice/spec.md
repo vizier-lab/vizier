@@ -77,11 +77,12 @@ problem, the second removes an entire class of "which conversation is talking?" 
 | **C9** | **The call floats.** It is a panel above the conversation that the person can drag, in the manner of a desktop call window — not a full screen, and not a route of its own | C6's *"in place of the conversation view"*, the call-screen layout, and the designer's recommended `/live` route | FR-043 to FR-046 rewritten, **FR-048** and **FR-049** new, US6 rewritten, wireframe replaced. The chat stays behind the panel, readable and scrollable, which is what C6's full screen could not promise. **Superseded by C11 (2026-11-09 16:07): the call is one row in the conversation; FR-048 and Q9 retire with the panel.** |
 | **C10** | **One live session in total.** Starting one in another conversation — or with another agent — does not fail and does not open a second: the call **moves** there and the old session closes | FR-005's per-conversation rule, the edge case that allowed two sessions on two conversations, and open question Q4 | FR-005 rewritten, **FR-050**, **FR-051** and **FR-052** new, **SC-011** new. This is the one place where the feature gets *less* permissive on purpose |
 | **C11** | **The call is one row inside the conversation** — not a floating panel, not a full screen, not a route | C9's draggable panel, C6's call screen and the composer bar before it (all three archived, none deleted) | **FR-043, FR-044, FR-045, FR-046 and FR-049** rewritten around a row; **FR-048** and **Q9** superseded, because a row has no position to clamp or remember; US6 rewritten. Surviving from the panel work: the state words, the rule that the microphone indicator is never the element that gives way, and the `ended`/`failed` treatment |
-| **C12** | **The manual speech-to-text and text-to-speech surfaces are deprecated — the surfaces, not the code.** The record control and the spoken-reply toggle leave the conversation's UI; the providers, tools, configuration and build capability stay, because another surface may use them later | the assumption that both surfaces must be offered side by side in the composer | **FR-053** new. **FR-003 and FR-041 are NOT superseded and get stronger**: two paths live side by side while only one is on screen, so a build without live voice must still leave every existing speech feature working. The "flag off" tests (T014, T015) stay alive for the same reason |
+| **C12** | **The manual speech-to-text and text-to-speech surfaces are deprecated — the surfaces, not the code.** The record control and the spoken-reply toggle leave the conversation's UI; the providers, tools, configuration and build capability stay, because another surface may use them later | the assumption that both surfaces must be offered side by side in the composer | **FR-053** new. **FR-003 and FR-041 were not superseded and got stronger**: two paths live side by side while only one is on screen, so a build without live voice had to leave every existing speech feature working — **until C17 (2026-11-16) removed that build**, so the guarantee now ends at the run-time switch rather than at a flag. The "flag off" tests (T014, T015) stayed alive for that reason: FR-003's half of T014 stands, and its flag-off half is replaced by a test of the switch |
 | **C13** | **Audio travels in a lane of its own on the conversation's transport** — droppable under backpressure, while everything a person reads keeps the ordered broadcast. *Which* transport carried it was **Q11**, opened here and **closed on the socket** at 16:35 | R1 (audio as base64 PCM16 JSON on the topic socket) *as the final answer* | **FR-054, FR-055, FR-056, FR-057, FR-060** new. The per-connection lane, `LIVE_VOICE_SOCKET_BACKLOG = 16` and `stall` are the shipped path, not a candidate. The latency criteria are measured on the path that carries the sound. Choosing the transport was the Lead's call on measured numbers, and **Q11** records both the question and the answer |
 | **C14** | **The audio capability is standalone**: a documented contract a third party can implement without our client | the assumption that the audio path is a private detail of the WebUI | **FR-058** and **FR-059** new, **SC-012** new, and a public-contract section in the frame contract. It also binds our own WebUI to the same contract, or the contract rots. **Narrowed by C15**: a document is not enough — access needs a scoped API key |
 | **C15** | **Third-party access is by API key, scoped to live voice** — the User's reading of "standalone": not only a document, but a feature another system can actually call, kept safe by a key | C14's "the conversation's own credential", which would have handed an outside system a person's whole account | **FR-061 to FR-064** new, **SC-013** new, and the contract's Authentication section rewritten. The gap is named, not glossed: API keys exist but carry no scope (`middleware.rs:200` grants the owner's full permissions), so this is code, not prose |
 | **C16** | **The reply arrives as it is made, not when it is finished** — and starting it *before* the person stops talking is a separate, larger question (Q12) | the constraint note of 2026-11-08, FR-012's "not character by character", and FR-013's exclusion of anything finer than a segment | **FR-065 to FR-070** new and **PROVISIONAL** (not in this release's gate), **SC-014** new, **Q12** opened with the User's answer being "wait". The User chose this direction on 2026-11-10 06:39 and deferred speculation; the numbers that would size it are still the Lead's. FR-012/FR-013 are amended in place, and **FR-023's premise is broken and must be restated** — its justification ("already stored before its first word was heard") is true only while replies arrive whole |
+| **C17** | **Live Voice is not an optional build capability.** The project owner's instruction, relayed by the User on 2026-11-16: *"kenapa di feature gate? kan ga nambah provider baru sebenernya"*, and then, asked which way, *"Yaudah deh gas opsi B"*. The premise is true — the flag pulls in no dependency of its own — so a name that read `provider-` was asking to be justified by a build comparison it never bought | the `provider-live-voice` (engine) and `live-voice` (gateway) flags, C12's "build capability stays", FR-041's build clause, and **T108**, the build comparator | **FR-041 rewritten** around the one switch that remains: per-agent `live_voice.enabled`, off unless it is configured; `live_voice_start` ignored **without closing the socket**, no `live_voice` frame ever emitted, `agent_detail` reporting `live_voice: false`, and every existing speech and chat feature unchanged. **What is lost, stated plainly**: no build leaves the feature out, so "a build without it" stops being a scenario anyone can run — the guarantee becomes a compile-time fact (`cargo tree` 625 = 625, `cargo check` +0.3 s, 0.14 % of symbols) plus a run-time test, and a later decision to make the capability optional again owes a comparator. What always compiling costs, measured: 109 gateway tests always built (wall +68 s) and RSS +20 MB. Delta 2026-11-16 |
 
 **Why C9 is not just a repaint of C6.** C6 put the call in place of the conversation, and then had to
 answer what happens to the chat — the full-screen render answered it by growing a transcript panel
@@ -135,6 +136,16 @@ to exactly one session and refuses it otherwise, rather than letting it join wha
 because the sound is droppable while text is not, SC-001 and SC-002 are measured **on the lane that
 carries it** — a number taken from the message hop would describe a path
 that is not carrying the sound.
+
+**Superseded in part on 2026-11-16 (C17): the build capability, not the code.** The paragraph that
+opens this session — *"The old speech surfaces retire; their code does not"* — keeps the manual tools' *code* — providers, tools and configuration — and that reading stands untouched.
+That paragraph also said the **build capability** stays, and that "a build without live voice leaves every existing
+speech feature working" (FR-041) matters more than before. The owner of the project has since asked for
+the gate to go: live voice adds no provider and no dependency of its own (`cargo tree` gives 625 crates
+with and without it, measured at `474ead86`), so the flag was a name rather than an economy — and what it
+bought as evidence was a test that asserted a compile-time constant inside the file that constant gated.
+FR-041 is therefore rewritten around the one switch that remains, the per-agent `live_voice.enabled`, and
+the sentences here that speak of a build without live voice are kept as history rather than as a promise.
 
 ### Session 2026-11-09 16:35 (the socket carries the sound, and a stranger gets in with a key)
 
@@ -491,7 +502,8 @@ this diagram because it is deferred (C7).
 - **A dream, a scheduled task or a background report**: no live voice; the capability exists only while a person has a session open.
 - **A conversation in a mode that restricts what the agent may do** (a Plan chat): a voice message follows the same rules as a typed one, including any refusal.
 - **Vizier restarts mid-session**: the session ends; the conversation and every completed turn survive.
-- **A build without the capability**: the control does not appear and every existing speech feature behaves as before.
+- **An agent whose live voice switch is off** — the default — **or with no recogniser or voice configured**: the control cannot start. It is drawn as a non-button pill — a `<span>` with **no handler at all** (`LiveVoiceRow.tsx:196-213`; the file's three `onClick`s are at `:220`, `:305`, `:314`, none of them on this branch) — whose reason is its `title` plus an `sr-only` copy of the same sentence: *"live voice is not configured for this agent"*. That sentence is the **form** FR-004 asks for — a reason a person can read — and it is the one a person actually meets: the three variants exist (`voice`, `recogniser`, and this generic one), but **no caller passes `missing`** (`liveVoiceMissing` is declared and piped through `Composer.tsx:71`, `:114`, `:487` and passed by nobody), and the API has exactly one boolean to give (`agent_detail.live_voice`), so which half is missing cannot reach the client today. **Which leaves FR-004 half met at the wire, and the half that is missing is recorded rather than rounded up**: the reason names *that* nothing is configured, not *which* engine is absent, and it does not say where to set it — so a person who reads it learns what is wrong but not what to do. Fixing that is a wire change (a reason code next to the boolean) and belongs to the Lead and Sepuh with the rest of C17's round, not to this document. Every existing speech feature behaves as before.
+  *(Rewritten 2026-11-16, C17: there is no longer a build that leaves live voice out, so the scenario is the run-time switch. Corrected the same day after the Lead read the code: an earlier version of this sentence said pressing the pill opens the agent's settings, which the row does not do — `LiveVoiceControl.tsx:132-135` has a `if (!capability) { onOpenSettings?.() }` branch that nothing can reach, because the only two things that call `start` are buttons the row renders only when `capability` is true. Dead code is not a behaviour, and FR-004 asks the control to **name** what is missing, not to open a page.)*
 
 ## Requirements *(mandatory)*
 
@@ -557,7 +569,7 @@ this diagram because it is deferred (C7).
 **Unchanged behaviour**
 
 - **FR-040**: With Live Voice never used, every existing behaviour MUST be unchanged: the speech tools, automatic transcription of uploaded audio, requested spoken replies, text chat, and the HTTP and WebSocket surface as existing clients see it.
-- **FR-041**: Live Voice MUST NOT be required by any existing capability; a build without it MUST leave every existing speech and chat feature working.
+- **FR-041**: Live Voice MUST NOT be required by any existing capability, and it MUST cost a build nothing to carry: **the feature and its frames are compiled into every build of the engine and the gateway**, and no Cargo feature leaves it out (C17, 2026-11-16). The only switch is the per-agent setting `live_voice.enabled`, **off unless it is configured**; with it off, `live_voice_start` MUST be ignored **without closing the socket**, no `live_voice` frame MUST ever be emitted, `agent_detail` MUST report `live_voice: false` (the top-level boolean, whose source is `tools.live_voice.enabled`), and every existing speech and chat feature MUST work exactly as it does today. *(Rewritten 2026-11-16: this clause used to require the same behaviour of "a build without it", and that build no longer exists. What appeared to prove it was a Cargo flag that pulled in no dependency of its own — `cargo tree`, 625 crates with and without it — plus a test that asserted a compile-time constant inside the very file that constant gated. If a later build can omit live voice again, this clause returns with a comparator to prove it; until then nobody may quote `--no-default-features` as evidence that a build without the feature was tested.)*
 
 **The row in the conversation (C11)**
 
@@ -576,7 +588,7 @@ this diagram because it is deferred (C7).
 
 **The manual speech controls leave the UI, the code stays (C12)**
 
-- **FR-053**: The manual speech-to-text and text-to-speech **surfaces** MUST be removed from the conversation's UI in favour of live voice — the record control and the spoken-reply toggle are no longer offered. Their **implementation MUST NOT be removed**: providers, tools, configuration and build capability stay exactly as they are, because another surface may use them later. During the overlap live voice MUST work whether or not those tools are enabled (FR-003), and a build without live voice MUST keep every one of them working (FR-041).
+- **FR-053**: The manual speech-to-text and text-to-speech **surfaces** MUST be removed from the conversation's UI in favour of live voice — the record control and the spoken-reply toggle are no longer offered. Their **implementation MUST NOT be removed**: providers, tools and configuration stay exactly as they are, because another surface may use them later. During the overlap live voice MUST work whether or not those tools are enabled (FR-003), and with an agent's live voice switch off they MUST all keep working exactly as before (FR-041).
 
 **The audio path (C13 — transport under evaluation)**
 
@@ -654,7 +666,7 @@ this diagram because it is deferred (C7).
 - **No new agent capability**: voice is another way to send a message, not a new tool. Nothing becomes available to the agent that typing does not already allow, and the mode of the conversation still decides what it may do.
 - **Non-goals**: wake words and always-listening sessions; a session with no conversation open; multi-person or conference capture; telephone calls; recording or re-listening to audio; speech on the Discord and Telegram channels beyond the decision in FR-035; on-device-only operation as a guarantee.
 - **Cost**: the person's provider account pays. A session costs roughly what its turns cost plus its speech, so the idle stop is the main guard, and FR-036 is where a per-minute provider would change that picture.
-- **Optional capability**: per the constitution the feature sits behind an optional build capability, added without changing the shape of the existing API, and a build that leaves it out keeps everything else working (FR-041).
+- **No build capability; one run-time switch** (C17, 2026-11-16): live voice is compiled into every build of the engine and the gateway, adds **no dependency of its own** (`cargo tree -p vizier-core --no-default-features` gives 625 crates with and without the flag, measured by the Lead on `474ead86` and re-measured on the merged tree) and changes no field or signature of the existing API. What a person turns off is the per-agent `live_voice.enabled` switch — off unless it is configured — and with it off every other capability works exactly as before (FR-041). Clause III of the constitution is worded about **optional** capabilities — *"an optional channel, addon, provider or gateway MUST sit behind a Cargo feature named `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nats` or `role-*`"* (`.specify/memory/constitution.md:226-232`) — and live voice is none of those four: not a channel, not an addon, not a provider (it uses the ones already there, which is the owner's own reason), not a gateway (`vizier-http` stays a gateway and stays behind `gateway-*`). The clause's second sentence, *"A flag MUST NOT change the shape of the API"*, is untouched too, because **removing** a flag adds no field and no signature. **That reading was confirmed by the Lead on 2026-11-16**, against the constitution's own words — nothing about clause III needs amending, and no debt is left open here.
 - **Verification**: like every agent-observable change, the checks are scripted against the offline provider for the turn side (message in, history out) with the speech providers faked, plus one live-provider check marked as such for real audio; the plan turns that into concrete steps.
 
 ### Superseded surfaces, and the four things that survive them (archived, not deleted)
@@ -679,7 +691,7 @@ colour **and** marker (FR-042).
 **Do not take any retired surface's pixel floor, narrowing order or placement as a requirement for
 the row.** The row's own constraints are FR-043, FR-044 and FR-049 and nothing else.
 
-## Open Questions (for the User — ten live, each with a default; the closed ones kept as a record)
+## Open Questions (for the User — eleven live, each with a default; the closed ones kept as a record)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
 already follow. Changing one is a change of scope, not a rewrite.
@@ -697,6 +709,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q15** | Is `LIVE_VOICE_SOCKET_BACKLOG = 16` part of the published contract, or an implementation detail a client must not read? | **Published as an upper bound**, exactly as `contracts/live-voice-frames.md:279` states it: 16 audio frames ≈ 1.6 s, then audio is dropped and one `stall` is reported. A bound a client can plan for, not a knob we may halve without notice. | If it is internal, the contract and FR-057's "described in terms another client can meet" must stop quoting the number, and a client cannot size its send buffer. |
 | **Q16** | FR-048 is struck *and* kept "because the panel remains the fallback if the row is rejected". Does a struck requirement stay in the document as a fallback, or does the fallback go with the panel? | **Keep it struck**: no task may carry it (T093 is `[SUPERSEDED]`), and reviving it is a new decision with its own delta. | Deleting it makes the archived-surface table the only trace of the drag rules — thinner than what a future panel decision would need. |
 | **Q17** | `MANUAL_SPEECH_SURFACES` (`webui/app/screens/chat/Composer.tsx:59`) turns the record control and the spoken-reply toggle back on the day it is set true. Does that surface return **as it was**, or does it need a redrawn design? | **As it was** — FR-053 keeps the code, so no design is owed and Q13's "the toggle can return without a rebuild" stays true. | If it needs a redraw, Q13's default moves from "acceptable for this release" to "a design task is queued", and FR-053's promise narrows to the code only. |
+| **Q18** | FR-041 no longer has a build that omits live voice (C17). Does "live voice MUST NOT be required by any existing capability" still need a machine proof of its own, or does the run-time switch's test stand in for it? | **The switch's test stands in for it**: T014's rewritten half (start ignored, socket open, no frame), the schema default test for `live_voice.enabled: false`, and the four existing speech suites kept green by T078 (SC-006). Nothing new is built, because the only comparator available would be another Cargo flag — the thing that was removed. | Wanting the build proof back means wanting a flag back: the substance of C17 reverses, and a second, differently-named feature would have to be introduced and added to the CI matrix (where the old one never was). |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -854,7 +867,7 @@ rather than as an answer because that is what the owner said it was.
 | Change | Where | What it says now |
 |---|---|---|
 | **C11 — one row, and it is the composer's own meta line** | new `### Session 2026-11-09 16:07`, amended 17:31 · **US6 rewritten** (title, narrative, why, independent test, 8 scenarios) · **FR-043, FR-044, FR-045, FR-046, FR-049** rewritten · **FR-001, FR-002, FR-006, SC-010** reworded · **FR-048** and **Q9** struck as superseded · **Q6** reworded · the panel edge case rewritten · the archived-surface note covers all three retired surfaces | the call takes over the composer's meta line at **0 px** added height (surface **B1-1**); it covers nothing, floats over nothing, is not a rail above the composer and has no position to remember |
-| **C12 — the manual speech *surfaces* retire** | **FR-053** new · the record and spoken-reply controls leave the composer UI · **FR-003 and FR-041 left exactly as they were**, deliberately | live voice becomes the only speech surface on screen; the providers, tools, flags and build capability stay in the code for another surface later (User, 2026-11-09 16:16), so a build without live voice still has every speech feature |
+| **C12 — the manual speech *surfaces* retire** | **FR-053** new · the record and spoken-reply controls leave the composer UI · **FR-003 and FR-041 left exactly as they were**, deliberately | live voice becomes the only speech surface on screen; the providers, tools, flags and build capability stay in the code for another surface later (User, 2026-11-09 16:16), so a build without live voice still has every speech feature *(the build-capability half of this row is superseded by **C17**, 2026-11-16: the providers, tools and flags stay, the capability stops being a build flag)* |
 | **C13 — audio gets a lane of its own; the carrier is the socket (Q11, closed 16:35)** | **FR-054, FR-055, FR-056, FR-057, FR-060** new · **Q11** opened and then closed on `ws-json-pcm16` · SC-001/002/003 scoped to the path that carries the sound · the plan's R1 and the contract's delivery path marked as the shipped path, `media-track` reserved | the sound travels on the conversation's socket as base64 PCM16, everything a person reads stays on the same socket, and the audio is bound to one session; the media option's measured cost stays in `plan.md` as the record of what lost |
 | **C15 — third-party access by scoped API key** | **FR-061, FR-062, FR-063, FR-064** new · **SC-013** new · `### Session 2026-11-09 16:35` · contract's Authentication section rewritten | a client that is not Vizier's gets in with a **key that grants live voice and nothing else**; a running session ends when its key is revoked or expires; a key that cannot be narrowed must not be offered at all. The code gap is stated: keys exist (`storage/user.rs:69-81`) but carry no scope (`auth/middleware.rs:200`) |
 
@@ -864,7 +877,8 @@ that gives way (FR-038); the reason kept on `ended`/`failed`; **no interrupt con
 FR-045 still says the row offers one action); the interruption firing at the end of the utterance
 (C8, FR-019); one session in total with reason `moved` (C10, FR-050 to FR-052); no total duration cap;
 typed messages being text only (FR-018 withdrawn, FR-025 deferred); and **FR-003 and FR-041, bit for
-bit**, which a first reading of "deprecated" would have quietly narrowed.
+bit**, which a first reading of "deprecated" would have quietly narrowed. *(FR-003 is still
+bit for bit; FR-041 was rewritten on 2026-11-16, when the build capability went — C17.)*
 
 **Correction, 2026-11-09 16:25 — the echo-cancellation argument is retired, and it changes the
 default in Q11.** The first version of this delta made a media transport the leading candidate on one
@@ -942,7 +956,7 @@ cannot escape: `^- \[[ xX]\] T[0-9]{3}`.
 | # | The brief says | What this document already says | Where, and when |
 |---|---|---|---|
 | 1 | The surface is **one row in the chat**; the floating panel is cancelled | **C11**: the call is the composer's own meta line, at 0 px added height — not a floating panel, not a screen, not a route, not a rail. US6 rewritten; FR-043…FR-046 and FR-049 rewritten around the row; **FR-048 and Q9 struck** (a row has no position to clamp or remember); T093 is the one `[SUPERSEDED]` task and names itself as such | C11 row · `Session 2026-11-09 16:07` · US6 at `:420` · FR-043…FR-049 · `aecf38d1`, amended at 17:31 (`a1afa47b`) |
-| 2 | STT and TTS are **deprecated** — check FR-003, FR-041, T014, T015, `sttEnabled` | **C12** deprecates the **surfaces, not the code**: the record control and the spoken-reply toggle leave the conversation's UI (FR-053, T107); providers, tools, flags and build capability stay, because *"incase kedepannya kepake buat UI lain"* (User, 16:16). **FR-003 and FR-041 are therefore left bit for bit** — the brief's instruction to "check" them ends in that check: they got *harder*, not narrower | C12 · FR-053 · T107, T108 · `aecf38d1` |
+| 2 | STT and TTS are **deprecated** — check FR-003, FR-041, T014, T015, `sttEnabled` | **C12** deprecates the **surfaces, not the code**: the record control and the spoken-reply toggle leave the conversation's UI (FR-053, T107); providers, tools, flags and build capability stay, because *"incase kedepannya kepake buat UI lain"* (User, 16:16). **FR-003 and FR-041 are therefore left bit for bit** — the brief's instruction to "check" them ends in that check: they got *harder*, not narrower — **superseded in part 2026-11-16 (C17)**: FR-041 is rewritten around the run-time switch, and T108 retires with the flag it compared | C12 · FR-053 · T107, T108 · `aecf38d1` |
 | 3 | Transport is **WebRTC for audio + WebSocket for chat/transcript**; supersede the `ClientConnection::send` lane, `LIVE_VOICE_SOCKET_BACKLOG=16`, the `stall` frame | **Not applied — see the next section.** The User closed Q11 on the **socket** at 16:35 | Q11 row · C13 · `518da0fb` |
 | 4 | "Standalone" is a **public contract**, explained in ≤ 5 plain sentences | **C14/C15** and a four-sentence paragraph at `:288` ("Standalone means the audio capability is a thing a stranger can use without our client…") with the six surfaces that must be public and the five that stay internal; enforced by FR-058, FR-059, FR-061…FR-064, SC-012/SC-013 | `:281-312` · FR-058…FR-064 · `518da0fb` |
 
@@ -951,7 +965,9 @@ unqualified; in this document it means the **surface** is gone, the capability i
 inference: it is the User's own qualifier at 16:16, and T108 exists to keep it honest (a build without
 live voice still chats, still transcribes uploads, still speaks on request). If a later instruction wants
 the *code* gone too, it is a new decision with a task and a migration for anyone who enabled the tools.
-Nobody should read this delta as permission to delete the providers.
+Nobody should read this delta as permission to delete the providers. *(Unchanged by C17, 2026-11-16: the
+providers, tools and configuration stay exactly where this paragraph leaves them — what went is the build
+capability, not the code it used to gate.)*
 
 ### The clause that must not be applied: the transport
 
@@ -977,7 +993,7 @@ number, not in this document as a preference.
 | FR | Carriers in `tasks.md` | Verdict |
 |---|---|---|
 | FR-003 | T014 | carried, done |
-| FR-041 | T014, **T108** | carried, T108 open |
+| FR-041 | T014, **T108** | carried, T108 open — **superseded 2026-11-16 (C17)**: the build comparator retires; FR-041 is rewritten around the run-time switch and T014's flag-off half becomes a switch-off test |
 | FR-043 | T038, T040, T089 | carried, done |
 | FR-044 | T038 (the row), **T112** (the agent's name) | **carried** — T038 draws the row but not the agent, which is why T112 exists: `webui@5b5209c` renders the name in the row, `webui@c735d82` tests a 40-character name against the 24 px height, and T112 is `[x]` since `83922351` (still `[x]` at `59614393`). Corrected at 12:52 as "not carried" because the name was missing at `webui@34e7060`; that reading is now stale. **The width in a real browser (T094) is still unmeasured** — `[x]` means the element and its rule exist, not that the row was seen at every width |
 | FR-045 | T038, T090 | carried, done |
@@ -1175,7 +1191,7 @@ renumbers nothing**.
 | FR | Carriers | State | Verdict |
 |---|---|---|---|
 | FR-003 | T014 | `[x]` | carried |
-| FR-041 | T014, **T108** | `[x]`, `[ ]` | carried — T108 is the harder half (two speech paths coexist) |
+| FR-041 | T014, **T108** | `[x]`, `[ ]` | carried — T108 is the harder half (two speech paths coexist). **Superseded 2026-11-16 (C17)**: with the build capability gone there is no harder half left to compare, FR-041 is rewritten, T108 retires |
 | FR-006, FR-038, FR-042 | T038, T039 | `[x]` | carried |
 | FR-044 | T038, **T112** | `[x]`, `[x]` | **carried** — T038 is the row, T112 is the agent's name (`webui@5b5209c` render, `webui@c735d82` test, ticked at `83922351`). Two corrections stand behind this cell: the 12:52 reading ("not carried, `agentName` = 0 hits at `webui@34e7060`") was true then and is stale now, and the earlier claim that T038 alone carried FR-044 was never true. **Browser width (T094) unmeasured** |
 | FR-043, FR-046, FR-049 | T038, T040, T089, T094 | `[x]` | carried |
@@ -1401,4 +1417,130 @@ standing instruction is that I do not write it, so the text for T112 is handed o
 It does not re-decide the floor — but T038's line still reads "Floor 240 px", which is the 12:40 decision's
 consequence inside the Lead's file, recorded here and not edited here.
 
+## Delta Log — 2026-11-16 (the build gate goes, and the promise moves to the switch)
+
+Source: the owner of the project, relayed by the User in `vizier-dev` on 2026-11-16. Two screenshots of the
+build-flavour page came with one sentence — *"kenapa di feature gate? kan ga nambah provider baru sebenernya"*
+— and, asked which of the three ways to answer it, *"Yaudah deh gas opsi B"* (12:09). So the choice was not
+to rename the flag but to **remove it**. The Lead measured the price before that decision rather than after
+(`vizier-dev`, 11:58 and 12:08): `provider-live-voice = []` pulls in **no dependency** — `cargo tree
+-p vizier-core --no-default-features` gives **625 crates with and without it, identical** — `cargo check`
+**+0.3 s**, MaxRSS **+20 MB**, **0.14 %** of the binary's symbols, and the **109** gateway tests that were
+compiled only with the flag are green when they are always compiled (wall **+68 s**). The decision and the
+brief live at `specs/_antrean.md` §"ACC: lepas feature gate live voice" (`bc5d3235`); the code is Sepuh's to
+land against the Lead's brief in the same thread.
+
+**The premise was true, and the conclusion was still the owner's to make.** "It adds no provider" is correct,
+and the document already admitted it in the docs page the owner photographed — *"it **reuses** the speech
+providers, so it pulls in no dependency of its own"*. What kept the flag was never cost: FR-041 wanted a
+build to compare against, and clause III of the constitution names a flag for an *optional* capability.
+Removing the flag answers the complaint completely instead of renaming it away, which is why B beat A here;
+it also means FR-041 has to promise something else, and that is this delta's whole job.
+
+**Baseline, locked before reading anything** — `vizier@bc5d3235`, branch `055-live-voice`, `specs/055-live-voice/`:
+
+| Measure | Value | Pattern (the one used, so it can be re-run) |
+|---|---|---|
+| task lines | **112** = **66** `[x]` + **46** `[ ]` | `grep -cE '^- \[[ xX]\] \*{0,2}T[0-9]{3}' tasks.md` (done: the same with `[xX]`) |
+| `[BACKLOG]` **tasks** | **7** | `grep -cE '^- \[[ xX]\].*\[BACKLOG\]' tasks.md` — the bare `grep -c '[BACKLOG]'` gives **9**, because two prose lines say the word |
+| `[SUPERSEDED]` · `[PROVISIONAL]` | **2** (T093) · **1** (T111) | `grep -c` on each word; the count includes one prose line each, which is why the task is named |
+| FR ids | **72** = **67** live + **5** struck (`FR-018`, `FR-020`, `FR-021`, `FR-025`, `FR-048`) | `grep -cE '^- \*\*FR-[0-9]{3}[a-z]?\*\*:' spec.md`; struck `^- ~~\*\*FR-[0-9]{3}[a-z]?\*\*:` — the trailing colon is load-bearing, or cross-reference bullets inside delta logs count as definitions |
+| SC ids | **14** | `grep -oE 'SC-[0-9]{3}' spec.md \| sort -u \| wc -l` |
+| live questions | **10** → **11** after this delta adds `Q18` | `grep -cE '^\| \*\*Q[0-9]+\*\*' spec.md` |
+
+### What changed
+
+| Change | Where | What it says now |
+|---|---|---|
+| **C17 — live voice is not an optional build capability** | new row in the decision table · new closing paragraph in `Session 2026-11-09 16:07` · **FR-041 rewritten** · **FR-053**, the "a build without the capability" edge case and the "Optional capability" assumption reworded · `Q18` added | one switch remains, the per-agent `live_voice.enabled`, off unless configured; with it off `live_voice_start` is ignored **without closing the socket**, no `live_voice` frame is ever emitted, `agent_detail` reports `live_voice: false`, and every existing speech and chat feature behaves exactly as before |
+| **The build half is replaced, not quietly dropped** | FR-041's parenthetical · C17's row · the assumption bullet | there is no build that leaves the feature out, so the guarantee becomes a **compile-time fact** (`cargo tree` 625 = 625, `cargo check` +0.3 s, 0.14 % symbols) plus a **run-time test**; a future decision to make the capability optional again owes a comparator, and until then `--no-default-features` may not be quoted as evidence that a build without the feature was tested |
+| **The code stays exactly where C12 left it** | the 16:07 paragraph's superseded note · the 09:00 delta's closing paragraph | the providers, tools and configuration of the manual speech surfaces are untouched by C17 — what went is the flag, not the code it gated |
+| **Six historical cells marked, none rewritten** | `Session 2026-11-09 16:07` (C12 cell) · the 16:07 delta table's C12 row · its "FR-003 and FR-041, **bit for bit**" sentence · the 09:00 delta's item-2 cell · its closing paragraph · both carrier tables (`:995`, `:1193`) | each keeps its own words as the record of what was true then, with a dated pointer saying which half C17 superseded. A delta log that edits itself is not a log |
+
+### FR-041, as it now reads
+
+> **FR-041**: Live Voice MUST NOT be required by any existing capability, and it MUST cost a build nothing to
+> carry: **the feature and its frames are compiled into every build of the engine and the gateway**, and no
+> Cargo feature leaves it out (C17, 2026-11-16). The only switch is the per-agent setting `live_voice.enabled`,
+> **off unless it is configured**; with it off, `live_voice_start` MUST be ignored **without closing the
+> socket**, no `live_voice` frame MUST ever be emitted, `agent_detail` MUST report `live_voice: false`,
+> and every existing speech and chat feature MUST work exactly as it does today. *(Rewritten 2026-11-16: this
+> clause used to require the same behaviour of "a build without it", and that build no longer exists. What
+> appeared to prove it was a Cargo flag that pulled in no dependency of its own — `cargo tree`, 625 crates with
+> and without it — plus a test that asserted a compile-time constant inside the very file that constant gated.
+> If a later build can omit live voice again, this clause returns with a comparator to prove it; until then
+> nobody may quote `--no-default-features` as evidence that a build without the feature was tested.)*
+
+**Three things that wording does on purpose.** (1) It keeps the half that never depended on a build — live
+voice is not required by any existing capability — because FR-003 and FR-040 still lean on it. (2) It names
+the **socket** in the same breath as the ignored start, because "ignored" alone is how a client gets quietly
+disconnected and reads it as a failure. (3) It records behaviour that already holds rather than asking for
+new code: the field is `#[serde(default)]` at `crates/vizier-core/src/schema/agent.rs:205`, the unit test
+`live_voice_is_off_and_defaulted_until_it_is_configured` (`:612`) pins the default, `crates/vizier-http/src/topic.rs:798`
+returns without closing the socket and says so in its own comment, and `webui/app/routes/chat.tsx:123`
+already reads `detail.live_voice` to decide whether the control can start. No requirement here is new work;
+one of them is a property nobody had written down.
+
+### Carrier audit — what carries the rewritten FR-041, and what does not
+
+| Clause | Carrier | State |
+|---|---|---|
+| compiled into every build | **no task, and none is owed**: a build fact, shown by two commands — `git grep -n 'provider-live-voice\|feature = "live-voice"' -- crates/` → empty, and `cargo tree` 625 before and after | a fact, not a test: there is nothing at run time to vary |
+| switch off → ignored, socket open, no frame | **T014** (Lead's file; its flag-off body was the tautology and is deleted in Sepuh's brief, replaced by one test over `topic.rs:798`) | `[x]`, test being replaced in the same round |
+| `agent_detail` → `live_voice: false` | a top-level `pub live_voice: bool` (`crates/vizier-core/src/service/agents.rs:75`), not a nested object, computed at `:605` as `config.tools.live_voice.enabled && has_recogniser && has_voice` — so switching the agent's switch off forces it false, which is the direction FR-041 needs; the reverse does not hold, since false also covers "switch on, no engine". Consumed at `webui/app/routes/chat.tsx:123` (`detail.live_voice ?? false`), typed `live_voice: boolean` at `app/api/schema.d.ts:1920`. **No release task names it** — recorded here rather than left to look like a gap |
+| existing speech and chat unchanged with the switch off | T014's FR-003 half · **T078** (SC-006's four suites, named) · T107 | `[x]` · `[ ]` · `[x]` |
+| **T108** | obsolete as written: `cargo build -p vizier --no-default-features` never left live voice out, because `crates/vizier/Cargo.toml:32` forces `vizier-http/live-voice` — the command passed while proving nothing. The same false premise is in the code comment at `crates/vizier-http/Cargo.toml:23-25`, which says the feature can be tested off "on a real build" | retires with the flag; **the Lead's to rewrite or delete**, and the comment is Sepuh's |
+
+**Result**: no clause of the new FR-041 is carried by a `[BACKLOG]` task, so rule 8 holds. One clause — the
+`agent_detail` one — has no **task id** at all even though a unit test pins it; it is recorded rather than
+invented, because `tasks.md` is the Lead's file and this round's instruction is that I do not write it.
+
+### Documents outside `spec.md` that now say something FR-041 does not promise
+
+| Document | What is now wrong | Owner |
+|---|---|---|
+| `tasks.md` `:48` `:49` `:53` `:79` `:117` `:281` `:284` | T001 builds the flag, T002 gates the module on it, T006's baseline checks it, T014 is the flag-off contract test, **T108** is the build comparator, T075 documents the flag, T078 runs a flag matrix | Lead — already in his brief for T014/T108 |
+| `plan.md` `:47` `:66` `:149` `:155` `:196` | "per feature flag (`vizier-core` with and without `provider-live-voice`)", clause III's gate row, "new feature `provider-live-voice`", two exit criteria that pass the flag | Lead |
+| `architecture.md` `:31` `:324` | "behind `#[cfg(feature = \"provider-live-voice\")]` (FR-041)", and invariant **I1**'s "with `provider-live-voice` off" | Lead |
+| `quickstart.md` `:15` `:21` `:135` | three commands that pass `--features provider-live-voice`, one of them the engine's test row | Lead |
+| `contracts/live-voice-frames.md` `:20` | "With `provider-live-voice` off, …" — a client now meets one build and one switch | **mine**, next round: it changes no wire behaviour, so it waits for the code, but no longer than that |
+| `analysis.md` `:86` | a coverage row ticking "optional capability behind a flag, API shape unchanged" on `provider-live-voice` / `default = []` | Lead/QA — to confirm whose |
+| `release-checklist.md` `:74` | A3's command is `cargo test -p vizier-core --features provider-live-voice --lib live_voice`, so the item stops running the moment the flag goes | QA |
+| `checklists/live-voice.md` `:54` | CHK029 asks whether "a build without the capability" is stated as a first-class scenario | QA |
+| `review.md` `:125` `:218` | prose describing the crate as sitting behind `provider-live-voice` | Lead |
+| `docs/src/configuration/build-flavours.md` `:15` `:30-43` · `AGENTS.md:16` | the page the owner photographed, its 30-line section on the engine flag and the gateway flag, and the flag list that never mentioned the flag at all (the Lead's finding, 11:58) | Lead |
+
+### What this delta does not do
+
+- It does not touch `tasks.md`, `plan.md`, `architecture.md` or `quickstart.md`: those are the Lead's, and his
+  brief writes them after the code lands. The table above is the list he asked for, not a claim that they are done.
+- It does not claim the code is changed. `bc5d3235` is a note on the board; at that commit the flag is still
+  in three `Cargo.toml` files (`vizier-core`, `vizier-http`, and the `vizier` binary that forces it on) and
+  behind `#[cfg(feature = "live-voice")]` / `#[cfg(feature = "provider-live-voice")]` in both crates' sources,
+  four of them in test files gated whole. This delta is written against a tree where it still exists.
+- It does not amend clause III, because the clause does not need it: its four words are channel, addon,
+  provider and gateway, and live voice is none of them — the assumption bullet records that reading, quoted
+  against `.specify/memory/constitution.md:226-232`, and the Lead confirmed it on 2026-11-16 rather than
+  leaving it as a debt. The second sentence ("a flag MUST NOT change the shape of the API") is untouched: a
+  removed flag adds no field and no signature.
+### Corrections after the Lead's review (2026-11-16, same day)
+
+Four corrections, all of them facts read off the code rather than preferences, applied before the commit:
+
+| # | What was wrong | What it says now |
+|---|---|---|
+| 1 | `agent_detail` was described as reporting a nested `live_voice.enabled` in **five** places — a field that does not exist, and a gate could have asked for it to be proved | `agent_detail` reports a **top-level `live_voice: bool`** (`crates/vizier-core/src/service/agents.rs:75`), computed at `:605` as `config.tools.live_voice.enabled && has_recogniser && has_voice`. FR-041 names it that way and adds the parenthesis *(whose source is `tools.live_voice.enabled`)*, so nobody goes looking for an object. The implication is one-way and the delta says so: switch off ⇒ false; false ⇏ switch off |
+| 2 | The unavailable pill was said to open the agent's settings on press — contradicting the same sentence's "non-button" | It is a `<span>` with **no handler**; the reason is its `title` and an `sr-only` copy. The three `onClick`s in `LiveVoiceRow.tsx` are at `:220`, `:305`, `:314` and none is on that branch. **Two things found while fixing it**: `LiveVoiceControl.tsx:132-135` holds an `if (!capability) { onOpenSettings?.() }` branch nothing can reach, since the only callers of `start` are buttons rendered when `capability` is true; and `liveVoiceMissing` is declared and piped through `Composer.tsx:71`, `:114`, `:487` but **passed by no one**, so the generic copy is the only one a person ever meets. Both are recorded, neither is fixed here — `webui` is not mine |
+| 3 | FR-053 still said "providers, tools, configuration **and build capability** stay exactly as they are" — hollow once C17 removed the capability | "providers, tools and configuration stay exactly as they are". The requirement's intent (the manual speech code does not get deleted) is unchanged |
+| 4 | The clause-III reading was left as a debt for the Lead | **Confirmed by the Lead on 2026-11-16** and quoted against `.specify/memory/constitution.md:226-232`: the clause's four words are channel, addon, provider and gateway, live voice is none of them, and its second sentence ("a flag MUST NOT change the shape of the API") is untouched because removing a flag adds no field and no signature. Nothing about clause III needs amending |
+
+**One thing the review got right in substance and slightly wrong in evidence**, recorded so the check can be
+re-run rather than trusted: the claim was that `git grep onClick LiveVoiceRow.tsx` gives **0** hits. It gives
+**3** — but they are on the three real buttons, and the conclusion drawn from it (the capability-false pill
+does not respond to a press) is correct. The count that matters is not "no `onClick` in the file" but "no
+`onClick` on this branch", which is why the delta names the three line numbers instead of a total.
+
+- It invents **no number**. Every figure quoted here is the Lead's measurement — `474ead86` on 11 Nov, re-measured
+  on the merged tree at 11:58 today (`cargo tree` 625 = 625, `cargo check` +0.3 s, RSS +20 MB, 0.14 % symbols,
+  109 tests / +68 s); none is mine, and none is a run-time cost — there is no run-time cost, because the same code executes either way.
 
