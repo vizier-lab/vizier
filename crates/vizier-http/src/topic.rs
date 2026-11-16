@@ -620,6 +620,24 @@ impl TopicOutbound {
                                     "sensitive_ask_closed": { "ask_id": ask_id, "outcome": outcome }
                                 }))
                             }
+                            SessionFrame::UiPageVerified { page_id, version, verification } => {
+                                Some(serde_json::json!({
+                                    "ui_page_verified": {
+                                        "page_id": page_id,
+                                        "version": version,
+                                        "verification": verification,
+                                    }
+                                }))
+                            }
+                            SessionFrame::UiPageState { page_id, state, state_seq } => {
+                                Some(serde_json::json!({
+                                    "ui_page_state": {
+                                        "page_id": page_id,
+                                        "state": state,
+                                        "state_seq": state_seq,
+                                    }
+                                }))
+                            }
                         };
                         if let Some(json) = json {
                             if self.out.send_async(json).await.is_err() { return; }

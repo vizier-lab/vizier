@@ -16,13 +16,16 @@ use crate::{
 /// The full documentation of one catalogue entry, output schema included for native tools
 /// and for client tools that declared one.
 pub(super) async fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &CatalogueEntry) -> ToolFunctionDoc {
-    let output_schema = match &entry.target {
+    let native = match &entry.target {
         ToolTarget::Native(tool) => router
             .default_toolset
             .get_tool(tool.clone())
             .or_else(|_| router.user_toolset.get_tool(tool.clone()))
-            .ok()
-            .map(|tool| tool.output_schema()),
+            .ok(),
+        _ => None,
+    };
+    let output_schema = match &entry.target {
+        ToolTarget::Native(_) => native.as_ref().map(|tool| tool.output_schema()),
         ToolTarget::Mcp { .. } => None,
         ToolTarget::Turn { source } => crate::agents::tools::turn_source::source(source)
             .and_then(|source| source.output_schema(ctx, &entry.name)),
@@ -33,6 +36,7 @@ pub(super) async fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &Ca
         output_schema.as_ref(),
         Some(entry.category.clone()),
     );
+    doc.guide = native.as_ref().and_then(|tool| tool.guide()).map(str::to_string);
     if let ToolTarget::Turn { source } = &entry.target {
         if let Some(source) = crate::agents::tools::turn_source::source(source) {
             if let Some(extra) = source.describe_extra(ctx, &entry.name).await {

@@ -187,6 +187,8 @@ where
         api::v1::agents::channel::chat,
         api::v1::agents::detached::list_detached_scripts,
         api::v1::agents::detached::get_detached_script,
+        api::v1::agents::ui_pages::get_ui_page,
+        api::v1::agents::ui_pages::get_ui_page_version,
         api::v1::agents::subagents::list_subagents,
         api::v1::agents::subagents::get_subagent,
         api::v1::agents::subagents::subagent_history,

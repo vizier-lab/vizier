@@ -136,10 +136,13 @@ pub enum ToolCategory {
     /// Make, change and organise the agent's own custom tools (`specs/061-agent-custom-tools`).
     /// The custom tools themselves are listed under the agent's own categories.
     CustomTools,
+    /// Interactive pages drawn in a WebUI reply (`specs/063-html-generative-ui`). Offered only in
+    /// WebUI and project conversations, by the tool's `available`.
+    Ui,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 22] = [
+    pub const ALL: [ToolCategory; 23] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -162,6 +165,7 @@ impl ToolCategory {
         Self::Subagents,
         Self::History,
         Self::CustomTools,
+        Self::Ui,
     ];
 
     pub fn name(self) -> &'static str {
@@ -188,6 +192,7 @@ impl ToolCategory {
             Self::Workspaces => "workspaces",
             Self::Subagents => "subagents",
             Self::CustomTools => "custom_tools",
+            Self::Ui => "ui",
         }
     }
 
@@ -233,6 +238,9 @@ impl ToolCategory {
                 "Hire temporary workers for parts of a task, wait for them, answer their questions and stop them"
             }
             Self::CustomTools => "Make, change and organise your own custom tools",
+            Self::Ui => {
+                "Draw interactive HTML pages (apps, games, dashboards) in your reply and change them with small edits"
+            }
         }
     }
 }
@@ -734,6 +742,10 @@ pub trait VizierToolDyn {
 
     fn output_schema(&self) -> serde_json::Value;
 
+    /// A long reference read on demand through `describe_tool_function` (`guide`), for a tool
+    /// whose use does not fit its description (`specs/063-html-generative-ui` R2).
+    fn guide(&self) -> Option<&'static str>;
+
     async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError>;
 }
 
@@ -779,6 +791,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
         Self::output_schema()
     }
 
+    fn guide(&self) -> Option<&'static str> {
+        <Self as VizierTool>::guide()
+    }
+
     async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError> {
         let input = serde_json::from_str(&args).map_err(|err| VizierError(err.to_string()))?;
         let output = self.call(input, ctx).await?;
@@ -814,6 +830,12 @@ pub trait VizierTool {
     /// the other end overrides this and decides per turn.
     fn available(&self, _ctx: &ToolContext) -> bool {
         true
+    }
+
+    /// A reference too long for the description, returned by `describe_tool_function` as
+    /// `guide`. The description should say to read it. Default none.
+    fn guide() -> Option<&'static str> {
+        None
     }
 
     fn input_schema() -> serde_json::Value {
@@ -2265,10 +2287,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `custom_tools` (spec 061) is the last; `history` (spec 060) is the one before it.
-        assert_eq!(names.last(), Some(&"custom_tools"));
-        assert_eq!(names[names.len() - 2], "history");
-        assert_eq!(names.len(), 22);
+        // `ui` (spec 063) is the last; `custom_tools` (spec 061) is the one before it.
+        assert_eq!(names.last(), Some(&"ui"));
+        assert_eq!(names[names.len() - 2], "custom_tools");
+        assert_eq!(names.len(), 23);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");

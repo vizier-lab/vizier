@@ -62,6 +62,8 @@ pub struct VizierDependencies {
     pub detached: crate::agents::detached::DetachedScripts,
     /// Agent custom tools (spec 061): the one write path for agents, dreams and people.
     pub custom_tools: crate::custom_tools::CustomTools,
+    /// Interactive pages (spec 063): versions' HTML in `blobs`, metadata in storage.
+    pub ui_pages: crate::ui_pages::UiPages,
     /// Every background delivery source (detached scripts, subagent workers), claimed together
     /// at the three delivery sites (spec 059 research D9).
     pub deliveries: crate::agents::delivery::Deliveries,
@@ -324,8 +326,11 @@ impl VizierDependencies {
             Some(transport.bus().state.clone()),
         );
 
+        let ui_pages = crate::ui_pages::UiPages::new(storage.clone(), blobs.clone());
+
         let deps = Self {
             custom_tools,
+            ui_pages,
             config: Arc::new(config.clone()),
             storage,
             sql,

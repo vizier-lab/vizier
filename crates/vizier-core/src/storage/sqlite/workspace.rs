@@ -755,7 +755,7 @@ impl WorkspaceStorage for SqlStorage {
         from_ms: i64,
         to_ms: i64,
     ) -> Result<Vec<SessionHistory>> {
-        use super::history::{fill_artifact_availability, fill_client_calls, fill_question_sets, fill_reactions, history_order_key, history_row, parse_history_row};
+        use super::history::{fill_artifact_availability, fill_client_calls, fill_question_sets, fill_ui_pages, fill_reactions, history_order_key, history_row, parse_history_row};
         let conn = self.conn.lock()?;
         let slug = VizierChannelId::Workspace(workspace_id.to_string()).to_slug();
         let mut stmt = conn.prepare(
@@ -774,6 +774,7 @@ impl WorkspaceStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
+        fill_ui_pages(&conn, &mut list)?;
         Ok(list)
     }
 

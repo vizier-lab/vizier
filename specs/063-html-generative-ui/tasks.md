@@ -43,31 +43,31 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Purpose**: the tool's category and guide hook, storage, the service skeleton, the history entry, the routes, deletion and the sandbox host.
 
-- [ ] T005 Add `ToolCategory::Ui` (`"ui"`, description "Interactive pages drawn in the reply") as the **last** entry of `ToolCategory::ALL` in `crates/vizier-core/src/agents/tools/mod.rs`. Extend `a_new_category_is_appended_to_the_end_of_the_list`. Add `ui` to the reserved category names, so an MCP server keyed `ui` becomes `ui_mcp`.
-- [ ] T006 Add the optional method `fn guide(&self) -> Option<&'static str> { None }` to `VizierTool`, carry it through the `VizierToolDyn` blanket impl, and expose it on `CatalogueEntry` in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T007 Make `describe_tool_function` add `guide` to the doc it returns when the entry has one, in `crates/vizier-core/src/agents/tools/python/docs_tools.rs`, with a unit test
-- [ ] T008 [P] Define the `UiPageStorage` trait and its records (`UiPageRecord`, `UiPageVersionRecord`, `VersionMeta`, `Verification`, `Problem`, `StaleBase { latest }`) in `crates/vizier-core/src/storage/ui_page.rs`, per data-model.md. Add it to the `VizierStorageProvider` supertrait in `crates/vizier-core/src/storage/mod.rs`.
-- [ ] T009 Implement `UiPageStorage` on `SqlStorage` in `crates/vizier-core/src/storage/sqlite/ui_page.rs`:
+- [x] T005 Add `ToolCategory::Ui` (`"ui"`, description "Interactive pages drawn in the reply") as the **last** entry of `ToolCategory::ALL` in `crates/vizier-core/src/agents/tools/mod.rs`. Extend `a_new_category_is_appended_to_the_end_of_the_list`. Add `ui` to the reserved category names, so an MCP server keyed `ui` becomes `ui_mcp`.
+- [x] T006 Add the optional method `fn guide(&self) -> Option<&'static str> { None }` to `VizierTool`, carry it through the `VizierToolDyn` blanket impl, and expose it on `CatalogueEntry` in `crates/vizier-core/src/agents/tools/mod.rs`
+- [x] T007 Make `describe_tool_function` add `guide` to the doc it returns when the entry has one, in `crates/vizier-core/src/agents/tools/python/docs_tools.rs`, with a unit test
+- [x] T008 [P] Define the `UiPageStorage` trait and its records (`UiPageRecord`, `UiPageVersionRecord`, `VersionMeta`, `Verification`, `Problem`, `StaleBase { latest }`) in `crates/vizier-core/src/storage/ui_page.rs`, per data-model.md. Add it to the `VizierStorageProvider` supertrait in `crates/vizier-core/src/storage/mod.rs`.
+- [x] T009 Implement `UiPageStorage` on `SqlStorage` in `crates/vizier-core/src/storage/sqlite/ui_page.rs`:
   - `init_ui_page_schema` creates both tables and their indexes (data-model.md).
   - Every write calls `check_fence` on `agent:{agent_id}` in its own transaction.
   - `add_ui_page_version` is one guarded `UPDATE … WHERE latest_version = ?` plus an insert.
   - `time::stored` for the text times.
   - Register the schema init beside the other `init_*_schema` calls.
-- [ ] T010 [P] Add the PostgreSQL migration `crates/vizier-core/src/storage/sql/postgres/migrations/0011_ui_pages.sql` with the same tables and indexes
-- [ ] T011 Add one fence test per fenced write (`create_ui_page`, `add_ui_page_version`, `set_ui_page_verification`, `set_ui_page_history_uid`, `save_ui_page_state`, `sweep_pending_ui_verifications`) to `crates/vizier-core/src/storage/sqlite/fence_tests.rs`. Add a test that two `add_ui_page_version` calls with the same base yield one success and one `StaleBase`.
-- [ ] T012 Delete a conversation's and an agent's pages inside `delete_session` and `delete_agent`, returning `(agent, page)` pairs. After commit, remove the blobs under `ui-pages/{agent}/{page}/` in `crates/vizier-core/src/storage/sqlite/session.rs` and `crates/vizier-core/src/storage/sqlite/agent.rs` (or the files that hold those methods), through the service in T014.
-- [ ] T013 [P] Add `SessionHistoryContent::UiPage { page_id, version, title, verification }` (`verification` is filled on read, never stored) in `crates/vizier-core/src/schema/history.rs`. Skip it in `history_entries_to_messages`, add its name to the kind list, and add `fill_ui_pages` to the history read path beside `fill_client_calls`.
-- [ ] T014 Implement the `UiPages` service in `crates/vizier-core/src/ui_pages/mod.rs`:
-  - `create`, `replace` and `get_version_html`, which write the blob under its final key (`ui-pages/{agent}/{page}/v{n}.html`) before the row and check `MAX_VERSION_BYTES`;
+- [x] T010 [P] Add the PostgreSQL migration `crates/vizier-core/src/storage/sql/postgres/migrations/0011_ui_pages.sql` with the same tables and indexes
+- [x] T011 Add one fence test per fenced write (`create_ui_page`, `add_ui_page_version`, `set_ui_page_verification`, `set_ui_page_history_uid`, `save_ui_page_state`, `sweep_pending_ui_verifications`) to `crates/vizier-core/src/storage/sqlite/fence_tests.rs`. Add a test that two `add_ui_page_version` calls with the same base yield one success and one `StaleBase`.
+- [x] T012 Delete a conversation's and an agent's pages inside `delete_session` and `delete_agent`, returning `(agent, page)` pairs. After commit, remove the blobs under `ui-pages/{agent}/{page}/` in `crates/vizier-core/src/storage/sqlite/session.rs` and `crates/vizier-core/src/storage/sqlite/agent.rs` (or the files that hold those methods), through the service in T014.
+- [x] T013 [P] Add `SessionHistoryContent::UiPage { page_id, version, title, verification }` (`verification` is filled on read, never stored) in `crates/vizier-core/src/schema/history.rs`. Skip it in `history_entries_to_messages`, add its name to the kind list, and add `fill_ui_pages` to the history read path beside `fill_client_calls`.
+- [x] T014 Implement the `UiPages` service in `crates/vizier-core/src/ui_pages/mod.rs`:
+  - `create`, `replace` and `get_version_html`, which write the blob under its final key (`ui-pages/{agent}/{page}/{sha256}.html`, content-named) before the row and check `MAX_VERSION_BYTES`;
   - `delete_blobs`;
   - id generation (`pg_` + 22 base62 characters).
   Put it on `VizierDependencies` in `crates/vizier-core/src/dependencies.rs`.
 - [x] T015 [P] Put the limits (`MAX_VERSION_BYTES = 1_048_576`, `MAX_EDITS = 100`, `MAX_TITLE = 120`, `VERIFY_OBSERVE_MS = 2000`, `VERIFY_DEADLINE = 10s`) in `crates/vizier-core/src/ui_pages/limits.rs`
-- [ ] T016 [P] Add `SessionFrame::UiPageVerified { page_id, version, verification }` and `SessionFrame::UiPageState { page_id, state, state_seq }` in `crates/vizier-core/src/transport/events.rs`, and their socket encodings (`ui_page_verified`, `ui_page_state`) in `crates/vizier-http/src/topic.rs`
-- [ ] T017 Add `service::ui_pages` with `get_page` and `get_version`, authorized like reading the conversation's history (`404` outside it), in `crates/vizier-core/src/service/ui_pages.rs`
-- [ ] T018 Add the routes `GET …/topic/{topic}/pages/{page_id}` and `GET …/pages/{page_id}/versions/{version}` (`text/html`, immutable cache) in `crates/vizier-http/src/api/v1/agents/ui_pages.rs`. Mount them in `agents/mod.rs` and add their OpenAPI entries (contracts/http.md).
-- [ ] T019 [P] Add conformance vectors for both routes (owner, another user, no access, unknown page) in `crates/vizier-http/tests/conformance/groups/ui_pages.rs`, and remove the routes from `tests/conformance/pending.txt` if they were listed
-- [ ] T020 Serve `/ui-kit/*` with `Access-Control-Allow-Origin: *` and immutable caching in `crates/vizier-http/src/webui/` (the embedded asset handler). Do the same in the desktop app's asset path in `app/src-tauri/` if the WebUI's static files are served there.
+- [x] T016 [P] Add `SessionFrame::UiPageVerified { page_id, version, verification }` and `SessionFrame::UiPageState { page_id, state, state_seq }` in `crates/vizier-core/src/transport/events.rs`, and their socket encodings (`ui_page_verified`, `ui_page_state`) in `crates/vizier-http/src/topic.rs`
+- [x] T017 Add `service::ui_pages` with `get_page` and `get_version`, authorized like reading the conversation's history (`404` outside it), in `crates/vizier-core/src/service/ui_pages.rs`
+- [x] T018 Add the routes `GET …/topic/{topic}/pages/{page_id}` and `GET …/pages/{page_id}/versions/{version}` (`text/html`, immutable cache) in `crates/vizier-http/src/api/v1/agents/ui_pages.rs`. Mount them in `agents/mod.rs` and add their OpenAPI entries (contracts/http.md).
+- [x] T019 [P] Add conformance vectors for both routes (owner, another user, no access, unknown page) in `crates/vizier-http/tests/conformance/groups/ui_pages.rs`, and remove the routes from `tests/conformance/pending.txt` if they were listed
+- [x] T020 Serve `/ui-kit/*` with `Access-Control-Allow-Origin: *` and immutable caching in `crates/vizier-http/src/webui/` (the embedded asset handler). Do the same in the desktop app's asset path in `app/src-tauri/` if the WebUI's static files are served there.
 - [ ] T021 Build the page document in `webui/app/lib/uiPage/document.ts`:
   - `srcdoc(html, {kitBase, state, theme, libraries})` emits the CSP of research R8 with `{KIT}` computed from `location`, the import map, the kit `<link>`/`<script>`, the in-frame bridge source and the error hooks with a 250 ms heartbeat;
   - `standaloneDocument(...)` inlines the kit for download.

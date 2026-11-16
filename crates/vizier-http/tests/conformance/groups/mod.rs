@@ -10,6 +10,7 @@ mod auth;
 mod core;
 mod custom_tools;
 mod detached;
+mod ui_pages;
 mod memory;
 mod misc;
 mod projects;
@@ -38,6 +39,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(core::vectors());
     all.extend(custom_tools::vectors());
     all.extend(detached::vectors());
+    all.extend(ui_pages::vectors());
     all.extend(memory::vectors());
     all.extend(misc::vectors());
     all.extend(projects::vectors());

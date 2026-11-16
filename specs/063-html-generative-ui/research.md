@@ -69,7 +69,7 @@ Each decision is recorded as Decision, Rationale and Alternatives. Code referenc
 - `ui_page` holds the identity, owner conversation, title, latest version, saved state and `state_seq`, and owner fence columns.
 - `ui_page_version` holds the number, size, sha256, origin (`full` | `edits`), base version, created time and verification outcome.
 
-The HTML bytes live in `BlobStore` at `ui-pages/{agent_id}/{page_id}/v{n}.html`.
+The HTML bytes live in `BlobStore` at `ui-pages/{agent_id}/{page_id}/{sha256}.html`, named by content so a stale edit set racing the winner can never overwrite its bytes.
 - A new `UiPageStorage` trait is added to `VizierStorageProvider`.
 - It is implemented once on `SqlStorage`, for SQLite (`init_ui_page_schema`) and PostgreSQL (migration `0011_ui_pages.sql`).
 - Every write is fenced on `agent:{id}` (`check_fence` in its own transaction).
@@ -172,6 +172,19 @@ connect-src 'none'; frame-src 'none'; worker-src blob:; form-action 'none'; base
 - Library modules are loaded from an opaque origin, so their responses need `Access-Control-Allow-Origin: *`. `vizier-http`'s WebUI asset handler adds it for `/ui-kit/*` only, and the Tauri asset path does the same. The files are public, static and hashed, with no credentials.
 
 **Accepted risk.** `img-src https:` lets a script put data in an image URL and reveals the person's IP to that host. This was decided on 2026-11-16 (spec Assumptions).
+
+**Found while building (2026-11-16): the desktop app's CSP is inherited by `srcdoc` frames.**
+- A `srcdoc` (and `blob:`/`data:`) document inherits the embedding page's CSP.
+- The desktop app's CSP (`app/src-tauri/tauri.conf.json`) has no `'unsafe-inline'` for scripts.
+- A probe with that exact policy on the parent blocked the inline script of a sandboxed `srcdoc` frame. With no parent CSP (the web build, where `vizier-http` sends none), the same frame runs.
+
+So in the desktop app, inline page scripts don't run as built today. That likely includes the existing `render_interactive_ui` pages and json-render's `logic` runner.
+
+**Options:**
+- **(a) Serve each page frame from a URL with its own CSP header.** A navigated document does not inherit. In the desktop app this would be the `vizier-asset:` scheme, added to `frame-src`.
+- **(b) Add `'unsafe-inline'` to the app's `script-src`.** This weakens the WebUI's own XSS protection, and Tauri's injected hashes would make it ignored anyway.
+
+(a) needs checking in the real app (`just app-dev`). The browser pane could not settle it: sandboxed URL frames from `127.0.0.1` did not run there even with no CSP, most likely its private-network rules. **Decision pending; T021–T022 wait on it.**
 
 ## R9 — Where the tool is offered
 

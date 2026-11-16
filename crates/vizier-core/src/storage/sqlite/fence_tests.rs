@@ -18,6 +18,9 @@ use crate::storage::sql::{SqlStore, params};
 use crate::storage::subagent::{Settled, StopOutcome, SubagentStorage};
 use crate::storage::task_run::TaskRunStorage;
 use crate::storage::turn::{TurnState, TurnStorage};
+use crate::storage::ui_page::{
+    AddVersionOutcome, NewUiPageVersion, UiPageRecord, UiPageStorage, VersionOrigin,
+};
 use crate::tests_support::{node_storage, test_store_pair};
 
 fn sqlite() -> SqlStore {
@@ -641,6 +644,64 @@ async fn stale_steer_refused() {
     assert_eq!(saved.len(), 1);
 }
 
+fn ui_page(id: &str) -> UiPageRecord {
+    UiPageRecord {
+        id: id.into(),
+        agent_id: "x".into(),
+        session: session("x"),
+        title: "Page".into(),
+        latest_version: 1,
+        state: None,
+        state_seq: 0,
+        created_at: 1,
+        updated_at: 1,
+    }
+}
+
+fn ui_version() -> NewUiPageVersion {
+    NewUiPageVersion {
+        size: 1,
+        sha256: "00".repeat(32),
+        origin: VersionOrigin::Full,
+        base_version: None,
+        edit_count: None,
+    }
+}
+
+/// Spec 063: every write that advances a page is fenced on its agent's scope. The page's state
+/// is the person's and is not.
+#[tokio::test]
+async fn stale_ui_page_write_refused() {
+    let n = nodes();
+    let scope = Scope::Agent("x".into());
+    n.a_then_b(&scope).await;
+    n.a.create_ui_page(&ui_page("pg_1"), &ui_version()).await.unwrap();
+    n.b_takes_over(&scope).await;
+    let clean = serde_json::json!({"state": "clean"});
+
+    n.assert_refused(&scope, n.a.create_ui_page(&ui_page("pg_2"), &ui_version()).await);
+    n.assert_refused(&scope, n.a.add_ui_page_version("pg_1", 1, &ui_version(), None).await);
+    n.assert_refused(&scope, n.a.set_ui_page_verification("pg_1", 1, &clean).await);
+    n.assert_refused(&scope, n.a.set_ui_page_history_uid("pg_1", 1, "h").await);
+    n.assert_refused(&scope, n.a.sweep_pending_ui_verifications("x", u64::MAX).await);
+    assert!(n.b.get_ui_page("pg_2").await.unwrap().is_none());
+    assert_eq!(n.b.get_ui_page("pg_1").await.unwrap().unwrap().latest_version, 1);
+
+    // The state is not fenced: a former owner (or a gateway) may still save it.
+    n.a.save_ui_page_state("pg_1", &serde_json::json!({"n": 1}), None).await.unwrap();
+
+    // The same writes by the new owner succeed.
+    n.b.create_ui_page(&ui_page("pg_2"), &ui_version()).await.unwrap();
+    assert_eq!(
+        n.b.add_ui_page_version("pg_1", 1, &ui_version(), None).await.unwrap(),
+        AddVersionOutcome::Added(2)
+    );
+    n.b.set_ui_page_verification("pg_1", 1, &clean).await.unwrap();
+    n.b.set_ui_page_history_uid("pg_1", 1, "h").await.unwrap();
+    // Version 2 was written under B's fence, so a sweep below any token leaves it alone.
+    assert_eq!(n.b.sweep_pending_ui_verifications("x", 0).await.unwrap(), 0);
+}
+
 crate::postgres_tests!(
     stale_history_save_refused,
     stale_turn_transition_refused,
@@ -657,4 +718,5 @@ crate::postgres_tests!(
     steer_turns_reads_a_message_once,
     steer_turns_skips_cancelled_and_running_rows,
     stale_steer_refused,
+    stale_ui_page_write_refused,
 );

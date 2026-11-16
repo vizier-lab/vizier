@@ -35,7 +35,7 @@ Indexes:
 | `created_at` | text | `time::stored` |
 | `owner_node`, `owner_token` | text, integer null | fence |
 
-The HTML itself is in the blob store at `ui-pages/{agent_id}/{page_id}/v{version}.html`.
+The HTML itself is in the blob store at `ui-pages/{agent_id}/{page_id}/{sha256}.html` (named by content, so two writers racing for one version number never overwrite each other).
 
 ### Verification (JSON)
 
