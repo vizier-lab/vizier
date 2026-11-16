@@ -49,9 +49,9 @@ code_ref:     webui@0d5255f (740 baris `session.ts`) · crates @ `0c158da8` — 
              campur: `LiveVoiceRow.tsx:32`, `:174` dan `session.ts:550` menunjuk hal berbeda di dua pin.
              Hitungannya, metode ditulis: baris tabel `| LV-…` saja, pola
              `[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts|tsx):[0-9]+(-[0-9]+)?`, satu kejadian per kemunculan ->
-             **42 kejadian (35 jenis)**: 27 bergeser · 7 nomor sama dan isi sama · 6 hanya ada di pin baru · 2 historis
+             **47 kejadian (39 jenis)** — diukur Lead 2026-11-16 14:26 di HEAD `e6eeffa4` dengan pola yang sama. Pecahan `27 bergeser · 7 nomor sama dan isi sama · 6 hanya ada di pin baru · 2 historis` di bawah **dihitung pada `281e51fd`, saat berkasnya memuat 42 kejadian** (sebelum lima nomor `LV-ST-LISTENING` ditambahkan); ia **tidak** menjumlah 47 dan tidak boleh dipakai bersama angka itu
              (`session.ts:406`, dibiarkan: menggesernya menghidupkan cacat yang sudah mati).
-             Batas angka: `42`/`35` bisa direproduksi mesin dengan pola itu; pecahan `27/7/6/2` **tidak** — ia pembacaan
+             Batas angka: `47`/`39` bisa direproduksi mesin di HEAD dengan pola itu (`grep -E '^\| LV-' … | sort -u | wc -l`); pecahan `27/7/6/2` **tidak** — ia pembacaan
              per klausa, dan definisi "hanya ada di pin baru" mengubah hasilnya (2 vs 6). `grep` polos memberi 47 token;
              yang bisa diulang persis adalah diff-nya: `git diff 281e51fd^..281e51fd` -> 38 tambah / 32 hapus.
              `crates @ 0c158da8` **belum** dipin, dan itu bukan kelalaian: gate C17 memanjangkan `session.rs` 1692 -> 2517
