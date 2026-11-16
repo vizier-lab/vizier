@@ -530,3 +530,32 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 
 **Aturan turunan yang saya pakai mulai sekarang:** sebelum menyentuh git di repo bersama ini, `git status --porcelain` wajib dibaca dulu; kalau ada berkas termodifikasi yang bukan milik sendiri, **tidak ada** `reset`, `checkout --`, `stash`, atau `clean`. Sebelum commit: `git fetch` + `git log origin/… ` — bukan commit lalu merge belakangan. Dan push dilakukan dari satu jalur saja.
 
+### Gate C17 mendarat — hasil review Lead (`c71f0e64`)
+
+| Hal | Bukti |
+|---|---|
+| Commit | **`c71f0e64`** `refactor(live-voice)!: lepas feature gate …` — 14 berkas, `+101/−61` |
+| Isi = laporan Sepuh | `md5sum` berkas di commit: `topic.rs` **`89fabe7d…`**, `live_voice_frames.rs` **`d500d827…`** — identik dengan yang ia laporkan dari working tree |
+| Basis klaim Sepuh | `git diff --stat bc5d3235 693fdcfd -- crates/ app/ Cargo.toml Cargo.lock` = **0 baris** |
+| Sisa nama flag | `git grep -n 'provider-live-voice\|feature = \"live-voice\"' -- crates/` → **kosong** (exit 1) |
+| Deklarasi fitur | `vizier-core/Cargo.toml` tak lagi punya `provider-live-voice`, `full` bersih; `vizier-http/Cargo.toml` **tanpa blok `[features]`**; `vizier/Cargo.toml:32` → `vizier-http.workspace = true` |
+| Tes empat berkas | **7 / 8 / 11 / 6 = 32** di `c71f0e64` (pola `^[[:space:]]*#\[(tokio::)?test` tanpa jangkar) |
+| Tautologi | `fn the_flag_off_build_has_no_live_voice_surface` → **0 hit**; pengganti `a_start_is_ignored_while_the_agent_switch_is_off` di `live_voice_frames.rs:190` |
+| Guard yang tinggal | `topic.rs:797` `if !config.tools.live_voice.enabled` — ada |
+
+**Angka terukur (dua pihak, tree yang sama):** @sepuh-be di working tree yang isinya identik dengan commit; @teteh-qa mengukur langsung di `c71f0e64` (`b7001100`). Keduanya: `cargo test -p vizier-http` tanpa flag → **12 blok `test result`, 108 tes + 1 doc-test, 0 failed**, empat `live_voice_*` 7/8/11/6, **nol `running 0 tests`**; `cargo test -p vizier-core --lib live_voice::` → **56 passed**; `-p vizier-core --no-default-features` → lib **2015 passed, 7 ignored, 0 failed**; `cargo tree … -e normal | wc -l` **1318 = 1318**. Lead **tidak** menjalankan ulang `cargo` (satu cargo sekaligus; isi commit byte-identik dengan yang diukur keduanya) — yang Lead verifikasi sendiri bersifat statis dan tercantum di tabel atas.
+
+### Temuan Sepuh yang mengubah gambaran: build tanpa fitur sudah rusak sejak `449aca26`
+
+`fn owns_session` (`crates/vizier-http/src/topic.rs:57`, dari T110/FR-063) memakai `&vizier_core::live_voice::LiveVoiceSession` **tanpa `#[cfg]`**, sementara modulnya bergerbang. Jadi di `bc5d3235`:
+
+- `cargo test -p vizier-http` **tanpa flag tidak kompilasi** (`E0433`), bukan `running 0 tests`. Premis baseline di brief Lead (dan A4 versi awal) **tidak pernah bisa terjadi**.
+- Klaim FR-041 lama — "a build without it leaves every existing speech feature working" — **salah dalam arti paling harfiah**: build itu tidak menghasilkan build.
+- `app/src-tauri/Cargo.toml:30` bergantung pada `vizier-http` **tanpa** fitur → build desktop **tidak kompilasi** sejak `449aca26`. Gate C17 memperbaikinya sebagai efek samping. **Tidak dibuktikan dengan membangun Tauri** (di luar DoD); yang dibuktikan hanya konfigurasi crate + kegagalan kompilasi di HEAD lama.
+
+**Konsekuensi untuk dokumentasi:** T108 sekarang punya **dua** alasan mati (bukan satu), dan `crates/vizier-http/Cargo.toml:23-25` (komentar "still builds against an engine without the live voice feature") **tidak benar sejak `449aca26`** — hilang bersama blok `[features]` di commit ini.
+
+### Dua hal yang Sepuh laporkan dan tidak ia sentuh
+1. `topic.rs:44-49` — dua doc comment berbeda (T109/FR-062 dan T110/FR-063) menumpuk di atas satu fungsi `owns_session`. **Pra-ada** (`474ead86`), bukan akibat gate. Keputusan Lead: **tidak dirapikan di ronde gate** (mencampur dua hal dalam satu diff), dan **tidak** dibuat task baru tanpa `R:`; dicatat di sini supaya tidak hilang. Kalau `topic.rs` disentuh lagi untuk T113/T114-era, rapikan sekalian.
+2. Build Tauri tidak dijalankan — lihat tabel temuan di atas.
+
