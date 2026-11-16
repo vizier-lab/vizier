@@ -17,6 +17,7 @@ use vizier_core::{
     },
     service::ServiceError,
     storage::agent::AgentStorage,
+    storage::user::UserStorage,
     transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
@@ -271,6 +272,9 @@ mod tests {
         conversation: VizierSession,
         /// The workspace the dependencies were built in, kept alive with the socket.
         _dir: tempfile::TempDir,
+        /// What the socket queued for the client. This is the only way a test can read a frame the
+        /// socket itself produced (a refusal), rather than one a session published.
+        out_rx: flume::Receiver<serde_json::Value>,
     }
 
     /// A voice that says nothing: these tests need a turn to be running, not its sound.
@@ -369,7 +373,7 @@ mod tests {
             "this conversation has no session before the test starts"
         );
 
-        let (out, _out_rx) = flume::unbounded();
+        let (out, out_rx) = flume::unbounded();
         let mut conn = TopicConnection {
             session: conversation.clone(),
             principal,
@@ -403,6 +407,7 @@ mod tests {
             session,
             conversation,
             _dir: dir,
+            out_rx,
         }
     }
 
@@ -545,6 +550,225 @@ mod tests {
 
         // Leave the process registry as it was found: other tests share it.
         vizier_core::live_voice::sessions().remove(&socket.conversation, &socket.session);
+    }
+
+
+    // ---- GI-05 (FR-064): a revoked key may not start again on the socket that still holds it ----
+    //
+    // `key_lapsed` above reads the principal, and the principal is stamped once when the socket
+    // opens: a key deleted afterwards still looks like a caller to the `start` arm, which only asked
+    // what the key was *scoped* to. The two tests below cross that seam — both go through
+    // `handle_live_voice`, and both revoke through the service the route calls, so
+    // `end_owned_by_key` runs exactly as it does in production.
+
+    /// A caller who may create and revoke keys: `service::api_keys` asks for `settings:api_keys`,
+    /// and the revocation has to travel through that service, not through storage.
+    fn officer(method: vizier_core::auth::AuthMethod) -> Principal {
+        let mut principal = who(method);
+        principal.permissions = vec!["settings:api_keys".into()];
+        principal
+    }
+
+    /// An unscoped key with no expiry: nothing about this caller lapses on its own, so whatever ends
+    /// a call in these tests is the revocation and nothing else.
+    fn live_key() -> vizier_core::auth::AuthMethod {
+        vizier_core::auth::AuthMethod::ApiKey {
+            scoped: false,
+            key_id: Some("key-a".into()),
+            expires_at: None,
+        }
+    }
+
+    /// The agent this socket is talking to, with live voice on. Written straight into the store:
+    /// the subject is what `start` does, not what saving a config does.
+    async fn live_voice_agent(socket: &Socket) {
+        let config: vizier_core::schema::AgentConfig = serde_json::from_value(serde_json::json!({
+            "name": "helper", "provider": "dummyplug", "model": "dummyplug", "thinking_depth": 1,
+            "tools": { "timeout": "30s", "live_voice": { "enabled": true, "settings": {} } },
+            "silent_read_initiative_chance": 0.0, "prompt_timeout": "1m",
+            "heartbeat_interval": "1m"
+        }))
+        .expect("a stored agent with live voice on");
+        socket
+            .conn
+            .storage
+            .create_agent("helper", &config)
+            .await
+            .expect("the agent is stored");
+    }
+
+    /// Mint a key through the service, then present it: the socket's principal and the running call
+    /// both name it, which is the state `start` itself leaves behind.
+    async fn key_for(socket: &mut Socket) -> String {
+        let principal = socket.conn.principal.clone();
+        let (key, _raw) = vizier_core::service::api_keys::create_scoped(
+            &socket.conn.services,
+            &principal,
+            "gi05",
+            None,
+            None,
+        )
+        .await
+        .expect("the key is created");
+        socket.conn.principal.method = vizier_core::auth::AuthMethod::ApiKey {
+            scoped: false,
+            key_id: Some(key.id.clone()),
+            expires_at: None,
+        };
+        socket.session.set_key_origin(Some(vizier_core::live_voice::KeyOrigin {
+            key_id: key.id.clone(),
+            expires_at: None,
+        }));
+        key.id
+    }
+
+    /// FR-064: the refusal happens **before any session state is created**, and it says nothing
+    /// about the agent, the conversation or the calls around it.
+    #[tokio::test]
+    async fn a_revoked_key_cannot_start_a_second_call_on_the_same_socket() {
+        let mut socket = socket(officer(live_key()), "gi05-revoked-start", None).await;
+        live_voice_agent(&socket).await;
+        let key_id = key_for(&mut socket).await;
+
+        // The revocation production runs: the row goes, then the registry hook that ends the call
+        // the key opened.
+        let principal = socket.conn.principal.clone();
+        vizier_core::service::api_keys::delete(&socket.conn.services, &principal, &key_id)
+            .await
+            .expect("the key is revoked");
+
+        // The premise, asserted rather than assumed: the revoke took the running call with it. What
+        // is left is a socket whose principal still names a key that no longer exists.
+        assert!(
+            vizier_core::live_voice::sessions()
+                .get(&socket.conversation)
+                .is_none(),
+            "the revoke ends the call it opened, so a second start inherits nothing"
+        );
+        // Nothing the ending queued is part of the answer under test.
+        while socket.out_rx.try_recv().is_ok() {}
+
+        socket
+            .conn
+            .handle_live_voice("live_voice_start", serde_json::json!({ "live_voice_start": {} }))
+            .await;
+
+        let frame = tokio::time::timeout(WAIT, socket.out_rx.recv_async())
+            .await
+            .expect("a start is answered, not ignored")
+            .expect("the socket's queue is open");
+        let control: vizier_core::live_voice::frame::LiveVoiceControl =
+            serde_json::from_value(frame["live_voice"].clone()).expect("a live voice control frame");
+
+        // 1. refused, not started — and the reason is the key's, not a provider's. Without this the
+        // test would pass on today's code for the wrong reason: a start that survives to the engine
+        // builder also ends in an error, because this build has no speech provider.
+        let refusal = match control {
+            vizier_core::live_voice::frame::LiveVoiceControl::Error { kind, message } => {
+                assert_eq!(
+                    kind,
+                    vizier_core::live_voice::frame::EndReason::PermissionWithdrawn,
+                    "a key that no longer exists is a permission that is gone"
+                );
+                message
+            }
+            other => panic!("a revoked key was answered with {other:?} instead of a refusal"),
+        };
+        // 2. nothing was created
+        assert!(
+            vizier_core::live_voice::sessions()
+                .get(&socket.conversation)
+                .is_none(),
+            "a refused start leaves no session behind"
+        );
+        // 3. and the refusal tells the caller nothing about what it refused (FR-064, last sentence)
+        for leak in ["helper", "gi05-revoked-start", "agent", "topic", "session"] {
+            assert!(
+                !refusal.contains(leak),
+                "the refusal names {leak:?}, so it reports the state it refused to touch: {refusal}"
+            );
+        }
+    }
+
+    /// The other half: revoking a key still ends the call it was running, through the one release
+    /// path T110 built. This one is a guard — green before GI-05 and after it.
+    #[tokio::test]
+    async fn a_revoked_key_at_the_socket_still_ends_the_call_it_was_running() {
+        let mut socket = socket(officer(live_key()), "gi05-revoked-running", None).await;
+        let key_id = key_for(&mut socket).await;
+
+        // A turn is in flight: its request reached the agent and the reply has not come back.
+        let running = socket.session.clone();
+        tokio::spawn(async move {
+            running
+                .run_turn(Arc::new(SilentVoice), "hello".into())
+                .await
+        });
+        let submitted = tokio::time::timeout(WAIT, socket.inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+        assert_eq!(request_kind(&submitted.request.content), "chat:hello");
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Waiting,
+            "the call is running when the key is revoked"
+        );
+
+        let principal = socket.conn.principal.clone();
+        vizier_core::service::api_keys::delete(&socket.conn.services, &principal, &key_id)
+            .await
+            .expect("the key is revoked");
+
+        // A frame still arrives on the socket that opened the call: the revocation is what ended it,
+        // not the frame, and the frame must not resurrect anything.
+        socket
+            .conn
+            .handle_live_voice("live_voice_audio", one_audio_frame())
+            .await;
+
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Ended,
+            "a revoked key ends the call it opened"
+        );
+        let mut ended = Vec::new();
+        while let Ok(Ok(event)) = tokio::time::timeout(WAIT, socket.events.recv()).await {
+            if let SessionFrame::LiveVoice(
+                vizier_core::live_voice::frame::LiveVoiceControl::State {
+                    state: vizier_core::live_voice::frame::SessionState::Ended,
+                    reason,
+                    ..
+                },
+            ) = event.frame
+            {
+                ended.push(reason);
+                break;
+            }
+        }
+        assert_eq!(
+            ended,
+            vec![Some(vizier_core::live_voice::frame::EndReason::KeyRevoked)],
+            "exactly one ending, and its reason is the revocation"
+        );
+        let mut kinds = Vec::new();
+        while let Ok(Ok(envelope)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), socket.inbox.recv_request())
+                .await
+        {
+            kinds.push(request_kind(&envelope.request.content));
+        }
+        assert_eq!(
+            kinds.iter().filter(|kind| *kind == "command:abort").count(),
+            1,
+            "the running turn is cancelled by exactly one abort, got {kinds:?}"
+        );
+        assert!(
+            vizier_core::live_voice::sessions()
+                .get(&socket.conversation)
+                .is_none(),
+            "the entry is gone with the call"
+        );
     }
 
 }
@@ -738,6 +962,42 @@ impl TopicConnection {
 
         match action {
             ClientAction::Start(start) => {
+                // FR-064, first: a key that no longer exists may not start anything.
+                //
+                // `key_lapsed` above reads the principal, and the principal is stamped once when
+                // the socket opens - so a key revoked while this socket stayed open still looks
+                // like a caller here, and `may_start_live_voice` only asks what the key was
+                // *scoped* to. Without this, revoke then start on the same socket builds a new
+                // call out of a credential that is gone.
+                //
+                // Checked in the `start` arm and not per frame: `key_lapsed` runs on every audio
+                // frame (one every 20 ms) and a storage read there would put the database in the
+                // audio path. A running call whose key is revoked already has its own path -
+                // `end_owned_by_key`, from `delete_api_key`.
+                //
+                // A failed lookup refuses: an unreadable key list is not proof the key is there.
+                if let vizier_core::auth::AuthMethod::ApiKey {
+                    key_id: Some(key_id),
+                    ..
+                } = &self.principal.method
+                {
+                    let still_there = self
+                        .storage
+                        .list_api_keys(&self.principal.user_id)
+                        .await
+                        .map(|keys| keys.iter().any(|key| &key.id == key_id))
+                        .unwrap_or(false);
+                    if !still_there {
+                        // The reason the scoped-key refusal uses: what is gone is the permission,
+                        // not the provider.
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::PermissionWithdrawn,
+                            message: "this key is no longer valid, so it cannot start a call"
+                                .into(),
+                        });
+                        return;
+                    }
+                }
                 // T102: the audio description is asked for, not assumed. This runs before the
                 // registry is read or written and before any state changes, so a client asking for
                 // a carrier this release does not speak leaves nothing behind — no session, no
