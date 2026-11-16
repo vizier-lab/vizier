@@ -278,11 +278,13 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
         "delegate_agent",
         "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
     ),
-    (
-        "ui_render_interactive_ui",
-        "render_interactive_ui was replaced by ui_render. Start with ui_components().",
-    ),
+    ("ui_render_interactive_ui", UI_REPLACED),
+    ("render_interactive_ui", UI_REPLACED),
+    ("ui_components", UI_REPLACED),
 ];
+
+/// Spec 063: the WebUI's generative UI client tools became the built-in `ui_render`.
+const UI_REPLACED: &str = "This tool was replaced by ui_render (category ui), which draws an HTML page and ends the turn. Read its guide first: describe_tool_function(\"ui_render\").";
 
 /// The guidance for a retired tool name, if the name is known.
 pub fn retired_hint(name: &str) -> Option<&'static str> {
@@ -2209,10 +2211,12 @@ mod tests {
                 );
             }
         }
-        assert_eq!(
-            retired_hint("ui_render_interactive_ui"),
-            Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
-        );
+        // Spec 063: the generative UI client tools point at the built-in and its guide.
+        for name in ["ui_render_interactive_ui", "render_interactive_ui", "ui_components"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("ui_render") && hint.contains("describe_tool_function"), "{hint}");
+        }
+        assert_eq!(retired_hint("ui_render"), None, "ui_render is the built-in, not retired");
         // Spec 058 contracts/detached-flag.md §5.
         for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
             let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));

@@ -242,10 +242,10 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Independent test**: quickstart §7.10 and §0's last row.
 
-- [ ] T069 [US7] Remove the `components` and `render` client tool registrations and the `ui` client category in `webui/app/lib/clientTools/builtin.tsx`. Re-register `render` (json-render) with `declare: false` and keep `render_interactive_ui` with `declare: false`, so saved calls draw through `GenerativeUi.tsx` and `InteractivePage.tsx`.
-- [ ] T070 [US7] Add `ui_components` and `render_interactive_ui` to `RETIRED_TOOL_NAMES`, with guidance naming `ui_render` and its guide, in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T071 [US7] Drop client declarations of category `ui` (`components`, `render`) from stale tabs with a `warn!` instead of renaming them, in `crates/vizier-core/src/agents/client/declare.rs`, with a unit test
-- [ ] T072 [US7] Trim `webui/app/lib/generativeUi/` to what the read-only renderer needs: drop `reference.ts`, `recipes/` and validation-only code once nothing imports them, and leave a header comment pointing at #82
+- [X] T069 [US7] Remove the `components` and `render` client tool registrations and the `ui` client category in `webui/app/lib/clientTools/builtin.tsx`. Re-register `render` (json-render) with `declare: false` and keep `render_interactive_ui` with `declare: false`, so saved calls draw through `GenerativeUi.tsx` and `InteractivePage.tsx`.
+- [X] T070 [US7] Add `ui_components` and `render_interactive_ui` to `RETIRED_TOOL_NAMES`, with guidance naming `ui_render` and its guide, in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T071 [US7] Drop client declarations of category `ui` (`components`, `render`) from stale tabs with a `warn!` instead of renaming them, in `crates/vizier-core/src/agents/client/declare.rs`, with a unit test
+- [X] T072 [US7] Trim `webui/app/lib/generativeUi/` to what the read-only renderer needs: drop `reference.ts`, `recipes/` and validation-only code once nothing imports them, and leave a header comment pointing at #82
 - [ ] T073 [US7] Browser check, quickstart §7.10 (a workspace with saved pages of both old tools draws them, with state)
 
 ---

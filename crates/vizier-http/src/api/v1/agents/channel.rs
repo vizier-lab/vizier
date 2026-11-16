@@ -700,7 +700,8 @@ pub(crate) fn bind_client_tools(
     connection: &std::sync::Arc<ClientConnection>,
     connections: &vizier_core::agents::client::ClientConnections,
 ) -> Result<(), serde_json::Value> {
-    let tools = std::mem::take(&mut request.client_tools);
+    let mut tools = std::mem::take(&mut request.client_tools);
+    declare::drop_retired(&mut tools);
     let categories = std::mem::take(&mut request.client_categories);
     request.client = None;
     let takes_tools = matches!(
