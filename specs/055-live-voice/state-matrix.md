@@ -43,24 +43,22 @@ code_ref:     webui@0d5255f (740 baris `session.ts`) · crates @ `0c158da8` — 
              `webui` bergerak 510ace84 → 08cf067a → 2be9c377 → 8929bbed dalam tiga jam, dan tiap gerakan
              menggeser nomor baris (pada 11:19, dua belas sitasi menjadi salah tanpa satu pun berubah teks). Sitasi Rust
              (`frame.rs`, `session.rs`), `frames.ts` dan `LiveVoiceRow.tsx` diverifikasi di pin yang sama.
-             **REF INI DIPIN ULANG 2026-11-16**, dan itu menutup satu-satunya penahan DRAFT: `webui` di HEAD sudah `0d5255f`
-             (merge master `5f3bef2`, 86 path) dan `session.ts` **740 baris**, bukan 659. Sitasi digeser **satu per satu
-             dengan jangkar teks, bukan satu offset**, karena isi berkas ini memakai pin campur. Angka yang terukur di ronde ini, **dihitung ulang Lead 2026-11-16 14:15, dengan cakupan dan polanya ditulis**: baris tabel `| LV-…` saja, pola `[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts|tsx):[0-9]+(-[0-9]+)?` (nama berkas bertitik seperti `LiveVoiceRow.test.tsx` ikut terhitung — pola yang lebih sempit memberi 41/34 dan itu **salah**), satu kejadian per kemunculan. Hasilnya **42 kejadian (35 jenis)**: **27 bergeser** nomornya, **7 nomornya sama dan isinya sama**, **6 hanya ada di pin baru** (tidak ada di `8929bbed`: `session.ts:458`, `:427-429`, `session.test.ts:1741`, `vad.ts:41`, `LiveVoiceControl.tsx:113`, dan `LiveVoiceRow.tsx:295` yang di pin lama berkasnya cuma 280 baris), dan **2 kejadian / 1 jenis historis**
-             (`session.ts:406`, dua kali) sengaja dibiarkan — menggesernya akan
-             menghidupkan cacat yang sudah mati.
-             **Hitungan ini tidak bisa direproduksi dengan `grep` polos, dan itu disebut supaya tidak jadi angka keempat:** `grep -oE '[A-Za-z0-9_.-]+\\.(ts|tsx):[0-9]+'` di baris `| LV-…` memberi **47 token**, karena ia menghitung jenis yang sama berkali-kali dan tidak tahu dua nomor bisa menunjuk satu baris. Yang bisa direproduksi persis adalah **diff-nya**: `git diff 281e51fd^..281e51fd -- specs/055-live-voice/state-matrix.md` → **38 tambah / 32 hapus**. Angka `42`/`35` di atas **bisa direproduksi mesin** dengan pola itu; pecahan `27 / 7 / 6 / 2` **tidak** — ia pembacaan per klausa dengan jangkar, dan pembaca yang memakai definisi lain untuk "hanya ada di pin baru" akan mendapat angka lain (uji "baris di luar jangkauan" memberi **2**, uji "isinya tidak ada di pin lama" memberi **6**; yang dipakai di sini yang kedua, dan keenamnya disebut namanya tepat di atas supaya bisa diperiksa satu per satu). Kalau kamu menghitung dengan cara lain, sebut caranya — jangan ganti angkanya. **Dan ada cara lain yang sudah dipakai:** `@teteh-qa` mengukur sendiri 2026-11-16 14:20 dengan definisi berbeda — token bernama berkas di baris `| LV-…`, tiap kemunculan, membandingkan **isi baris pada nomor yang sama** di dua pin — dan mendapat **44 kejadian / 36 jenis** (6 nomor sama dan isi sama · 9 hanya ada di pin baru · 29 nomor sama tapi isi berbeda). Angka itu **bukan bantahan** atas 42/35: pertanyaannya beda ("apakah nomor yang sama menunjuk hal yang sama?" vs "berapa yang harus digeser?"), dan definisi "hanya ada di pin baru" juga beda. **Jangan digabung, dan jangan pilih salah satu sebagai "yang resmi"** — yang wajib adalah menyebut metodenya. Aku sendiri belum mengulang pengukuran 44/36 itu; ia dicatat sebagai klaim `@teteh-qa` dengan metodenya, bukan sebagai angka yang sudah kuverifikasi.
-             **Versi pertama paragraf ini membawa "25 berganti nomor (19 jenis) / 4 kebetulan sama / 9 sudah menunjuk `0d5255f` / 1 historis" — jumlahnya 39, sedangkan berkasnya memuat 42 kejadian, dan cakupan hitungan itu tidak disebut.** Angka itu diganti, bukan ditambah; ia dibiarkan terbaca di sini sebagai riwayat supaya selisihnya bisa diperiksa ulang, bukan hilang. Satu contoh kenapa "nomor sama" tidak berarti "arti sama": `LiveVoiceRow.tsx:32` dipakai sel `LV-ST-UNAVAILABLE` untuk prop `missing` — di `8929bbed` baris 32 adalah `const ROW = {…}` (jadi sitasi itu **salah** di pin lama), di `0d5255f` baris 32 memang `missing?: 'recognizer' | 'voice' | null` (jadi ia **benar sekarang** tanpa nomornya berubah). Siapa pun yang menggeser dengan offset tunggal akan mengubahnya jadi `:42` = `ROW`, dan mematahkan sitasi yang baru saja menjadi benar. **Rujukan telanjang di sel `LV-ST-LISTENING` sudah dipindah juga** (2026-11-16, setelah paragraf ini pertama
-             ditulis): lima situs `listening` kini ditulis `:245` (`:223`) dan seterusnya — nomor `0d5255f` di depan,
-             nomor `8929bbed` dalam kurung — dan tiap rujukan lain di sel itu sekarang menyebut berkas serta pinnya
-             (`LiveVoiceRow.tsx:174`, `:299`, `:145-180`, `:162`; `vad.ts:15`, `:143`). Yang **tetap** bertanda
-             `@8929bbed` hanya klaim historis, dan itu disengaja: `session.ts:406` (cacat yang sudah mati) dan tiga nomor **`LiveVoiceRow.tsx`** — `:189`,
-             `:251`, `:220` — nomornya bagian dari klaim (tanpa nama berkas, ketiganya akan terbaca sebagai
-             `session.ts:189/:251/:220`, yang di pin lama berisi hal lain sama sekali), bukan alamat hari ini. Jebakannya nyata: `LiveVoiceRow.tsx:174`
-             di `8929bbed` adalah `'a recogniser is not configured for this agent'`, di `0d5255f` adalah tinggi batang
-             (`Math.min(16, height)`) — dua arti, satu angka. `crates @ 0c158da8` masih tua: sitasi Rust tidak ikut dipin di ronde ini, dan **itu bukan tanpa akibat** — dicek `@teteh-qa` di HEAD `c9e9f0c8` (2026-11-16 14:05), `session.rs` sudah **1692 → 2517 baris** dan `topic.rs` **1182 → 1518**, *(angka baris diukur Lead 2026-11-16 dengan tiga metode — `wc -l`, `sed -n '$='`, `awk 'END{print NR}'` — semuanya sepakat; versi sebelumnya menulis 1693 → 2518 / 1183 → 1519, satu lebih tinggi di keempat angka, dan itu tidak tereproduksi.)* karena gate C17 (`c71f0e64`) mencabut `#[cfg]` di berkas-berkas itu. Dari **19** token Rust di tabel, **10 menunjuk baris yang berbeda di HEAD**: `session.rs:199-201→302`, `:215-231→318`, `:271-273→374`, `:341-343→451`; `topic.rs:390-395→702`, `:444-450→756`, `:466-470→761`, `:603-608→931`, `:661-666→988`, `:680-683→1007`, `:685-690→761`. Delapan tidak bergerak (`frame.rs:35-46`, `:73-100`, `:166-178`, `:413`; `utterance.rs:10`; `agents.rs:484`) dan satu (`channel.rs:52`) berkasnya tidak ada di pin ini. **Jangan digeser dengan offset**: `topic.rs:466-470` dan `:685-690` punya jangkar teks yang sama (`return;`) di dua tempat, jadi dua-duanya butuh pembacaan, bukan aritmetika.
-             *(Kalimat yang sempat berdiri di sini — "REF INI PATAH", dan "yang TIDAK saya lakukan: menyunting angka
-             sitasi orang lain" — benar sampai 2026-11-16 14:07, lalu berhenti benar karena repin dikerjakan; ia
-             ditinggalkan sebagai catatan bertanggal, bukan dihapus.)*
+             **DIPIN ULANG 2026-11-16** ke `webui@0d5255f` (merge master `5f3bef2`, 86 path); `session.ts` **740 baris**,
+             bukan 659, dan `git ls-tree HEAD webui` = `0d5255f` (baris `periksa:` di bawah menguji itu).
+             Sitasi digeser **satu per satu dengan jangkar teks**, bukan satu offset, karena berkas ini memakai pin
+             campur: `LiveVoiceRow.tsx:32`, `:174` dan `session.ts:550` menunjuk hal berbeda di dua pin.
+             Hitungannya, metode ditulis: baris tabel `| LV-…` saja, pola
+             `[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts|tsx):[0-9]+(-[0-9]+)?`, satu kejadian per kemunculan ->
+             **42 kejadian (35 jenis)**: 27 bergeser · 7 nomor sama dan isi sama · 6 hanya ada di pin baru · 2 historis
+             (`session.ts:406`, dibiarkan: menggesernya menghidupkan cacat yang sudah mati).
+             Batas angka: `42`/`35` bisa direproduksi mesin dengan pola itu; pecahan `27/7/6/2` **tidak** — ia pembacaan
+             per klausa, dan definisi "hanya ada di pin baru" mengubah hasilnya (2 vs 6). `grep` polos memberi 47 token;
+             yang bisa diulang persis adalah diff-nya: `git diff 281e51fd^..281e51fd` -> 38 tambah / 32 hapus.
+             `crates @ 0c158da8` **belum** dipin, dan itu bukan kelalaian: gate C17 memanjangkan `session.rs` 1692 -> 2517
+             dan `topic.rs` 1182 -> 1518 (diukur tiga metode), sehingga **10 dari 19** token Rust menunjuk baris berbeda di
+             HEAD; dua di antaranya (`topic.rs:466-470`, `:685-690`) punya jangkar kembar `return;` dan tidak boleh
+             di-offset. Memindahkannya butuh pin `crates` baru — ronde terpisah.
+             Riwayat tiga generasi angka di atas ada di bagian "Riwayat hitungan sitasi" setelah tabel.
 periksa:      git ls-tree HEAD webui | awk '{print $3}'                      # = 0d5255f (dipin 2026-11-16); kalau berbeda, sitasi bergeser lagi
              git log -1 --format=%h -- specs/055-live-voice/spec.md          # ≠ pin di spec_ref → pin spec menua
              git -C webui show 0d5255f:app/lib/liveVoice/session.ts | sed -n '709p'  # satu sitasi, satu bukti (dari root repo; `webui` submodule)
@@ -117,6 +115,35 @@ sekali melainkan cabang `!capability` yang merender pill non-tombol. Menguji `da
    dipakai menyatakan "gagal".
 
 - **O4 — warna `connecting` berbeda antara lembar dan kode.** Di `432` (`Row/connecting`) kata `Connecting` memakai `text/secondary` #5B5B66 (5.94:1; dark #B4B4BE 9.57:1) — abu-abu, karena belum ada yang hidup. Di kode, `rowTone()` (`LiveVoiceRow.tsx:91-111`) menaruh `connecting` di kelompok yang sama dengan `listening`/`speaking` dan memakai `text-live-text` #046C4E (5.71:1). Kontrasnya dua-duanya lulus; yang berbeda *artinya*: hari ini baris menyala emerald sebelum sesi hidup, jadi `Connecting…` kehilangan bedanya dengan `Listening`. **Pemilik: kode (sepuh-be) · arah: Lead** — baris CONNECTING tidak bisa ditutup desain sampai salah satu menang.
+
+
+## Riwayat hitungan sitasi `code_ref` — tiga generasi, semuanya bertanggal
+
+Blok `code_ref` di atas sengaja hanya memuat **satu** angka. Tiga generasi sebelumnya tetap dicatat di sini: setiap
+pergantian punya sebab, dan sebab yang hilang adalah cara tercepat mengulang kesalahan yang sama.
+
+| Kapan | Angka | Sebab ia berhenti benar |
+|---|---|---|
+| 2026-11-16 14:07 (`281e51fd`) | "25 berganti nomor (19 jenis) / 4 kebetulan sama / 9 sudah menunjuk `0d5255f` / 1 historis" | jumlahnya 39, sedangkan berkasnya memuat 42 kejadian — dan **cakupannya tidak disebut**. Angka yang cakupannya tidak ditulis tidak bisa diperiksa, jadi ia bukan angka |
+| 2026-11-16 14:15 (`51b8bbd1`, `c60b47e1`) | "42 kejadian (**34** jenis)" | pola yang dipakai melewatkan nama berkas bertitik: `LiveVoiceRow.test.tsx:178` tidak ikut, sehingga hasilnya 41/34. Pola yang benar (`[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts\|tsx):…`) memberi **42/35** |
+| 2026-11-16 14:20 (`e6eeffa4`) | 42/35, tetapi kalimatnya berbunyi "dicek silang `@teteh-qa`" | nama `@teteh-qa` dicabut: ia tidak melakukan pengukuran itu. Recount-nya sendiri memakai definisi lain — **44 kejadian / 36 jenis** (6 nomor sama & isi sama · 9 hanya ada di pin baru · 29 nomor sama tapi isi berbeda) — dan menjawab pertanyaan berbeda: *"apakah nomor yang sama menunjuk hal yang sama?"* vs *"berapa yang harus digeser?"*. **Jangan digabung, dan jangan pilih satu sebagai yang resmi.** 44/36 dicatat sebagai klaim `@teteh-qa` beserta metodenya; Lead belum mengulangnya |
+
+### Pin `crates` — peta yang **belum** dipindah, supaya ronde berikutnya tidak menebak
+
+`crates @ 0c158da8` masih tua. Dari **19** token Rust di tabel, **10 menunjuk baris yang berbeda di HEAD**:
+`session.rs:199-201 -> 302` · `:215-231 -> 318` · `:271-273 -> 374` · `:341-343 -> 451`;
+`topic.rs:390-395 -> 702` · `:444-450 -> 756` · `:466-470 -> 761` · `:603-608 -> 931` · `:661-666 -> 988` ·
+`:680-683 -> 1007` · `:685-690 -> 761`.
+
+Delapan tidak bergerak (`frame.rs:35-46`, `:73-100`, `:166-178`, `:413`; `utterance.rs:10`; `agents.rs:484`) dan satu
+(`channel.rs:52`) berkasnya tidak ada di pin ini. **Jangan digeser dengan offset:** `topic.rs:466-470` dan `:685-690`
+punya jangkar teks yang sama (`return;`) di dua tempat, jadi keduanya butuh pembacaan, bukan aritmetika. Pin ini tidak
+dinaikkan di ronde repin `webui` karena satu ronde satu pin — dan angka di atas adalah alasan kenapa ia tidak boleh
+dikerjakan sambil lalu.
+
+Yang **tidak** berubah oleh ketiga generasi itu: alamatnya. Sepuluh nomor di blok `code_ref` dibuka satu per satu di
+`0d5255f` (`session.ts:202`, `:131`, `:694-740`, `LiveVoiceRow.tsx:196-213`, `:216`, `:295`, …). Yang berganti tiga kali
+adalah **hitungan**, bukan sitasi.
 
 ## Temuan terbuka
 
