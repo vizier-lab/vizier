@@ -502,7 +502,7 @@ this diagram because it is deferred (C7).
 - **A dream, a scheduled task or a background report**: no live voice; the capability exists only while a person has a session open.
 - **A conversation in a mode that restricts what the agent may do** (a Plan chat): a voice message follows the same rules as a typed one, including any refusal.
 - **Vizier restarts mid-session**: the session ends; the conversation and every completed turn survive.
-- **An agent whose live voice switch is off** — the default — **or with no recogniser or voice configured**: the control cannot start. It is drawn as a non-button pill — a `<span>` with **no handler at all** (`LiveVoiceRow.tsx:196-213`; the file's three `onClick`s are at `:220`, `:305`, `:314`, none of them on this branch) — whose reason is its `title` plus an `sr-only` copy of the same sentence: *"live voice is not configured for this agent"*. That sentence is the **form** FR-004 asks for — a reason a person can read — and it is the one a person actually meets: the three variants exist (`voice`, `recogniser`, and this generic one), but **no caller passes `missing`** (`liveVoiceMissing` is declared and piped through `Composer.tsx:71`, `:114`, `:487` and passed by nobody), and the API has exactly one boolean to give (`agent_detail.live_voice`), so which half is missing cannot reach the client today. **Which leaves FR-004 half met at the wire, and the half that is missing is recorded rather than rounded up**: the reason names *that* nothing is configured, not *which* engine is absent, and it does not say where to set it — so a person who reads it learns what is wrong but not what to do. Fixing that is a wire change (a reason code next to the boolean) and belongs to the Lead and Sepuh with the rest of C17's round, not to this document. Every existing speech feature behaves as before.
+- **An agent whose live voice switch is off** — the default — **or with no recogniser or voice configured**: the control cannot start. It is drawn as a non-button pill — a `<span>` with **no handler at all** (`LiveVoiceRow.tsx:196-213`; the file's three `onClick`s are at `:220`, `:305`, `:314`, none of them on this branch) — whose reason is its `title` plus an `sr-only` copy of the same sentence, **drawn from `agent_detail.live_voice_missing`** (FR-004, amended 2026-11-16): the two specific sentences when the field names a half, the generic one — *"live voice is not configured for this agent"* — when it is `null`. At `44bf167f` the generic sentence is the only one a person can meet, because `liveVoiceMissing` is declared and piped through `Composer.tsx:71`, `:114`, `:487` and **passed by nobody**, and the detail carries one boolean to give (`agent_detail.live_voice`); the wire field is what closes that, and until it lands this edge case describes the target rather than the tree. Every existing speech feature behaves as before.
   *(Rewritten 2026-11-16, C17: there is no longer a build that leaves live voice out, so the scenario is the run-time switch. Corrected the same day after the Lead read the code: an earlier version of this sentence said pressing the pill opens the agent's settings, which the row does not do — `LiveVoiceControl.tsx:132-135` has a `if (!capability) { onOpenSettings?.() }` branch that nothing can reach, because the only two things that call `start` are buttons the row renders only when `capability` is true. Dead code is not a behaviour, and FR-004 asks the control to **name** what is missing, not to open a page.)*
 
 ## Requirements *(mandatory)*
@@ -514,7 +514,7 @@ this diagram because it is deferred (C7).
 - **FR-001**: Every conversation MUST offer a dedicated Live Voice control, visibly separate from the attachment control and from whatever manual speech surfaces remain; pressing it opens the live row (FR-043). It MUST be off by default in every conversation and on every visit, and its state MUST NOT be remembered between visits — except that starting a call **moves** it (FR-050).
 - **FR-002**: Pressing the control MUST start a live voice session on that conversation with its agent and show the live row. Ending it MUST be possible from the row for the whole session (FR-045). Where a call is already live elsewhere, pressing it MUST move the call here rather than refuse (FR-050); the control MUST show which of the two a press will do.
 - **FR-003**: Live Voice MUST be independent of the existing speech-to-text and text-to-speech tools in both directions: starting it MUST NOT enable, disable or reconfigure those tools, and their switches MUST neither start it nor block it.
-- **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent. When one is missing, the control MUST name what is missing and how to set it, and MUST NOT start; a session that can only listen, or only speak, MUST NOT be presented as live voice.
+- **FR-004**: Starting MUST require both a usable recognizer and a usable voice for that agent, and the interface MUST be able to say **which half** is missing rather than only that something is. `agent_detail` MUST carry that answer as **data**: an additive field `live_voice_missing`, one of `"recognizer"`, `"voice"` or `null`, reported **whether or not** the agent's live voice switch is on — and `live_voice: bool` MUST keep its present name, type and meaning, because a desktop build and older clients read it as a boolean. The control MUST NOT start while either half is missing, and a session that can only listen, or only speak, MUST NOT be presented as live voice. What the control shows MUST use the field: `"recognizer"` and `"voice"` select the two sentences the client already carries (`Composer.tsx:71`, `LiveVoiceRow.tsx:32`), and `null` selects the generic one ("live voice is not configured for this agent"), which means **nothing is missing**, and nothing more: the switch may be closed, and that is the only thing wrong. An agent with **nothing configured** is not this case — it is missing a recogniser and a voice, so it reports `"recognizer"` like any other agent missing both. **When both halves are missing the field reports `"recognizer"`**, the half the session needs first and the order `check_live_voice` already takes them in (`crates/vizier-core/src/service/agents.rs:525-526`), so the second is surfaced after the first is fixed rather than hidden behind a sentence that names neither. **Burying a second missing half under a generic sentence is the defect this clause exists to prevent**, so `null` MUST NOT be used for "something is missing, but I am not saying which". **How to set it** is owed where a person can act on it, not by a 24 px pill: the agent's settings refuse to save a switch that is **on** with no usable half, and that refusal names the setting to change (`crates/vizier-core/src/service/agents.rs:520-540`, reached from both save paths — create `:681` and update `:720`) — so the pill names the half and the form explains the fix. Whether the pill's own tooltip should carry the fix as well is **Q19**. *(Amended 2026-11-16: the original clause said the control MUST name what is missing **and how to set it**, in one breath, and never said how the answer reached the client — which is how a client ended up with no answer at all. The wire field and the tie-break are the Lead's decisions of that day; the split between "name" (pill) and "how" (settings form) is this document's.)*
 - **FR-005**: A session MUST belong to one person, and there MUST be **at most one** live session for that person across every conversation and every agent (C10). Only someone allowed to chat in a conversation may start or end a call there. Starting a call **in another conversation or with another agent** MUST NOT fail with "a session is already active": it **moves** the call and says why in the conversation it leaves (FR-050, FR-051), so two are never running. The **one** refusal in this feature is narrower: a second connection pressing start on the **same** conversation that already has a call held by the owner's other connection (Q2's default). That is refused with `kind: "session_active"` — the same word the contract uses, never a different one — because moving would need a rule for audio already captured in the first connection, and the person can end the call from the connection that holds it.
 - **FR-006**: The **live row** MUST show, without a page reload: connecting, listening, waiting for the agent, speaking, interrupted, reconnecting, ended with a reason, failed with a reason. (`off` is the absence of the row, not a state the row renders.) **The copy is English and stays English** (User, 2026-11-10 09:27): the eight words above are the shipped words, and translating them is a new decision rather than an edit — `agent sedang berpikir` measures 130 px against `thinking`'s 47 px, so a language change re-measures the row that FR-049 fixes at 24 px.
 - **FR-007**: A voice message MUST run the same turn as a typed one: same conversation history, same mode rules, same tools, same permissions, same memory, same usage accounting. Live Voice MUST NOT add, remove or alter the agent's tools, memory or permissions.
@@ -691,7 +691,7 @@ colour **and** marker (FR-042).
 **Do not take any retired surface's pixel floor, narrowing order or placement as a requirement for
 the row.** The row's own constraints are FR-043, FR-044 and FR-049 and nothing else.
 
-## Open Questions (for the User — eleven live, each with a default; the closed ones kept as a record)
+## Open Questions (for the User — twelve live, each with a default; the closed ones kept as a record)
 
 Nothing here blocks the plan: each has a decision taken in planning that the plan and the contracts
 already follow. Changing one is a change of scope, not a rewrite.
@@ -710,6 +710,7 @@ already follow. Changing one is a change of scope, not a rewrite.
 | **Q16** | FR-048 is struck *and* kept "because the panel remains the fallback if the row is rejected". Does a struck requirement stay in the document as a fallback, or does the fallback go with the panel? | **Keep it struck**: no task may carry it (T093 is `[SUPERSEDED]`), and reviving it is a new decision with its own delta. | Deleting it makes the archived-surface table the only trace of the drag rules — thinner than what a future panel decision would need. |
 | **Q17** | `MANUAL_SPEECH_SURFACES` (`webui/app/screens/chat/Composer.tsx:59`) turns the record control and the spoken-reply toggle back on the day it is set true. Does that surface return **as it was**, or does it need a redrawn design? | **As it was** — FR-053 keeps the code, so no design is owed and Q13's "the toggle can return without a rebuild" stays true. | If it needs a redraw, Q13's default moves from "acceptable for this release" to "a design task is queued", and FR-053's promise narrows to the code only. |
 | **Q18** | FR-041 no longer has a build that omits live voice (C17). Does "live voice MUST NOT be required by any existing capability" still need a machine proof of its own, or does the run-time switch's test stand in for it? | **The switch's test stands in for it**: T014's rewritten half (start ignored, socket open, no frame), the schema default test for `live_voice.enabled: false`, and the four existing speech suites kept green by T078 (SC-006). Nothing new is built, because the only comparator available would be another Cargo flag — the thing that was removed. | Wanting the build proof back means wanting a flag back: the substance of C17 reverses, and a second, differently-named feature would have to be introduced and added to the CI matrix (where the old one never was). |
+| **Q19** | FR-004 now splits the obligation: the pill names the missing half, the agent's settings form explains how to fix it. Should the pill's own tooltip carry the fix too? | **No**: the tooltip keeps the one sentence that names the half, and the fix lives where a person can act on it (`agents.rs:517-540` already refuses an unusable live voice with the setting named). A 24 px pill has room for a reason, not for a procedure. | Putting the procedure in the tooltip is a copy decision with a length to measure and a translation to re-measure (`agent sedang berpikir` vs `thinking`, FR-006) — so it is design's, and it costs a tooltip paragraph that FR-049's width budget never counted. |
 | ~~**Q4**~~ | A hard cap on concurrent live sessions? | **Answered by the User, 2026-11-09 06:52: exactly one — per person, across every conversation and agent (C10, FR-005).** | — |
 | ~~**Q6**~~ | What else does the live row carry besides the four required things? | **Closed 2026-11-09 as design's call within a stated bound**: the level of the person's voice and the elapsed time, and nothing that survives FR-049's order of surrender. Reopening it means a fourth thing competing for one line, which is why it is not a question but a constraint. | — |
 | ~~**Q7**~~ | Can the person reach the conversation (and type in it) while the call is open? | **Closed by C11 (2026-11-09 16:07): yes, structurally.** A row inside the composer's meta line adds no height and covers nothing, so the conversation and its input are reachable by construction rather than by an answer (FR-049); typed messages stay text-only (FR-025 deferred). | — |
@@ -1543,4 +1544,91 @@ does not respond to a press) is correct. The count that matters is not "no `onCl
 - It invents **no number**. Every figure quoted here is the Lead's measurement — `474ead86` on 11 Nov, re-measured
   on the merged tree at 11:58 today (`cargo tree` 625 = 625, `cargo check` +0.3 s, RSS +20 MB, 0.14 % symbols,
   109 tests / +68 s); none is mine, and none is a run-time cost — there is no run-time cost, because the same code executes either way.
+
+## Delta Log — 2026-11-16 (FR-004 reaches the client as data, and the tie-break is named)
+
+Source: the Lead's decision of 2026-11-16 12:30, relaying a finding made while correcting C17's edge case (`vizier-dev`).
+The finding itself is **older than today** and that matters for the credit: `state-matrix.md:43` and its **O2** already
+recorded on 2026-11-10 that the pill names *what* is missing and gives **no way to fix it**, and
+`release-checklist.md:46`, `:51` and `:159` recorded the same thing from QA's side on the same day — `LiveVoiceControl.tsx`
+accepts `missing` and **`Composer.tsx` never supplies it**, so "FR-004's *where to set it* half remains unshown". What is new
+is not the gap; it is that the gap now has a decided shape and a wire field to close it.
+
+**Baseline, locked before reading anything** — `vizier@44bf167f`, `specs/055-live-voice/spec.md` at 1546 lines / 200 284 bytes:
+
+| Measure | Value | Pattern |
+|---|---|---|
+| FR ids | **67** live + **5** struck | `grep -cE '^- \*\*FR-[0-9]{3}[a-z]?\*\*:'` · `^- ~~\*\*FR-[0-9]{3}[a-z]?\*\*:` |
+| SC ids | **14** | `grep -oE 'SC-[0-9]{3}' spec.md \| sort -u \| wc -l` |
+| live questions | **11** → **12** (this delta adds `Q19`) | `grep -cE '^\| \*\*Q[0-9]+\*\*'` |
+| Delta Log sections | **14** → **15** | `grep -c '^## Delta Log'` |
+| task lines | **112** (untouched) | `grep -cE '^- \[[ xX]\] \*{0,2}T[0-9]{3}' tasks.md` |
+| state-matrix rows | **15** (no row added) | `grep -c '^| LV-ST-' state-matrix.md` |
+
+### The wire shape, as decided (not as invented here)
+
+| # | Decision | Written into FR-004 as |
+|---|---|---|
+| 1 | an **additive** field `live_voice_missing`: `"recognizer"` · `"voice"` · `null`; `live_voice: bool` unchanged in name, type and meaning | "`agent_detail` MUST carry that answer as **data**: an additive field … and `live_voice: bool` MUST keep its present name, type and meaning, because a desktop build and older clients read it as a boolean" |
+| 2 | the value strings are spelt **`"recognizer"`**, American, matching the union the client already carries in four files (`Composer.tsx:71`, `LiveVoiceRow.tsx:32`, `LiveVoiceButton.tsx:20`, `LiveVoiceControl.tsx:28`); the Rust function keeps its name | FR-004 uses `"recognizer"`; the clause says the words are the ones the client already carries. **No translation layer between British code and American wire is introduced, and none is removed — the wire simply speaks the client's spelling** |
+| 3 | the server needs **no new logic**: `has_recogniser` (`crates/vizier-core/src/service/agents.rs:484`) and `has_voice` (`:492`) are already `pub`, and `agent_detail` already binds both as locals (`:558-559`) before computing `live_voice` (`:605`) | FR-004 says nothing about how it is computed, on purpose: an implementation note is not a requirement. The delta records it so nobody prices it as plumbing |
+| 4 | the generic sentence has **one** meaning, and `null` only one case — nothing is missing. An agent with nothing configured at all is missing **both** halves, so it reports `"recognizer"` like any other both-missing agent; reporting `null` for it would bury a real absence behind "not configured" | FR-004 states the single case and the counter-rule together: `null` MUST NOT be used for "something is missing, but I am not saying which". **Corrected after the Lead's review (12:35):** the first draft of this row, and of the clause, followed his earlier phrasing "the generic text is valid in two cases" and turned it into "also the case where nothing has been configured at all" — which contradicted the both-missing tie-break three sentences later, and the case table below. His intent was "nothing needs mentioning", not "nothing has been set"; the wording was his, the contradiction was mine for applying it literally, and the rule that wins is the one that names a half |
+
+### The cases, all six of them — four with the switch on, two with it off — because a three-valued field invites undefined corners
+
+| Switch | Recogniser | Voice | `live_voice` | `live_voice_missing` | Copy |
+|---|---|---|---|---|---|
+| on | yes | yes | `true` | `null` | none — the control starts |
+| on | **no** | yes | `false` | `"recognizer"` | names the recogniser |
+| on | yes | **no** | `false` | `"voice"` | names the voice |
+| on | **no** | **no** | `false` | `"recognizer"` | names the recogniser, then the voice after it is fixed |
+| off | yes | yes | `false` | `null` | generic: nothing is missing, the switch is closed |
+| off | any missing | — | `false` | the missing half | the half, though the switch is also closed |
+
+**Two costs this table states rather than hides.** (1) The last row is a **two-step discovery**: a person whose switch is off
+*and* whose recogniser is unset is told about the recogniser, fixes it, and only then reads the generic sentence and learns the
+switch is closed. The alternative — generic whenever the switch is off — was rejected because it would **hide** a real defect
+behind "not configured", and that is precisely the complaint FR-004 exists to answer. (2) The both-missing row is the same
+shape: one is named, the other arrives after it. The tie-break is not taste — it is the order `check_live_voice` already takes
+them in (`agents.rs:525-526`) and the order a session needs them (it must hear before it can answer), and it is written into
+the clause so the server and the client cannot each pick their own.
+
+**One consequence of where the refusal lives, which the first draft of this clause got wrong.** "How to set it" was placed in the
+settings form because the form is where a person acts — and that is still right — but the form only refuses a switch that is **on**:
+`check_live_voice` returns `Ok(())` the moment `!config.tools.live_voice.enabled` (`crates/vizier-core/src/service/agents.rs:520-522`),
+a test pins exactly that (`:1231`, "off is never refused"), and both save paths reach it — create `:681`, update `:720`. So an agent
+whose switch is off **and** whose recogniser is unset gets `"recognizer"` in the pill (correct: the field is reported regardless of the
+switch) while the form refuses **nothing** until somebody turns the switch on. That is not a defect — the refusal arriving at the moment
+a person acts is better than a validation error on an agent they never meant to use — but the clause said "refuse to save a live voice
+switch with no usable half", which read as though the form rejected the switched-off case too. It now says **on**, in those words.
+
+### What changed in the document
+
+| Where | Before | After |
+|---|---|---|
+| **FR-004** | "When one is missing, the control MUST name what is missing and how to set it" — an obligation on the *control* with no statement of how the answer reaches it | the answer is a wire field with a stated value set, a stated reporting rule (regardless of the switch), a stated tie-break, and an explicit ban on using `null` to avoid naming a half |
+| **`spec.md` edge case "An agent whose live voice switch is off"** | described the pill as it is at `44bf167f`, then said fixing it is a wire change owned by the Lead and Sepuh | now says the sentence is **drawn from `agent_detail.live_voice_missing`**, and states that at `44bf167f` the generic sentence is the only one a person can meet — so the scenario is written as the target, not as the tree |
+| **`Q19`** | — | new: should the pill's tooltip carry the *fix* as well as the name? Default **no**, with the reason (a 24 px pill has room for a reason, not a procedure, and the settings form already names the setting) |
+| **`state-matrix.md`** (`LV-ST-UNAVAILABLE`, `O2`) | the row asked for `missing` from a payload that cannot carry it; O2 was `open → PIC data + Lead` | the field is decided; O2 moves to "decided, awaiting code", and the row's data column names `live_voice_missing` |
+| **`state-matrix.md` pin** | `spec_ref: …@2d9adcbe` with the validity test "`git log -1 … spec.md` must return `2d9adcbe`" | that test now **fails** (`5d7a188e`), so the pin is marked broken by C17 + this delta and the matrix is declared a **draft** until it is re-pinned at the commit that carries this text. A pin that cannot be checked is not a pin |
+
+### Two documents that now say something untrue, and are not mine to edit
+
+- **`analysis.md:173`** records `M1 open (FR-004 message)` as **closed** because "T037 now says which half is missing and links to the agent's speech settings". The tree says otherwise: nothing passes `missing`, and `LiveVoiceControl.tsx:131-135`'s `onOpenSettings` branch is unreachable (its only callers are buttons the row renders when `capability` is true). M1 is **still open**, and it now has a decided fix rather than a closing claim. The Lead's file.
+- **`release-checklist.md:46`** opens its failing-picture bullet with "its tooltip names the missing half" — an unqualified claim that the same bullet's item **(a)** nine lines down corrects (*"never `liveVoiceMissing` … so the tooltip is always the generic … and never names the missing half"*). The substance is right and QA found it first on 2026-11-10; what is wrong is that a reader who stops at the opening sentence over-claims, and the bullet's line numbers (`chat.tsx:546`, `Composer.tsx:71,102,472`, `LiveVoiceRow.tsx:169-189`) were read at `70806654` and have moved since (`chat.tsx:123/:544`, `Composer.tsx:71/:114/:487`, `LiveVoiceRow.tsx:196-213` at `44bf167f`). QA's file, and only the line numbers and the opening claim need the touch.
+
+### What this delta does not do
+
+- **No code, no `tasks.md`, no `plan.md`.** The field is a wire change; the carrier for it is a task the Lead writes, and
+  `T011`'s text (`tasks.md:76`) still describes the boolean alone.
+- **No `contracts/live-voice-frames.md` change, because this is not a frame.** `live_voice_missing` travels on `agent_detail`
+  (REST), not on the socket; the frame contract's stale C17 sentence at `:20` is still mine and still owed, and it waits for
+  the gate code rather than for this delta.
+- **No `schema.d.ts` patch, and no claim that the type is in sync.** `AgentDetail` derives `utoipa::ToSchema` behind
+  `feature = "utoipa"` (`crates/vizier-core/src/service/agents.rs:45-46`), so the field reaches OpenAPI and therefore
+  `webui/app/api/schema.d.ts` — which **cannot be regenerated now** (`node scripts/openapi.mjs` needs a live server at
+  `VIZIER_URL`). This delta adds one more reason to that queue and says so; it does not hand-patch the file, and nobody should
+  read a type in the client that mentions `live_voice_missing` before the regeneration has actually run.
+- **No claim that FR-004 is met.** At `44bf167f` it is met in **neither** half on the wire: the client cannot learn which half
+  is missing, and nothing on screen says how to fix it. It becomes met when the field lands and the row reads it.
 
