@@ -1,22 +1,25 @@
 # State matrix — Live Voice 055
 
 Lampiran `specs/055-live-voice/spec.md`. Satu tabel, tiga kolom terisi oleh tiga meja.
-Dokumen ini **bukan** checklist uji selama `design_ref` belum ber-versi (aturan titik nol).
+Dokumen ini **bukan** checklist uji selama ketiga ref di bawah belum semuanya resolve (aturan titik nol). Sejak
+2026-11-16 alasan penahannya **bukan** lagi `design_ref` (sudah ber-versi sejak `b045a6bc`) melainkan `code_ref`, dan
+itu ditulis di blok `code_ref` alih-alih dibiarkan sebagai pin tua yang tampak sah.
 
 ```
 flow:         Live Voice — panggilan sebagai satu baris di dalam percakapan (C11 / surface B1-1)
-spec_ref:     specs/055-live-voice/spec.md@2d9adcbe — bukan @bf7971a5, bukan @25b796ac, dan tiap gantinya
+spec_ref:     specs/055-live-voice/spec.md@fb4315fc — bukan @bf7971a5, bukan @25b796ac, dan tiap gantinya
              berangka: `25b796ac` (09:33) menua 36 menit kemudian; `bf7971a5` (11:16) benar 27 menit, lalu **pin
              rule di dalamnya sendiri berubah jadi tiga ref** — matriks yang menunjuk spec yang tidak lagi
              memuat aturannya sedang mengutip teks yang sudah tidak ada. `2d9adcbe` (11:43, +20/−4) memuat
              aturan itu. **Pin ini sah selama `spec.md` tidak berubah sesudahnya**:
-             `git log -1 --format=%h -- specs/055-live-voice/spec.md` harus mengembalikan `2d9adcbe`.
-             **PIN INI PATAH 2026-11-16** — perintah yang sama sekarang mengembalikan `5d7a188e` (C17, FR-041 keluar dari
-             feature gate), dan sesudahnya teks FR-004 berubah lagi (delta FR-004, `live_voice_missing`). Test-nya gagal,
-             jadi **dokumen ini berstatus DRAFT sampai di-pin ulang** ke commit yang memuat kedua perubahan itu. Yang tidak
-             boleh dilakukan: menaikkan angka pin ke commit yang belum ada, atau membiarkan `2d9adcbe` terbaca sebagai sah.
-             Pin ulang = satu baris, sesudah commit SA mendarat; sampai itu, tidak ada "gagal" yang boleh ditulis terhadap
-             tabel ini (aturan yang sama yang membuat matriks ini lahir).
+             `git log -1 --format=%h -- specs/055-live-voice/spec.md` harus mengembalikan `fb4315fc`.
+             **Riwayat pin, supaya tidak ada yang mengulang kesalahannya:** `2d9adcbe` patah 2026-11-16 karena C17
+             (`5d7a188e`, FR-041 keluar dari feature gate) lalu delta FR-004 (`live_voice_missing`); `fb4315fc` memuat
+             **keduanya** dan tes di atas **lulus** (`git log -1 --format=%h -- …spec.md` → `fb4315fc`, dicek sebelum baris
+             ini ditulis). Yang tidak boleh dilakukan tetap sama: menaikkan angka pin ke commit yang belum ada, atau
+             membiarkan pin lama terbaca sebagai sah.
+             **Status dokumen: DRAFT — dan sekarang bukan karena pin spec.** Pin spec lulus; yang belum lulus adalah ref
+             ketiga, lihat `code_ref` di bawah. Aturan tiga ref tidak dilonggarkan oleh keberhasilan satu ref.
 design_ref:   055-live-voice-screen.figcraft@02ddd7b4 (291 259 B) — B1-1, frame `9679` + app `9680`; idle `9462`;
              export `055-B1-1-pil-kiri-light@2x.png` (1 168 623 B, md5 `f1308ffc4b4255aed62acedbd8343ea7`).
              **@02ddd7b4, bukan @7072fe9f:** 2026-11-10 09:17 label `CANONICAL` dicabut dari `6188`/`6190`
@@ -28,7 +31,14 @@ code_ref:     webui@8929bbed (659 baris `session.ts`) · crates @ `0c158da8` —
              `webui` bergerak 510ace84 → 08cf067a → 2be9c377 → 8929bbed dalam tiga jam, dan tiap gerakan
              menggeser nomor baris (pada 11:19, dua belas sitasi menjadi salah tanpa satu pun berubah teks). Sitasi Rust
              (`frame.rs`, `session.rs`), `frames.ts` dan `LiveVoiceRow.tsx` diverifikasi di pin yang sama.
-periksa:      git ls-tree HEAD webui | awk '{print $3}'                      # ≠ 8929bbed → angka di tabel belum diperiksa ulang
+             **REF INI PATAH, dan ia yang menahan dokumen di DRAFT** (dicek 2026-11-16): `webui` sekarang `0d5255f`
+             (merge master `5f3bef2`, 86 path) dan `session.ts` **740 baris**, bukan 659 → tiap sitasi `session.ts:NNN`
+             di tabel ini sudah bergeser, persis kegagalan yang paragraf di atas gambarkan. `crates @ 0c158da8` juga tua
+             (HEAD `fb4315fc`). **Yang TIDAK saya lakukan: menyunting angka sitasi orang lain.** Kolom data pemiliknya
+             bukan saya (`PIC: data = kolom "butuh data apa"`), dan menebak nomor baris baru menghasilkan matriks yang
+             tampak segar dengan angka salah — cacat yang lebih mahal daripada pin tua yang jujur. Pembaca ulang =
+             pemilik kolom data + `@teteh-qa`, lalu saya pin ulang `code_ref` ke commit hasil bacaan itu.
+periksa:      git ls-tree HEAD webui | awk '{print $3}'                      # ≠ 8929bbed (kini 0d5255f) → angka sesi di tabel belum diperiksa ulang
              git log -1 --format=%h -- specs/055-live-voice/spec.md          # ≠ pin di spec_ref → pin spec menua
              git -C webui show 8929bbed:app/lib/liveVoice/session.ts | sed -n '628p'  # satu sitasi, satu bukti (dari root repo; `webui` submodule)
 approved:     — (tanggal + siapa)
