@@ -32,10 +32,10 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Purpose**: branches, the reviewed mockup, the empty modules.
 
-- [ ] T001 Create the `063-html-generative-ui` branch in every submodule with `just checkout 063-html-generative-ui` (constitution: matching submodule branches)
-- [ ] T002 Draw the HTML mockup `specs/063-html-generative-ui/mockups/page-frame.html` (FigCraft unreachable, so HTML). Show the frame header (title, `v{n}`, "unchecked" mark, error indicator, full screen, download), a failed version collapsed in the trail ("v1 · 2 problems"), the error popover, the "paused · Run anyway" state, light and dark, and 375 px width. Use the existing chat look from `webui/app/screens/chat/client/InteractivePage.tsx`. **Get the person's review before T029 (the first UI code).**
-- [ ] T003 [P] Create the empty module `crates/vizier-core/src/ui_pages/mod.rs` with `edits.rs`, `limits.rs` and `verify.rs`, and register `mod ui_pages;` in `crates/vizier-core/src/lib.rs`
-- [ ] T004 [P] Add the kit build entry: create `webui/app/kit/index.ts` (empty custom-element registry) and `webui/app/kit/base.css`. Add a second Vite build (library mode, IIFE, output `build/client/ui-kit/kit-[hash].{js,css}` plus `manifest.json`) to `webui/vite.config.ts` or `webui/vite.kit.config.ts`, and run it from `npm run build`.
+- [x] T001 Create the `063-html-generative-ui` branch in every submodule with `just checkout 063-html-generative-ui` (constitution: matching submodule branches)
+- [x] T002 Draw the HTML mockup `specs/063-html-generative-ui/mockups/page-frame.html` (FigCraft unreachable, so HTML). Show the frame header (title, `v{n}`, "unchecked" mark, error indicator, full screen, download), a failed version collapsed in the trail ("v1 · 2 problems"), the error popover, the "paused · Run anyway" state, light and dark, and 375 px width. Use the existing chat look from `webui/app/screens/chat/client/InteractivePage.tsx`. **Get the person's review before T029 (the first UI code).**
+- [x] T003 [P] Create the empty module `crates/vizier-core/src/ui_pages/mod.rs` with `edits.rs`, `limits.rs` and `verify.rs`, and register `mod ui_pages;` in `crates/vizier-core/src/lib.rs`
+- [x] T004 [P] Add the kit build entry: create `webui/app/kit/index.ts` (empty custom-element registry) and `webui/app/kit/base.css`. Add a second Vite build (library mode, IIFE, output `build/client/ui-kit/kit-[hash].{js,css}` plus `manifest.json`) to `webui/vite.config.ts` or `webui/vite.kit.config.ts`, and run it from `npm run build`.
 
 ---
 
@@ -62,7 +62,7 @@ These are included as tasks. A browser check is a manual quickstart step run wit
   - `delete_blobs`;
   - id generation (`pg_` + 22 base62 characters).
   Put it on `VizierDependencies` in `crates/vizier-core/src/dependencies.rs`.
-- [ ] T015 [P] Put the limits (`MAX_VERSION_BYTES = 1_048_576`, `MAX_EDITS = 100`, `MAX_TITLE = 120`, `VERIFY_OBSERVE_MS = 2000`, `VERIFY_DEADLINE = 10s`) in `crates/vizier-core/src/ui_pages/limits.rs`
+- [x] T015 [P] Put the limits (`MAX_VERSION_BYTES = 1_048_576`, `MAX_EDITS = 100`, `MAX_TITLE = 120`, `VERIFY_OBSERVE_MS = 2000`, `VERIFY_DEADLINE = 10s`) in `crates/vizier-core/src/ui_pages/limits.rs`
 - [ ] T016 [P] Add `SessionFrame::UiPageVerified { page_id, version, verification }` and `SessionFrame::UiPageState { page_id, state, state_seq }` in `crates/vizier-core/src/transport/events.rs`, and their socket encodings (`ui_page_verified`, `ui_page_state`) in `crates/vizier-http/src/topic.rs`
 - [ ] T017 Add `service::ui_pages` with `get_page` and `get_version`, authorized like reading the conversation's history (`404` outside it), in `crates/vizier-core/src/service/ui_pages.rs`
 - [ ] T018 Add the routes `GET …/topic/{topic}/pages/{page_id}` and `GET …/pages/{page_id}/versions/{version}` (`text/html`, immutable cache) in `crates/vizier-http/src/api/v1/agents/ui_pages.rs`. Mount them in `agents/mod.rs` and add their OpenAPI entries (contracts/http.md).
