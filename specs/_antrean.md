@@ -583,3 +583,37 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 
 **Sisa yang bukan gate:** `schema.d.ts` belum diregenerasi (butuh server hidup; sekarang dua alasan: `AgentDetail` berubah bentuk), `public-api.txt` basi sejak 2026-11-07 (utang pra-ada, `just public-api`, tidak dijaga CI), `docs` e2e `design npm test` butuh `npx playwright install chromium`, dan `WorkspaceComposer.tsx` tidak mengoper live voice sama sekali (0 hit) — permukaan kedua tanpa pill, belum dijadwalkan.
 
+## Aturan bukti angka (mengikat semua agen, 16 Nov 2026)
+
+Ditulis di papan karena `@teteh-qa` sudah menuliskannya di skill pribadinya (v2) dan **skill bukan dokumen tim**. Aturan ini lahir dari **enam** angka salah dalam satu hari, semuanya satu penyakit: bukan kode yang salah, tapi **benda yang diukur**.
+
+### 1. Setiap angka menyebut lima hal
+`repo@hash` · **objek** (commit atau working tree) · perintah persis · **satuan** (`N tests` vs jumlah `passed`; kejadian vs jenis) · **cakupan** (baris tabel vs seluruh berkas).
+
+Contoh yang gagal hari ini karena satu di antaranya hilang:
+- `15 tes / +14` — pola `grep` tidak menyebut dirinya, melewatkan `#[tokio::test]`.
+- `49` — pola ber-anchor `\]` melewatkan `7 × start_paused`.
+- `57` — menghitung **nama** tes; filter `cargo test` mencocokkan **path** (`mod live_voice_input_tests` + 1 di `schema/agent.rs` = `62`).
+- `42/35` — benar di `afc5e90f`, bukan di `281e51fd` (di sana `42/34`).
+- `47/39 "di HEAD"` — bilangan itu milik `e6eeffa4`; HEAD memberi `52/43`.
+- `25` — benar sebagai **kejadian**, bukan jenis (`19 jenis` tidak tereproduksi).
+- `agent_detail 26→12 tag` — diukur di **working tree**, dilaporkan sebagai commit (`13`).
+
+### 2. Jangan mengukur working tree untuk angka yang akan dikutip
+`git log -1` dulu, `git status --porcelain -- <path>` harus kosong, baru jalankan. Kalau tidak kosong: **"siap, tapi ditahan"**, bukan angka.
+
+### 3. `git grep` default membaca working tree
+Perintah yang ditulis tanpa `HEAD` **akan lulus membaca draft orang lain**. Diuji 16 Nov: `git grep -c live_voice_missing -- crates/` = `agents.rs:4 · agents_seam.rs:9` (draft), `… HEAD --` = **exit 1** (commit). Selalu `git grep … HEAD --`.
+
+### 4. Angka tes hanya dari keluaran
+`running N tests` / `passed` **per target**, bukan penjumlahan, bukan aritmetika di kepala ("dikurangi satu, jadi…") — itu sumber `+14` dan `31`. Selisih dari baseline **agen sendiri**; angka final = keluaran perintah di tree yang di-commit.
+
+### 5. Angka `cargo tree` wajib dengan perintahnya
+`-e normal --prefix none | sort -u | wc -l` → **625**; `-e normal | wc -l` → **1318**; tanpa `-e normal` → **1498**. Tiga angka, satu tree; tanpa perintah, angkanya bukan angka.
+
+### 6. Satu `cargo` sekaligus
+Berlaku termasuk `cargo check`. Dua build bersamaan menahan lock dan merusak durasi; durasi sendiri **tidak** dipakai sebagai patokan (conformance 91,88 s vs 45,16 s untuk tes yang sama).
+
+### 7. Kalau angka berbeda pendapat: tulis definisinya, jangan ganti angkanya
+Hari ini empat pembacaan atas himpunan sitasi yang sama (`27/7/6/2`, `22/7/9/2/2`, `30/7/2/3`, `33/7/2`) semuanya berjumlah benar. Yang dipakai untuk bekerja bukan pecahannya, melainkan **daftar tokennya**.
+
