@@ -63,8 +63,10 @@ tools:
 and do not open `app-config.json` / `.env`; that choice is the User's and is still open.
 
 **0.3 The release build.** `just release` = `cargo build --release -p vizier` (`Justfile:98-99`) [QA], and
-`crates/vizier/Cargo.toml:30-32` pulls `vizier-core` with `["full"]` and `vizier-http` with `["live-voice"]`
-[QA] — the feature **is** in the binary. `crates/vizier-http/build.rs:15-33` runs `npm run build` in `webui/`
+`crates/vizier/Cargo.toml:30-32` pulls `vizier-core` with `["full"]` and `vizier-http` with **no features**
+(the `["live-voice"]` there was removed with the flag, C17, 2026-11-16) [QA] — the live voice code is in the
+binary because `vizier-core` and `vizier-http` **always** compile it now, not because a feature is switched on.
+If you still find `["live-voice"]` there, the C17 change did not land in this tree. `crates/vizier-http/build.rs:15-33` runs `npm run build` in `webui/`
 when `node_modules` exists and embeds `webui/build/client` [QA], so `just build` is not a prerequisite — but
 `node_modules` is (without it, build.rs panics). Expect ≈23 min, ≈10 GB peak RSS, ≈17 GB `target` [lap, Lead].
 
@@ -83,8 +85,11 @@ Run these first: a red here invalidates section B.
 |---|---|---|---|
 | A1 | `cd webui && npx vitest run app/lib/liveVoice app/screens/chat` | **12 files, 145 passed | 1 skipped, EXIT=0** (measured) | non-zero exit, or a red naming `LiveVoiceRow`, `Composer` or `session` |
 | A2 | `cd webui && npx tsc --noEmit` | `EXIT=2` with **one** error: `TS7016` `rehype-katex` (`app/screens/shared/Markdown.tsx:4`) | any *other* TS error is new |
-| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --lib live_voice::` | **56 passed, 0 failed, EXIT=0** (counted at `58942ccd`; identical at `5c84baae`: 56 `#[test]` / `#[tokio::test…]` under `crates/vizier-core/src/live_voice/`. The **49** this row carried an hour earlier was the same tree read with an anchored pattern that misses `#[tokio::test(start_paused = true)]` — 7 of the 56 are written that way; the **48** before that was measured *with* the flag in the older snapshot in this file's header, `57321373`) | `error: package 'vizier-core' does not contain this feature: provider-live-voice` means the C17 change has **not** landed yet - a red for the gate, not a skip, so do not reach for the old flag. A count below 56 means a test stopped compiling; name it, never edit the number to match. **The `::` in `live_voice::` is load-bearing**: without it the filter also matches a test whose *name* contains `live_voice` but which lives outside the module (`crates/vizier-core/src/schema/agent.rs:612`, `live_voice_is_off_and_defaulted_until_it_is_configured`), and the run prints **57** against this cell's 56 — a red on correct code. `--features` is now always an error here, and `--workspace` never enters this file |
-| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http` | **every target `test result: ok`, 0 failed, EXIT=0**, and the four `live_voice_*` binaries each `running N tests` with **7 / 8 / 11 / 6** (**32** in all) - never `running 0 tests`. The crate holds **108** test functions (58 in `src/`, 50 in `tests/`) and none is `#[ignore]`d, so the totals should sum to 108 (derived at `5c84baae`: the tautological test is **replaced** by a real one, `a_start_is_ignored_while_the_agent_switch_is_off`, so 32 stays 32; the "100 passed, 11 blocks" this row used to carry was measured in the older snapshot `57321373`) | a `live_voice_*` binary at `running 0 tests` = its file-level `#![cfg(feature = "live-voice")]` is still there; `does not contain this feature: live-voice` = the crate's `[features]` block survived; a total below 108 names a test that stopped running |
+| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --lib live_voice::` | **56 passed, 0 failed, EXIT=0, `running 56 tests`, 2.81s** — **measured by @teteh-qa at `c71f0e64`** (2026-11-16, `CARGO_TARGET_DIR=/home/muruyung/vz-gate-target`, `1966 filtered out`). `grep -cE '^[[:space:]]*#\[(tokio::)?test'` over `crates/vizier-core/src/live_voice/` also gives **56** (11 framing + 7 segmenter + 33 session + 5 utterance). Earlier readings of the same module: **counted at `58942ccd`; identical at `5c84baae`** — 56 `#[test]` / `#[tokio::test…]` under `crates/vizier-core/src/live_voice/`. The **49** this row carried an hour earlier was the same tree read with an anchored pattern that misses `#[tokio::test(start_paused = true)]` — 7 of the 56 are written that way; the **48** before that was measured *with* the flag in the older snapshot in this file's header, `57321373`) | `error: package 'vizier-core' does not contain this feature: provider-live-voice` means the C17 change has **not** landed yet - a red for the gate, not a skip, so do not reach for the old flag. A count below 56 means a test stopped compiling; name it, never edit the number to match. **The `::` in `live_voice::` is load-bearing**: without it the filter also matches a test whose *name* contains `live_voice` but which lives outside the module (`crates/vizier-core/src/schema/agent.rs:612`, `live_voice_is_off_and_defaulted_until_it_is_configured`), and the run prints **62** against this cell's 56 — a red on correct code. **62, not 57, measured at `c71f0e64`**: the 56 in the module plus six outside it — `schema::agent::media_provider_tests::live_voice_is_off_and_defaulted_until_it_is_configured` (a *test-name* match) and the five in `service::agents::live_voice_input_tests::…` (a *module-path* match). The earlier **57** was this tree before those five moved into `live_voice_input_tests`; a figure in this cell that nobody re-measured on the tree in front of them is a guess, so re-run it instead of trusting the number here. `--features` is now always an error here, and `--workspace` never enters this file |
+| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http` | **every target `test result: ok`, 0 failed, EXIT=0**, and the four `live_voice_*` binaries each `running N tests` with **7 / 8 / 11 / 6** (**32** in all) - never `running 0 tests`. **Measured by @teteh-qa at `c71f0e64`** (2026-11-16): **12 `test result` blocks, EXIT=0**, all `ok`, none `#[ignore]`d — lib **58** · agents_seam **6** · conformance **1** · desktop_principal **2** · detached_routes **1** · inbox_stream **7** · barge_in **11** · delivery **6** · frames **8** · session **7** · topic **1** · Doc-tests **1**. That is **108 test functions** (58 in `src/`, 50 in `tests/`) **+ 1 doc-test = 109 `passed` in all**, and the two numbers are not the same figure: sum the `passed` column and you get 109; count `#[test]`/`#[tokio::test]` in the crate and you get 108. **This
+row is the full `cargo test -p vizier-http`, with no `--lib`**, and that is where the twelfth block comes from —
+with `--lib` there are 11 blocks and no doc-test, so its sum is 108 (derived, not measured here: run it and write
+down the figure you saw rather than copying this sentence). The frame count **8** is unchanged because the tautological test is **replaced** by a real one, `a_start_is_ignored_while_the_agent_switch_is_off`, so 32 stays 32. The "100 passed, 11 blocks" this row used to carry was measured in the older snapshot `57321373`, before the doc-test existed | a `live_voice_*` binary at `running 0 tests` = its file-level `#![cfg(feature = "live-voice")]` is still there; `does not contain this feature: live-voice` = the crate's `[features]` block survived; a total below 108 names a test that stopped running |
 | A5 | `cd webui && npx playwright test --list e2e/live-voice-row.spec.ts e2e/live-voice-lifecycle.spec.ts e2e/live-voice-failures.spec.ts` | **16 tests in 3 files** (8 per project x 2 projects), exit 0 (measured 2026-11-10) | parse error. **A list is not a pass** — it only proves the selectors are syntactically valid |
 | A6 | `node design/scripts/lint-tokens.mjs webui/app` from the repo root (**not** `app`: the script resolves against the cwd, and `app` silently lints nothing and exits 0) | **10 violations, exit 1**, all pre-existing (`SideCard` x2, `WorkspaceHeader` x2, `WorkspaceSidebar` x6) - measured 2026-11-10, replacing the earlier "15" [lap] | **any** violation whose path is `LiveVoiceRow` or `liveVoice` — a raw hex or a raw spacing step got in |
 | A7 | `grep -n 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | **`LiveVoiceRow.tsx:74` only** (re-measured 2026-11-16 at `webui@0d5255f`; the `:48` this row carried came from the older tree) - the state word `'Interrupted'` inside `rowWord()`; `LiveVoiceControl.tsx` **0** | any hit that renders a **button or label** named Interrupt, or any hit outside `rowWord()`. A bare `grep -c` reports `1` here and is a false alarm - read the line, not the count |
@@ -96,9 +101,9 @@ all of them arithmetic, none of them a guess:
 
 1. **`--features provider-live-voice` and `--features live-voice` now fail hard** (`does not contain this feature`).
    The old commands did not weaken, they stopped existing.
-2. **The four `live_voice_*` files no longer compile to empty binaries.** Each begins with
-   `#![cfg(feature = "live-voice")]`, so every earlier no-flag run showed them at `running 0 tests` and their tests
-   were invisible. Counting `^\s*#\[(tokio::)?test` over them gives **7 / 8 / 11 / 6 = 32**. The tautological
+2. **The four `live_voice_*` files no longer compile to empty binaries.** Each *used to* begin with
+   `#![cfg(feature = "live-voice")]` (those lines were removed at `c71f0e64`), so every earlier no-flag run showed
+   them at `running 0 tests` and their tests were invisible. Counting `^\s*#\[(tokio::)?test` over them gives **7 / 8 / 11 / 6 = 32**. The tautological
    `the_flag_off_build_has_no_live_voice_surface` goes and **a real test replaces it**
    (`a_start_is_ignored_while_the_agent_switch_is_off`, `#[tokio::test(flavor = "multi_thread")]`), so the count
    **stays 32** — the shape changes, not the total. **Count without a `\]` anchor**: seven tests in `vizier-core` and
@@ -112,9 +117,13 @@ all of them arithmetic, none of them a guess:
    wrong; do not hunt a phantom count to reach it. The *with-flag* total does not move either way: the test added is
    exactly the test removed.
 
-Both `Expected` cells in A3/A4 are **derived from the source at `5c84baae`, not measured** — the first person to run
-them on a tree where the flags are gone replaces them with the measured figure and says so, which is this file's own
-rule for every `[QA]` line.
+Both `Expected` cells in A3/A4 were **derived from the source at `5c84baae`** until 2026-11-16; they are now
+**measured by @teteh-qa at `c71f0e64`**, the commit that removed the flags, run once on a clean tree with
+`CARGO_TARGET_DIR=/home/muruyung/vz-gate-target`. A3 was run on `c71f0e64` itself; A4 was re-run on
+`301e23a6`, where `crates/` is byte-identical to `c71f0e64` (`git diff --stat c71f0e64 HEAD -- crates/` = **0
+lines**), so the figures belong to the gate commit and not to a later tree. The label rule is unchanged for
+every other `[QA]` line: nothing
+counted from source may sit in an `Expected` cell without saying it is derived.
 
 ---
 
