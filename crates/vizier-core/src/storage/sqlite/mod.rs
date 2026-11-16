@@ -10,11 +10,15 @@ use crate::utils::build_path;
 
 mod agent;
 pub mod artifact;
-mod background_job;
+mod detached_script;
+mod subagent;
 mod catalogue;
 mod client_call;
 pub(crate) mod core_revision;
 mod dream_journal;
+pub(crate) mod fence;
+#[cfg(test)]
+mod fence_tests;
 mod global_config;
 mod history;
 mod integration;
@@ -29,6 +33,8 @@ mod question;
 mod reaction;
 mod scratch;
 mod secret;
+mod custom_tool;
+pub(crate) use custom_tool::delete_agent_custom_tools;
 mod session;
 mod session_file;
 mod sso_session;
@@ -54,6 +60,9 @@ pub struct SqlStorage {
     pub(crate) cipher: crate::encryption::SecretCipher,
     /// Which integration settings are secret, from the kind registry.
     pub(crate) secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
+    /// The ownership fences this process holds (`specs/057-fleet-row-ownership`, research R3).
+    /// Shared by every clone, so one process has one registry; empty until something claims.
+    pub(crate) fences: Arc<crate::storage::fence::Fences>,
 }
 
 /// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
@@ -240,6 +249,7 @@ impl SqlStorage {
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher: crate::encryption::SecretCipher::disabled(),
             secret_paths: Arc::new(crate::encryption::NoIntegrationSecretPaths),
+            fences: Arc::default(),
         }
     }
 
@@ -257,6 +267,7 @@ impl SqlStorage {
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher,
             secret_paths,
+            fences: Arc::default(),
         }
     }
 
@@ -455,7 +466,6 @@ impl SqlStorage {
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
-        init_background_job_schema(conn)?;
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
@@ -466,15 +476,164 @@ impl SqlStorage {
         init_secret_schema(conn)?;
         init_media_catalogue_schema(conn)?;
         init_notification_schema(conn)?;
+        init_detached_script_schema(conn)?;
+        init_subagent_schema(conn)?;
+        init_custom_tool_schema(conn)?;
         project::init_project_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
         // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
         // rows stay for the timeline's order. Every existing entry was a message, so the default
         // keeps them as they were read.
         add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
+        init_ownership_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// Row ownership (`specs/057-fleet-row-ownership/data-model.md`): the `owner_fence` table, one
+/// row per ownership scope, and the recovery indexes. Runs after the `init_*_schema` of the five
+/// tables of in-flight work, each of which adds its own owner columns ([`add_owner_columns`]).
+pub fn init_ownership_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS owner_fence (
+            scope       TEXT PRIMARY KEY,
+            node        TEXT NOT NULL,
+            token       INTEGER NOT NULL,
+            lease_token INTEGER,
+            claimed_at  TEXT NOT NULL
+        );
+        ",
+    )?;
+    let has = |table: &str| -> Result<bool> {
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )? > 0)
+    };
+    // The recovery predicates, per agent (`detached_script (agent_id, state)` is
+    // `idx_detached_agent_state`).
+    if has("client_tool_call")? {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_client_call_agent_status ON client_tool_call(agent_id, status);",
+        )?;
+    }
+    if has("sensitive_ask")? {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sa_agent_state ON sensitive_ask(agent_id, state);",
+        )?;
+    }
+    Ok(())
+}
+
+/// Subagents (`specs/059-subagent-workers/data-model.md`): one row per worker, owned like the
+/// other in-flight tables (spec 057). Split out so the tests in `src/storage/sqlite/subagent.rs`
+/// can build just this table.
+pub fn init_subagent_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS subagent (
+            id                 TEXT PRIMARY KEY,
+            agent_id           TEXT NOT NULL,
+            hiring_channel     TEXT NOT NULL,
+            hiring_topic       TEXT,
+            parent_detached_id TEXT,
+            group_id           TEXT NOT NULL,
+            position           INTEGER NOT NULL,
+            group_size         INTEGER NOT NULL,
+            worker_topic       TEXT NOT NULL,
+            task               TEXT NOT NULL,
+            timeout_secs       INTEGER NOT NULL,
+            state              TEXT NOT NULL,
+            stop_reason        TEXT,
+            question           TEXT,
+            result             TEXT,
+            result_truncated   INTEGER NOT NULL DEFAULT 0,
+            error              TEXT,
+            outcome_seq        INTEGER NOT NULL DEFAULT 0,
+            seen_seq           INTEGER NOT NULL DEFAULT 0,
+            delivered_seq      INTEGER NOT NULL DEFAULT 0,
+            deadline_at        INTEGER,
+            remaining_ms       INTEGER,
+            created_at         INTEGER NOT NULL,
+            updated_at         INTEGER NOT NULL,
+            ended_at           INTEGER,
+            owner_node         TEXT,
+            owner_token        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_subagent_hiring ON subagent(agent_id, hiring_channel, hiring_topic, created_at);
+        CREATE INDEX IF NOT EXISTS idx_subagent_agent_state ON subagent(agent_id, state);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_worker ON subagent(worker_topic);
+        ",
+    )?;
+    Ok(())
+}
+
+/// Detached scripts (`specs/058-detached-tool-calls/data-model.md`): one row per detached
+/// `execute_python` run, owned like the other in-flight tables (spec 057). Split out so the
+/// tests in `src/storage/sqlite/detached_script.rs` can build just this table.
+pub fn init_detached_script_schema(conn: &Connection) -> Result<()> {
+    // Spec 058 replaced background jobs: their tables and notifications go, with no data
+    // migration (an old job has nothing to resume). Tracked for removal in #82.
+    conn.execute_batch(
+        "
+        DROP TABLE IF EXISTS background_piece;
+        DROP TABLE IF EXISTS background_job;
+        ",
+    )?;
+    if conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'notification'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?
+        > 0
+    {
+        conn.execute("DELETE FROM notification WHERE category = 'background_job'", [])?;
+    }
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS detached_script (
+            id              TEXT PRIMARY KEY,
+            agent_id        TEXT NOT NULL,
+            session_channel TEXT NOT NULL,
+            session_topic   TEXT,
+            parent_id       TEXT,
+            depth           INTEGER NOT NULL,
+            intent          TEXT NOT NULL,
+            state           TEXT NOT NULL,
+            timeout_secs    INTEGER NOT NULL,
+            code            TEXT NOT NULL,
+            tool_calls      TEXT NOT NULL DEFAULT '[]',
+            created_at      INTEGER NOT NULL,
+            finished_at     INTEGER,
+            outcome         TEXT,
+            delivered_at    INTEGER,
+            cancelled_by    TEXT,
+            owner_node      TEXT,
+            owner_token     INTEGER
+        );
+        -- recovery and the running list
+        CREATE INDEX IF NOT EXISTS idx_detached_agent_state ON detached_script(agent_id, state);
+        -- the delivery claim and the panel
+        CREATE INDEX IF NOT EXISTS idx_detached_session ON detached_script(agent_id, session_channel, session_topic, state, delivered_at);
+        -- the cancel cascade
+        CREATE INDEX IF NOT EXISTS idx_detached_parent ON detached_script(parent_id);
+        ",
+    )?;
+    Ok(())
+}
+
+/// The `owner_node`/`owner_token` columns of a table of in-flight work (`session_turn`,
+/// `task_run`, `client_tool_call`, `sensitive_ask`), called by that table's own
+/// `init_*_schema`. A null `owner_token` is a row written before 057, read as owned by an expired
+/// owner; the ten `add_column_if_missing` calls and that rule are tracked for removal in #82.
+fn add_owner_columns(conn: &Connection, table: &str) -> Result<()> {
+    add_column_if_missing(conn, table, "owner_node", "TEXT")?;
+    add_column_if_missing(conn, table, "owner_token", "INTEGER")?;
+    Ok(())
 }
 
 /// The artifact tables (`specs/035-add-artifacts`, data-model.md §2). Metadata, change events
@@ -599,6 +758,84 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// The custom tool tables (`specs/061-agent-custom-tools/data-model.md`): tools, their
+/// immutable versions, agent-owned categories and the lifecycle event log. New tables, so no
+/// migration is needed. Split out so the storage tests can stand them up in memory.
+pub fn init_custom_tool_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(CUSTOM_TOOL_SCHEMA)?;
+    Ok(())
+}
+
+/// Shared by SQLite init and the PostgreSQL migration `0010_custom_tools.sql`, which spells
+/// the same tables.
+const CUSTOM_TOOL_SCHEMA: &str = "
+        CREATE TABLE IF NOT EXISTS custom_tool (
+            id             TEXT PRIMARY KEY,
+            agent_id       TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            category       TEXT NOT NULL,
+            current_seq    INTEGER NOT NULL,
+            enabled        INTEGER NOT NULL DEFAULT 1,
+            disabled_by    TEXT,
+            last_called_at INTEGER,
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER NOT NULL,
+            UNIQUE (agent_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_agent
+            ON custom_tool(agent_id, enabled, category);
+
+        CREATE TABLE IF NOT EXISTS custom_tool_version (
+            agent_id           TEXT NOT NULL,
+            tool_id            TEXT NOT NULL,
+            seq                INTEGER NOT NULL,
+            name               TEXT NOT NULL,
+            category           TEXT NOT NULL,
+            description        TEXT NOT NULL,
+            input_schema       TEXT NOT NULL,
+            output_description TEXT,
+            script             TEXT NOT NULL,
+            calls              TEXT NOT NULL,
+            sample_input       TEXT,
+            actor_kind         TEXT NOT NULL,
+            actor_id           TEXT,
+            actor_name         TEXT,
+            dream_cycle_id     TEXT,
+            trigger_kind       TEXT NOT NULL,
+            restored_from      INTEGER,
+            reason             TEXT,
+            created_at         INTEGER NOT NULL,
+            PRIMARY KEY (tool_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_version_agent
+            ON custom_tool_version(agent_id);
+
+        CREATE TABLE IF NOT EXISTS custom_tool_category (
+            agent_id    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            updated_by  TEXT,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (agent_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS custom_tool_event (
+            id             TEXT PRIMARY KEY,
+            agent_id       TEXT NOT NULL,
+            tool_id        TEXT,
+            tool_name      TEXT,
+            kind           TEXT NOT NULL,
+            detail         TEXT,
+            actor_kind     TEXT NOT NULL,
+            actor_id       TEXT,
+            actor_name     TEXT,
+            dream_cycle_id TEXT,
+            at             INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_custom_tool_event_agent
+            ON custom_tool_event(agent_id, at DESC);
+";
+
 /// The `agent_secret` and `agent_secret_event` tables (`specs/027-agent-secrets/data-model.md`
 /// §1–2): an agent's named values and the append-only log of who changed which name. New
 /// tables, so no migration is needed; the event log never holds a value. Split out like
@@ -662,6 +899,7 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
     // so an existing workspace gets the two columns here.
     add_column_if_missing(conn, "client_tool_call", "claimed_by", "TEXT")?;
     add_column_if_missing(conn, "client_tool_call", "claimed_at", "TEXT")?;
+    add_owner_columns(conn, "client_tool_call")?;
     Ok(())
 }
 
@@ -725,6 +963,7 @@ pub fn init_sensitive_ask_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_sa_open ON sensitive_ask(state) WHERE state = 'open';
         ",
     )?;
+    add_owner_columns(conn, "sensitive_ask")?;
     Ok(())
 }
 
@@ -793,6 +1032,7 @@ pub fn init_turn_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_session_turn_agent ON session_turn (agent_id, id);
         ",
     )?;
+    add_owner_columns(conn, "session_turn")?;
     Ok(())
 }
 
@@ -877,6 +1117,7 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    add_owner_columns(conn, "task_run")?;
     Ok(())
 }
 
@@ -938,56 +1179,6 @@ pub fn init_integration_schema(conn: &Connection) -> Result<()> {
     // specs/017-agent-self-integrations data-model §1: who made it, as a `Requester`.
     add_column_if_missing(conn, "integration", "creator", "TEXT")
         .map_err(|e| anyhow::anyhow!(e.0))?;
-
-    Ok(())
-}
-
-/// The background-job tables (`specs/012-background-subagent-results/data-model.md`), split
-/// out like [`init_task_run_schema`] so the tests in `src/storage/sqlite/background_job.rs` can
-/// stand them up against an in-memory connection.
-///
-/// There is no result column: an answered piece's text is the last message in its own
-/// session's history.
-pub fn init_background_job_schema(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS background_job (
-            id             TEXT PRIMARY KEY,
-            kind           TEXT NOT NULL,
-            origin_agent   TEXT NOT NULL,
-            origin_channel TEXT NOT NULL,
-            origin_topic   TEXT,
-            depth          INTEGER NOT NULL,
-            timeout_secs   INTEGER NOT NULL,
-            created_at     INTEGER NOT NULL,
-            finished_at    INTEGER,
-            state          TEXT NOT NULL,
-            cancelled_by   TEXT,
-            reason         TEXT
-        );
-        -- the tray read, the topic-list badge, and the cancel cascade
-        CREATE INDEX IF NOT EXISTS idx_bg_job_origin ON background_job(origin_agent, origin_channel, origin_topic, state);
-        -- list_background_jobs
-        CREATE INDEX IF NOT EXISTS idx_bg_job_agent ON background_job(origin_agent, state);
-        -- the startup sweep
-        CREATE INDEX IF NOT EXISTS idx_bg_job_state ON background_job(state);
-
-        CREATE TABLE IF NOT EXISTS background_piece (
-            job_id          TEXT NOT NULL REFERENCES background_job(id) ON DELETE CASCADE,
-            ordinal         INTEGER NOT NULL,
-            prompt          TEXT NOT NULL,
-            executor_agent  TEXT NOT NULL,
-            session_channel TEXT NOT NULL,
-            session_topic   TEXT NOT NULL,
-            started_at      INTEGER NOT NULL,
-            finished_at     INTEGER,
-            state           TEXT NOT NULL,
-            reason          TEXT,
-            PRIMARY KEY (job_id, ordinal)
-        );
-        CREATE INDEX IF NOT EXISTS idx_bg_piece_state ON background_piece(state);
-        ",
-    )?;
 
     Ok(())
 }

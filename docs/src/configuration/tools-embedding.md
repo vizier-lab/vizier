@@ -13,13 +13,15 @@ Every agent gets these regardless of configuration:
 | `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
 | `mention_agent` | Inside a Workspace: wake other member agents by mentioning them. See [Workspaces](./workspaces.md) |
 | `send_message_to_workspace`, `list_workspaces`, `read_workspace_messages` | Reach a Workspace you are a member of from any conversation, including a scheduled task |
-| `parallel_subagents` | Run several sub-prompts in parallel and wait for their results in the current turn |
-| `background_subagents` | Run several sub-prompts in parallel in the background; results arrive later as a background report |
+| `spawn_subagents`, `wait_subagents`, `reply_subagent`, `stop_subagent`, `list_subagents`, `get_subagent` | Subagents — hire temporary workers, wait for them, answer their questions, stop them. Main agent only by default. See [Agents](./agents.md#subagents) |
+| `ask_main_agent` | Offered only to a worker: ask the agent it works for one question; ends the worker's step |
+| `list_detached_scripts`, `get_detached_script`, `cancel_detached_script` | The agent's background work: scripts run with `execute_python` `detached: true`. See [Agents](./agents.md#background-work) |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
 | `list_session_files`, `read_document_file`, `read_image_file` | Session files — transient uploaded/attached files; text documents and PDFs (txt/md/json/yaml/csv/html/pdf…) are extracted to text; Word and Excel files are read by the [Office addon](./office-addon.md) |
 | `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file`, `send_attachment` | Permanent artifacts — copy a session file in, replace its content, list them, load one back as a session file, or send one with a reply |
 | `attach_artifact_to_memory`, `detach_attachment_from_memory` | Attach or remove one artifact on a memory (memory_write never changes attachments) |
 | `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |
+| `recall_history` | History — read back a tool output pruned from the model's view, see [below](#pruned-tool-outputs) |
 | `webui_send_message`, `webui_list_topics` | Push messages into WebUI topics |
 | `memory_*` (8 tools) | Present whenever `embedding` + `indexer` are set (the API default) — see [Memory](./memory.md) |
 
@@ -36,6 +38,23 @@ The `scratchpad` category holds named plain-text files private to one conversati
 **Limits.** Names are 1–128 characters of letters, digits, `-`, `_` and `.`. Each file holds up to 1 MiB, and a conversation up to 64 files. A write over a limit is refused and changes nothing; refusals and missing files come back as results with a `status`, never as errors.
 
 Files live in the `scratch_file` SQLite table and are never written to memory, history or usage. The dream cycle gets the three tools too; each dream stage has its own scratchpad.
+
+### Pruned tool outputs
+
+A long conversation keeps every tool output in what the model is sent, round after round. To keep that bounded, old outputs are **pruned from the model's view**: once the outputs it would be sent pass about 60,000 estimated tokens (about four characters a token), the oldest are replaced, down to about 30,000, by one line:
+
+```text
+[output pruned (74.3 KB) - use recall_history("<id>") to recall]
+```
+
+- **Only the model's view changes.** History, the WebUI trail, notifications and usage keep every output whole.
+- **Never pruned:** outputs under 2 KB, failed scripts, the newest round's outputs, an output that ended the turn, images, and the tool calls themselves (so the script that produced an output stays visible).
+- **Rare, and one-way.** A pruned output stays pruned, and pruning happens in large steps, so the prompt the model's provider caches changes only when a prune happens.
+- **Everywhere the turn loop runs:** chats, project chats, channels, Workspaces, scheduled tasks, side chats and subagent workers. Compaction summarises the pruned view. The dream cycle is not pruned.
+
+`recall_history(id)`, in the `history` category, reads an output back by the id in its placeholder: `{status: "found", id, output}`, with the output exactly as stored (a script report comes back as a dict), or `{status: "not_found", id}` for an id that is not one of this conversation's outputs. It has no size limit yet. A script can recall several outputs, keep only the part it needs and return that. The dream cycle does not get it.
+
+The turn's `invoke_agent` span reports what was pruned: `vizier.prune.outputs` and `vizier.prune.tokens_removed` (see [Observability](./observability.md)).
 
 ## Configurable tools (`tools`)
 
@@ -65,14 +84,14 @@ Shell, HTTP, Brave Search, Office and MCP servers are **addons**: they are attac
 | `shell` | – | – | `shell_exec` | **An addon now** (the addons redesign). Install **Shell** with `path` and optional `env`, then `shell_exec` is contributed under the `shell` category. Docker is not offered yet. |
 | `brave_search` + `brave_search_settings` | bool + `{api_key, safesearch}` | `false` | `brave_search_web`, `brave_search_news` | An addon: install **Brave Search** from the agent’s Addons page. |
 | `fetch` | – | – | `fetch` | **Part of the HTTP addon** (the addons redesign): install **HTTP**, which adds `fetch` and `http_client` together. |
-| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. |
+| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. With `save_as_session_file: true` a 2xx response body is saved byte for byte as a file of the conversation (up to 100 MiB) and returned as `session_file {filename, mime_type, size}` with an empty `body`; `filename` names it, otherwise the server's `Content-Disposition` name or the URL's last path segment is used. A same-named session file is replaced; a non-2xx response is returned as text. |
 | `discord` | bool | `false` | `discord_*` | Requires `discord_token` on the agent |
 | `telegram` | bool | `false` | `telegram_*` | Requires `telegram_token` |
 | `mcp_servers` | map | `{}` | `mcp_<server>__<tool>` | See [MCP Servers](./mcp.md) |
 | `tts` + `tts_settings` | bool + settings | `false` | `tts_generate` | Text → speech file in session files |
 | `stt` + `stt_settings` | bool + settings | `false` | `stt_transcribe` | Audio file → text; also used to auto-transcribe `audio_chat` requests |
 | `read_image` + `read_image_settings` | bool + settings | `false` | (changes `read_image_file`) | When enabled with a vision `provider` + `model`, `read_image_file` returns a text description instead of injecting the raw image |
-| `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files |
+| `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files; optionally conditions on session images for image-to-image |
 | `python` | `{enabled, code_mode}` | both `false` | `execute_python` (+ `list_tool_functions`, `describe_tool_function` in code mode) | See [Python sandbox & code mode](#python-sandbox--code-mode). `code_mode: true` without `enabled: true` is rejected with 400 |
 
 In the WebUI the boolean and its `_settings` are one form section; in the API they're separate fields (`brave_search: true` + `brave_search_settings: {...}`).
@@ -117,6 +136,18 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `bedrock` | `amazon.nova-canvas-v1:0` | `amazon-bedrock` connection (access key pair + region) |
 
 `size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. Bedrock receives explicit `WxH` pixels (default `1024x1024`; Nova Canvas accepts 320–4096 per side, multiples of 16, aspect 1:4–4:1, under 4,194,304 pixels; Titan Image Generator V2 follows its own size table) and surfaces the provider's refusal for an unsupported size. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
+
+`reference_images` is optional: a list of session image filenames that turns the call into an image-to-image edit or style transfer. An image the user sent, one from `read_image_file`, or a previous `image_generate` result all work, and order is meaningful (the first image is the primary subject). Support by provider:
+
+| Provider | Reference images | Notes |
+|----------|------------------|-------|
+| `openrouter` | up to the model's limit | Sent as `input_references`; models that do not accept them return their own error |
+| `openai` | up to 16 | Sent to `/images/edits`, which only `gpt-image-*` models serve; `dall-e-3` cannot edit |
+| `xai` | one | Sent to `/images/edits`; the output keeps the source image's aspect ratio |
+| `bedrock` | up to 5 | Sent as an `IMAGE_VARIATION` task; PNG and JPEG only |
+| `huggingface`, `hyperbolic` | none | The call fails with a clear error rather than ignoring the images |
+
+A reference whose stored media type is not `image/*` is refused before any provider call.
 
 ### Choosing OpenRouter media models
 

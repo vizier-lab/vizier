@@ -34,6 +34,7 @@
 - [2.21 Time](./configuration/time.md)
 - [2.22 Workspaces](./configuration/workspaces.md)
 - [2.23 Live Voice](./configuration/live-voice.md)
+- [2.24 Custom Tools](./configuration/custom-tools.md)
 
 # 3. API Integration
 
@@ -50,3 +51,4 @@
 # Fleet
 
 - [Bus Contract](./fleet/bus-contract.md)
+- [Ownership and Recovery](./fleet/ownership-and-recovery.md)

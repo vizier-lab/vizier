@@ -209,3 +209,67 @@ async fn the_health_the_host_answers_carries_that_agents_id() {
 
     running.abort();
 }
+
+/// A host releases an agent a newer owner has claimed (`specs/057-fleet-row-ownership` FR-008):
+/// its next fenced write is refused, the agent's channel is unregistered and its instance
+/// stops, so a requester finds no owner here.
+#[tokio::test]
+async fn ownership_lost_releases_agent() {
+    use std::sync::Arc;
+    use vizier_core::schema::{SessionHistoryContent, VizierChannelId, VizierRequest, VizierSession};
+    use vizier_core::storage::document::BlobDocumentStore;
+    use vizier_core::storage::fence::{FenceStorage, Scope, is_ownership_lost};
+    use vizier_core::storage::history::HistoryStorage;
+    use vizier_core::storage::sqlite::SqlStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = VizierConfig {
+        workspace: dir.path().to_string_lossy().to_string(),
+        ..Default::default()
+    };
+    let deps = VizierDependencies::new(config.clone()).await.unwrap();
+    {
+        use vizier_core::storage::agent::AgentStorage;
+        deps.storage.create_agent("alpha", &config_for("alpha")).await.unwrap();
+    }
+    let mut host = AgentHost::new(deps.clone(), vec!["alpha".into()]).await.unwrap();
+    let running = tokio::spawn(async move { host.run().await });
+
+    // Another node of the same database claims the agent.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = SqlStorage::new(
+        vizier_core::storage::open_store(&config).unwrap(),
+        Arc::new(BlobDocumentStore::local(other_dir.path().to_path_buf())),
+    );
+    other.claim(&Scope::Agent("alpha".into()), "other", None).await.unwrap();
+
+    // The host's next fenced write is refused.
+    let session = VizierSession("alpha".into(), VizierChannelId::HTTP("u".into(), "t".into()), None);
+    let err = deps
+        .storage
+        .save_session_history(
+            session,
+            SessionHistoryContent::Request(VizierRequest::default()),
+        )
+        .await
+        .expect_err("a former owner's write is refused");
+    assert!(is_ownership_lost(&err), "{err:#}");
+
+    // The host lets the agent go: nobody here answers for it any more.
+    let client = LocalAgentsClient::new(deps.transport.clone());
+    let mut released = false;
+    for _ in 0..50 {
+        if let Err(error) = client.health("alpha").await {
+            // While the release is under way the answer may be a timeout (owner lost); it ends
+            // as no owner at all.
+            let failure = AgentUnavailable::parse(&error.0).expect("an availability failure");
+            if failure.reason == AgentUnavailableReason::NoOwner {
+                released = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(released, "the agent was never released");
+    running.abort();
+}

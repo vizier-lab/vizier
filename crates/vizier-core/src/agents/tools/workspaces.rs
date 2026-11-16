@@ -200,6 +200,11 @@ impl VizierTool for MentionAgent {
         "mention_agent".to_string()
     }
 
+    /// Its result comes from a model (spec 061 R7).
+    fn model_backed() -> bool {
+        true
+    }
+
     fn category() -> Option<ToolCategory> {
         Some(ToolCategory::Workspaces)
     }
@@ -544,8 +549,8 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             loaded_images: Default::default(),
-            recalled: Default::default(),
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
@@ -553,6 +558,9 @@ mod tests {
             secret_redactor: Default::default(),
             dream_sources: vec![],
             project: None,
+            detached: false,
+            parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 

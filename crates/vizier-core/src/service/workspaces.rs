@@ -1432,7 +1432,8 @@ pub async fn deliver_session(
                 | Content::Error { .. }
                 | Content::Empty
                 | Content::Abort => "idle",
-                Content::Checkpoint { .. } => return Delivery::Frames(vec![]),
+                // A message the running turn read (spec 062): the agent is still working.
+                Content::Checkpoint { .. } | Content::Steered => return Delivery::Frames(vec![]),
             };
             vec![frame("agent_state", serde_json::json!({ "agent": agent, "phase": phase }))]
         }

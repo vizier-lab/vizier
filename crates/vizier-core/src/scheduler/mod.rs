@@ -18,6 +18,7 @@ use crate::{
 mod dream;
 
 use dream::DreamScheduler;
+pub(crate) use dream::{DREAM_SINCE_KEY, extraction_source};
 
 fn normalize_task_instruction(instruction: String) -> String {
     if instruction.contains("\\n") {
@@ -55,6 +56,7 @@ impl VizierScheduler {
     /// session's turn to end and records how it did, as `fire` does. It keeps the run's row
     /// `running`, which is what stops `tick_tasks` from firing the task on top of it.
     async fn recover(&self) {
+        self.dream_scheduler.recover().await;
         let runs = match self.deps.storage.open_task_runs().await {
             Ok(runs) => runs,
             Err(e) => {
@@ -67,7 +69,7 @@ impl VizierScheduler {
             let deps = self.deps.clone();
             tracing::info!(task = %run.task_slug, "recovering a task run");
             tokio::spawn(async move {
-                use crate::agents::background::PieceOutcome;
+                use crate::agents::subagents::PieceOutcome;
                 let state = match deps.transport.await_session_outcome(&session, run.ran_at).await {
                     PieceOutcome::Answered(_) => TaskRunState::Answered,
                     PieceOutcome::Failed(_) => TaskRunState::NoResponse,
@@ -229,9 +231,7 @@ impl VizierScheduler {
                             continue;
                         }
                     };
-                    let schedule = match cron
-                        .find_next_occurrence(&task.last_executed_at.unwrap_or(now), true)
-                    {
+                    let schedule = match cron.find_next_occurrence(&cron_anchor(task), true) {
                         Ok(s) => s,
                         Err(e) => {
                             tracing::warn!(
@@ -447,6 +447,14 @@ impl VizierScheduler {
     }
 }
 
+/// Where a cron task's next occurrence is counted from: its last run, or, for a task that has
+/// never run, the moment it was saved. A task created or edited over HTTP has no last run, and
+/// counting from the tick itself would never come due: the next occurrence after "now" is
+/// always still ahead when the tick compares it with "now".
+fn cron_anchor(task: &Task) -> Timestamp {
+    task.last_executed_at.unwrap_or(task.timestamp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,6 +534,37 @@ mod tests {
             runs.is_empty(),
             "a deleted task was fired from stale scheduler state"
         );
+    }
+
+    /// A cron task that has never run (one made on the Schedule page) comes due at its first
+    /// occurrence after it was saved, whatever second of the minute the tick lands on.
+    #[test]
+    fn a_cron_task_that_never_ran_comes_due_after_it_was_saved() {
+        use chrono::Timelike;
+        let now = crate::time::now();
+        let saved = now - chrono::Duration::minutes(3);
+        let fires = saved + chrono::Duration::minutes(1);
+        let expression = format!("{} {} * * *", fires.minute(), fires.hour());
+        let task = Task {
+            slug: "morning".into(),
+            requester: crate::schema::Requester::User("alex".into()),
+            agent_id: "agent".into(),
+            title: "Morning papers".into(),
+            instruction: "list them".into(),
+            is_active: true,
+            schedule: TaskSchedule::CronTask(expression.clone()),
+            last_executed_at: None,
+            timestamp: saved,
+        };
+        let cron = Cron::from_str(&expression).unwrap();
+
+        let due = cron.find_next_occurrence(&cron_anchor(&task), true).unwrap();
+        assert!(due <= now, "its minute has passed, so it is due: {due} vs {now}");
+
+        // Once it has run, the next occurrence is counted from that run: not due again today.
+        let ran = Task { last_executed_at: Some(now), ..task };
+        let next = cron.find_next_occurrence(&cron_anchor(&ran), true).unwrap();
+        assert!(next > now, "one run per occurrence: {next}");
     }
 
     /// Spec 052: a cron expression means the clock of the zone it is evaluated in. The scheduler

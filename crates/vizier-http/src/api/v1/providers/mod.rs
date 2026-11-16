@@ -481,7 +481,6 @@ mod dummyplug_provider_tests {
             config: deps.config.clone(),
             transport: deps.transport.clone(),
             storage: deps.storage.clone(),
-            background_jobs: deps.background_jobs.clone(),
             catalogue: deps.catalogue.clone(),
             deps,
             client_events: Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(

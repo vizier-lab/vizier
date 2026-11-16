@@ -51,6 +51,17 @@ pub async fn execute(
     limits: SandboxLimits,
     bridge: Arc<dyn SandboxBridge>,
 ) -> ExecutionReport {
+    execute_with_input(code, None, limits, bridge).await
+}
+
+/// [`execute`], with `input` bound as the script's `input` global when given — how a custom
+/// tool's script receives its validated arguments (`specs/061-agent-custom-tools` R2).
+pub async fn execute_with_input(
+    code: &str,
+    input: Option<serde_json::Value>,
+    limits: SandboxLimits,
+    bridge: Arc<dyn SandboxBridge>,
+) -> ExecutionReport {
     if code.len() > MAX_SCRIPT_BYTES {
         return ExecutionReport::failed(
             ExecutionErrorKind::Limit,
@@ -82,7 +93,7 @@ pub async fn execute(
             cancelled,
             last_tool_error: None,
         }
-        .run(code);
+        .run(code, input);
         report.duration_ms = started.elapsed().as_millis() as u64;
         span.record("duration_ms", report.duration_ms);
         report
@@ -129,9 +140,13 @@ impl Interpreter {
 
     /// Every `MontyRun` and `MontyObject` is created and dropped inside this
     /// function; only the plain-data report leaves it.
-    fn run(mut self, code: String) -> ExecutionReport {
+    fn run(mut self, code: String, input: Option<serde_json::Value>) -> ExecutionReport {
         let started = Instant::now();
-        let runner = match MontyRun::new(code, "main.py", vec![], CompileOptions::default()) {
+        let names = match input {
+            Some(_) => vec!["input".to_string()],
+            None => vec![],
+        };
+        let runner = match MontyRun::new(code, "main.py", names, CompileOptions::default()) {
             Ok(runner) => runner,
             Err(exc) => return ExecutionReport::from_monty_exception(&exc, started.elapsed()),
         };
@@ -153,7 +168,8 @@ impl Interpreter {
             };
         }
 
-        let mut progress = runner.start(vec![], tracker, pw!());
+        let inputs = input.map(super::convert::json_to_monty).into_iter().collect();
+        let mut progress = runner.start(inputs, tracker, pw!());
         let outcome = loop {
             let step = match progress {
                 Ok(step) => step,
@@ -566,6 +582,7 @@ mod tests {
                 .collect(),
             returns: "any JSON value".into(),
             example: String::new(),
+            custom: None,
         }
     }
 
@@ -668,6 +685,35 @@ mod tests {
         let report = run_with("for i in range(2000):\n    echo(i=i)\n'done'", bridge.clone(), true).await;
         assert!(report.ok, "{report:?}");
         assert_eq!(bridge.calls().len(), 2000);
+    }
+
+    /// The limit is Monty's CPU clock, which stops while a host call is
+    /// suspended: a script that mostly waits on tools is bounded only by the
+    /// caller dropping the future (the tool timeout inline, the script's own
+    /// limit when detached, spec 058 research D3).
+    #[tokio::test]
+    async fn waiting_on_a_tool_does_not_count_against_the_limit() {
+        let limits = SandboxLimits {
+            timeout: Duration::from_millis(200),
+            tools_enabled: true,
+        };
+        struct SlowBridge;
+        #[async_trait::async_trait]
+        impl SandboxBridge for SlowBridge {
+            async fn catalogue(&self) -> Vec<ToolFunctionDoc> {
+                vec![doc("slow", "misc", &[])]
+            }
+            async fn describe(&self, _: &str) -> Option<ToolFunctionDoc> {
+                Some(doc("slow", "misc", &[]))
+            }
+            async fn call(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value, BridgeError> {
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                Ok(serde_json::json!("slept"))
+            }
+        }
+        let report = execute("slow()", limits, Arc::new(SlowBridge)).await;
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.result, serde_json::json!("slept"));
     }
 
     #[tokio::test]

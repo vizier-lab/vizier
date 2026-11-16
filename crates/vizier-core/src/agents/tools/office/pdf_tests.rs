@@ -254,15 +254,18 @@ fn env() -> Env {
         pending_attachments: Default::default(),
         hooks: None,
         background_depth: 0,
+        subagent_depth: 0,
         deadline: None,
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(Default::default()),
         interactive: false,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         project: None,
+        detached: false,
+        parent_detached_id: None,
+        custom: Default::default(),
     };
     Env { storage, manager, ctx, _dir: dir }
 }

@@ -423,20 +423,20 @@ current = '§8 turns without a client'
   check('unknown category without a declaration', /palette/.test(reply(r)) && /Error/.test(reply(r)), reply(r))
   check('nothing resolved', !N.frames.some((f) => kind(f, 'client_tools_resolved')))
 
-  // A background job launched from a turn that declared tools reports in a turn of its own,
-  // which has none.
+  // A detached script launched from a turn that declared tools is delivered in a turn of its
+  // own, which has none (spec 058).
   from = N.frames.length
-  N.send(request(python("background_subagents(tasks=[{'prompt': 'hello'}])"), declared([pickColor()])))
+  N.send(request(runTool('execute_python', { code: "parallel_subagents(tasks=[{'prompt': 'hello'}])", intent: 'e2e', detached: true }), declared([pickColor()])))
   await N.next((f) => kind(f, 'client_tools_resolved'), 10000, from)
   await N.next(isReply, 15000, from)
   const resolvedBefore = N.frames.filter((f) => kind(f, 'client_tools_resolved')).length
   const entries = await historyUntil(topic, (es) => {
-    const at = es.findIndex((e) => entryKind(e) === 'Request' && e.content.Request.content.background_report)
+    const at = es.findIndex((e) => entryKind(e) === 'Request' && e.content.Request.content.detached_delivery)
     return at >= 0 && es.slice(at).some((e) => entryKind(e) === 'Response')
   }, 30000)
-  const report = entries.find((e) => entryKind(e) === 'Request' && e.content.Request.content.background_report)
-  check('report turn ran', !!report, entries.map(entryKind))
-  check('report turn resolved no client tools', N.frames.filter((f) => kind(f, 'client_tools_resolved')).length === resolvedBefore)
+  const delivery = entries.find((e) => entryKind(e) === 'Request' && e.content.Request.content.detached_delivery)
+  check('delivery turn ran', !!delivery, entries.map(entryKind))
+  check('delivery turn resolved no client tools', N.frames.filter((f) => kind(f, 'client_tools_resolved')).length === resolvedBefore)
   N.close()
 }
 

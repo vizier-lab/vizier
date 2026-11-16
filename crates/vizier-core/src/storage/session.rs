@@ -57,10 +57,14 @@ pub trait SessionStorage {
         topic: Option<TopicId>,
         is_thinking: bool,
     ) -> Result<()>;
-    /// Startup: no turn is running yet, so every session still marked thinking is a leftover,
-    /// except those in `keep`, whose turn is about to resume.
-    async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
-        let _ = keep;
+    /// Recovery of one agent: no turn of it is running yet, so every one of its sessions still
+    /// marked thinking is a leftover, except those in `keep`, whose turn is about to resume.
+    async fn reset_thinking_except(
+        &self,
+        agent_id: &str,
+        keep: &[crate::schema::VizierSession],
+    ) -> Result<usize> {
+        let _ = (agent_id, keep);
         Ok(0)
     }
     /// The agents with a turn running now (a session marked thinking).
@@ -99,8 +103,12 @@ impl SessionStorage for VizierStorage {
         self.0.thinking_agents().await
     }
 
-    async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
-        self.0.reset_thinking_except(keep).await
+    async fn reset_thinking_except(
+        &self,
+        agent_id: &str,
+        keep: &[crate::schema::VizierSession],
+    ) -> Result<usize> {
+        self.0.reset_thinking_except(agent_id, keep).await
     }
 
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()> {

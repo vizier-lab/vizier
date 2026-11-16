@@ -108,6 +108,27 @@ fn admin(url: &str) -> &'static crate::storage::sql::SqlStore {
 /// selected through the connection's `search_path`, so parallel tests never see each other's
 /// rows.
 pub fn postgres_store() -> Option<crate::storage::sql::SqlStore> {
+    let (url, schema) = fresh_schema()?;
+    let store = connect_schema(&url, &schema);
+    crate::storage::sql::postgres::migrate(&store.lock().expect("test connection"))
+        .expect("migrate the test schema");
+    Some(store)
+}
+
+/// Two PostgreSQL stores (two pools) on **one** fresh, migrated schema: two nodes sharing one
+/// database, for the two-owner tests (`specs/057-fleet-row-ownership` research R11). `None`
+/// when `VIZIER_TEST_DATABASE_URL` is not set.
+pub fn postgres_store_pair() -> Option<(crate::storage::sql::SqlStore, crate::storage::sql::SqlStore)>
+{
+    let (url, schema) = fresh_schema()?;
+    let first = connect_schema(&url, &schema);
+    crate::storage::sql::postgres::migrate(&first.lock().expect("test connection"))
+        .expect("migrate the test schema");
+    let second = connect_schema(&url, &schema);
+    Some((first, second))
+}
+
+fn fresh_schema() -> Option<(String, String)> {
     let url = database_url()?;
     let schema = format!(
         "t_{}_{}",
@@ -118,14 +139,15 @@ pub fn postgres_store() -> Option<crate::storage::sql::SqlStore> {
         .lock()
         .and_then(|conn| Ok(conn.execute_batch(&format!("CREATE SCHEMA {schema}"))?))
         .expect("create a test schema");
+    Some((url, schema))
+}
+
+fn connect_schema(url: &str, schema: &str) -> crate::storage::sql::SqlStore {
     let separator = if url.contains('?') { '&' } else { '?' };
     let scoped = format!("{url}{separator}options=-csearch_path%3D{schema}%2Cpublic");
     let pool = crate::storage::sql::PgPool::connect(&scoped, &pg_options())
         .expect("connect to the test schema");
-    let store = crate::storage::sql::SqlStore::new(std::sync::Arc::new(pool));
-    crate::storage::sql::postgres::migrate(&store.lock().expect("test connection"))
-        .expect("migrate the test schema");
-    Some(store)
+    crate::storage::sql::SqlStore::new(std::sync::Arc::new(pool))
 }
 
 thread_local! {
@@ -162,6 +184,34 @@ pub fn test_store(
     }
 }
 
+/// Two stores on one database, as [`test_store`] chooses: [`postgres_store_pair`] inside
+/// [`on_postgres`], otherwise two handles on the test's one SQLite store.
+pub fn test_store_pair(
+    sqlite: impl FnOnce() -> crate::storage::sql::SqlStore,
+) -> (crate::storage::sql::SqlStore, crate::storage::sql::SqlStore) {
+    if ON_POSTGRES.get() {
+        postgres_store_pair().expect("VIZIER_TEST_DATABASE_URL is set")
+    } else {
+        let store = sqlite();
+        (store.clone(), store)
+    }
+}
+
+/// An `SqlStorage` with its own [`crate::storage::fence::Fences`] over `store`: one "node".
+/// Two of these over a [`test_store_pair`] are two owners of one database.
+pub fn node_storage(
+    store: crate::storage::sql::SqlStore,
+) -> (crate::storage::sqlite::SqlStorage, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let storage = crate::storage::sqlite::SqlStorage::new(
+        store,
+        std::sync::Arc::new(crate::storage::document::BlobDocumentStore::local(
+            dir.path().to_path_buf(),
+        )),
+    );
+    (storage, dir)
+}
+
 /// True inside [`on_postgres`], for the few assertions that differ by backend.
 pub fn testing_postgres() -> bool {
     ON_POSTGRES.get()
@@ -182,4 +232,27 @@ macro_rules! postgres_tests {
             )+
         }
     };
+}
+
+/// Where the `fake_lsp` example was built: the `examples` folder of the nearest ancestor of this
+/// test binary that has one. The binary sits in `target/debug/deps/` on an older cargo and in
+/// `target/debug/build/<package>/<hash>/` on a newer one, so a fixed number of `parent()`s finds
+/// the example on one and not the other.
+pub fn fake_lsp_path() -> std::path::PathBuf {
+    let exe = std::env::current_exe().expect("the test binary's path");
+    let names: &[&str] = if cfg!(windows) { &["fake_lsp.exe", "fake_lsp"] } else { &["fake_lsp"] };
+    for dir in exe.ancestors().skip(1) {
+        for name in names {
+            let candidate = dir.join("examples").join(name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    // Not built: name where cargo would have put it, so the failure says what to build.
+    exe.ancestors()
+        .nth(2)
+        .unwrap_or(&exe)
+        .join("examples")
+        .join("fake_lsp")
 }

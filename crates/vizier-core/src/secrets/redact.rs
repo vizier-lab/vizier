@@ -97,11 +97,17 @@ impl SecretRedactor {
             *message = self.text(message);
             *traceback = self.text(traceback);
         }
-        for call in &mut report.tool_calls {
+        self.calls(&mut report.tool_calls);
+    }
+
+    /// Nested records too: a custom tool's own calls ride on its record (spec 061).
+    fn calls(&self, calls: &mut [crate::sandbox::ToolInvocationRecord]) {
+        for call in calls {
             self.json(&mut call.arguments);
             if let Some(error) = &mut call.error {
                 *error = self.text(error);
             }
+            self.calls(&mut call.calls);
         }
     }
 }
@@ -217,6 +223,7 @@ mod tests {
             error: Some(format!("401 for {TOKEN}")),
             duration_ms: 1,
             ends_turn: false,
+            calls: vec![],
         });
 
         redactor.report(&mut report);

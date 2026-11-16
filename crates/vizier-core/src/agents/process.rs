@@ -41,12 +41,16 @@ use crate::{
     transport::{DreamCommand, SessionEvent, SessionFrame, VizierRequestEnvelope, VizierTransport},
 };
 
-/// Requests waiting for the session's running job, each with where its response goes.
-type SessionQueue = VecDeque<(
-    VizierRequest,
-    Option<crate::transport::ResponseSender>,
-    TurnRef,
-)>;
+use crate::agents::steer::{self, Queued, SessionQueue};
+
+/// A session's queue, made when first needed. The running turn of the session holds a clone
+/// (`specs/062-steer-busy-turn` R1), so it is the same queue for as long as the entry lives.
+fn queue_of(
+    session_queues: &mut HashMap<VizierSession, SessionQueue>,
+    session: &VizierSession,
+) -> SessionQueue {
+    session_queues.entry(session.clone()).or_default().clone()
+}
 
 fn abort_session_silent(
     session: &VizierSession,
@@ -66,7 +70,11 @@ fn abort_session_silent(
             .update_thinking_state(session_clone.0, session_clone.1, session_clone.2, false)
             .await;
     });
-    session_queues.remove(session);
+    // The aborted turn may still hold the queue for a moment: empty it, so nothing in it is
+    // read into the turn or run after it (spec 062 FR-009).
+    if let Some(queue) = session_queues.remove(session) {
+        steer::lock(&queue).clear();
+    }
 
     had_in_flight
 }
@@ -156,10 +164,71 @@ pub async fn agent_process(
             result = recv.recv_request() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
-                let request = envelope.request;
+                let mut request = envelope.request;
                 let response_tx = envelope.response_tx;
                 let turn = TurnRef { id: envelope.turn_id, resumed: envelope.resumed };
                 tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
+
+                // The owner takes a journaled turn on receipt (specs/057 research R6). A turn
+                // already taken was delivered twice (a re-send racing a live delivery): drop
+                // it, so it runs once. A refused claim means a newer owner holds this agent.
+                if let Some(id) = turn.id {
+                    match deps.storage.claim_turn_on_receipt(id).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::debug!(agent_id = %agent_id, turn = id, "dropping a duplicate delivery of a turn");
+                            continue;
+                        }
+                        Err(e) if crate::storage::fence::is_ownership_lost(&e) => {
+                            tracing::debug!(agent_id = %agent_id, turn = id, "dropping a turn: {e}");
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(agent_id = %agent_id, turn = id, "could not claim a turn on receipt, running it anyway: {e}");
+                        }
+                    }
+                }
+
+                // `/queue <message>` on any channel (spec 062 contracts/queue-command.md): the
+                // command becomes the `queue` flag, so everything downstream sees only the message.
+                // A bare `/queue` is answered here and runs nothing.
+                if crate::agents::steer::strip_queue_command(&mut request)
+                    == crate::agents::steer::QueueCommand::UsageOnly
+                {
+                    if let Some(tx) = &response_tx {
+                        let _ = tx
+                            .send_async(VizierResponse {
+                                timestamp: crate::time::now(),
+                                content: VizierResponseContent::Message {
+                                    content: crate::agents::steer::QUEUE_USAGE.to_string(),
+                                    stats: None,
+                                },
+                                attachments: vec![],
+                                ..Default::default()
+                            })
+                            .await;
+                    }
+                    if let Some(id) = turn.id
+                        && let Err(e) = deps.storage.finish_turn(id).await
+                    {
+                        tracing::warn!(agent_id = %agent_id, "could not close a usage-only turn's row: {e}");
+                    }
+                    continue;
+                }
+
+                // Finished background work (spec 058). An idle conversation claims at once, so a
+                // poke that finds nothing (a round boundary took the rows first) leaves no trace;
+                // a busy one queues it and claims when it comes up (`handle_request`).
+                if let VizierRequestContent::DetachedDelivery(text) = &request.content
+                    && text.is_empty()
+                    && !session_is_busy(&turns, &session_queues, &session)
+                {
+                    let Some(text) = deps.deliveries.claim(&session).await else {
+                        tracing::debug!(agent_id = %agent_id, session = %session.to_slug(), "background delivery: nothing to deliver");
+                        continue;
+                    };
+                    request.content = VizierRequestContent::DetachedDelivery(text);
+                }
 
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
@@ -167,6 +236,7 @@ pub async fn agent_process(
                 // A Workspace topic is titled by its name, so it never spends a model call on one.
                 if records_session_activity(&request.content)
                     && !matches!(session.1, VizierChannelId::Workspace(_))
+                    && !matches!(request.content, VizierRequestContent::DetachedDelivery(_))
                 {
                     detail_tasks.spawn(refresh_session_detail(
                         agent.clone(),
@@ -252,23 +322,27 @@ pub async fn agent_process(
                 // the turn in progress finishes first, and messages sent before or during
                 // the handover carry on after it, reading the new checkpoint (#57).
                 if is_handover_command(&request) && session_is_busy(&turns, &session_queues, &session) {
-                    queue_handover(session_queues.entry(session.clone()).or_default(), (request, response_tx, turn));
+                    let item = Queued::new(request, response_tx, turn, &session);
+                    queue_handover(&mut steer::lock(&queue_of(&mut session_queues, &session)), item);
                     continue;
                 }
 
                 // Queue message if a task is already running for this session
                 if session_is_busy(&turns, &session_queues, &session) {
                     tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
-                    session_queues.entry(session.clone()).or_default().push_back((request, response_tx, turn));
+                    let item = Queued::new(request, response_tx, turn, &session);
+                    steer::lock(&queue_of(&mut session_queues, &session)).push_back(item);
                     continue;
                 }
 
+                let steer = steer::SteerInbox(queue_of(&mut session_queues, &session));
                 start_session_job(
                     &jobs,
                     session,
                     request,
                     response_tx,
                     turn,
+                    steer,
                     &mut turns,
                     &mut thinking_handles,
                 );
@@ -295,6 +369,13 @@ pub async fn agent_process(
                 let session = finished.session;
                 if finished.outcome == TurnOutcome::Panicked {
                     seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::InternalError).await;
+                    // A worker whose turn panicked fails (spec 059); a no-op elsewhere.
+                    deps.subagents
+                        .turn_ended(
+                            &session,
+                            crate::agents::subagents::TurnEnd::Failed("the worker's turn crashed".into()),
+                        )
+                        .await;
                 }
                 if finished.outcome != TurnOutcome::Done {
                     // A dialog belongs to the turn that opened it: an aborted, panicked or
@@ -312,16 +393,18 @@ pub async fn agent_process(
                     recover_failed_turn(&session, finished.outcome, finished.response_tx, &mut thinking_handles, &deps.storage);
                 }
 
-                if let Some((next_request, response_tx, next_turn)) = session_queues
-                    .get_mut(&session)
-                    .and_then(|queue| queue.pop_front())
-                {
+                let next = session_queues
+                    .get(&session)
+                    .and_then(|queue| steer::lock(queue).pop_front());
+                if let Some(Queued { request: next_request, response_tx, turn: next_turn, .. }) = next {
+                    let steer = steer::SteerInbox(queue_of(&mut session_queues, &session));
                     start_session_job(
                         &jobs,
                         session,
                         next_request,
                         response_tx,
                         next_turn,
+                        steer,
                         &mut turns,
                         &mut thinking_handles,
                     );
@@ -345,6 +428,17 @@ pub async fn agent_process(
     // An update or restart resumes what it stopped on the next instance (`specs/023`), and
     // says nothing to the sender; a delete tells the sender, as before.
     let replacing = !deleting.load(std::sync::atomic::Ordering::SeqCst);
+    // Detached scripts are not part of the instance but run on its tools, so they stop with it
+    // (spec 058): an update or restart interrupts them and the next instance is told; a delete
+    // forgets them.
+    // Subagent workers are turns of this agent: an update or restart resumes their turns like
+    // any other (their rows are untouched), and a delete forgets them (spec 059).
+    if replacing {
+        deps.detached.interrupt_agent(&agent_id).await;
+    } else {
+        deps.detached.delete_agent(&agent_id).await;
+        deps.subagents.delete_agent(&agent_id).await;
+    }
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
         seal_open_calls(
@@ -373,7 +467,7 @@ pub async fn agent_process(
         // A session whose queue is handed on carries on in the next instance, scratch and all.
         if session_queues
             .get(&session)
-            .is_none_or(|queue| queue.is_empty())
+            .is_none_or(|queue| steer::lock(queue).is_empty())
         {
             clear_idle_scratch(&deps.storage, &session).await;
         }
@@ -383,17 +477,10 @@ pub async fn agent_process(
 }
 
 /// Queues a handover ahead of the queued messages and behind any handover already waiting.
-fn queue_handover(
-    queue: &mut SessionQueue,
-    item: (
-        VizierRequest,
-        Option<crate::transport::ResponseSender>,
-        TurnRef,
-    ),
-) {
+fn queue_handover(queue: &mut VecDeque<Queued>, item: Queued) {
     let position = queue
         .iter()
-        .position(|(queued, _, _)| !is_handover_command(queued))
+        .position(|queued| !is_handover_command(&queued.request))
         .unwrap_or(queue.len());
     queue.insert(position, item);
 }
@@ -485,7 +572,14 @@ async fn hand_on_queued(
         }
     }
     for (session, queue) in session_queues {
-        for (request, response_tx, turn) in queue {
+        let items: Vec<Queued> = steer::lock(&queue).drain(..).collect();
+        for Queued {
+            request,
+            response_tx,
+            turn,
+            ..
+        } in items
+        {
             if let Err(e) = deps
                 .transport
                 .resend(VizierRequestEnvelope {
@@ -625,7 +719,6 @@ async fn refresh_session_detail(
     );
     let ctx = ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
             crate::questions::Questions::new().into(),
@@ -636,10 +729,14 @@ async fn refresh_session_detail(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        subagent_depth: 0,
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         project: None,
+        detached: false,
+        parent_detached_id: None,
+        custom: Default::default(),
     };
     let Ok((title, _, _, _)) = agent
         .prompt(
@@ -890,7 +987,7 @@ fn session_is_busy(
     turns.is_running(session)
         || session_queues
             .get(session)
-            .is_some_and(|queue| !queue.is_empty())
+            .is_some_and(|queue| !steer::lock(queue).is_empty())
 }
 
 /// Runs one request as the session's job. Registered in `turns`, so anything that
@@ -902,6 +999,7 @@ fn start_session_job(
     request: VizierRequest,
     response_tx: Option<crate::transport::ResponseSender>,
     turn: TurnRef,
+    steer: steer::SteerInbox,
     turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
 ) {
@@ -919,7 +1017,8 @@ fn start_session_job(
                 | VizierRequestContent::BackgroundReport(_)
                 | VizierRequestContent::ClientEvent(_)
                 | VizierRequestContent::QuestionAnswer(_)
-        ) {
+        ) || matches!(&thinking_request.content, VizierRequestContent::DetachedDelivery(text) if !text.is_empty())
+        {
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
@@ -987,6 +1086,7 @@ fn start_session_job(
                     indexer.clone(),
                     &deps,
                     turn,
+                    Some(steer),
                 )
                 .await
             }
@@ -994,6 +1094,10 @@ fn start_session_job(
 
         if let Err(err) = result {
             tracing::error!("{}", err);
+            // A worker whose turn failed (spec 059): its row says why. A no-op elsewhere.
+            deps.subagents
+                .turn_ended(&session, crate::agents::subagents::TurnEnd::Failed(err.to_string()))
+                .await;
             if let Some(ref tx) = response_tx {
                 let err_str = err.to_string();
                 let _ = tx
@@ -1099,7 +1203,6 @@ async fn run_checkpoint(
     let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
     let ctx = ToolContext {
         loaded_images: Default::default(),
-        recalled: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
             crate::questions::Questions::new().into(),
@@ -1110,11 +1213,15 @@ async fn run_checkpoint(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        subagent_depth: 0,
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         // The handover is a summary, not a project turn; the rebuilt prompt gets the section.
         project: None,
+        detached: false,
+        parent_detached_id: None,
+        custom: Default::default(),
     };
 
     // Generate handover
@@ -1426,6 +1533,9 @@ pub async fn handle_request(
     indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
     turn: TurnRef,
+    // The session's queue, for a chat turn to read waiting messages from at its round
+    // boundaries (`specs/062-steer-busy-turn`).
+    steer: Option<steer::SteerInbox>,
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new().hook(DebugHook(session.clone()));
 
@@ -1444,14 +1554,31 @@ pub async fn handle_request(
 
     let hooks = Arc::new(hooks);
 
+    // A delivery poke that waited behind a turn claims now; the turn's own round boundary may
+    // already have taken everything (spec 058).
+    if let VizierRequestContent::DetachedDelivery(text) = &request.content
+        && text.is_empty()
+    {
+        let Some(text) = deps.deliveries.claim(&session).await else {
+            tracing::debug!(agent_id = %session.0, session = %session.to_slug(), "background delivery: nothing to deliver");
+            return Ok(());
+        };
+        request.content = VizierRequestContent::DetachedDelivery(text);
+    }
+
     match &request.content {
         VizierRequestContent::Chat(_)
         | VizierRequestContent::AudioChat(_, _)
         | VizierRequestContent::BackgroundReport(_)
+        | VizierRequestContent::DetachedDelivery(_)
         | VizierRequestContent::ClientEvent(_)
         // An answer starts a turn the way a typed message does (FR-015): same queue, same
         // history, same hooks.
-        | VizierRequestContent::QuestionAnswer(_) => {
+        | VizierRequestContent::QuestionAnswer(_)
+        // A worker's task and the main agent's reply to it (spec 059): a chat turn of the
+        // worker's own conversation, durable and resumable like any other.
+        | VizierRequestContent::SubagentTask(_)
+        | VizierRequestContent::SubagentReply(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
             // The list as typed rides the request's history entry; the resolved contents never
@@ -1551,7 +1678,7 @@ pub async fn handle_request(
             // A report is a poor retrieval query — it is mostly other turns' answers — so it
             // gets no automatic passages. Skill recommendation still sees its text.
             let passage_budget = match &request.content {
-                VizierRequestContent::BackgroundReport(_) => 0,
+                VizierRequestContent::BackgroundReport(_) | VizierRequestContent::DetachedDelivery(_) => 0,
                 _ => agent_config.auto_context.chat_passages,
             };
             let (history, checkpoint_handover) = storage
@@ -1595,6 +1722,7 @@ pub async fn handle_request(
                     Some(hooks),
                     checkpoint_handover,
                     turn,
+                    steer.clone(),
                 )
                 .await?;
             // FR-032: the hit/miss signal the threshold is tuned against. Whether the agent went
@@ -1602,6 +1730,21 @@ pub async fn handle_request(
             if let Some(injected) = injected_context {
                 let agent = session.0.clone();
                 record_context_followup(&storage, &session, &agent, turn_start, injected).await;
+            }
+            // A worker's turn ended with a reply (spec 059 research D5): its row records the
+            // answer, unless the turn ended by asking (the row is `asking`, and stays so).
+            if matches!(session.1, VizierChannelId::Subagent) {
+                use crate::agents::subagents::{ASK_TOOL, TurnEnd};
+                let end = match &res.content {
+                    VizierResponseContent::Message { stats: Some(stats), .. }
+                        if stats.ended_by_tool.as_deref() == Some(ASK_TOOL) =>
+                    {
+                        TurnEnd::Asked
+                    }
+                    VizierResponseContent::Message { content, .. } => TurnEnd::Replied(content.clone()),
+                    _ => TurnEnd::Replied(String::new()),
+                };
+                deps.subagents.turn_ended(&session, end).await;
             }
             if notifies_chat
                 && matches!(
@@ -1656,6 +1799,7 @@ pub async fn handle_request(
                     Some(hooks),
                     checkpoint_handover,
                     turn,
+                    None,
                 )
                 .await?;
             if let Some(injected) = injected_context {
@@ -1675,16 +1819,24 @@ pub async fn handle_request(
                     match stage {
                         DreamStage::Extraction => {
                             let end = request.timestamp;
-                            let session_history = storage
-                                .list_session_by_time_window(
-                                    *dream_session.clone(),
-                                    None,
-                                    Some(end),
-                                )
-                                .await?;
+                            // The scheduler always sends the window start; without one, read the
+                            // scheduler's first-cycle default.
+                            let since = request
+                                .metadata
+                                .get(crate::scheduler::DREAM_SINCE_KEY)
+                                .cloned()
+                                .and_then(|v| serde_json::from_value(v).ok())
+                                .unwrap_or(end - chrono::Duration::hours(24));
+                            let source = crate::scheduler::extraction_source(
+                                &storage,
+                                dream_session,
+                                since,
+                                end,
+                            )
+                            .await?;
 
-                            // Skip empty sessions — send Abort
-                            if session_history.is_empty() {
+                            // Nothing new in the window — send Abort
+                            let Some((session_history, handover)) = source else {
                                 if let Some(ref tx) = response_tx {
                                     let _ = tx
                                         .send_async(VizierResponse {
@@ -1696,7 +1848,7 @@ pub async fn handle_request(
                                         .await;
                                 }
                                 return Ok(());
-                            }
+                            };
 
                             let cycle_id = request
                                 .metadata
@@ -1711,6 +1863,7 @@ pub async fn handle_request(
                                     request,
                                     session.clone(),
                                     session_history,
+                                    handover,
                                     Some(hooks.clone()),
                                     deps,
                                 )
@@ -1753,6 +1906,7 @@ pub async fn handle_request(
                                     request,
                                     session.clone(),
                                     vec![],
+                                    None,
                                     Some(hooks.clone()),
                                     deps,
                                 )
@@ -1788,6 +1942,7 @@ pub async fn handle_request(
                             Some(hooks),
                             None,
                             turn,
+                            None,
                         )
                         .await?
                 }
@@ -1989,8 +2144,11 @@ fn chat_turn_prompt(
         VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
         VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
         VizierRequestContent::BackgroundReport(report) => report.to_string(),
+        VizierRequestContent::DetachedDelivery(text) => text.clone(),
         // The person's summary of their answers: what retrieval and skill matching read.
         VizierRequestContent::QuestionAnswer(answer) => answer.text.clone(),
+        VizierRequestContent::SubagentTask(brief) => brief.text.clone(),
+        VizierRequestContent::SubagentReply(reply) => reply.text.clone(),
         _ => return None,
     })
 }
@@ -2341,18 +2499,19 @@ mod session_turns_tests {
         };
         let chat = |t: &str| req(VizierRequestContent::Chat(t.into()));
         let handover = || req(VizierRequestContent::Command("checkpoint".into()));
-        let mut queue = SessionQueue::new();
+        let mut queue = VecDeque::new();
         // Re-sent in acceptance order: message A, handover H, message B.
         for item in [chat("A"), handover(), chat("B")] {
-            if is_handover_command(&item) {
-                queue_handover(&mut queue, (item, None, TurnRef::default()));
+            let item = Queued::new(item, None, TurnRef::default(), &session("a"));
+            if is_handover_command(&item.request) {
+                queue_handover(&mut queue, item);
             } else {
-                queue.push_back((item, None, TurnRef::default()));
+                queue.push_back(item);
             }
         }
         let order: Vec<_> = queue
             .iter()
-            .map(|(r, _, _)| is_handover_command(r))
+            .map(|q| is_handover_command(&q.request))
             .collect();
         assert_eq!(order, vec![true, false, false]);
     }
@@ -2363,13 +2522,14 @@ mod session_turns_tests {
         let mut queues = HashMap::<VizierSession, SessionQueue>::new();
         assert!(!session_is_busy(&turns, &queues, &session("a")));
 
-        queues.entry(session("a")).or_default().push_back((
+        steer::lock(&queue_of(&mut queues, &session("a"))).push_back(Queued::new(
             VizierRequest {
                 content: VizierRequestContent::Chat("queued".into()),
                 ..Default::default()
             },
             None,
             TurnRef::default(),
+            &session("a"),
         ));
         assert!(session_is_busy(&turns, &queues, &session("a")));
     }
@@ -2411,8 +2571,7 @@ mod btw_tests {
     };
     use crate::tests_support::agent_config;
     use crate::storage::usage::UsageStorage;
-    use crate::schema::{BackgroundReport, ClientEvent, SideChat};
-    use crate::schema::background::JobKind;
+    use crate::schema::{ClientEvent, SideChat};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     /// Answers every completion with the next scripted side, so a side chat runs without a
@@ -2744,12 +2903,7 @@ mod btw_tests {
             VizierRequestContent::SilentRead("hi".into()),
             VizierRequestContent::Unattended("hi".into()),
             VizierRequestContent::Command("checkpoint".into()),
-            VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "job-1".into(),
-                kind: JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             VizierRequestContent::ClientEvent(ClientEvent {
                 text: "click".into(),
                 data: None,

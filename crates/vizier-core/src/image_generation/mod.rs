@@ -11,9 +11,23 @@ use crate::llm::media::{
 use crate::schema::agent::{ImageGenProvider, ImageGenToolSettings};
 use crate::Result;
 
+/// An image an agent passed in to steer generation: the bytes and the media type the session
+/// file recorded for them.
+#[derive(Clone)]
+pub struct ReferenceImage {
+    pub mime: String,
+    pub data: Vec<u8>,
+}
+
 #[async_trait::async_trait]
 pub trait VizierImageGenModel: Send + Sync {
-    async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)>;
+    /// A text-only request when `references` is empty; an edit or variation when it is not.
+    async fn generate(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<(Vec<u8>, String)>;
 }
 
 pub struct VizierImageGen(Arc<dyn VizierImageGenModel>);
@@ -51,7 +65,12 @@ impl VizierImageGen {
         Ok(Self(model))
     }
 
-    pub async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)> {
-        self.0.generate(prompt, size).await
+    pub async fn generate(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<(Vec<u8>, String)> {
+        self.0.generate(prompt, size, references).await
     }
 }

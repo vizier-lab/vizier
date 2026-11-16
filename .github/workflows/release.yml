@@ -208,8 +208,10 @@ jobs:
       matrix:
         include:
           # Linux x86_64 (native)
+          # ubuntu-24.04, not -latest: the Docker image is ubuntu:24.04 and runs this binary, so
+          # it must not need a newer glibc than 24.04 has.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             cross: false
           # Linux ARM64 (native on ARM64 runner)
           - target: aarch64-unknown-linux-gnu

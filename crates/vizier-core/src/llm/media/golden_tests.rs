@@ -130,7 +130,7 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
         json!(b64(&m.generate_speech("hi there", voice, 1.25).await.unwrap()))
     };
     let image = |m: Box<dyn VizierImageGenModel>| async move {
-        json!(b64(&m.generate("a tomato", Some("1024x768")).await.unwrap().0))
+        json!(b64(&m.generate("a tomato", Some("1024x768"), &[]).await.unwrap().0))
     };
     let embed = |m: Box<dyn VizierEmbeddingModel + Send + Sync>, docs: Vec<String>| async move {
         json!(m.embed_texts(docs).await.unwrap())

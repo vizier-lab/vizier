@@ -2,13 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.16.0-rc.2] - 2026-11-15
 
-### 💥 Breaking Changes
+### 🚀 Features
 
-- *(office)* [**breaking**] New agents are created without the Office addon: install it on the agent's
-  Integrations › Addons page. Creation and the upgrade backfill no longer seed it (spec 036 FR-015a)
+- *(core)* Fleet row ownership, fencing and lease-based recovery (#205)
+- *(agents)* [**breaking**] Replace background jobs with detached scripts (#206)
+- *(agents)* [**breaking**] Subagents as temporary workers (#207)
+- *(agents)* [**breaking**] Stop recording recalled passages
+- *(agents)* Prune old tool outputs from the model's view and add recall_history (#209)
+- *(tools)* Let http_client save a download as a session file
+- *(agents)* [**breaking**] Let agents save scripts as custom tools (#210)
+- *(agents)* Steer a busy turn with a person's message (#211)
 
+### 🐛 Bug Fixes
+
+- *(dream)* Extract only the conversation since the last dream
+- *(dream)* Show a cycle as running from the moment it starts
+- *(app)* Allow https images in the desktop app's CSP
+- *(webui)* Align the composer, cap markdown images, crop thumbnails from the top
+- *(chat)* Keep client tools on the turn a question answer starts
+- *(scheduler)* Fire a cron task that has never run
+
+### ⚙️ Miscellaneous Tasks
+
+- Build Linux binaries on ubuntu-24.04 to match the image's glibc (#208)
+- Bump landing
+- Bump design and webui (strip icons, subagents default tab, error after reload)
+- Bump webui (intent on the running trail head)
+- Bump design (house icon on the home tile)
+- Bump version to 0.16.0-rc.2
+## [0.16.0-rc.1] - 2026-11-13
+
+### 🚀 Features
+
+- *(office)* [**breaking**] Stop seeding the Office addon on new agents
+- *(office)* [**breaking**] Stop seeding the Office addon on new agents (#195)
+- *(image-gen)* Accept reference images for image-to-image (#200)
+- Installable web app (PWA) and the phone shell (#199)
+
+### 🐛 Bug Fixes
+
+- *(workspace)* Make the mention rule state its cost and its way out
+- *(discord)* Balance split tool-call code fences
+- *(discord)* Preserve split fence languages
+- *(discord)* Balance split tool-call code fences (#198)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(submodules)* Pick up the trail spine and narration fixes
+- *(submodules)* Drop the host-execution and install notices
+- Bump version to 0.16.0-rc.1
 ## [0.15.1] - 2026-11-07
 
 ### 🚀 Features
@@ -34,6 +78,7 @@ All notable changes to this project will be documented in this file.
 - Bump landing to the launch video hero (#193)
 - Bump webui to the voice capture worklet fix
 - Build the language-server fixture before the managed storage tests
+- Bump version to 0.15.1
 ## [0.15.0] - 2026-11-07
 
 ### 🚀 Features

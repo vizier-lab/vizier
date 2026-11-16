@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::mcp::McpServer,
     agents::tools::{
-        background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
+        detached::{CancelDetachedScript, GetDetachedScript, ListDetachedScripts},
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
@@ -24,6 +24,7 @@ use crate::{
             ScheduleOneTimeTask,
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        history::RecallHistory,
         workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
         time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
@@ -37,7 +38,10 @@ use crate::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         stt::SttTranscribe,
-        subagents::{BackgroundSubagentsTool, ParallelSubagentsTool},
+        subagents::{
+            AskMainAgentTool, GetSubagentTool, ListSubagentsTool, ReplySubagentTool,
+            SpawnSubagentsTool, StopSubagentTool, WaitSubagentsTool,
+        },
         think::ThinkTool,
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
@@ -55,17 +59,19 @@ use crate::{
 };
 
 mod artifacts;
-mod background_jobs;
+mod custom_tools;
+mod detached;
 pub mod brave_search;
 #[cfg(feature = "channel-discord")]
 pub mod discord;
 mod dream_journal;
 pub mod fetch;
+mod history;
 pub mod http_client;
 mod image_gen;
 #[cfg(feature = "addon-documents")]
 pub mod office;
-mod python;
+pub(crate) mod python;
 mod read_image;
 mod scheduler;
 mod scratchpad;
@@ -81,6 +87,7 @@ pub mod telegram;
 mod think;
 mod time;
 pub mod tts;
+pub mod turn_source;
 mod vector_memory;
 mod webui;
 mod workspaces;
@@ -120,10 +127,19 @@ pub enum ToolCategory {
     /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
     /// in a shared topic, and reach a Workspace from any other conversation.
     Workspaces,
+    /// Subagents as temporary workers (`specs/059-subagent-workers`): the main agent hires,
+    /// waits for, answers and stops workers; a worker asks its main agent. Who sees which tool
+    /// is decided per turn by `available`.
+    Subagents,
+    /// Recall tool outputs pruned from the model's view (`specs/060-prune-tool-outputs`).
+    History,
+    /// Make, change and organise the agent's own custom tools (`specs/061-agent-custom-tools`).
+    /// The custom tools themselves are listed under the agent's own categories.
+    CustomTools,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 19] = [
+    pub const ALL: [ToolCategory; 22] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -143,6 +159,9 @@ impl ToolCategory {
         Self::Questions,
         Self::Time,
         Self::Workspaces,
+        Self::Subagents,
+        Self::History,
+        Self::CustomTools,
     ];
 
     pub fn name(self) -> &'static str {
@@ -153,6 +172,7 @@ impl ToolCategory {
             Self::Skills => "skills",
             Self::Files => "files",
             Self::Scratchpad => "scratchpad",
+            Self::History => "history",
             Self::Web => "web",
             Self::Audio => "audio",
             Self::Media => "media",
@@ -166,6 +186,8 @@ impl ToolCategory {
             Self::Questions => "questions",
             Self::Time => "time",
             Self::Workspaces => "workspaces",
+            Self::Subagents => "subagents",
+            Self::CustomTools => "custom_tools",
         }
     }
 
@@ -173,11 +195,14 @@ impl ToolCategory {
         match self {
             Self::Memory => "Search, read, write and organise long-term memory",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
-            Self::Agents => "Run parallel subagents and manage background jobs",
+            Self::Agents => "See and stop your background work (detached scripts)",
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
             Self::Scratchpad => {
                 "Temporary notes private to this conversation, deleted once it goes idle"
+            }
+            Self::History => {
+                "Recall tool outputs pruned from this conversation's view; recall them in a script and return only what you need"
             }
             Self::Web => "Search the web and news, fetch pages, make HTTP requests",
             Self::Audio => "Generate speech from text and transcribe audio",
@@ -204,6 +229,10 @@ impl ToolCategory {
             Self::Workspaces => {
                 "Wake other agents in a shared Workspace by mentioning them, and post to or read a Workspace from any conversation"
             }
+            Self::Subagents => {
+                "Hire temporary workers for parts of a task, wait for them, answer their questions and stop them"
+            }
+            Self::CustomTools => "Make, change and organise your own custom tools",
         }
     }
 }
@@ -211,10 +240,26 @@ impl ToolCategory {
 /// Names that were retired rather than aliased, with the guidance to show when a
 /// caller still uses one. Keep this table until the pre-1.0 removal tracker (#82)
 /// says these compatibility hints can go.
+/// The one hint for the three background-job tools spec 058 retired.
+const BACKGROUND_REPLACED: &str = "background_subagents was replaced: run execute_python with detached=true for background work (see list_detached_scripts, get_detached_script and cancel_detached_script); for workers use spawn_subagents then wait_subagents (category subagents).";
+
+/// The hint for the fan-out tools spec 059 retired (and the older name the first replaced).
+const FAN_OUT_REPLACED: &str = "parallel_subagents was retired: call spawn_subagents(tasks=[...]), then wait_subagents(ids=[...], until='all') (category subagents). Workers can ask you questions; answer with reply_subagent.";
+
 pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
+    ("paralel_subtasks", FAN_OUT_REPLACED),
+    ("parallel_subagents", FAN_OUT_REPLACED),
     (
-        "paralel_subtasks",
-        "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+        "background_subagents",
+        BACKGROUND_REPLACED,
+    ),
+    (
+        "list_background_jobs",
+        BACKGROUND_REPLACED,
+    ),
+    (
+        "cancel_background_job",
+        BACKGROUND_REPLACED,
     ),
     (
         "consult_agent",
@@ -245,16 +290,17 @@ pub struct ToolContext {
     /// The session's hooks, so tools that dispatch other tools (the Python
     /// sandbox bridge) run them through the same hook pipeline as direct calls.
     pub hooks: Option<Arc<crate::agents::hook::VizierSessionHooks>>,
-    /// The turn's `VizierRequest::background_depth`, which `BackgroundJobs::launch` checks
+    /// The turn's `VizierRequest::background_depth`, which a detached launch checks
     /// against `MAX_BACKGROUND_DEPTH`. 0 outside an ordinary chat turn.
     pub background_depth: u8,
+    /// The turn's `VizierRequest::subagent_depth` (spec 059): 0 for the main agent, 1 for its
+    /// workers. The subagent management tools are offered only below `subagents.max_depth`; a
+    /// detached script inherits its turn's value.
+    pub subagent_depth: u8,
     /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
     pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
-    /// Memory passages a tool returned during the round (`memory_search`), drained by the
-    /// agent loop into a `Recall { Search }` history entry (`specs/024-webui-rewrite`, FR-018e).
-    pub recalled: Arc<Mutex<Vec<crate::schema::RecalledPassage>>>,
     /// The moment at which the agent loop's `tools.timeout` will cut the current direct
     /// tool call off. Script calls inherit the deadline of their `execute_python` call.
     pub deadline: Option<tokio::time::Instant>,
@@ -282,6 +328,18 @@ pub struct ToolContext {
     /// The project this turn belongs to (`specs/040-projects-mode`): set only for a project
     /// session, resolved once and shared by the prompt and `workspace_shell`.
     pub project: Option<Arc<crate::projects::context::ProjectTurnContext>>,
+    /// Inside a detached script (spec 058): the turn that launched it may already be over, so
+    /// nothing that needs the live turn is offered. With `interactive: false` and
+    /// `client: None` it takes the question tools and client tools out; this flag also drops
+    /// every turn-ending entry from [`turn_catalogue`].
+    pub detached: bool,
+    /// The detached script this context runs inside, if any. `spawn_subagents` copies it
+    /// onto its requests (`VizierRequest.parent_detached_id`), so a script launched by a
+    /// sub-agent records its parent and a cancel cascades to it.
+    pub parent_detached_id: Option<String>,
+    /// The agent's custom tools for this turn (`specs/061-agent-custom-tools`): the service while
+    /// they are offered, the category snapshot, the call chain and the script router.
+    pub custom: crate::custom_tools::CustomTurn,
 }
 
 /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question` research R2).
@@ -306,22 +364,32 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
         VizierRequestContent::Command(_) => false,
         // An unattended voice turn, dispatched beside `Prompt`/`Unattended`.
         VizierRequestContent::AudioPrompt(..) => false,
-        // The result of background work: nobody asked for it and nobody is waiting.
+        // A pre-058 report, read from history only (#82).
         VizierRequestContent::BackgroundReport(_) => false,
+        // Finished detached scripts (spec 058 research D2): the conversation the person is on,
+        // continuing, so the agent may ask its follow-up question here. The conversation test
+        // below still keeps it out of task, dream and sub-agent conversations.
+        VizierRequestContent::DetachedDelivery(_) => true,
         // An off-the-record aside: nothing above or around it is saved, so an answer would have
         // nowhere to land.
         VizierRequestContent::Btw(_) => false,
         // A person just answered a set and is waiting on the reply, so this is as interactive as a
         // typed message — and the agent may ask its next question in it (US6 #6).
         VizierRequestContent::QuestionAnswer(_) => true,
+        // A worker (spec 059): nobody but its main agent reads it, and it asks that agent with
+        // `ask_main_agent`, never a person.
+        VizierRequestContent::SubagentTask(_) | VizierRequestContent::SubagentReply(_) => false,
     };
-    // A task, dream, subagent, inter-agent or system conversation has no person on it at all,
-    // whatever the request kind says.
-    // A Workspace topic has people on it too: any member may answer a question (spec 053).
-    somebody_may_answer
-        && (session.1.web_user().is_some()
-            || session.1.platform().is_some()
-            || matches!(session.1, crate::schema::VizierChannelId::Workspace(_)))
+    somebody_may_answer && session_has_person(session)
+}
+
+/// Whether people are on this conversation at all. A task, dream, subagent, inter-agent or
+/// system conversation has no person on it, whatever the request kind says; a Workspace topic
+/// has people on it too: any member may answer a question (spec 053).
+pub fn session_has_person(session: &VizierSession) -> bool {
+    session.1.web_user().is_some()
+        || session.1.platform().is_some()
+        || matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
 }
 
 #[derive(Clone, Default)]
@@ -539,6 +607,18 @@ pub struct ToolRouter {
 }
 
 impl ToolRouter {
+    /// A router with no tools: for tests and for contexts that call nothing.
+    pub fn empty() -> Self {
+        Self {
+            default_toolset: VizierToolSet::new(),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: Default::default(),
+            mcp: Default::default(),
+            reserved: Arc::new(vec![]),
+        }
+    }
+
     /// Category names a client category may not take: the addon ids, the MCP server keys,
     /// and the categories those servers are listed under.
     pub fn client_reserved_categories(&self) -> Vec<String> {
@@ -567,15 +647,10 @@ pub enum ToolTarget {
         server: String,
         tool: String,
     },
-    /// A tool the person's client declared for this turn, by the client's own names. Only
+    /// A tool of one of this turn's [`turn_source::TurnToolSource`]s (the person's client, the
+    /// project coding tools, the agent's custom tools), by the source's id. Only
     /// [`turn_catalogue`] produces it, and only `RouterBridge` dispatches it.
-    Client {
-        category: String,
-        tool: String,
-    },
-    /// The per-turn project workspace shell. Only [`turn_catalogue`] produces it, only while a
-    /// project session may run commands, and only `RouterBridge` dispatches it.
-    Project,
+    Turn { source: &'static str },
 }
 
 /// One script-callable function: the single source for its name, category and dispatch.
@@ -642,6 +717,10 @@ pub trait VizierToolDyn {
     /// Whether a successful call is the turn's final answer.
     fn ends_turn(&self) -> bool;
 
+    /// Whether the tool's result comes from a model (`specs/061-agent-custom-tools` R7), so a
+    /// custom tool that calls it is marked model-backed.
+    fn model_backed(&self) -> bool;
+
     /// Whether this turn is offered the tool at all. False takes it out of the catalogue, out of
     /// the category lines and out of reach of a script, so an agent never sees a tool it cannot
     /// use here (`specs/042-agent-asking-question` FR-007, FR-028, FR-046).
@@ -670,6 +749,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
 
     fn ends_turn(&self) -> bool {
         <Self as VizierTool>::ends_turn()
+    }
+
+    fn model_backed(&self) -> bool {
+        <Self as VizierTool>::model_backed()
     }
 
     fn available(&self, ctx: &ToolContext) -> bool {
@@ -721,6 +804,12 @@ pub trait VizierTool {
         false
     }
 
+    /// Whether the result comes from a model: sub-agents, other agents, image generation,
+    /// vision, speech. Default false.
+    fn model_backed() -> bool {
+        false
+    }
+
     /// Whether this turn is offered the tool. Every ordinary tool is; one that needs a person on
     /// the other end overrides this and decides per turn.
     fn available(&self, _ctx: &ToolContext) -> bool {
@@ -760,7 +849,7 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
 
 /// `name`, or `{name}_{suffix}` when it is a built-in category's name or in `reserved`: the
 /// one clash rule MCP servers and client categories share.
-fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
+pub(crate) fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
     if ToolCategory::ALL
         .iter()
         .any(|category| category.name() == name)
@@ -783,27 +872,35 @@ pub fn client_category_name(category: &str, reserved: &[String]) -> String {
     reserved_category_name(category, reserved, "client")
 }
 
-/// The functions a script in this turn can call: the router's, then the client's.
+/// The functions a script in this turn can call: the router's, then each turn source's
+/// (client, project, custom; `specs/061-agent-custom-tools` R1).
 pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<CatalogueEntry> {
     let mut entries = router.catalogue(ctx).await;
-    if let Some(client) = &ctx.client {
-        entries.extend(client.catalogue().iter().cloned());
+    // First wins (spec 061 FR-011): a later source never takes a name an earlier one has, so a
+    // custom tool whose name a tool attached later took is not offered until it is renamed.
+    let mut taken: HashSet<String> = entries.iter().map(|entry| entry.name.clone()).collect();
+    for source in turn_source::sources() {
+        for entry in source.entries(router, ctx).await {
+            if taken.insert(entry.name.clone()) {
+                entries.push(entry);
+            }
+        }
     }
-    // The project coding tools, filtered by this turn's saved mode (`specs/041-project-coding-
-    // workspace` R10): Plan offers reads and `propose_plan`; Build adds writes and commands.
-    if let Some(project) = &ctx.project {
-        entries.extend(crate::projects::tools::offered(project));
+    // A detached script has no turn to end (spec 058 contracts/detached-flag.md §2).
+    if ctx.detached {
+        entries.retain(|entry| !entry.ends_turn);
     }
     entries
 }
 
-/// The category lines of this turn: the agent's, then the client's in declaration order, plus
-/// `coding` whenever a project context exists. It is listed in both modes (and while the folder
-/// is unavailable) so `SANDBOX.md` stays byte-identical within a chat (contract §1/§4).
+/// The category lines of this turn: the agent's, then each turn source's — the client's in
+/// declaration order, `coding` whenever a project context exists (listed in both modes and while
+/// the folder is unavailable, so `SANDBOX.md` stays byte-identical within a chat), then the
+/// agent's custom categories as snapshotted at turn start.
 ///
 /// A built-in category with no tool available this turn is dropped, so an unattended prompt never
-/// advertises an area it cannot use (`specs/042-agent-asking-question` FR-007). Addon, MCP and
-/// client categories are not built-ins and are left alone.
+/// advertises an area it cannot use (`specs/042-agent-asking-question` FR-007). Addon, MCP,
+/// client and custom categories are not built-ins and are left alone.
 pub fn turn_categories(
     base: &[CategorySummary],
     router: &ToolRouter,
@@ -825,14 +922,12 @@ pub fn turn_categories(
         })
         .cloned()
         .collect();
-    if let Some(client) = &ctx.client {
-        categories.extend(client.categories().iter().cloned());
-    }
-    if ctx.project.is_some() && !categories.iter().any(|category| category.name == "coding") {
-        categories.push(CategorySummary {
-            name: ToolCategory::Coding.name().into(),
-            description: ToolCategory::Coding.description().into(),
-        });
+    for source in turn_source::sources() {
+        for line in source.categories(router, ctx) {
+            if !categories.iter().any(|category| category.name == line.name) {
+                categories.push(line);
+            }
+        }
     }
     categories
 }
@@ -945,9 +1040,32 @@ impl ToolRouter {
     /// agent cannot call what it cannot use (`specs/042-agent-asking-question` research R1).
     /// MCP tools have no such say: a server either lists a tool or it does not.
     pub async fn catalogue(&self, ctx: &ToolContext) -> Vec<CatalogueEntry> {
+        self.entries(Some(ctx)).await
+    }
+
+    /// Every function name the router offers anywhere, availability aside: what a custom tool's
+    /// calls are checked against, and what `agent.{id}.tool_names` publishes.
+    pub async fn all_names(&self) -> Vec<String> {
+        self.entries(None).await.into_iter().map(|entry| entry.name).collect()
+    }
+
+    /// The catalogue names of the native and addon tools whose results come from a model.
+    pub fn model_backed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .native_tools()
+            .chain(self.addon_tools().map(|(_, tool)| tool))
+            .filter(|tool| tool.model_backed())
+            .map(|tool| python_identifier(&tool.tool_name()))
+            .collect();
+        names.sort();
+        names
+    }
+
+    async fn entries(&self, ctx: Option<&ToolContext>) -> Vec<CatalogueEntry> {
+        let offered = |tool: &&VizierToolDef| ctx.is_none_or(|ctx| tool.available(ctx));
         let mut entries: Vec<CatalogueEntry> = self
             .native_tools()
-            .filter(|tool| tool.available(ctx))
+            .filter(offered)
             .filter_map(|tool| {
                 Some(CatalogueEntry {
                     name: python_identifier(&tool.tool_name()),
@@ -960,7 +1078,7 @@ impl ToolRouter {
             .collect();
         entries.extend(
             self.addon_tools()
-                .filter(|(_, tool)| tool.available(ctx))
+                .filter(|(_, tool)| ctx.is_none_or(|ctx| tool.available(ctx)))
                 .map(|(addon, tool)| CatalogueEntry {
                     name: python_identifier(&tool.tool_name()),
                     category: addon.clone(),
@@ -1017,8 +1135,7 @@ impl ToolRouter {
                 .position(|category| category.name() == entry.category)
                 .unwrap_or(ToolCategory::ALL.len()),
             ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
-            ToolTarget::Client { .. } => ToolCategory::ALL.len() + 2,
-            ToolTarget::Project => ToolCategory::ALL.len() + 3,
+            ToolTarget::Turn { .. } => ToolCategory::ALL.len() + 2,
         };
         entries
             .sort_by(|a, b| (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name)));
@@ -1081,14 +1198,10 @@ impl ToolRouter {
                     .call(tool, serde_json::from_str(&params)?)
                     .await
             }
-            Some(ToolTarget::Client { .. }) => Err(VizierError(format!(
-                "{function_name} is provided by the person's client and is called from a script"
-            ))
-            .into()),
-            // The project shell is dispatched by `RouterBridge`, which owns the per-turn
-            // catalogue; reaching it here would mean the entry leaked outside a turn.
-            Some(ToolTarget::Project) => Err(VizierError(format!(
-                "{function_name} is only available inside a project session"
+            // Per-turn tools are dispatched by `RouterBridge`, which owns the turn's catalogue;
+            // reaching one here means it was called outside a script.
+            Some(ToolTarget::Turn { .. }) => Err(VizierError(format!(
+                "{function_name} is only callable from a script in this turn"
             ))
             .into()),
             None => Err(VizierError(format!("{} not found", function_name)).into()),
@@ -1173,7 +1286,22 @@ impl VizierTools {
         "list_artifacts",
         "attach_artifact_to_memory",
         "detach_attachment_from_memory",
+        // Custom tools (spec 061 R14): a dream may write and tidy them, never delete, switch
+        // off or call one.
+        "list_custom_tools",
+        "get_custom_tool",
+        "custom_tool_history",
+        "diff_custom_tool",
+        "create_custom_tool",
+        "update_custom_tool",
+        "rollback_custom_tool",
+        "update_custom_tool_category",
     ];
+
+    /// Whether a dream may call `name`: its toolset plus the journal reader.
+    pub fn dream_may_call(name: &str) -> bool {
+        name == "read_dream_journal" || Self::DREAM_TOOL_NAMES.contains(&name)
+    }
 
     pub async fn dream_tools(
         &self,
@@ -1224,9 +1352,21 @@ impl VizierTools {
             _ => {}
         }
 
+        // Only what the dream was offered: a guessed name (`delete_custom_tool`, a
+        // custom tool, `set_secret`) is refused, not dispatched (spec 061 R14).
+        if !Self::dream_may_call(&function_name) {
+            return Err(VizierError(format!("{function_name} is not in the dream toolset")).into());
+        }
+        // The custom tool authoring tools validate against the agent's full toolset and are
+        // authored by the dream, never sample-run (spec 061 R9, R14).
+        let mut ctx = ctx.clone();
+        ctx.custom.script_router = Some(self.router.clone());
+        if ctx.custom.dream_cycle.is_none() {
+            ctx.custom.dream_cycle = Some("unknown".into());
+        }
         // Delegate to default_toolset for memory, workspace, scheduler, skill tools. The dream
         // loop already opened this call's span, so the router's own is skipped.
-        self.router.dispatch(function_name, params, ctx).await
+        self.router.dispatch(function_name, params, &ctx).await
     }
 }
 
@@ -1239,6 +1379,9 @@ pub struct BaseTools {
     limits: crate::sandbox::SandboxLimits,
     timeout: String,
     reserved: Arc<Vec<String>>,
+    /// Where `execute_python` sends a detached script (spec 058). `None` in tests of the
+    /// integration layer, which never detach.
+    detached: Option<crate::agents::detached::DetachedScripts>,
 }
 
 impl BaseTools {
@@ -1292,10 +1435,21 @@ impl BaseTools {
             .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
             .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(BackgroundSubagentsTool::new(deps.clone()))
-            .tool(ParallelSubagentsTool::new(deps.clone()))
-            .tool(ListBackgroundJobs::new(deps.clone()))
-            .tool(CancelBackgroundJob::new(deps.clone()))
+            // Subagents (spec 059): the six management tools for the main agent, and
+            // `ask_main_agent` for a worker; `available` decides which a turn sees.
+            .tool(SpawnSubagentsTool::new(deps.clone()))
+            .tool(WaitSubagentsTool::new(deps.clone()))
+            .tool(ReplySubagentTool::new(deps.clone()))
+            .tool(StopSubagentTool::new(deps.clone()))
+            .tool(ListSubagentsTool::new(deps.clone()))
+            .tool(GetSubagentTool::new(deps.clone()))
+            .tool(AskMainAgentTool::new(deps.clone()))
+            .tool(ListDetachedScripts { storage: deps.storage.clone() })
+            .tool(GetDetachedScript { storage: deps.storage.clone() })
+            .tool(CancelDetachedScript {
+                storage: deps.storage.clone(),
+                scripts: deps.detached.clone(),
+            })
             .tool(CreateSkill::new(
                 agent_id.clone(),
                 deps.clone(),
@@ -1369,6 +1523,23 @@ impl BaseTools {
             .tool(ReadTmp {
                 storage: deps.storage.clone(),
             })
+            // Pruned tool outputs read back (spec 060): any conversation can have them; never
+            // the dream cycle, which is not pruned.
+            .tool(RecallHistory {
+                storage: deps.storage.clone(),
+            })
+            // The agent's own custom tools (spec 061): authoring is always available; the
+            // tools themselves come from the per-turn custom source.
+            .tool(custom_tools::CreateCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::UpdateCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::ListCustomTools::new(deps.custom_tools.clone()))
+            .tool(custom_tools::GetCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::CustomToolHistory::new(deps.custom_tools.clone()))
+            .tool(custom_tools::DiffCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::RollbackCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::DeleteCustomTool::new(deps.custom_tools.clone()))
+            .tool(custom_tools::SetCustomToolEnabled::new(deps.custom_tools.clone()))
+            .tool(custom_tools::UpdateCustomToolCategory::new(deps.custom_tools.clone()))
             // The agent's own credentials (`specs/027-agent-secrets`): always available, never
             // to the dream cycle, because a dream turn is unattended.
             .tool(SetSecret {
@@ -1505,8 +1676,19 @@ impl BaseTools {
             limits,
             timeout: agent_config.tools.timeout.to_string(),
             reserved: Arc::new(deps.integration_kinds.addon_ids()),
+            detached: Some(deps.detached.clone()),
         })
     }
+}
+
+/// An `execute_python` over `router`, for tests outside the tools module.
+#[cfg(test)]
+pub(crate) fn python_for_tests(
+    router: ToolRouter,
+    limits: crate::sandbox::SandboxLimits,
+    detached: Option<crate::agents::detached::DetachedScripts>,
+) -> python::ExecutePython {
+    python::ExecutePython::new(router, limits, "5s").with_detached(detached)
 }
 
 #[cfg(test)]
@@ -1522,6 +1704,7 @@ impl BaseTools {
             },
             timeout: "30s".into(),
             reserved: Arc::new(reserved),
+            detached: None,
         }
     }
 }
@@ -1549,11 +1732,10 @@ pub fn compose(
 
     let sandbox_toolset = VizierToolSet::new()
         .tool(ThinkTool)
-        .tool(ExecutePython::new(
-            router.clone(),
-            base.limits,
-            &base.timeout,
-        ))
+        .tool(
+            ExecutePython::new(router.clone(), base.limits, &base.timeout)
+                .with_detached(base.detached.clone()),
+        )
         .tool(ListToolFunctions::new(router.clone(), categories.clone()))
         .tool(DescribeToolFunction::new(router.clone()));
 
@@ -1665,10 +1847,16 @@ mod tests {
             entry::<SendMessageToWorkspace>(),
             entry::<ListWorkspaces>(),
             entry::<ReadWorkspaceMessages>(),
-            entry::<BackgroundSubagentsTool>(),
-            entry::<ParallelSubagentsTool>(),
-            entry::<ListBackgroundJobs>(),
-            entry::<CancelBackgroundJob>(),
+            entry::<SpawnSubagentsTool>(),
+            entry::<WaitSubagentsTool>(),
+            entry::<ReplySubagentTool>(),
+            entry::<StopSubagentTool>(),
+            entry::<ListSubagentsTool>(),
+            entry::<GetSubagentTool>(),
+            entry::<AskMainAgentTool>(),
+            entry::<ListDetachedScripts>(),
+            entry::<GetDetachedScript>(),
+            entry::<CancelDetachedScript>(),
             entry::<CreateSkill>(),
             entry::<UpdateSkill>(),
             entry::<DeleteSkill>(),
@@ -1694,6 +1882,17 @@ mod tests {
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
+            entry::<RecallHistory>(),
+            entry::<custom_tools::CreateCustomTool>(),
+            entry::<custom_tools::UpdateCustomTool>(),
+            entry::<custom_tools::ListCustomTools>(),
+            entry::<custom_tools::GetCustomTool>(),
+            entry::<custom_tools::CustomToolHistory>(),
+            entry::<custom_tools::DiffCustomTool>(),
+            entry::<custom_tools::RollbackCustomTool>(),
+            entry::<custom_tools::DeleteCustomTool>(),
+            entry::<custom_tools::SetCustomToolEnabled>(),
+            entry::<custom_tools::UpdateCustomToolCategory>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
             #[cfg(feature = "addon-documents")]
@@ -1784,10 +1983,16 @@ mod tests {
             ("send_message_to_workspace", Workspaces),
             ("list_workspaces", Workspaces),
             ("read_workspace_messages", Workspaces),
-            ("background_subagents", Agents),
-            ("parallel_subagents", Agents),
-            ("list_background_jobs", Agents),
-            ("cancel_background_job", Agents),
+            ("spawn_subagents", Subagents),
+            ("wait_subagents", Subagents),
+            ("reply_subagent", Subagents),
+            ("stop_subagent", Subagents),
+            ("list_subagents", Subagents),
+            ("get_subagent", Subagents),
+            ("ask_main_agent", Subagents),
+            ("list_detached_scripts", Agents),
+            ("get_detached_script", Agents),
+            ("cancel_detached_script", Agents),
             ("create_skill", Skills),
             ("update_skill", Skills),
             ("delete_skill", Skills),
@@ -1813,6 +2018,17 @@ mod tests {
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
+            ("recall_history", History),
+            ("create_custom_tool", CustomTools),
+            ("update_custom_tool", CustomTools),
+            ("list_custom_tools", CustomTools),
+            ("get_custom_tool", CustomTools),
+            ("custom_tool_history", CustomTools),
+            ("diff_custom_tool", CustomTools),
+            ("rollback_custom_tool", CustomTools),
+            ("delete_custom_tool", CustomTools),
+            ("set_custom_tool_enabled", CustomTools),
+            ("update_custom_tool_category", CustomTools),
             ("fetch", Web),
             ("http_client", Web),
             ("tts_generate", Audio),
@@ -1945,21 +2161,47 @@ mod tests {
     }
 
     #[test]
-    fn retired_names_point_to_both_new_subagent_tools() {
-        let hint = retired_hint("paralel_subtasks").expect("retired name has a hint");
-        assert!(hint.contains("parallel_subagents"));
-        assert!(hint.contains("background_subagents"));
-        assert!(retired_hint("parallel_subagents").is_none());
+    fn retired_names_point_at_what_replaced_them() {
+        // Spec 059: both fan-out names point at the worker tools, never at a retired name.
+        for name in ["paralel_subtasks", "parallel_subagents"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("spawn_subagents") && hint.contains("wait_subagents"), "{hint}");
+        }
+        for (_, hint) in RETIRED_TOOL_NAMES {
+            for (retired, _) in RETIRED_TOOL_NAMES {
+                let told_to_call = format!("call {retired}");
+                let told_to_use = format!("use {retired}");
+                assert!(
+                    !hint.contains(&told_to_call) && !hint.contains(&told_to_use),
+                    "{hint} sends the agent to the retired {retired}"
+                );
+            }
+        }
         assert_eq!(
             retired_hint("ui_render_interactive_ui"),
             Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
         );
-        assert!(retired_hint("background_subagents").is_none());
+        // Spec 058 contracts/detached-flag.md §5.
+        for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.starts_with("background_subagents was replaced: run execute_python with detached=true"), "{hint}");
+        }
     }
 
     #[test]
     fn subagent_tools_never_reach_the_dream_cycle() {
-        for name in ["parallel_subagents", "background_subagents"] {
+        for name in [
+            "spawn_subagents",
+            "wait_subagents",
+            "reply_subagent",
+            "stop_subagent",
+            "list_subagents",
+            "get_subagent",
+            "ask_main_agent",
+            "list_detached_scripts",
+            "get_detached_script",
+            "cancel_detached_script",
+        ] {
             assert!(
                 !VizierTools::DREAM_TOOL_NAMES.contains(&name),
                 "{name} is a dream tool"
@@ -1996,6 +2238,24 @@ mod tests {
         assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"get_secret"));
     }
 
+    /// A dream writes and tidies custom tools; it never deletes, switches off or calls one
+    /// (`specs/061-agent-custom-tools` R14).
+    #[test]
+    fn custom_tool_authoring_reaches_the_dream_cycle_but_not_delete_toggle_or_calls() {
+        for name in ["create_custom_tool", "update_custom_tool", "list_custom_tools", "update_custom_tool_category"] {
+            assert!(VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name}");
+        }
+        for name in ["delete_custom_tool", "set_custom_tool_enabled"] {
+            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+        }
+        // A guessed name is refused at dispatch, not only left out of the offer.
+        for name in ["delete_custom_tool", "set_custom_tool_enabled", "echo_sum", "set_secret"] {
+            assert!(!VizierTools::dream_may_call(name), "{name}");
+        }
+        assert!(VizierTools::dream_may_call("create_custom_tool"));
+        assert!(VizierTools::dream_may_call("read_dream_journal"));
+    }
+
     /// A new category is appended, never slotted in among the categories older prompts and
     /// scripts already saw. `questions` (spec 042) is the last; `secrets` is the one before it.
     /// `identity` left the list in spec 043 — identity is reached through the memory tools now.
@@ -2005,10 +2265,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `workspaces` (spec 053) is the last; `time` (spec 052) is the one before it.
-        assert_eq!(names.last(), Some(&"workspaces"));
-        assert_eq!(names[names.len() - 2], "time");
-        assert_eq!(names.len(), 19);
+        // `custom_tools` (spec 061) is the last; `history` (spec 060) is the one before it.
+        assert_eq!(names.last(), Some(&"custom_tools"));
+        assert_eq!(names[names.len() - 2], "history");
+        assert_eq!(names.len(), 22);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2210,6 +2470,9 @@ mod tests {
         assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
         assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
         assert_eq!(mcp_category_name("time", &[]), "time_mcp", "time is a built-in category (spec 052)");
+        assert_eq!(mcp_category_name("subagents", &[]), "subagents_mcp", "subagents is a built-in category (spec 059)");
+        assert_eq!(mcp_category_name("history", &[]), "history_mcp", "history is a built-in category (spec 060)");
+        assert_eq!(client_category_name("subagents", &[]), "subagents_client");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }
 
@@ -2261,15 +2524,18 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            subagent_depth: 0,
             deadline: None,
             loaded_images: Default::default(),
-            recalled: Default::default(),
             client,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
             interactive: false,
             dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
             project: None,
+            detached: false,
+            parent_detached_id: None,
+            custom: Default::default(),
         }
     }
 
@@ -2470,10 +2736,7 @@ mod tests {
         assert_eq!(last.name, "palette_pick_color");
         assert_eq!(
             last.target,
-            ToolTarget::Client {
-                category: "palette".into(),
-                tool: "pick_color".into()
-            }
+            ToolTarget::Turn { source: "client" }
         );
         let categories = turn_categories(&base, &router, &ctx);
         assert_eq!(&categories[..base.len()], &base[..]);

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use vizier_core::{
-    agents::background::BackgroundJobs,
     config::VizierConfig,
     storage::{VizierStorage, agent::AgentStorage},
     transport::VizierTransport,
@@ -22,7 +21,6 @@ pub struct HTTPState {
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
     pub auth: AuthMode,
-    pub background_jobs: BackgroundJobs,
     /// The provider and model catalogue (spec 015).
     pub catalogue: vizier_core::catalogue::Catalogue,
     /// For the catalogue and providers APIs, which resolve models and reach providers.

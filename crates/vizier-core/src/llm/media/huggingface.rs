@@ -5,7 +5,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use super::openai_shaped::Endpoint;
-use crate::image_generation::VizierImageGenModel;
+use crate::image_generation::{ReferenceImage, VizierImageGenModel};
 use crate::stt::VizierSttModel;
 use crate::{Result, VizierError};
 
@@ -41,7 +41,17 @@ pub struct HuggingFaceImages(pub Endpoint);
 
 #[async_trait::async_trait]
 impl VizierImageGenModel for HuggingFaceImages {
-    async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)> {
+    async fn generate(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<(Vec<u8>, String)> {
+        if !references.is_empty() {
+            return Err(VizierError(
+                "huggingface image generation does not accept reference images".into(),
+            ));
+        }
         let (width, height) = size
             .and_then(|s| s.split_once('x'))
             .and_then(|(w, h)| Some((w.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?)))

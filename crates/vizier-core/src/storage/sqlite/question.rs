@@ -303,12 +303,16 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
         record: &crate::questions::model::SensitiveAskRecord,
     ) -> Result<()> {
         let channel_json = serde_json::to_string(&record.session.1)?;
+        let scope = crate::storage::fence::Scope::Agent(record.session.0.clone());
+        let (owner_node, owner_token) = self.fences.owner_of(&scope);
         let conn = self.conn.lock()?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        crate::storage::sqlite::fence::check_fence(&tx, &self.fences, &scope)?;
+        tx.execute(
             "INSERT INTO sensitive_ask
                 (ask_id, agent_id, channel, channel_json, topic, purpose, label, state,
-                 requested_at, closed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+                 requested_at, closed_at, owner_node, owner_token)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)",
             params![
                 record.ask_id,
                 record.session.0,
@@ -319,8 +323,11 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
                 record.label,
                 record.state.as_str(),
                 millis(record.requested_at),
+                owner_node,
+                owner_token,
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -330,13 +337,30 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
         state: crate::questions::model::AskState,
     ) -> Result<bool> {
         let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let agent = tx
+            .query_all(
+                "SELECT agent_id FROM sensitive_ask WHERE ask_id = ?1",
+                params![ask_id],
+            )?
+            .first()
+            .map(|row| row.get::<_, String>(0))
+            .transpose()?;
+        if let Some(agent) = agent {
+            crate::storage::sqlite::fence::check_fence(
+                &tx,
+                &self.fences,
+                &crate::storage::fence::Scope::Agent(agent),
+            )?;
+        }
         // Only an open ask changes: a late submission after a timeout, or a second tab's answer,
         // finds nothing to update (FR-049).
-        let changed = conn.execute(
+        let changed = tx.execute(
             "UPDATE sensitive_ask SET state = ?1, closed_at = ?2
               WHERE ask_id = ?3 AND state = 'open'",
             params![state.as_str(), millis(crate::time::now()), ask_id],
         )?;
+        tx.commit()?;
         Ok(changed > 0)
     }
 
@@ -373,6 +397,29 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
             )?
             .collect::<crate::storage::sql::Result<Vec<_>>>()?;
         Ok(records)
+    }
+
+    async fn abandon_open_sensitive_asks(&self, agent_id: &str, below: u64) -> Result<usize> {
+        let scope = crate::storage::fence::Scope::Agent(agent_id.to_owned());
+        let (node, token) = self.fences.owner_of(&scope);
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        crate::storage::sqlite::fence::check_fence(&tx, &self.fences, &scope)?;
+        let changed = tx.execute(
+            "UPDATE sensitive_ask SET state = 'abandoned', closed_at = ?1, \
+             owner_node = ?2, owner_token = ?3 \
+             WHERE state = 'open' AND agent_id = ?4 \
+             AND (owner_token IS NULL OR owner_token < ?5)",
+            params![
+                millis(crate::time::now()),
+                node,
+                token,
+                agent_id,
+                below as i64
+            ],
+        )?;
+        tx.commit()?;
+        Ok(changed)
     }
 
     async fn open_sensitive_asks_all(

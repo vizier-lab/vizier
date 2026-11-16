@@ -4,7 +4,7 @@ default-members = ["crates/vizier"]
 resolver = "3"
 
 [workspace.package]
-version = "0.15.1"
+version = "0.16.0-rc.2"
 edition = "2024"
 authors = ["Ganesha Danu <hi@blinfoldking.dev>"]
 license = "MIT"
@@ -127,6 +127,8 @@ any-tts = { version = "0.2.0", default-features = false, features = ["kokoro"] }
 similar = { version = "3", default-features = false, features = ["text"] }
 monty = "=1.0.0"
 monty-types = "=1.0.0"
+ruff_python_ast = "=0.0.14"
+ruff_python_parser = "=0.0.14"
 opentelemetry = { version = "0.33" }
 opentelemetry_sdk = { version = "0.33" }
 tracing-opentelemetry = { version = "0.34" }
@@ -135,14 +137,21 @@ libc = "0.2"
 url = "2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
 # The workspace's own crates. One version for all five, bumped in this file only.
-vizier-derive = { path = "crates/vizier-derive", version = "0.15.1" }
-vizier-core = { path = "crates/vizier-core", version = "0.15.1" }
-vizier-fleet = { path = "crates/vizier-fleet", version = "0.15.1" }
-vizier-schema = { path = "crates/vizier-schema", version = "0.15.1" }
-vizier-http = { path = "crates/vizier-http", version = "0.15.1" }
+vizier-derive = { path = "crates/vizier-derive", version = "0.16.0-rc.2" }
+vizier-core = { path = "crates/vizier-core", version = "0.16.0-rc.2" }
+vizier-fleet = { path = "crates/vizier-fleet", version = "0.16.0-rc.2" }
+vizier-schema = { path = "crates/vizier-schema", version = "0.16.0-rc.2" }
+vizier-http = { path = "crates/vizier-http", version = "0.16.0-rc.2" }
+
+# Line tables only: backtraces keep file and line, but `target/` is far smaller (full debug
+# info across every feature/role variant of the workspace ran to tens of gigabytes).
+[profile.dev]
+debug = "line-tables-only"
 
 # Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,
 # whisper.cpp) is unusably slow at opt-level 0; vizier's own crates stay unoptimised so
-# rebuilds remain quick. Build-script and proc-macro code is unaffected.
+# rebuilds remain quick. Build-script and proc-macro code is unaffected. No debug info for
+# dependencies.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

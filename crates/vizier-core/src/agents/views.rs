@@ -52,6 +52,15 @@ pub fn setup_key(agent_id: &str) -> String {
     format!("agent.{}.setup", vizier_schema::Subject::encode_token(agent_id))
 }
 
+/// The key an agent's tool names are published under (`specs/061-agent-custom-tools` R8).
+pub fn tool_names_key(agent_id: &str) -> String {
+    format!("agent.{}.tool_names", vizier_schema::Subject::encode_token(agent_id))
+}
+
+/// How long a tool-name view is good for: it changes only when the agent's tools are composed
+/// again, and is republished then and at every turn.
+pub const TOOL_NAMES_TTL_MS: i64 = 60 * 60 * 1000;
+
 /// The clock the views are read against.
 pub fn now_ms() -> i64 {
     crate::time::now().timestamp_millis()
@@ -92,6 +101,25 @@ impl Publisher {
             return;
         };
         let state = self.state.clone();
+        handle.spawn(async move {
+            if let Err(e) = state.put(&key, bytes).await {
+                tracing::warn!(key, "could not publish a view: {e}");
+            }
+        });
+    }
+
+    /// Publish the names an agent's scripts can call (native, addon, MCP), for a gateway that
+    /// checks a person's custom tool edit (spec 061 R8).
+    pub fn publish_tool_names(&self, agent_id: &str, names: &crate::custom_tools::ToolNames) {
+        let view = AgentView { expires_at_ms: now_ms() + TOOL_NAMES_TTL_MS, data: names.clone() };
+        let Ok(bytes) = serde_json::to_vec(&view) else {
+            return;
+        };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let state = self.state.clone();
+        let key = tool_names_key(agent_id);
         handle.spawn(async move {
             if let Err(e) = state.put(&key, bytes).await {
                 tracing::warn!(key, "could not publish a view: {e}");
@@ -141,6 +169,15 @@ pub async fn read_setup_from(
     agent_id: &str,
 ) -> Option<SetupState> {
     let entry = state.get(&setup_key(agent_id)).await.ok()??;
+    read_view(&entry.value, now_ms())
+}
+
+/// The tool names of `agent_id`, if they are published and live.
+pub async fn read_tool_names_from(
+    state: &Arc<dyn vizier_schema::SharedState>,
+    agent_id: &str,
+) -> Option<crate::custom_tools::ToolNames> {
+    let entry = state.get(&tool_names_key(agent_id)).await.ok()??;
     read_view(&entry.value, now_ms())
 }
 

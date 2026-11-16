@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{error::VizierError, schema::BackgroundReport, utils::get_mime_type};
+use crate::{error::VizierError, utils::get_mime_type};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -51,9 +51,17 @@ pub enum VizierRequestContent {
     Command(String),
     AudioChat(VizierAttachment, Option<String>),
     AudioPrompt(VizierAttachment, Option<String>),
-    /// The outcome of background work this conversation started (`background_subagents`,
-    /// `delegate_agent`), delivered as a turn of its own. Not a message from a person.
-    BackgroundReport(BackgroundReport),
+    /// A background-job report saved before spec 058, read so old conversations keep their
+    /// history; never sent any more. Its text is rendered from the stored JSON. Tracked for
+    /// removal in #82.
+    BackgroundReport(serde_json::Value),
+    /// Background delivery for this conversation: finished detached scripts (spec 058) and
+    /// subagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles
+    /// it claims from every source and, only if it got something, runs a turn whose request
+    /// carries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).
+    /// Never journaled: the rows are the durable part, and recovery pokes again. The name is
+    /// kept because it is stored in history and read by the WebUI.
+    DetachedDelivery(String),
     /// A message a client sent on the person's behalf, such as a click inside a page the
     /// agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
     ClientEvent(ClientEvent),
@@ -64,6 +72,12 @@ pub enum VizierRequestContent {
     /// A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn
     /// like `Chat`: same history, same queue, same attribution, no bypass (FR-015).
     QuestionAnswer(crate::questions::model::QuestionAnswer),
+    /// A worker's task from its main agent (spec 059): the first request of a `Subagent`
+    /// conversation. It starts a turn like `Chat`, framed as a worker's.
+    SubagentTask(crate::schema::SubagentBrief),
+    /// The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues
+    /// the worker's conversation like `Chat`.
+    SubagentReply(crate::schema::SubagentReplyText),
 }
 
 /// One `/btw` side chat carried in each request: the question being asked now and the
@@ -119,9 +133,12 @@ impl VizierRequestContent {
             Self::AudioChat(..) => "audio_chat",
             Self::AudioPrompt(..) => "audio_prompt",
             Self::BackgroundReport(_) => "background_report",
+            Self::DetachedDelivery(_) => "detached_delivery",
             Self::ClientEvent(_) => "client_event",
             Self::Btw(_) => "btw",
             Self::QuestionAnswer(_) => "question_answer",
+            Self::SubagentTask(_) => "subagent_task",
+            Self::SubagentReply(_) => "subagent_reply",
         }
     }
 
@@ -154,9 +171,12 @@ impl Display for VizierRequestContent {
                 Some(text) => write!(f, "{}", text),
                 None => write!(f, "Voice message ({})", att.filename),
             },
-            Self::BackgroundReport(report) => write!(f, "{}", report),
+            Self::BackgroundReport(report) => f.write_str(&legacy_report_text(report)),
+            Self::DetachedDelivery(text) => f.write_str(text),
             Self::ClientEvent(event) => write!(f, "{}", event),
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
+            Self::SubagentTask(brief) => f.write_str(&brief.text),
+            Self::SubagentReply(reply) => f.write_str(&reply.text),
             // The readable summary, then the answers as data the agent can read without
             // re-parsing prose — the shape `ClientEvent` already uses.
             Self::QuestionAnswer(answer) => {
@@ -316,6 +336,11 @@ pub struct VizierRequest {
     /// turn that launched the job and must still count as one level deeper.
     #[serde(default)]
     pub background_depth: u8,
+    /// How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring
+    /// context's depth + 1 for a worker. The subagent management tools are offered only below
+    /// `subagents.max_depth`. Independent of `background_depth`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub subagent_depth: u8,
     /// The project a subagent piece works in (`specs/041-project-coding-workspace` R11),
     /// copied from the launching turn by `BackgroundJobs::dispatch_piece`. It is serialised
     /// with the durable turn row, so a resumed piece keeps the folder and mode it started
@@ -326,6 +351,17 @@ pub struct VizierRequest {
     /// resolved when the turn starts and never stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// The person chose to run this message as a turn of its own after the running one rather
+    /// than steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the
+    /// WebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the
+    /// choice survives a restart. Ignored while the agent is idle.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub queue: bool,
+    /// Engine-only: this request was read by a turn already running, at a round boundary
+    /// (`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client
+    /// input on receipt and before a request is queued. A `mid_turn` request never opens a turn.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mid_turn: bool,
     /// What the client that sent this request says about itself: what it renders, what it
     /// offers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.
     ///
@@ -349,6 +385,13 @@ pub struct VizierRequest {
     #[schemars(skip)]
     #[cfg_attr(feature = "utoipa", schema(ignore))]
     pub trace: crate::telemetry::RequestTrace,
+    /// The detached script whose sub-agent turn this is (spec 058), so a script that turn
+    /// launches records its parent. Set only by `spawn_subagents` inside a detached script;
+    /// in-process only and never accepted from a client.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[cfg_attr(feature = "utoipa", schema(ignore))]
+    pub parent_detached_id: Option<String>,
     /// Tools the sending client offers for this one turn (`specs/019-client-tools`). Read
     /// off the WebSocket frame and moved into `client` once checked, so they never reach a
     /// stored request.
@@ -376,6 +419,16 @@ pub struct VizierRequest {
 /// attachments (a replayed turn), and the turn itself, which moves them into the session files
 /// and then says so on the model's message — otherwise the model is handed a request whose files
 /// were just taken off it and never learns they exist.
+/// `skip_serializing_if` for a depth that is still zero.
+fn is_zero(value: &u8) -> bool {
+    *value == 0
+}
+
+/// `skip_serializing_if` for a flag that is still off.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 pub fn attachments_note(attachments: &[VizierAttachment]) -> Option<String> {
     if attachments.is_empty() {
         return None;
@@ -397,11 +450,22 @@ impl VizierRequest {
         if self.transient {
             return false;
         }
+        // The `detached_script` rows are the durable part of a delivery (spec 058).
+        if matches!(self.content, VizierRequestContent::DetachedDelivery(_)) {
+            return false;
+        }
         if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream")
         {
             return false;
         }
         !matches!(session.1, crate::schema::VizierChannelId::Dream(..))
+    }
+
+    /// Whether this request starts a turn of its own in the record. A delivery saved at a round
+    /// boundary (spec 058) and a message read mid-turn (spec 062) are steps of the turn that
+    /// read them, so every search for "where this turn started" skips them.
+    pub fn opens_turn(&self) -> bool {
+        !(self.mid_turn || matches!(self.content, VizierRequestContent::DetachedDelivery(_)))
     }
 
     pub fn to_prompt(&self) -> anyhow::Result<String> {
@@ -459,16 +523,41 @@ impl VizierRequest {
             }))?);
         }
 
-        // A background report is machine-written too, and is attributed as such for the same
-        // reason: its `user` is the agent's own id, and nobody sent it.
-        if let VizierRequestContent::BackgroundReport(report) = &self.content {
+        // Finished background work is machine-written too: its `user` is the agent's own id, and
+        // nobody sent it (spec 058; a pre-058 report reads the same way).
+        if let VizierRequestContent::DetachedDelivery(_) | VizierRequestContent::BackgroundReport(_) =
+            &self.content
+        {
             return Ok(serde_yaml::to_string(&json!({
                 "sender": "background",
-                "job": report.job_id,
-                "job_kind": report.kind.as_str(),
                 "sent_at": self.sent_at(),
                 "metadata": self.shown_metadata(),
             }))?);
+        }
+
+        // A worker's task and the main agent's reply to it (spec 059): sent by the main agent,
+        // so `sender` is its id, and `via` says the reader is a worker, not a conversation.
+        match &self.content {
+            VizierRequestContent::SubagentTask(brief) => {
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": "subagent",
+                    "subagent": brief.subagent_id,
+                    "task": format!("{} of {}", brief.position, brief.group_size),
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
+            VizierRequestContent::SubagentReply(reply) => {
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": "subagent_reply",
+                    "subagent": reply.subagent_id,
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
+            _ => {}
         }
 
         // A client event is still the person's message (they clicked it), so `sender` stays
@@ -498,6 +587,17 @@ impl VizierRequest {
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
+        // A message the person sent while the agent was working, read at a round boundary of
+        // that turn (`specs/062-steer-busy-turn` contracts/steering.md S5).
+        if self.mid_turn {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("mid_turn"));
+            frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+            frontmatter.insert("metadata".into(), self.shown_metadata());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
+        }
+
         Ok(serde_yaml::to_string(&json!({
             "sender": self.user,
             "sent_at": self.sent_at(),
@@ -519,6 +619,65 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    /// spec 062: both flags are off unless set, and an older row without them reads that way.
+    #[test]
+    fn queue_and_mid_turn_default_off_and_round_trip() {
+        let old: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-11-04T00:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert!(!old.queue && !old.mid_turn);
+        let plain = serde_json::to_value(&old).unwrap();
+        assert!(plain.get("queue").is_none() && plain.get("mid_turn").is_none());
+
+        let set = VizierRequest {
+            queue: true,
+            mid_turn: true,
+            ..old
+        };
+        let back: VizierRequest =
+            serde_json::from_value(serde_json::to_value(&set).unwrap()).unwrap();
+        assert!(back.queue && back.mid_turn);
+    }
+
+    #[test]
+    fn only_a_request_that_starts_a_turn_opens_one() {
+        let chat = VizierRequest {
+            content: VizierRequestContent::Chat("x".into()),
+            ..Default::default()
+        };
+        assert!(chat.opens_turn());
+        let read_mid_turn = VizierRequest {
+            mid_turn: true,
+            ..chat.clone()
+        };
+        assert!(!read_mid_turn.opens_turn());
+        let delivery = VizierRequest {
+            content: VizierRequestContent::DetachedDelivery("done".into()),
+            ..Default::default()
+        };
+        assert!(!delivery.opens_turn());
+    }
+
+    /// contracts/steering.md S5: the sender stays the person, `via` says it was read mid-turn.
+    #[test]
+    fn a_mid_turn_message_says_so_in_its_frontmatter() {
+        let request = VizierRequest {
+            user: "dana".into(),
+            content: VizierRequestContent::Chat("keep the old token format".into()),
+            mid_turn: true,
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        };
+        let prompt = request.to_prompt().unwrap();
+        assert!(prompt.contains("sender: dana"), "{prompt}");
+        assert!(prompt.contains("via: mid_turn"), "{prompt}");
+        assert!(prompt.ends_with("keep the old token format"), "{prompt}");
+    }
+
     #[test]
     fn model_override_is_optional_and_preserves_slashes_in_model_ids() {
         let legacy: VizierRequest = serde_json::from_value(serde_json::json!({
@@ -593,12 +752,7 @@ mod tests {
             VizierRequestContent::SilentRead("s".into()),
             VizierRequestContent::Unattended("u".into()),
             VizierRequestContent::Command("checkpoint".into()),
-            VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "j".into(),
-                kind: crate::schema::JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             VizierRequestContent::ClientEvent(ClientEvent {
                 text: "x".into(),
                 data: None,
@@ -699,6 +853,42 @@ mod tests {
         );
     }
 
+    /// Spec 059: a worker's request says it came from its main agent, as a worker task.
+    #[test]
+    fn a_worker_task_and_reply_are_sent_by_the_main_agent() {
+        let task = VizierRequest {
+            timestamp: crate::time::now(),
+            user: "oz".into(),
+            content: VizierRequestContent::SubagentTask(crate::schema::SubagentBrief {
+                subagent_id: "s_1".into(),
+                position: 2,
+                group_size: 4,
+                text: "compare prices".into(),
+            }),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        };
+        let frontmatter = task.generate_frontmatter().unwrap();
+        for line in ["sender: oz", "via: subagent", "subagent: s_1", "task: 2 of 4"] {
+            assert!(frontmatter.contains(line), "{line} in {frontmatter}");
+        }
+        assert_eq!(task.content.kind(), "subagent_task");
+
+        let reply = VizierRequest {
+            content: VizierRequestContent::SubagentReply(crate::schema::SubagentReplyText {
+                subagent_id: "s_1".into(),
+                text: "EU retail".into(),
+            }),
+            ..task
+        };
+        let frontmatter = reply.generate_frontmatter().unwrap();
+        for line in ["sender: oz", "via: subagent_reply", "subagent: s_1"] {
+            assert!(frontmatter.contains(line), "{line} in {frontmatter}");
+        }
+        assert!(!frontmatter.contains("task:"));
+        assert_eq!(reply.content.to_string(), "EU retail");
+    }
+
     fn at_known_time(content: VizierRequestContent) -> VizierRequest {
         VizierRequest {
             timestamp: "2026-11-07T09:00:00+07:00".parse().unwrap(),
@@ -782,19 +972,14 @@ mod tests {
         assert!(!frontmatter.contains("requested_by"), "{frontmatter}");
     }
 
-    /// A background report is sent by the background machinery, never by a person — its
-    /// `user` is the agent's own id and must not appear as the sender.
+    /// A delivery is sent by the background machinery, never by a person: its `user` is the
+    /// agent's own id and must not appear as the sender.
     #[test]
-    fn a_background_report_is_sent_by_the_background() {
+    fn a_delivery_is_sent_by_the_background() {
         let req = VizierRequest {
             timestamp: crate::time::now(),
             user: "agent-1".to_string(),
-            content: VizierRequestContent::BackgroundReport(BackgroundReport {
-                job_id: "b-7f3a9c".to_string(),
-                kind: crate::schema::JobKind::Batch,
-                delegated_to: None,
-                entries: vec![],
-            }),
+            content: VizierRequestContent::DetachedDelivery("[Background work finished]".into()),
             metadata: serde_json::json!({}),
             background_depth: 1,
             ..Default::default()
@@ -802,9 +987,27 @@ mod tests {
 
         let frontmatter = req.generate_frontmatter().unwrap();
         assert!(frontmatter.contains("sender: background"), "{frontmatter}");
-        assert!(frontmatter.contains("job: b-7f3a9c"), "{frontmatter}");
-        assert!(frontmatter.contains("job_kind: batch"), "{frontmatter}");
         assert!(!frontmatter.contains("agent-1"), "{frontmatter}");
+        assert!(!req.is_durable(&crate::schema::VizierSession(
+            "agent-1".into(),
+            crate::schema::VizierChannelId::System,
+            None
+        )));
+    }
+
+    /// A report saved before spec 058 still reads, so old conversations keep their history
+    /// (#82).
+    #[test]
+    fn a_pre_058_background_report_still_reads() {
+        let stored = serde_json::json!({
+            "background_report": {
+                "job_id": "b-7f3a9c", "kind": "batch", "delegated_to": null,
+                "entries": [{"ordinal": 0, "prompt": "check x", "state": "answered", "text": "x is fine", "truncated": false}]
+            }
+        });
+        let content: VizierRequestContent = serde_json::from_value(stored).unwrap();
+        let text = content.to_string();
+        assert!(text.starts_with("[Background report]") && text.contains("x is fine"), "{text}");
     }
 
     /// A dream request carries `Unattended` too, and must not be attributed to the
@@ -1022,4 +1225,19 @@ mod tests {
         let wire = serde_json::to_value(&request).unwrap();
         assert!(wire.get("client_context").is_none(), "{wire}");
     }
+}
+
+/// The text of a pre-058 background report, from its stored JSON: one paragraph per entry.
+fn legacy_report_text(report: &serde_json::Value) -> String {
+    let mut out = String::from("[Background report]");
+    for entry in report.get("entries").and_then(|e| e.as_array()).into_iter().flatten() {
+        let prompt = entry.get("prompt").and_then(|v| v.as_str()).unwrap_or_default();
+        let state = entry.get("state").and_then(|v| v.as_str()).unwrap_or_default();
+        let text = entry.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+        out.push_str(&format!("
+
+{prompt} ({state})
+{text}"));
+    }
+    out
 }

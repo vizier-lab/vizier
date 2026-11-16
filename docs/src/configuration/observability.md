@@ -26,20 +26,22 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 vizier run
 
 ## What a trace looks like
 
-One trace covers a conversation turn **and the work it starts**. Here a person's message makes the agent run a script that waits for two subagents:
+One trace covers a conversation turn **and the work it starts**. Here a person's message makes the agent run a script that hires two workers:
 
 ```
 invoke_agent otel                         ← the turn
   chat gpt-5                              ← one request to the provider
   execute_tool execute_python             ← a tool call the model made
     python_exec
-      execute_tool parallel_subagents    ← a tool called from inside the script
-        invoke_agent otel               ← subagent 1's turn
+      execute_tool spawn_subagents       ← a tool called from inside the script
+        invoke_agent otel               ← worker 1's turn (vizier.subagent.id)
           chat gpt-5
-        invoke_agent otel               ← subagent 2's turn
+        invoke_agent otel               ← worker 2's turn
           chat gpt-5
   chat gpt-5                              ← the turn's final answer
 ```
+
+A worker's turn carries `vizier.subagent.id` and `vizier.subagent.position`. Its turn after a reply (`reply_subagent`) continues the replying call's trace.
 
 An agent woken by a mention in a Workspace starts a new trace of its own, because it is a turn of its own; filter on the Workspace's conversation id to follow a chain.
 
@@ -66,6 +68,8 @@ A message from a person (WebUI, Discord, Telegram), a scheduled task run and a d
 | `vizier.background_depth` | how many background hops led to this turn (0 for a person's message) |
 | `vizier.queue.wait_ms` | time spent queued before the turn started: behind a running turn, or while the agent restarted |
 | `vizier.dream` | `true` for a dream-cycle turn |
+| `vizier.prune.outputs` | tool outputs replaced by a pruning placeholder in the turn's last request (see [Pruned tool outputs](./tools-embedding.md#pruned-tool-outputs)) |
+| `vizier.prune.tokens_removed` | the estimated tokens that pruning removed from that request |
 
 ### `chat {model}`: one request to a provider
 
@@ -97,16 +101,15 @@ A turn makes one `chat` call per model step, and each retry attempt is its own s
 
 Tools the model calls directly (`execute_python`, `list_tool_functions`, …) and tools a script calls (`memory_search`, MCP tools, …) both get this span. Script calls nest under the script's `python_exec` span.
 
-### `background_job {kind}`: a background job
+### `detached_script {id}`: a detached script
 
-It opens when `background_subagents` launches the job and closes when the job is reported or cancelled, so its duration is the job's. The blocking `parallel_subagents` tool has no background-job span: its pieces are children of the tool call itself.
+It opens when `execute_python` runs with `detached: true` and closes when the script ends, is cancelled or is interrupted, so its duration is the script's. It is created inside the launching call's span, so it continues that turn's trace, and the tool calls the script makes (and the turns of any sub-agents it starts) are its children. Hiring workers (`spawn_subagents`) has no span of its own beyond the tool call.
 
 | Attribute | Value |
 |-----------|-------|
-| `vizier.job.id` | the job id, as shown in the WebUI's jobs tray |
-| `vizier.job.kind` | `batch` or `delegation` |
-| `vizier.job.pieces` | the number of pieces |
-| `vizier.job.timeout_secs` | the per-piece time limit |
+| `vizier.detached.id` | the script's handle, e.g. `d_k3x9a1b2`, as shown in the WebUI's Background work panel |
+| `vizier.detached.timeout_secs` | the script's time limit |
+| `vizier.detached.depth` | how many background hops led to the turn that launched it |
 
 ### `python_exec`
 

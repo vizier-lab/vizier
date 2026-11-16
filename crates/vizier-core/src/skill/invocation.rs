@@ -9,8 +9,9 @@
 use crate::{schema::Skill, skill::SkillManager};
 
 /// Names the commands themselves use. A skill with one of these names is never invoked by
-/// name, so `/skill` and `/skills` always mean the commands.
-pub const RESERVED: [&str; 2] = ["skill", "skills"];
+/// name, so `/skill`, `/skills` and `/queue` (spec 062) always mean the commands; such a skill is
+/// still reachable as `/skill <name>`.
+pub const RESERVED: [&str; 3] = ["skill", "skills", "queue"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Parsed {

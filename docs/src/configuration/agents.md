@@ -114,6 +114,32 @@ Clients see a `checkpoint` response event with the handover text. Manual variant
 - Roles with `all_agents:view` / `all_agents:edit` / `all_agents:delete` bypass ownership; `owned_agents:delete` allows deleting own agents. The `superadmin` system role has everything.
 - `DELETE /api/v1/agents/{id}?delete_workspace=true` also removes `agents/<id>/` (memory, skills) from disk.
 
+## Background work
+
+An agent runs slow work in the background by calling `execute_python` with `detached: true`. The call returns a handle such as `{"detached": true, "id": "d_k3x9a1b2", "state": "running", "timeout_secs": 600}` at once, the script runs in its own task, and the agent carries on: it can keep talking to the person while a test suite runs or several pages are fetched. Any tool the script calls runs in the background with it.
+
+- **Time limit.** `timeout_secs` (1 to 3600, default 600) bounds the whole script, every tool and wait included. Without `detached` the field is ignored.
+- **What is not available inside.** Asking the person (`ask_question`, `ask_sensitive_input`), the person's client tools (the WebUI's `ui_render` and the like) and every tool that ends the turn: the turn that launched the script may be over. They are absent from `list_tools()` there.
+- **Delivery.** When the script ends, its result reaches the agent exactly once as a message starting `[Background work finished]`: in the agent's next step if it is working on a turn of that conversation, otherwise as a new turn that wakes it. Files the script produced become session files of the conversation and are named in the message.
+- **The agent's tools.** `list_detached_scripts`, `get_detached_script` and `cancel_detached_script` (category `agents`) list, inspect and stop the conversation's background work. A cancel also stops what the script was waiting on and any background work started beneath it; nothing is delivered for a cancelled script.
+- **People.** The chat's status strip shows **Background work** with a count while something runs; its panel lists each script by its intent and opens it the way the activity trail shows a script (code, the calls inside, the result). Each finished script also raises one notification. Cancelling from the WebUI is not available yet; ask the agent to cancel.
+- **Lifecycle.** Updating or restarting the agent, or restarting the server, interrupts its running scripts; the agent is told in a delivery. Deleting the agent or the conversation stops and removes them. Scheduled-task and dream turns cannot detach (nobody is waiting to be told), and a script at the third level of background nesting cannot start another.
+
+`background_subagents`, `list_background_jobs` and `cancel_background_job` were removed in this release; an agent that calls one is told what replaced it.
+
+## Subagents
+
+An agent splits work with independent parts between **workers**: temporary helpers that are the agent itself, working on one task each. A worker acts with the agent's tools, memory and permissions, and what it does is credited to the agent; it has no settings of its own. Its prompt tells it so: it works *for* the agent, the agent's identity (`core/soul`) and owner are described as its employer's, and its answer goes back to the agent, not to a person.
+
+- **The tools** (category `subagents`). `spawn_subagents` hires one worker per task and returns their handles (`s_…`) at once. `wait_subagents` waits until one (`until: "any"`) or every (`until: "all"`) worker has settled; a worker that is asking a question counts as settled, so the agent is never stuck waiting on a worker that waits for it. `reply_subagent` answers a worker's question, `stop_subagent` stops one worker, and `list_subagents` and `get_subagent` read them.
+- **Questions.** A worker that cannot go on without the agent's decision calls `ask_main_agent`. Its step ends, its state reads `asking`, and the agent's reply continues it in the same conversation. Workers never ask the person.
+- **Lifetime.** A worker lives as long as the conversation it was hired in. It keeps running when the agent's turn ends or a person sends `/abort`, it resumes after an update or a restart, and it stops only when it finishes, is stopped, reaches its time limit (`timeout_secs`, 1 to 3600, default 600; time spent waiting for a reply does not count), or its conversation or agent is deleted.
+- **Delivery.** An answer or a question the agent has not already read through `wait_subagents` or `get_subagent` reaches it exactly once, as a message starting `[Subagent update]`: in its next step if it is working, otherwise as a new turn.
+- **Watching them.** In the WebUI the chat's status strip has a **Subagents** item, separate from Background work: it counts the workers still at work and shows an amber dot while one is waiting for the agent's reply. Its panel groups the workers by the spawn that hired them, quotes a waiting worker's question, and opens a worker to its task, its steps (the same activity trail as the chat) and its result. It is read-only: only the agent stops or replies to a worker. Over HTTP the same rows are `GET /api/v1/agents/{id}/channel/{channel}/topic/{topic}/subagents`, `…/subagents/{subagent_id}` and `…/subagents/{subagent_id}/history`.
+- **Depth.** Only the main agent hires workers. The [`subagents.max_depth`](./main-config.md#subagents) setting raises the limit.
+
+`parallel_subagents` was removed in this release; an agent that calls it is told to use `spawn_subagents` and `wait_subagents`.
+
 ## Dream cycle
 
 An optional, scheduled reflection pass. When `dream_enabled` is true and `dream_schedule` is a valid cron expression, the scheduler runs (per agent, never concurrently):
@@ -149,14 +175,14 @@ A task's prompt runs as the agent in a dedicated `Task` session; the agent can r
 
 ## Usage
 
-Every model call an agent makes is recorded as it is answered, whether or not a reply is delivered: chat turns (each tool round on its own), scheduled runs, background jobs and consults, dream cycles, checkpoint summaries, and image reads on a vision model. Rounds of a turn that failed, timed out or was aborted still count, and are marked as spent on a failed turn. Each call records its provider, the model requested and the model version the provider says it served.
+Every model call an agent makes is recorded as it is answered, whether or not a reply is delivered: chat turns (each tool round on its own), scheduled runs, sub-agent work (inline or in a detached script), dream cycles, checkpoint summaries, and image reads on a vision model. Rounds of a turn that failed, timed out or was aborted still count, and are marked as spent on a failed turn. Each call records its provider, the model requested and the model version the provider says it served.
 
 Each call has one **activity**:
 
 | Activity | What it covers |
 |---|---|
-| Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished background job wakes |
-| Background | Subagents (`parallel_subagents` and `background_subagents`), counted for the agent that ran them |
+| Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished detached script wakes |
+| Subagents | Worker turns (`spawn_subagents`), counted for the agent that hired them |
 | Scheduled | Scheduled task runs |
 | Dreams | Dream extraction and consolidation |
 | Compaction | Checkpoint summaries, automatic and `/checkpoint` |

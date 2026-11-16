@@ -71,6 +71,7 @@ Send the JSON back (edit the values first) to run the tool.
 - `tool` (string, required)
 - `arguments` (object, optional, defaults to `{}`)
 - `say` (string, optional, spec 053): text the model writes in the same message as the tool call, ahead of it. This is how a test produces a mid-turn message or a mid-turn mention. An empty string is the same as leaving it out.
+- `delay_ms` (integer 0 to 10000, optional, spec 062): how long dummyplug waits before answering with the tool call, so a test can send a message while the turn is busy. Outside that range: `Invalid tool request: delay_ms must be an integer from 0 to 10000`. With `delay_ms` present, `tool` may be left out: `{"say": "done", "delay_ms": 2000}` waits, then answers with `say` as the final text and no tool call (a busy turn with no round boundary).
 - Any other keys are ignored.
 
 **Outcomes**:
@@ -112,9 +113,43 @@ Added by `specs/013-reaction-awareness` (`contracts/dummyplug-context.md`).
 
 Usage is zero, as in §5.
 
-**Precedence**: checked after §1 (`tools`) and before §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `context`, so §2 can't shadow it.
+**Precedence**: checked after §1 (`tools`) and before §7 (`pruned`), §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `context`, so §2 can't shadow it.
 
 **Compatibility**: additive. Every message that produced a §1 to §5 reply before still produces the same reply, so existing quickstart scripts are unaffected. It exists because what the agent *receives* (for example the `## Reactions` section) is otherwise unobservable offline.
+
+## 7. `pruned`: list the placeholders the model was sent
+
+Added by `specs/060-prune-tool-outputs` (`contracts/dummyplug-pruned.md`).
+
+**Behaviour**: when the command text of the incoming user message, trimmed, is exactly `pruned` (case-insensitive), the reply is one text message listing every tool result in the received request that is a pruning placeholder (`[output pruned (<size>) - use recall_history("<record>") to recall]`), in order:
+
+```text
+<n> pruned:
+- <call_id> <record> <size>
+```
+
+or `(nothing pruned)` when there is none. Usage is zero, as in §5.
+
+**Precedence**: checked after §1 (`tools`) and §6 (`context`), before §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `pruned`.
+
+**Compatibility**: additive, like §6. It exists because which outputs the model was sent pruned is otherwise unobservable offline.
+
+## 8. Read mid-turn: what a running turn read at a round boundary
+
+Added by `specs/062-steer-busy-turn` (`contracts/dummyplug-steer.md`).
+
+**Behaviour**: when the request's newest message is a user message right after tool results and at least one of its text parts carries Vizier's frontmatter (a message the person sent while the agent worked, or finished background work), the reply is:
+
+```text
+**Read mid-turn**:
+<each such part's text, frontmatter removed, one per line>
+```
+
+instead of the §4 tool-result echo. A part whose frontmatter says `sender: background` is prefixed `background: `. A plain note without frontmatter (`[Images loaded …]`) is not a mid-turn read and keeps the earlier behaviour.
+
+**Precedence**: checked right after §4 (trailing tool results), before every command.
+
+**Compatibility**: additive. It exists because which messages reached the turn's next step is otherwise unobservable offline.
 
 ## Provider API
 

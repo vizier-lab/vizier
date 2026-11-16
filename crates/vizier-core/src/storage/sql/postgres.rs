@@ -653,6 +653,10 @@ impl Dialect for PgDialect {
     fn next_sequence_value(&self, _table: &str, _column: &str) -> String {
         "DEFAULT".into()
     }
+
+    fn share_lock_suffix(&self) -> &'static str {
+        " FOR SHARE"
+    }
 }
 
 #[cfg(test)]

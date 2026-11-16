@@ -2,7 +2,7 @@
 //!
 //! The WebSocket handler and the desktop app's IPC both drive a [`TopicConnection`]: frames
 //! the client sends go to [`TopicConnection::handle_inbound`], and everything the engine
-//! pushes (a turn's frames, background jobs, reactions, client tool calls) arrives on the
+//! pushes (a turn's frames, detached scripts, reactions, client tool calls) arrives on the
 //! `out` channel given to [`TopicConnection::open`].
 
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use vizier_core::{
 
 use crate::{
     api::v1::agents::channel::{
-        ClientLimits, WebSocketReactionMessage, bind_client_tools, check_client_context, check_client_event,
+        ClientLimits, WebSocketReactionMessage, answer_turn, bind_client_tools, check_client_context, check_client_event,
         client_call_state, client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
     },
     state::HTTPState,
@@ -37,6 +37,8 @@ use crate::{
 fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.background_depth = 0;
     request.timestamp = vizier_core::time::now();
+    // Only a running turn's round boundary marks a message as read mid-turn (spec 062 R5).
+    request.mid_turn = false;
 }
 
 /// Whether this caller may open a live voice session (T109, FR-062).
@@ -230,12 +232,17 @@ mod tests {
         assert!(matches!(sent.content, VizierRequestContent::Chat(_)));
         let mut request = sent;
         request.background_depth = 3;
+        request.mid_turn = true;
 
         let before = vizier_core::time::now();
         stamp_on_receipt(&mut request);
 
         assert!(request.timestamp >= before, "stamped with the server's time, not 2001");
         assert_eq!(request.background_depth, 0);
+        assert!(
+            !request.mid_turn,
+            "only the engine marks a message as read mid-turn"
+        );
     }
 
     // ---- T110 round 2 (GI-07): the expiry check, reached through the socket -------------------
@@ -1271,7 +1278,8 @@ impl TopicConnection {
                             // turn (spec 042 FR-017).
                             if matches!(request.content, VizierRequestContent::QuestionAnswer(_))
                             {
-                                let VizierRequestContent::QuestionAnswer(answer) = request.content
+                                let VizierRequestContent::QuestionAnswer(answer) =
+                                    std::mem::take(&mut request.content)
                                 else {
                                     unreachable!("just matched a question answer")
                                 };
@@ -1286,7 +1294,7 @@ impl TopicConnection {
                                 )
                                 .await
                                 {
-                                    Ok(prepared) => request = prepared,
+                                    Ok(prepared) => request = answer_turn(&mut request, prepared),
                                     Err(error) => {
                                         send_frame(question_error(&set_id, &error)).await;
                                         return;
@@ -1342,6 +1350,15 @@ impl TopicConnection {
                             let transport = self.transport.clone();
                             tokio::spawn(async move {
                                 while let Ok(response) = response_rx.recv_async().await {
+                                    // This message was read by the turn already running
+                                    // (spec 062): that turn's frames are what the page shows,
+                                    // and its stored request moves the waiting row.
+                                    if matches!(
+                                        response.content,
+                                        vizier_core::schema::VizierResponseContent::Steered
+                                    ) {
+                                        continue;
+                                    }
                                     transport.publish_session_event(SessionEvent {
                                         session: session.clone(),
                                         frame: SessionFrame::Response(response),
@@ -1397,8 +1414,11 @@ impl TopicOutbound {
                     Ok(ev) if ev.session == self.session => {
                         let json = match ev.frame {
                             SessionFrame::Response(response) => serde_json::to_value(&response).ok(),
-                            SessionFrame::Job(snapshot) => {
-                                Some(serde_json::json!({ "background_job": snapshot }))
+                            SessionFrame::DetachedScript(script) => {
+                                Some(serde_json::json!({ "detached_script": script }))
+                            }
+                            SessionFrame::Subagent(worker) => {
+                                Some(serde_json::json!({ "subagent": worker }))
                             }
                             SessionFrame::Reactions { history_uid, reactions } => Some(
                                 serde_json::json!({

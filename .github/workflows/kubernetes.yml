@@ -40,7 +40,9 @@ jobs:
 
   lifecycle:
     name: Cluster lifecycle (Kubernetes 1.32)
-    runs-on: ubuntu-latest
+    # The binary is built on the runner and copied into the ubuntu:24.04 image (Dockerfile), so
+    # the runner's glibc must not be newer than the image's: ubuntu-latest moved past 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
