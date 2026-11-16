@@ -95,7 +95,7 @@ If **2 of 3** tasks are blocked by "spec not ready", or **>2 of 5** rows use `ta
 One command in the repo — code written by `@sepuh-be`, semantics owned by `@system-analyst`, run at the Lead's gate — prints: defined ids, struck/deferred, referenced-but-undefined, lettered variants, and the live count. The output is pasted into the `siap-kirim` report; the spec is not used before the output is clean.
 
 - **Default scope: per feature.** `--all` is only for audits and **MUST NOT** be used as the basis of a gate: broken FRs in another feature must not block the feature being worked on. The output **MUST** name its scope (`scope: 055`), so that "clean" is never read as "the whole repo is clean".
-- **`@system-analyst` proposal (9 Nov 2026, not yet ACCed):** the output also names `hidup-tanpa-pembawa` (a defined FR not referenced by any task) and `deferred-yang-masih-dirujuk-qa-plan`. The reason: a command that only checks one direction can come out clean while a live requirement has no implementer — a green gate for something that will not be built. **MUST NOT be held back for the first version of the checker.**
+- **`@system-analyst` proposal (9 Nov 2026, not yet ACCed):** the output also names `live-without-carrier` (a defined FR not referenced by any task; named `hidup-tanpa-pembawa` in the original Indonesian proposal) and `deferred-still-referenced-by-qa-plan` (`deferred-yang-masih-dirujuk-qa-plan`). The reason: a command that only checks one direction can come out clean while a live requirement has no implementer — a green gate for something that will not be built. **MUST NOT be held back for the first version of the checker.**
 
 ## Row format
 `ID . judul . status . pemilik . sejak . R: <FR-### | tanpa-spec:<alasan>> . diblokir oleh`
