@@ -4,9 +4,9 @@
 
 | Subject | Kind | Payload |
 |---|---|---|
-| `ui.verify.{session_key}` | request/reply | request `{request_id, page_id, version, observe_ms}` → reply `{request_id, problems: [Problem], observed_ms}` or `{request_id, closed: true}` |
+| `ui.{session_key}.verify` | request/reply | request `{request_id, page_id, version, observe_ms}` → reply `{request_id, problems: [Problem], observed_ms}` or `{request_id, closed: true}` |
 
-`session_key` is the session's slug key, as in `session.{id}.events`.
+`session_key` is the session's slug (`Subject::ui_verify`), as in `session.{id}.events`.
 - Each chat socket on a `HTTP` or `Project` session subscribes for as long as it is open.
 - The tool's request has a deadline of 10 s.
 - `NoResponders` produces `unverified(no_tab)`, `Timeout` produces `unverified(timeout)`, and a `closed` reply produces `unverified(closed)`.

@@ -105,12 +105,12 @@ pub fn document(html: &str, kit: Option<&Kit>, boot: &serde_json::Value) -> Stri
             head.push_str(&inline_safe(&runtime));
             head.push_str("</script>");
         }
-        if html.contains("<vz-") {
-            if let Some(js) = kit.manifest.files.js.as_deref().and_then(|f| (kit.read)(f)) {
-                head.push_str("<script data-vz-kit>");
-                head.push_str(&inline_safe(&js));
-                head.push_str("</script>");
-            }
+        if html.contains("<vz-")
+            && let Some(js) = kit.manifest.files.js.as_deref().and_then(|f| (kit.read)(f))
+        {
+            head.push_str("<script data-vz-kit>");
+            head.push_str(&inline_safe(&js));
+            head.push_str("</script>");
         }
     }
     // A page that is a full document merges into this head and body, as the HTML parser does.

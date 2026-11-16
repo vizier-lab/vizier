@@ -100,28 +100,35 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 - quickstart §1: no tab, the version is saved, `verified: false, reason: "no_tab"`, the turn ends.
 - quickstart §7.1 and §7.2: a real browser draws a chess page, and the hostile pages are all blocked.
 
-- [ ] T025 [US1] Implement the `ui_render` tool in `crates/vizier-core/src/agents/tools/ui_pages.rs`:
+- [x] T025 [US1] Implement the `ui_render` tool in `crates/vizier-core/src/agents/tools/ui_pages.rs`:
   - the input as a serde enum of the three shapes (contracts/ui-render-tool.md, with `deny_unknown_fields`);
   - the fixed description;
   - `ends_turn() → true`, `category() → Ui`;
   - `guide()` → `include_str!("../../../assets/ui-kit/REFERENCE.md")`;
   - `available(ctx)` per research R9 (`HTTP`/`Project` channel and `!ctx.detached`).
   For US1, the new-page shape calls `UiPages::create`, records the entry with `agents::steps::record_step` and returns `{status: "rendered", page, version: 1, verified: false, reason: "no_tab"}`. Verification comes in US3.
-- [ ] T026 [US1] Register `ui_render` on `default_toolset` in `BaseTools::new()`, add it to the `every_tool_is_in_its_category` table, and keep it out of `DREAM_TOOL_NAMES`, in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T027 [US1] Map refusals to `Err(VizierError(json))` with the `code`s of contracts/ui-render-tool.md (`invalid_input`, `too_large`) in `crates/vizier-core/src/agents/tools/ui_pages.rs`. Add unit tests for each shape's validation.
-- [ ] T028 [P] [US1] Write the first version of the guide `crates/vizier-core/assets/ui-kit/REFERENCE.md`:
+- [x] T026 [US1] Register `ui_render` on `default_toolset` in `BaseTools::new()`, add it to the `every_tool_is_in_its_category` table, and keep it out of `DREAM_TOOL_NAMES`, in `crates/vizier-core/src/agents/tools/mod.rs`
+- [x] T027 [US1] Map refusals to `Err(VizierError(json))` with the `code`s of contracts/ui-render-tool.md (`invalid_input`, `too_large`) in `crates/vizier-core/src/agents/tools/ui_pages.rs`. Add unit tests for each shape's validation.
+- [x] T028 [P] [US1] Write the first version of the guide `crates/vizier-core/assets/ui-kit/REFERENCE.md`:
   - the page model;
   - the rules (no script network; `https` media; `requestAnimationFrame` loops; `vizier.worker` for work over about 50 ms; limits);
   - bridge v1;
   - the canvas game-loop example.
   US4 adds the kit section.
-- [ ] T029 [US1] Draw a `UiPage` history entry in the reply with `SandboxedPage`, fetching the version's HTML with `getUiPageVersion`, in `webui/app/screens/chat/UiPageEntry.tsx`. Wire it into the turn grouping in `webui/app/lib/trail.ts` (and `MessageList.tsx`): the last `UiPage` of a turn is the reply, and earlier ones are collapsed trail steps. Follow the T002 mockup.
-- [ ] T030 [US1] Add the frame header (title, `v{n}`, "unchecked" when `verified: false`, full screen, Download through `standaloneDocument`) in `webui/app/screens/chat/UiPageEntry.tsx`. If the mockup needs a new component variant, add it in `design/` first, with a story.
-- [ ] T031 [P] [US1] Write the hostile-page fixtures, one file per probe (`localStorage`, `cookie`, `parent.document`, `top.location`, `fetch`, `WebSocket`, `<script src=https://…>`, `window.open`), each reporting its result through `console.error`, in `webui/app/test/fixtures/hostile-pages/`
-- [ ] T032 [US1] Add dummyplug e2e quickstart §1 (create with no tab; GET page; history entry) as `ui_pages_create` in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [x] T029 [US1] Draw a `UiPage` history entry in the reply with `SandboxedPage`, fetching the version's HTML with `getUiPageVersion`, in `webui/app/screens/chat/UiPageEntry.tsx`. Wire it into the turn grouping in `webui/app/lib/trail.ts` (and `MessageList.tsx`): the last `UiPage` of a turn is the reply, and earlier ones are collapsed trail steps. Follow the T002 mockup.
+- [x] T030 [US1] Add the frame header (title, `v{n}`, "unchecked" when `verified: false`, full screen, Download through `standaloneDocument`) in `webui/app/screens/chat/UiPageEntry.tsx`. If the mockup needs a new component variant, add it in `design/` first, with a story.
+- [x] T031 [P] [US1] Write the hostile-page fixtures, one file per probe (`localStorage`, `cookie`, `parent.document`, `top.location`, `fetch`, `WebSocket`, `<script src=https://…>`, `window.open`), each reporting its result through `console.error`, in `webui/app/test/fixtures/hostile-pages/`
+- [x] T032 [US1] Add dummyplug e2e quickstart §1 (create with no tab; GET page; history entry) as `ui_pages_create` in `crates/vizier-core/tests/dummyplug_e2e.rs`
 - [ ] T033 [US1] Browser check, quickstart §7.1–7.3 (game, isolation suite, `https`/`http` media), with the preview tools. Record the result in the PR description.
 
 **Checkpoint**: an agent can draw any HTML page in a WebUI chat (MVP).
+
+> **Notes (2026-11-16):**
+> - T031 is one combined fixture, `escape-probe.html`. It reports each probe as a page problem; all were blocked in the WebUI, and the https image loaded.
+> - T033 is done except the game with a live provider. The isolation suite and http/https media were checked through `crates/vizier-http/tests/dev_serve.rs`, an ignored dev server, because the `vizier` binary does not build on Windows.
+> - T032 and T038 are the same dummyplug test, `ui_pages_are_drawn_versioned_and_refused_through_the_loop`.
+> - T035's replace and edit logic lives in the tool (`UiRender::add`) over `UiPages::add_version`.
+> - T039 and T040 landed early: the request side of the check. With no responder yet (T041), every version is honestly `unverified(no_tab)`.
 
 ---
 
@@ -131,11 +138,11 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Independent test**: quickstart §2.
 
-- [ ] T034 [P] [US2] Implement the pure `apply_edits(base: &str, edits: &[Edit]) -> Result<String, EditError { index, kind: NotFound | Ambiguous(count) | EmptyFind }>` (in order, exactly once at the point of application) in `crates/vizier-core/src/ui_pages/edits.rs`, with unit tests: a match after a previous edit, overlapping text, multi-byte characters, all or nothing.
-- [ ] T035 [US2] Add `UiPages::replace` and `UiPages::edit` (load the latest version's HTML, check `base_version`, apply, size check, `add_ui_page_version`, map `StaleBase` → `stale_base { latest }`) in `crates/vizier-core/src/ui_pages/mod.rs`
-- [ ] T036 [US2] Handle the full-replacement and edit-set shapes in `ui_render`, including `unknown_page`, `other_conversation` (the page's `(agent, channel, topic)` differs from `ctx.session`), `stale_base`, `edit_not_found` and `edit_ambiguous`, in `crates/vizier-core/src/agents/tools/ui_pages.rs`
-- [ ] T037 [US2] Make each reply keep drawing its own version: `UiPageEntry` fetches the entry's `version`, not the latest, in `webui/app/screens/chat/UiPageEntry.tsx`
-- [ ] T038 [US2] Add dummyplug e2e quickstart §2 (every row) as `ui_pages_edits` in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [x] T034 [P] [US2] Implement the pure `apply_edits(base: &str, edits: &[Edit]) -> Result<String, EditError { index, kind: NotFound | Ambiguous(count) | EmptyFind }>` (in order, exactly once at the point of application) in `crates/vizier-core/src/ui_pages/edits.rs`, with unit tests: a match after a previous edit, overlapping text, multi-byte characters, all or nothing.
+- [x] T035 [US2] Add `UiPages::replace` and `UiPages::edit` (load the latest version's HTML, check `base_version`, apply, size check, `add_ui_page_version`, map `StaleBase` → `stale_base { latest }`) in `crates/vizier-core/src/ui_pages/mod.rs`
+- [x] T036 [US2] Handle the full-replacement and edit-set shapes in `ui_render`, including `unknown_page`, `other_conversation` (the page's `(agent, channel, topic)` differs from `ctx.session`), `stale_base`, `edit_not_found` and `edit_ambiguous`, in `crates/vizier-core/src/agents/tools/ui_pages.rs`
+- [x] T037 [US2] Make each reply keep drawing its own version: `UiPageEntry` fetches the entry's `version`, not the latest, in `webui/app/screens/chat/UiPageEntry.tsx`
+- [x] T038 [US2] Add dummyplug e2e quickstart §2 (every row) as `ui_pages_edits` in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 **Checkpoint**: an agent can make a small change to a page without rewriting it.
 
@@ -147,8 +154,8 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Independent test**: quickstart §3 through `scripts/ui-pages-e2e.mjs`.
 
-- [ ] T039 [US3] Implement `ui_pages::verify::verify(bus, session, page, version) -> Verification`: a bus `request` on `ui.verify.{session_key}` with `{request_id, page_id, version, observe_ms}`. Map `NoResponders`→`unverified(no_tab)`, `Timeout`→`unverified(timeout)`, a `closed` reply→`unverified(closed)`, a report→`clean`/`problems` (cut to 20 problems and 500 characters). Write the result with `set_ui_page_verification` and publish `UiPageVerified`. In `crates/vizier-core/src/ui_pages/verify.rs`.
-- [ ] T040 [US3] Call `verify` after every saved version in `ui_render`. On `problems`, return `Err` with `code: "problems"`, `page`, `version` and `problems`. Otherwise return `verified` and `reason`. In `crates/vizier-core/src/agents/tools/ui_pages.rs`.
+- [x] T039 [US3] Implement `ui_pages::verify::verify(bus, session, page, version) -> Verification`: a bus `request` on `ui.verify.{session_key}` with `{request_id, page_id, version, observe_ms}`. Map `NoResponders`→`unverified(no_tab)`, `Timeout`→`unverified(timeout)`, a `closed` reply→`unverified(closed)`, a report→`clean`/`problems` (cut to 20 problems and 500 characters). Write the result with `set_ui_page_verification` and publish `UiPageVerified`. In `crates/vizier-core/src/ui_pages/verify.rs`.
+- [x] T040 [US3] Call `verify` after every saved version in `ui_render`. On `problems`, return `Err` with `code: "problems"`, `page`, `version` and `problems`. Otherwise return `verified` and `reason`. In `crates/vizier-core/src/agents/tools/ui_pages.rs`.
 - [ ] T041 [US3] Make each topic socket on an `HTTP`/`Project` session subscribe as responder to `ui.verify.{session_key}` while open. On a request, send that socket `ui_verify`, await its `ui_verify_report` (matched by `request_id`, ignored otherwise) and reply on the bus; reply `{closed: true}` if the socket closes first. In `crates/vizier-http/src/api/v1/agents/channel.rs` (and the desktop `TopicConnection`, `crates/vizier-http/src/topic.rs`).
 - [ ] T042 [US3] Sweep `pending` verifications of the claimed agent to `unverified(closed)` in `recovery::recover_agent` (rows under an older fence only), in `crates/vizier-core/src/recovery.rs`
 - [ ] T043 [US3] Implement the off-screen verifier: on `ui_verify`, fetch the version, mount `SandboxedPage mode="verify"` (1024×768, hidden, outside the viewport) with the page's state, collect problems for `observe_ms`, report `unresponsive` when no heartbeat arrives for 1 s, send `ui_verify_report` and unmount. In `webui/app/lib/uiPage/verify.ts` and `webui/app/screens/chat/client/Verifier.tsx`, mounted once by the chat screen.

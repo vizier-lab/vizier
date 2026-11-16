@@ -87,6 +87,7 @@ pub mod telegram;
 mod think;
 mod time;
 pub mod tts;
+pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
 mod webui;
@@ -1584,6 +1585,13 @@ impl BaseTools {
                 deps.storage.clone(),
                 deps.transport.clone(),
             ))
+            // Interactive pages (spec 063): always registered, offered only in WebUI and project
+            // conversations by `available`, so other prompts never list the `ui` category.
+            .tool(ui_pages::UiRender::new(
+                deps.ui_pages.clone(),
+                deps.storage.clone(),
+                deps.transport.clone(),
+            ))
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
@@ -1970,6 +1978,7 @@ mod tests {
             entry::<GetSecret>(),
             entry::<crate::questions::tool_question::AskQuestion>(),
             entry::<crate::questions::tool_sensitive::AskSensitiveInput>(),
+            entry::<ui_pages::UiRender>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -2087,6 +2096,7 @@ mod tests {
             // Beside `set_secret`/`get_secret`: the value goes to a script (spec 042).
             ("ask_sensitive_input", Secrets),
             ("ask_question", Questions),
+            ("ui_render", Ui),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
