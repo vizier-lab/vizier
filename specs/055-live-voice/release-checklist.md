@@ -83,13 +83,38 @@ Run these first: a red here invalidates section B.
 |---|---|---|---|
 | A1 | `cd webui && npx vitest run app/lib/liveVoice app/screens/chat` | **12 files, 145 passed | 1 skipped, EXIT=0** (measured) | non-zero exit, or a red naming `LiveVoiceRow`, `Composer` or `session` |
 | A2 | `cd webui && npx tsc --noEmit` | `EXIT=2` with **one** error: `TS7016` `rehype-katex` (`app/screens/shared/Markdown.tsx:4`) | any *other* TS error is new |
-| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --features provider-live-voice --lib live_voice` | **48 passed, 0 failed, EXIT=0** (measured) | any failure. Crate + feature minimum; never `--workspace` |
-| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http --features live-voice` | **11 blocks `test result: ok`, 100 passed, 0 failed** (measured) | any failure |
+| A3 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-core --lib live_voice` | **56 passed, 0 failed, EXIT=0** (counted at `5c84baae`: 56 `#[test]` / `#[tokio::test…]` under `crates/vizier-core/src/live_voice/`. The **49** this row carried an hour earlier was the same tree read with an anchored pattern that misses `#[tokio::test(start_paused = true)]` — 7 of the 56 are written that way; the **48** before that was measured *with* the flag in the older snapshot in this file's header, `57321373`) | `error: package 'vizier-core' does not contain this feature: provider-live-voice` means the C17 change has **not** landed yet - a red for the gate, not a skip, so do not reach for the old flag. A count below 56 means a test stopped compiling; name it, never edit the number to match. `--features` is now always an error here, and `--workspace` never enters this file |
+| A4 | `env -u PYTHONHOME -u PYTHONPATH cargo test -p vizier-http` | **every target `test result: ok`, 0 failed, EXIT=0**, and the four `live_voice_*` binaries each `running N tests` with **7 / 8 / 11 / 6** (**32** in all) - never `running 0 tests`. The crate holds **108** test functions (58 in `src/`, 50 in `tests/`) and none is `#[ignore]`d, so the totals should sum to 108 (derived at `5c84baae`: the tautological test is **replaced** by a real one, `a_start_is_ignored_while_the_agent_switch_is_off`, so 32 stays 32; the "100 passed, 11 blocks" this row used to carry was measured in the older snapshot `57321373`) | a `live_voice_*` binary at `running 0 tests` = its file-level `#![cfg(feature = "live-voice")]` is still there; `does not contain this feature: live-voice` = the crate's `[features]` block survived; a total below 108 names a test that stopped running |
 | A5 | `cd webui && npx playwright test --list e2e/live-voice-row.spec.ts e2e/live-voice-lifecycle.spec.ts e2e/live-voice-failures.spec.ts` | **16 tests in 3 files** (8 per project x 2 projects), exit 0 (measured 2026-11-10) | parse error. **A list is not a pass** — it only proves the selectors are syntactically valid |
 | A6 | `node design/scripts/lint-tokens.mjs webui/app` from the repo root (**not** `app`: the script resolves against the cwd, and `app` silently lints nothing and exits 0) | **10 violations, exit 1**, all pre-existing (`SideCard` x2, `WorkspaceHeader` x2, `WorkspaceSidebar` x6) - measured 2026-11-10, replacing the earlier "15" [lap] | **any** violation whose path is `LiveVoiceRow` or `liveVoice` — a raw hex or a raw spacing step got in |
-| A7 | `grep -n 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | **`LiveVoiceRow.tsx:48` only** - the state word `'Interrupted'` inside `rowWord()`; `LiveVoiceControl.tsx` **0** | any hit that renders a **button or label** named Interrupt, or any hit outside `rowWord()`. A bare `grep -c` reports `1` here and is a false alarm - read the line, not the count |
-| A8 | `grep -n 'MANUAL_SPEECH_SURFACES' webui/app/screens/chat/Composer.tsx` | one constant = `false`, plus its two uses (mic, spoken-reply toggle) | a `true` default: the retired surfaces (FR-053/T107) reappear |
-| A9 | read `rowWord()` in `webui/app/screens/chat/LiveVoiceRow.tsx:37-58` | `Connecting…`, `Thinking`, `Listening`, `Speaking`, `Interrupted`, `Reconnecting`, `Ended`, `Failed` | a missing word, or `Thinking` and `Reconnecting` sharing one |
+| A7 | `grep -n 'Interrupt' webui/app/screens/chat/LiveVoiceRow.tsx webui/app/screens/chat/LiveVoiceControl.tsx` | **`LiveVoiceRow.tsx:74` only** (re-measured 2026-11-16 at `webui@0d5255f`; the `:48` this row carried came from the older tree) - the state word `'Interrupted'` inside `rowWord()`; `LiveVoiceControl.tsx` **0** | any hit that renders a **button or label** named Interrupt, or any hit outside `rowWord()`. A bare `grep -c` reports `1` here and is a false alarm - read the line, not the count |
+| A8 | `grep -n 'MANUAL_SPEECH_SURFACES' webui/app/screens/chat/Composer.tsx` | **3 hits**: the constant `false` at `:59`, and its two uses `:440` (mic) and `:494` (spoken-reply toggle) — re-measured 2026-11-16 at `webui@0d5255f` | a `true` default: the retired surfaces (FR-053/T107) reappear |
+| A9 | read `rowWord()` in `webui/app/screens/chat/LiveVoiceRow.tsx:62-84` (re-measured 2026-11-16 at `webui@0d5255f`; the `:37-58` this row carried was the older tree) | `Connecting…`, `Thinking`, `Listening`, `Speaking`, `Interrupted`, `Reconnecting`, `Ended`, `Failed` | a missing word, or `Thinking` and `Reconnecting` sharing one |
+
+**Why A3/A4 changed (2026-11-16, C17 — the flags are deleted, not renamed).** Three consequences a runner will hit,
+all of them arithmetic, none of them a guess:
+
+1. **`--features provider-live-voice` and `--features live-voice` now fail hard** (`does not contain this feature`).
+   The old commands did not weaken, they stopped existing.
+2. **The four `live_voice_*` files no longer compile to empty binaries.** Each begins with
+   `#![cfg(feature = "live-voice")]`, so every earlier no-flag run showed them at `running 0 tests` and their tests
+   were invisible. Counting `^\s*#\[(tokio::)?test` over them gives **7 / 8 / 11 / 6 = 32**. The tautological
+   `the_flag_off_build_has_no_live_voice_surface` goes and **a real test replaces it**
+   (`a_start_is_ignored_while_the_agent_switch_is_off`, `#[tokio::test(flavor = "multi_thread")]`), so the count
+   **stays 32** — the shape changes, not the total. **Count without a `\]` anchor**: seven tests in `vizier-core` and
+   several in this crate are written `#[tokio::test(start_paused = true)]` or `(flavor = "multi_thread")`, and an
+   anchored pattern reads them as absent — the same slip produced this row's first "31" and A3's first "49". The
+   brief's "15 tests in 4 files" reproduces under no counting rule I tried: `#[tokio::test]` alone gives **16**
+   (3 / 0 / 9 / 4), plain `#[test]` alone gives **16** (4 / 8 / 2 / 2), and both together give **32** — 15 is not a
+   rounding of anything.
+3. **So the rise against the old *no-flag* total is +32, not +14.** A no-flag run used to skip these four files
+   whole, running 76 of the crate's 108 tests; it now runs all 108. The removal brief expected +14 and that number is
+   wrong; do not hunt a phantom count to reach it. The *with-flag* total does not move either way: the test added is
+   exactly the test removed.
+
+Both `Expected` cells in A3/A4 are **derived from the source at `5c84baae`, not measured** — the first person to run
+them on a tree where the flags are gone replaces them with the measured figure and says so, which is this file's own
+rule for every `[QA]` line.
 
 ---
 
