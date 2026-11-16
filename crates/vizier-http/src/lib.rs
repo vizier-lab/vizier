@@ -131,9 +131,8 @@ where
 {
     let app = router_with_health(runtime, &config, health.clone());
     async move {
-        // FR-029 option A. Behind the same feature as the frames it serves: without it the registry
-        // does not exist, and a build with the feature off must be unchanged (FR-041).
-        #[cfg(feature = "live-voice")]
+        // FR-029 option A: the one sweeper that ends idle live voice calls. It belongs to the
+        // server, not to a socket, so it starts with the server.
         start_live_voice_sweeper();
         let listener = tokio::net::TcpListener::bind(format!(
             "{}:{}",
@@ -160,7 +159,6 @@ where
 /// `lv_idle` line and race each other into two endings. The registry is process-wide
 /// (`live_voice::sessions()`), so the sweeper belongs to the same lifetime as the server that
 /// serves it, not to a socket.
-#[cfg(feature = "live-voice")]
 fn start_live_voice_sweeper() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {

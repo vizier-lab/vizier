@@ -100,9 +100,8 @@ pub mod dependencies;
 pub mod integrations;
 #[doc(hidden)]
 pub mod llm;
-/// Live voice (`specs/055-live-voice`): a spoken conversation with an agent. Off unless the
-/// `provider-live-voice` feature is on, which is what keeps a build without it unchanged (FR-041).
-#[cfg(feature = "provider-live-voice")]
+/// Live voice (`specs/055-live-voice`): a spoken conversation with an agent. Always compiled; the
+/// switch is the per-agent `live_voice.enabled` setting, off by default (FR-041).
 pub mod live_voice;
 pub(crate) mod notifications;
 #[doc(hidden)]

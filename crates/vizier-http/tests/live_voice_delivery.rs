@@ -9,8 +9,6 @@
 //! `TODO(C5)`: the depth gate itself lives in `TopicOutbound::run`, which needs the connection
 //! harness; the rule it applies is asserted at the queue level below.
 
-#![cfg(feature = "live-voice")]
-
 use std::sync::Arc;
 
 use vizier_core::agents::client::ClientConnection;

@@ -2,11 +2,10 @@
 //! (`specs/055-live-voice`).
 //!
 //! What these tests can prove without a socket: the wire shape the client and the server agree on,
-//! and the sizes the inbound guard is written against. The two cases that need a live socket — a
-//! frame ignored by a build with the feature off, and one refused without being buffered — are
-//! marked `TODO(C5)`: they need the `TopicConnection` harness, which is the next chunk's job.
-
-#![cfg(feature = "live-voice")]
+//! and the sizes the inbound guard is written against. One case does need a connection, and has
+//! one: `a_start_is_ignored_while_the_agent_switch_is_off` drives a real `TopicConnection`
+//! through the desktop dispatcher, which needs neither an HTTP server nor a provider. The one
+//! still marked `TODO(C5)` — a frame refused without being buffered — needs the socket harness.
 
 use vizier_core::live_voice::frame::{
     CHUNK_BASE64, CHUNK_BYTES, CHUNK_SAMPLES, ClientAction, EndReason, LiveVoiceControl,
@@ -176,17 +175,91 @@ fn the_interrupt_reason_is_carried() {
     }
 }
 
-/// T014 (FR-041), the half that needs no socket: with `live-voice` off this file does not compile
-/// into the build at all, and the crate itself still builds — which is what the feature matrix
-/// asserts. The end-to-end half — a `live_voice_start` on a real socket leaving it open and
-/// emitting nothing — needs the connection harness.
+/// T014 (FR-041): the one switch that is left — the agent's own `live_voice.enabled`, off by
+/// default — is the one that has to hold. With it off, `live_voice_start` is ignored: no
+/// `live_voice` frame reaches the socket, and the connection keeps answering everything else.
 ///
-/// TODO(C5): needs `TopicConnection::open` reachable from an integration test without an HTTPState,
-/// then: send `live_voice_start` with the feature off, assert the socket stays open and that no
-/// frame whose top-level key is `live_voice` was ever written.
-#[test]
-fn the_flag_off_build_has_no_live_voice_surface() {
-    // Everything this file uses is behind `live-voice`, so its presence here is only possible in
-    // that build; the other half of the matrix is `cargo build -p vizier-http` with no features.
-    assert!(cfg!(feature = "live-voice"));
+/// This is the claim `the_flag_off_build_has_no_live_voice_surface` only appeared to make: it
+/// asserted a compile-time constant inside a file that only compiled when the constant was true,
+/// so it could not fail. This one drives the real `TopicConnection` through the desktop
+/// dispatcher, which needs no HTTP server and no provider — a start that is ignored never reaches
+/// one. Removing the `if !config.tools.live_voice.enabled { return; }` guard in `src/topic.rs`
+/// turns the ignored start into a start, which answers with a `live_voice` error frame and fails
+/// the first assertion.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_is_ignored_while_the_agent_switch_is_off() {
+    use vizier_core::config::VizierConfig;
+    use vizier_core::runtime::{RuntimeOptions, VizierRuntime};
+    use vizier_core::storage::{agent::AgentStorage, user::UserStorage};
+
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let storage = runtime.deps().storage.clone();
+    let role = storage.create_role("system", vec![], true).await.unwrap();
+    let user = storage.create_user("olive", "", &role.role_id).await.unwrap();
+
+    // The live voice block the engine ships with: present, and off.
+    let agent: vizier_core::schema::AgentConfig = serde_json::from_value(serde_json::json!({
+        "name": "muted", "owner_id": null, "system_prompt": null, "description": null,
+        "provider": "dummyplug", "model": "dummyplug", "thinking_depth": 1,
+        "tools": { "timeout": "30s" }, "silent_read_initiative_chance": 0.0,
+        "prompt_timeout": "1m", "heartbeat_interval": "1m"
+    }))
+    .unwrap();
+    assert!(!agent.tools.live_voice.enabled, "the fixture is the default: off");
+    storage.create_agent("muted", &agent).await.unwrap();
+
+    let dispatcher = vizier_http::embedded::Dispatcher::new(&runtime, user.user_id.clone());
+    let (tx, rx) = flume::unbounded();
+    let mut topic = dispatcher
+        .open_topic("muted", "app", "t-muted", tx)
+        .await
+        .expect("opens");
+    tokio::spawn(topic.outbound().expect("outbound half").run());
+
+    topic
+        .handle_inbound(serde_json::json!({ "live_voice_start": {} }))
+        .await;
+
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        while let Ok(frame) = rx.try_recv() {
+            seen.push(frame);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        seen.iter().all(|frame| frame.get("live_voice").is_none()),
+        "a start was answered while the agent's switch is off: {seen:?}"
+    );
+
+    // ...and the socket is still open: a frame it can answer without a provider is answered.
+    topic
+        .handle_inbound(serde_json::json!({
+            "sensitive_input_answer": { "ask_id": "no-such-ask", "value": "x" }
+        }))
+        .await;
+
+    let mut refusal = None;
+    for _ in 0..20 {
+        while let Ok(frame) = rx.try_recv() {
+            if let Some(code) = frame.get("client_error").and_then(|error| error.get("code")) {
+                refusal = code.as_str().map(str::to_string);
+            }
+        }
+        if refusal.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        refusal.as_deref(),
+        Some("sensitive_ask_not_open"),
+        "the socket stopped answering after an ignored start"
+    );
 }

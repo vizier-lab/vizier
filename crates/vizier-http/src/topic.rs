@@ -696,7 +696,6 @@ impl TopicConnection {
     /// Everything here is authorised exactly like a chat message on the same socket: the session
     /// belongs to the principal that started it, and everybody else is told it is active rather
     /// than being allowed to end it (FR-005).
-    #[cfg(feature = "live-voice")]
     pub async fn handle_live_voice(&self, key: &str, frame: serde_json::Value) {
         use vizier_core::live_voice::frame::{ClientAction, EndReason, LiveVoiceControl, SessionState};
 
@@ -980,7 +979,6 @@ impl TopicConnection {
         }
     }
 
-    #[cfg(feature = "live-voice")]
     /// Recognise one closed utterance and, if it said anything, drive a spoken turn.
     async fn drive_utterance(
         &self,
@@ -1031,7 +1029,6 @@ impl TopicConnection {
         tokio::spawn(async move { session.run_turn(engines, text).await });
     }
 
-    #[cfg(feature = "live-voice")]
     /// Control frames go to this socket straight away (they are also on the broadcast, which is
     /// how the other tabs learn about the session).
     fn send_live_voice(&self, control: vizier_core::live_voice::LiveVoiceControl) {
@@ -1049,7 +1046,6 @@ impl TopicConnection {
             }
         };
 
-        #[cfg(feature = "live-voice")]
         // Live voice takes its own branch **before** the frame is stringified below: an audio
         // chunk is 4.3 KB and arrives ten times a second, and copying it once more per chunk on
         // the way in is a cost with nothing to show for it (`review.md` D5).
@@ -1390,7 +1386,6 @@ impl TopicOutbound {
                     // `dropped` is this loop's own counter: the session keeps none (T042), so
                     // there is exactly one number and exactly one report.
                     let mut write = true;
-                    #[cfg(feature = "live-voice")]
                     if vizier_core::live_voice::frame::is_speech_frame(&frame) {
                         if self.out.len() > vizier_core::live_voice::LIVE_VOICE_SOCKET_BACKLOG {
                             dropped += 1;
@@ -1490,7 +1485,6 @@ impl TopicOutbound {
                             // session, and the payload type makes sending it here a compile error.
                             // The same serialiser serves both lanes, so their field names cannot
                             // drift (`analysis.md` M15).
-                            #[cfg(feature = "live-voice")]
                             SessionFrame::LiveVoice(control) => serde_json::to_value(&control)
                                 .ok()
                                 .map(|control| serde_json::json!({ "live_voice": control })),

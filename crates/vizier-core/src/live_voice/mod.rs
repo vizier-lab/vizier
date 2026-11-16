@@ -1,8 +1,8 @@
 //! Live voice: a spoken conversation with an agent (`specs/055-live-voice`).
 //!
-//! The whole module is behind the `provider-live-voice` feature, declared in `lib.rs` — a build
-//! without it is indistinguishable from one from before this feature existed (FR-041). It reuses
-//! the existing speech providers ([`crate::stt`], [`crate::tts`]) and adds no dependency.
+//! Always compiled: there is no build without it (FR-041), so the only switch is the per-agent
+//! `live_voice.enabled` setting, off by default. It reuses the existing speech providers
+//! ([`crate::stt`], [`crate::tts`]) and adds no dependency.
 //!
 //! Three things live here and nowhere else:
 //!

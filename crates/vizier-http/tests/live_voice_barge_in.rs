@@ -11,8 +11,6 @@
 //! (so a `Command("abort")` request is observable), a `ClientConnection` lane for the audio, and
 //! the session broadcast for the control frames.
 
-#![cfg(feature = "live-voice")]
-
 use std::sync::Arc;
 use std::time::Duration;
 

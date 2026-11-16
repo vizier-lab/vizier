@@ -107,7 +107,6 @@ pub async fn delete(services: &Services, principal: &Principal, key_id: &str) ->
     // T110/FR-063: a session opened with this key ends with it. After the delete, never before —
     // a failed delete must not take a call down with it — and through the registry's own release
     // path, so the microphone is let go the way every other ending lets it go.
-    #[cfg(feature = "provider-live-voice")]
     {
         let ended = crate::live_voice::sessions()
             .end_owned_by_key(key_id, crate::live_voice::EndReason::KeyRevoked)

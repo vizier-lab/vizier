@@ -114,7 +114,6 @@ pub enum SessionFrame {
     /// `stall`. Audio is deliberately not here — `LiveVoiceSpeech` travels the owner's own
     /// connection, and this variant's payload type is what makes publishing audio as a session
     /// event a compile error rather than a review rule.
-    #[cfg(feature = "provider-live-voice")]
     LiveVoice(crate::live_voice::LiveVoiceControl),
 }
 

@@ -6,8 +6,6 @@
 //! the generation a running turn depends on, and that the audio goes to the connection that is
 //! current rather than the one that dropped.
 
-#![cfg(feature = "live-voice")]
-
 use std::sync::Arc;
 use std::time::Duration;
 
