@@ -642,3 +642,11 @@ Aturan yang mengikat:
 - `git status` sebelum commit **tidak cukup**: ia tidak melihat commit orang lain yang mendarat di antara baca dan tulis. Yang menangkapnya adalah `git log --oneline -1` + `git rev-list --count` sesudah commit.
 - Kalau hash laporanmu tidak lagi sama dengan `HEAD`, **sebut hash barunya** di laporan berikutnya. Hash lama tetap sah sebagai "diukur di" — asal disebut sebagai masa lalu, bukan keadaan sekarang.
 
+### 9. Working tree bersama bukan tempat bereksperimen (16 Nov 2026, kejadian nyata)
+`@sepuh-be` menaruh **mutasi sengaja** (early-return dibuang) di `crates/vizier-core/src/service/agents.rs` sekitar 16:04-16:07:30, **saat dua pengukuran agen lain berjalan** (QA `cargo test -p vizier-http`, Lead loop 10x `--lib live_voice::`). Ia memulihkannya sendiri dan mengakuinya sebelum melaporkan progres - sikap yang benar, dan tetap harus jadi aturan:
+
+- **Merah-dulu dibuktikan di klon/cabang sendiri**, atau lewat tes yang gagal **kompilasi** (berkas tes belum ada), bukan dengan mengubah sumber yang dibaca orang lain.
+- Kalau sumber bersama **harus** disentuh untuk membuktikan merah: sebut di papan sebelum melakukannya, dan berhenti kalau ada pengukuran berjalan.
+- **Pemulihan wajib dari commit**, bukan dari salinan kerja: `git show HEAD:<path> > <path>`, lalu bandingkan `md5sum` dengan `git show HEAD:<path> | md5sum`. Hari ini `cp` dari backup 16:05 **mengembalikan shadowing yang sudah diperbaiki** di `a06afd13`; tertangkap `git diff`, bukan tes.
+- Angka yang keluar di jendela itu tidak otomatis salah, tapi harus dinyatakan rentan: sebut jam pengukuran dan bahwa biner bisa berasal dari sumber sebelum/sesudah mutasi.
+
