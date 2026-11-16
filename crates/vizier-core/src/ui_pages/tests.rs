@@ -81,3 +81,16 @@ async fn deleting_a_conversation_removes_rows_and_blobs() {
     h.pages.delete_agent_blobs("dp").await;
     assert_eq!(h.pages.html(&kept, 1).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn a_ticket_opens_its_version_and_a_forged_one_nothing() {
+    let h = harness();
+    let page = h.pages.create(&session("t"), "A", "<p>a</p>").await.unwrap();
+    let (ticket, _) = h.pages.mint_ticket(&page.id, 1);
+    let (opened, version, html) = h.pages.open_ticket(&ticket).await.unwrap().unwrap();
+    assert_eq!((opened.id.as_str(), version, html.as_str()), (page.id.as_str(), 1, "<p>a</p>"));
+
+    let (missing, _) = h.pages.mint_ticket(&page.id, 9);
+    assert!(h.pages.open_ticket(&missing).await.unwrap().is_none(), "no such version");
+    assert!(h.pages.open_ticket(&format!("{ticket}x")).await.unwrap().is_none(), "forged");
+}

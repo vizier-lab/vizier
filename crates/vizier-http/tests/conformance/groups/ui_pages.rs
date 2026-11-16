@@ -10,5 +10,8 @@ pub fn vectors() -> Vec<Vector> {
         v("GET", "/agents/missing/channel/webui/topic/t1/pages/pg_nothere", None),
         v("GET", "/agents/agent-a/channel/webui/topic/t1/pages/pg_nothere/versions/1", None),
         v("GET", "/agents/agent-b/channel/webui/topic/t1/pages/pg_nothere/versions/1", None),
+        v("GET", "/agents/agent-a/channel/webui/topic/t1/pages/pg_nothere/versions/1/frame", None),
+        v("GET", "/agents/missing/channel/webui/topic/t1/pages/pg_nothere/versions/1/frame", None),
+        v("GET", "/ui-frames/pg_nothere.1.9999999999999.forged", None),
     ]
 }

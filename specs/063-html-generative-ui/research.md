@@ -184,7 +184,27 @@ So in the desktop app, inline page scripts don't run as built today. That likely
 - **(a) Serve each page frame from a URL with its own CSP header.** A navigated document does not inherit. In the desktop app this would be the `vizier-asset:` scheme, added to `frame-src`.
 - **(b) Add `'unsafe-inline'` to the app's `script-src`.** This weakens the WebUI's own XSS protection, and Tauri's injected hashes would make it ignored anyway.
 
-(a) needs checking in the real app (`just app-dev`). The browser pane could not settle it: sandboxed URL frames from `127.0.0.1` did not run there even with no CSP, most likely its private-network rules. **Decision pending; T021–T022 wait on it.**
+**Decision (2026-11-16): option (a).** Named R7a here, built and checked:
+
+- **The frame is a document the server builds** (`vizier-http/src/ui_frame.rs`), served at the public route `/api/v1/ui-frames/{ticket}` with `FRAME_CSP` as a **header**.
+  - The header carries `sandbox allow-scripts`, so the document has an opaque origin whatever the `<iframe>` says. The host sets no `sandbox` attribute.
+  - In the browser pane, sandboxed frames loaded by URL from `127.0.0.1` ran nothing, while the header-only sandbox ran with `self.origin === "null"` and no cookie access.
+- **The ticket** (`vizier-core/src/ui_pages/ticket.rs`) is `{page}.{version}.{expires}.{HMAC}` under a per-process key, valid for 10 minutes.
+  - It is minted by `GET …/pages/{id}/versions/{n}/frame` after the read check.
+  - It carries no credential, because the page can read its own URL.
+  - Tickets are per process, so a gateway in a Fleet only opens the tickets it minted. That is fine while a tab's requests go to one gateway; a shared key is a Fleet follow-up.
+- **The frame fetches nothing.** The kit stylesheet, the runtime (`webui/app/kit/runtime.ts`), the element script (only with a `<vz-` tag) and libraries (only when imported) are inlined.
+  - A library becomes a blob URL behind an import map, so `three` is bundled into one module by the kit build.
+  - The boot data (page id, version, saved state) is inlined as JSON with `<` escaped.
+- **The raw version route** answers `text/plain` with `nosniff` and the same policy, so a page never runs as a document of the WebUI's origin.
+- **Desktop app:**
+  - the asset scheme forwards `content-security-policy`, `cache-control` and `referrer-policy`;
+  - `frame-src` allows `vizier-asset:` and `http://vizier-asset.localhost`;
+  - `transport.frameUrl` builds the URL with no token.
+- **Checked:**
+  - `tests/ui_frames.rs` covers the routes, headers and boot data through the dispatcher and the public router.
+  - The served document, under the desktop app's own CSP on the parent, posted `ready`, its height and heartbeats with no problems.
+  - **Still to check in the real app (`just app-dev`):** WebView2 and WebKit loading a `vizier-asset` frame.
 
 ## R9 — Where the tool is offered
 

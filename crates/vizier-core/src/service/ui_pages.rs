@@ -119,3 +119,55 @@ pub async fn get_version(
         Err(e) => Err(ServiceError::Internal(e.to_string())),
     }
 }
+
+/// Where a frame of one version is loaded from, and until when (epoch ms).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct UiFrameTicket {
+    /// Relative to `/api/v1`: `/ui-frames/{ticket}`. It carries no credential of the person.
+    pub path: String,
+    pub expires_at: i64,
+}
+
+/// A ticket for one version of a page in the caller's own topic.
+pub async fn frame_ticket(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    channel_id: &str,
+    topic_id: &TopicId,
+    page_id: &str,
+    version: u32,
+) -> Result<UiFrameTicket, ServiceError> {
+    let page = own_page(s, who, agent_id, channel_id, topic_id, page_id).await?;
+    if version == 0 || version > page.latest_version {
+        return Err(ServiceError::NotFound("version not found".into()));
+    }
+    let (ticket, expires_at) = s.deps().ui_pages.mint_ticket(&page.id, version);
+    Ok(UiFrameTicket { path: format!("/ui-frames/{ticket}"), expires_at })
+}
+
+/// What a frame ticket opens: the version's HTML and what the page starts with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiFrame {
+    pub page_id: String,
+    pub version: u32,
+    /// The page's saved state, so `vizier.state.get()` has it before any script asks.
+    pub state: Option<serde_json::Value>,
+    pub html: String,
+}
+
+/// The frame a ticket opens. Needs no person: the ticket is the proof. Every miss (forged,
+/// expired, gone) is the same 404.
+pub async fn frame_html(s: &Services, ticket: &str) -> Result<UiFrame, ServiceError> {
+    match s.deps().ui_pages.open_ticket(ticket).await {
+        Ok(Some((page, version, html))) => Ok(UiFrame {
+            page_id: page.id,
+            version,
+            state: page.state,
+            html,
+        }),
+        Ok(None) => Err(ServiceError::NotFound("frame not found".into())),
+        Err(e) => Err(ServiceError::Internal(e.to_string())),
+    }
+}

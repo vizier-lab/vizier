@@ -68,20 +68,27 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 - [x] T018 Add the routes `GET …/topic/{topic}/pages/{page_id}` and `GET …/pages/{page_id}/versions/{version}` (`text/html`, immutable cache) in `crates/vizier-http/src/api/v1/agents/ui_pages.rs`. Mount them in `agents/mod.rs` and add their OpenAPI entries (contracts/http.md).
 - [x] T019 [P] Add conformance vectors for both routes (owner, another user, no access, unknown page) in `crates/vizier-http/tests/conformance/groups/ui_pages.rs`, and remove the routes from `tests/conformance/pending.txt` if they were listed
 - [x] T020 Serve `/ui-kit/*` with `Access-Control-Allow-Origin: *` and immutable caching in `crates/vizier-http/src/webui/` (the embedded asset handler). Do the same in the desktop app's asset path in `app/src-tauri/` if the WebUI's static files are served there.
-- [ ] T021 Build the page document in `webui/app/lib/uiPage/document.ts`:
+- [x] T021 Build the page document in `webui/app/lib/uiPage/document.ts`:
   - `srcdoc(html, {kitBase, state, theme, libraries})` emits the CSP of research R8 with `{KIT}` computed from `location`, the import map, the kit `<link>`/`<script>`, the in-frame bridge source and the error hooks with a 250 ms heartbeat;
   - `standaloneDocument(...)` inlines the kit for download.
   Add `document.test.ts` (CSP string, import map, no `allow-same-origin`, http media refused by policy).
-- [ ] T022 Implement the host `webui/app/screens/chat/client/SandboxedPage.tsx` (`mode: "chat" | "verify"`), built on `InteractivePage.tsx`:
+- [x] T022 Implement the host `webui/app/screens/chat/client/SandboxedPage.tsx` (`mode: "chat" | "verify"`), built on `InteractivePage.tsx`:
   - `sandbox="allow-scripts"`;
   - messages accepted only from its own `contentWindow`;
   - the problem and heartbeat listeners;
   - auto height up to 80% of the viewport;
   - full screen through `useChatAreaFullscreen`.
-- [ ] T023 [P] Add the new frame types (`ui_page_verified`, `ui_page_state`, `ui_verify`, inbound `ui_verify_report`, inbound `ui_page_state`) to `webui/app/api/frames.ts`, and handle the outbound ones in `webui/app/lib/frames.ts`, with tests
-- [ ] T024 [P] Add the API client calls `getUiPage` and `getUiPageVersion` (through the transport seam only) in `webui/app/api/endpoints/uiPages.ts`
+- [x] T023 [P] Add the new frame types (`ui_page_verified`, `ui_page_state`, `ui_verify`, inbound `ui_verify_report`, inbound `ui_page_state`) to `webui/app/api/frames.ts`, and handle the outbound ones in `webui/app/lib/frames.ts`, with tests
+- [x] T024 [P] Add the API client calls `getUiPage` and `getUiPageVersion` (through the transport seam only) in `webui/app/api/endpoints/uiPages.ts`
 
 **Checkpoint**: storage, routes and the host exist. Stories can start.
+
+> **Changed by research R7a (2026-11-16):**
+> - T021's document is built **server-side** in `crates/vizier-http/src/ui_frame.rs` and served at `/api/v1/ui-frames/{ticket}`. A ticket comes from `…/versions/{n}/frame`.
+> - The in-frame runtime is `webui/app/kit/runtime.ts`, built by the kit build as `runtime-*.js`.
+> - `webui/app/lib/uiPage/document.ts` is not needed.
+> - `webui/app/lib/uiPage/host.ts` holds the host's pure rules.
+> - T062's bridge is in the runtime already; T062 keeps its tests and the element side.
 
 ---
 

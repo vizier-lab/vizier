@@ -48,6 +48,13 @@ fn is_asset_path(path: &str) -> bool {
     }
 }
 
+/// A file of the page kit (`ui-kit/…`) from the embedded WebUI build, as text
+/// (`specs/063-html-generative-ui` research R7a).
+pub(crate) fn kit_text(path: &str) -> Option<String> {
+    let content = WebUI::get(&format!("ui-kit/{path}"))?;
+    String::from_utf8(content.data.into_owned()).ok()
+}
+
 pub async fn index() -> impl IntoResponse {
     match WebUI::get("index.html") {
         Some(content) => {

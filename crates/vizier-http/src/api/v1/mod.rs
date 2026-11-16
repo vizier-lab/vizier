@@ -216,6 +216,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/files/{file_id}", get(files::download_file))
+        // A page frame: public, its ticket is the proof (spec 063 research R7a).
+        .route("/ui-frames/{ticket}", get(agents::ui_pages::ui_frame))
         // The catalogue: readable by any signed-in user; logos are public.
         .nest("/catalogue", catalogue::catalogue(state.clone()))
         // Protected routes

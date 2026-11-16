@@ -7,6 +7,7 @@
 
 pub mod edits;
 pub mod limits;
+pub mod ticket;
 pub mod verify;
 
 use std::sync::Arc;
@@ -77,11 +78,30 @@ pub enum Made {
 pub struct UiPages {
     storage: Arc<VizierStorage>,
     blobs: Arc<dyn BlobStore>,
+    tickets: ticket::TicketKey,
 }
 
 impl UiPages {
     pub fn new(storage: Arc<VizierStorage>, blobs: Arc<dyn BlobStore>) -> Self {
-        Self { storage, blobs }
+        Self { storage, blobs, tickets: ticket::TicketKey::generate() }
+    }
+
+    /// A ticket that opens `page` v`version` in a frame, and when it expires (epoch ms). The
+    /// caller has already checked the person may read the page.
+    pub fn mint_ticket(&self, page_id: &str, version: u32) -> (String, i64) {
+        self.tickets.mint(page_id, version, crate::time::now().timestamp_millis())
+    }
+
+    /// The page, version and HTML a ticket opens, or `None` for a ticket that is forged,
+    /// expired, or names a version that no longer exists.
+    pub async fn open_ticket(&self, ticket: &str) -> Result<Option<(UiPageRecord, u32, String)>> {
+        let Some(opened) = self.tickets.verify(ticket, crate::time::now().timestamp_millis()) else {
+            return Ok(None);
+        };
+        let Some(page) = self.storage.get_ui_page(&opened.page_id).await? else {
+            return Ok(None);
+        };
+        Ok(self.html(&page, opened.version).await?.map(|html| (page, opened.version, html)))
     }
 
     pub fn storage(&self) -> &Arc<VizierStorage> {

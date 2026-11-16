@@ -28,6 +28,7 @@ mod state;
 mod test_support;
 pub mod topic;
 pub mod workspace_topic;
+mod ui_frame;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
@@ -189,6 +190,8 @@ where
         api::v1::agents::detached::get_detached_script,
         api::v1::agents::ui_pages::get_ui_page,
         api::v1::agents::ui_pages::get_ui_page_version,
+        api::v1::agents::ui_pages::get_ui_frame_ticket,
+        api::v1::agents::ui_pages::ui_frame,
         api::v1::agents::subagents::list_subagents,
         api::v1::agents::subagents::get_subagent,
         api::v1::agents::subagents::subagent_history,
