@@ -588,7 +588,7 @@ pub async fn detail(
     // setting — "configured" in the same sense the detail already reports for `stt` / `tts`.
     let has_recogniser = has_recogniser(&config);
     let has_voice = has_voice(&config);
-    let live_voice_missing = live_voice_missing(&config);
+    let missing = live_voice_missing(&config);
 
     Ok(AgentDetail {
         agent_id: agent_id.to_string(),
@@ -635,7 +635,7 @@ pub async fn detail(
         },
         // FR-004: on only when the switch is on and both halves exist.
         live_voice: config.tools.live_voice.enabled && has_recogniser && has_voice,
-        live_voice_missing,
+        live_voice_missing: missing,
         live_voice_end_of_utterance_ms: config.tools.live_voice.settings.end_of_utterance_ms,
         read_image: config.tools.read_image.enabled,
         read_image_settings: if config.tools.read_image.settings.provider.is_some()
