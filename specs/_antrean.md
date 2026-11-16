@@ -465,3 +465,23 @@ jaminan itu dijaga dengan cara lain — selalu dikompilasi, dimatikan per-agent.
 Dua cacat webui lain yang tercatat tapi **tidak** diantrekan (bukan blocker, dan bukan milik ronde ini):
 `LiveVoiceControl.tsx:131-135` — cabang `if (!capability) { onOpenSettings?.() }` tak tercapai: satu-satunya pemberi `start` adalah `onStart`/`onRestart` di `LiveVoiceRow.tsx:146/148`, dan keduanya hanya dirender saat `capability` true; `onOpenSettings` juga tidak pernah dioper `Composer.tsx`.
 
+## Anomali commit 16 Nov 12:45–12:46 — dua jalur menyentuh berkas yang sama
+
+Dicatat bukan untuk menyalahkan siapa pun, tapi karena polanya berbahaya dan berulang.
+
+**Apa yang terjadi.** Dua jalur commit berjalan di branch yang sama dalam tiga menit:
+
+| Waktu | Commit | Jalur |
+|---|---|---|
+| 12:42 | `394a61bd` (sudah di origin) | `analysis.md` + `release-checklist.md` |
+| 12:45 | `2a87fc9d` | `analysis.md` + `release-checklist.md` + `CHK029`, isi setara |
+| 12:45 | `e3861d12` | `state-matrix.md` repin `fb4315fc` |
+| 12:46 | `5c84baae` | merge `origin` → lokal, HEAD sekarang |
+
+Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` dan `44ef1cb8`** dari branch lokal sebelum digantikan commit-commit di atas. Isi akhirnya benar (blob cocok dengan yang dilaporkan QA/SA), tapi:
+
+- **`reset --hard` dijalankan saat working tree memuat pekerjaan belum-commit milik agen lain.** Saat itu ada 14 berkas `crates/**` milik `@sepuh-be` di tree. Kali ini selamat — dicek 12:47, `git status` masih 14 berkas, `+101/−61`, utuh. Tapi ini bisa menghapus setengah jam kerja orang.
+- **Riwayat jadi bercabang** dan commit kembar (`394a61bd` vs `2a87fc9d`) menyulitkan pembaca berikutnya, apalagi CI yang menghitung commit.
+
+**Aturan turunan yang saya pakai mulai sekarang:** sebelum menyentuh git di repo bersama ini, `git status --porcelain` wajib dibaca dulu; kalau ada berkas termodifikasi yang bukan milik sendiri, **tidak ada** `reset`, `checkout --`, `stash`, atau `clean`. Sebelum commit: `git fetch` + `git log origin/… ` — bukan commit lalu merge belakangan. Dan push dilakukan dari satu jalur saja.
+
