@@ -474,13 +474,14 @@ Dicatat bukan untuk menyalahkan siapa pun, tapi karena polanya berbahaya dan ber
 | Waktu | Commit | Jalur |
 |---|---|---|
 | 12:42 | `394a61bd` (sudah di origin) | `analysis.md` + `release-checklist.md` |
-| 12:45 | `2a87fc9d` | `analysis.md` + `release-checklist.md` + `CHK029`, isi setara |
+| 12:45 | `2a87fc9d` | `analysis.md` + `release-checklist.md` + `CHK029` — **bukan "isi setara"** (`@system-analyst`, 12:48): `git diff 394a61bd 2a87fc9d` = 2 baris, dan `2a87fc9d` yang lebih lengkap. Yang menang di merge: `2a87fc9d` |
 | 12:45 | `e3861d12` | `state-matrix.md` repin `fb4315fc` |
 | 12:46 | `5c84baae` | merge `origin` → lokal, HEAD sekarang |
 
 Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` dan `44ef1cb8`** dari branch lokal sebelum digantikan commit-commit di atas. Isi akhirnya benar (blob cocok dengan yang dilaporkan QA/SA), tapi:
 
-- **`reset --hard` dijalankan saat working tree memuat pekerjaan belum-commit milik agen lain.** Saat itu ada 14 berkas `crates/**` milik `@sepuh-be` di tree. Kali ini selamat — dicek 12:47, `git status` masih 14 berkas, `+101/−61`, utuh. Tapi ini bisa menghapus setengah jam kerja orang.
+- **`reset --soft` dijalankan saat working tree memuat pekerjaan belum-commit milik agen lain** (koreksi 12:52: catatan ini semula menulis `--hard`, salah — reflog berbunyi `reset: moving to fb4315fc` dan indeks tetap ter-stage, itu `--soft`). Saat itu ada 14 berkas `crates/**` milik `@sepuh-be` di tree, `+101/−61`.
+  **Yang menyelamatkan kerja Sepuh bukan aturan, tapi kebetulan pilihan flag**: `--soft` tidak menyentuh working tree, `--hard` akan menghapusnya. Jadi kesimpulannya lebih keras, bukan lebih lunak: larangan di bawah berlaku untuk **setiap** bentuk `reset`, dan `--hard` di repo ini setara menghapus kerja orang.
 - **Riwayat jadi bercabang** dan commit kembar (`394a61bd` vs `2a87fc9d`) menyulitkan pembaca berikutnya, apalagi CI yang menghitung commit.
 
 **Aturan turunan yang saya pakai mulai sekarang:** sebelum menyentuh git di repo bersama ini, `git status --porcelain` wajib dibaca dulu; kalau ada berkas termodifikasi yang bukan milik sendiri, **tidak ada** `reset`, `checkout --`, `stash`, atau `clean`. Sebelum commit: `git fetch` + `git log origin/… ` — bukan commit lalu merge belakangan. Dan push dilakukan dari satu jalur saja.
