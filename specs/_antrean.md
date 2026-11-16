@@ -650,3 +650,12 @@ Aturan yang mengikat:
 - **Pemulihan wajib dari commit**, bukan dari salinan kerja: `git show HEAD:<path> > <path>`, lalu bandingkan `md5sum` dengan `git show HEAD:<path> | md5sum`. Hari ini `cp` dari backup 16:05 **mengembalikan shadowing yang sudah diperbaiki** di `a06afd13`; tertangkap `git diff`, bukan tes.
 - Angka yang keluar di jendela itu tidak otomatis salah, tapi harus dinyatakan rentan: sebut jam pengukuran dan bahwa biner bisa berasal dari sumber sebelum/sesudah mutasi.
 
+### 10. Push submodule **sebelum** superproject (16 Nov 2026, ditemukan setelah `origin` sudah menunjuk commit yang tak ada di remote)
+Kejadiannya nyata dan **masih terbuka** saat ditulis: `origin/055-live-voice` (superproject `vizier`) membawa gitlink `webui` = `7732f0a...`, sementara `git -C webui ls-remote origin | grep 7732f0a` = **0 baris** — commit itu hanya ada di mesin ini. Siapa pun yang clone/fetch lalu `git submodule update --init webui` akan gagal (`reference is not a tree`), dan tidak ada perintah di superproject yang memberi tahu sebabnya.
+
+Aturan:
+- **Urutan wajib: submodule dulu, superproject terakhir.** Superproject yang menunjuk commit yang belum ada di remote adalah repo rusak untuk semua orang kecuali penulisnya.
+- Sebelum push superproject: `git -C <sub> rev-list --left-right --count origin/<branch>...HEAD` harus `0 0`, atau isinya sudah diketahui aman. Kalau bukan, **jangan push superproject dulu**.
+- Kalau sudah terlanjur: pilihannya dua dan keduanya harus disebut — push submodule-nya, atau kembalikan gitlink ke commit yang ada di remote. Jangan diamkan.
+- Cek ini **tidak** tertangkap `git status` superproject (cuma `M webui` kalau kotor) maupun `git submodule status` (membaca tree lokal). Yang menangkap: `git ls-tree <remote-ref> webui` dibandingkan `git -C webui ls-remote origin`.
+
