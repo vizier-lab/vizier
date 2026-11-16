@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { transport, transportReady } from '../api/transport'
-import { applyTo, paintOf, readPaint, resolvePaint, type Paint, type Resolved } from '../lib/themes/apply'
+import { applyTo, paintOf, readPaint, resolvePaint, THEME_COLORS, type Paint, type Resolved } from '../lib/themes/apply'
 import { nameProblem, serializeCustoms } from '../lib/themes/names'
 import { DEFAULT_SCHEME_ID, MAX_CUSTOM_SCHEMES, type Appearance, type Mode, type Scheme } from '../lib/themes/roles'
 import { toast } from './toasts'
@@ -52,9 +52,20 @@ function paintWindow(appearance: Appearance) {
     })
 }
 
+/**
+ * Paints the browser's own chrome, so the address bar and the installed app's frame follow the
+ * scheme. The pre-paint script does this for the first paint; this does it for every change.
+ */
+function putThemeColor(appearance: Appearance) {
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (!meta) return
+    meta.setAttribute('content', THEME_COLORS[appearance])
+}
+
 function putOnPage(resolved: Resolved, animate: boolean) {
     const paint = () => {
         applyTo(document.documentElement, resolved)
+        putThemeColor(resolved.appearance)
         paintWindow(resolved.appearance)
     }
     // The court changes light in one breath: the old and new grounds cross-fade instead of snapping.

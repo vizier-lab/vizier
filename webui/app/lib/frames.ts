@@ -7,7 +7,8 @@
 // mid-turn, or a second tab, draw the same trail as the tab that sent the message.
 
 import type {
-    BackgroundJobSnapshot,
+    DetachedScriptSnapshot,
+    SubagentSnapshot,
     ChatMessage,
     Frame,
     QuestionRefusal,
@@ -36,6 +37,20 @@ export interface QueuedMessage {
     spoken?: boolean
     /** When it was sent, to pair it with the stored request that ends the wait. */
     sentAt?: string
+    /** Sent to run as a new turn (Ctrl/Cmd+Enter or `/queue`) rather than into the turn in progress (spec 062). */
+    queue?: boolean
+}
+
+/** The text the server stores for a message sent as typed: `/queue` is read as the queue flag and
+ * removed on receipt (spec 062), so that is what a waiting row is matched against. */
+export function storedText(text: string): string {
+    const match = /^\s*\/queue(?:@\S+)?(?:\s+([\s\S]*))?$/i.exec(text)
+    return match ? (match[1] ?? '').trim() : text
+}
+
+/** Whether a message as typed is sent to run as a new turn: the flag, or `/queue`. */
+export function sentToQueue(text: string, queue?: boolean): boolean {
+    return !!queue || storedText(text) !== text
 }
 
 export interface TopicError {
@@ -51,7 +66,10 @@ export interface TopicState {
     label: string | null
     /** Sent while a turn ran, waiting for the agent to store it as a request. */
     queued: QueuedMessage[]
-    jobs: Record<string, BackgroundJobSnapshot>
+    /** Detached scripts of the topic by id; a final one stays for the panel's Done tab. */
+    scripts: Record<string, DetachedScriptSnapshot>
+    /** Workers the topic hired, by id (spec 059); a final one stays for the panel. */
+    workers: Record<string, SubagentSnapshot>
     /** Newest first. */
     files: SessionFileRecord[]
     /** From the latest reply's stats: feeds the context ring. */
@@ -74,7 +92,7 @@ export type Action =
     | { type: 'frame'; frame: Frame; now?: string }
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
-    | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
+    | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string; queue?: boolean }
     /**
      * A turn nobody in this tab started, drawn in the thread the moment it is heard (a live voice
      * utterance). It is a stand-in like `send`'s: the stored request replaces it through
@@ -88,7 +106,8 @@ export type Action =
     /** `/checkpoint` or `/lobotomy`, drawn where it was run; the turn carries on behind it. */
     | { type: 'command'; command: 'checkpoint' | 'lobotomy'; now?: string }
     | { type: 'files'; files: SessionFileRecord[] }
-    | { type: 'jobs'; jobs: BackgroundJobSnapshot[] }
+    | { type: 'scripts'; scripts: DetachedScriptSnapshot[] }
+    | { type: 'workers'; workers: SubagentSnapshot[] }
 
 export const isLive = (entry: ChatMessage) => entry.uid.startsWith('live-')
 
@@ -98,7 +117,8 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         phase: 'idle',
         label: null,
         queued: [],
-        jobs: {},
+        scripts: {},
+        workers: {},
         files: [],
         context: null,
         error: null,
@@ -178,6 +198,26 @@ function contextOfHistory(entries: ChatMessage[]): TopicState['context'] {
         if (!reply) continue
         const stats = statsOf(reply.content)
         if (stats?.current_context_size && stats.context_window) return { used: stats.current_context_size, window: stats.context_window }
+    }
+    return null
+}
+
+/**
+ * The error the conversation last ended on, read from what is stored: the server saves a failed
+ * turn's error as its reply, so a reopened topic shows the notice the live frame showed. Anything
+ * said after it (a request, a reply, a command) means it is behind the conversation.
+ */
+function errorOfHistory(entries: ChatMessage[]): TopicError | null {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const content = entries[i].content
+        if (typeof content !== 'object' || content === null) continue
+        if ('Request' in content || 'Command' in content || 'Checkpoint' in content) return null
+        if (!('Response' in content) || !content.Response) continue
+        const reply = content.Response.content
+        if (typeof reply === 'object' && reply !== null && 'error' in reply) {
+            return { kind: reply.error.kind, message: reply.error.message }
+        }
+        return null
     }
     return null
 }
@@ -265,8 +305,10 @@ export function reduce(state: TopicState, action: Action): TopicState {
                         entries: mergeEntries(base, [frame.entry]),
                     }
                 }
-                case 'job':
-                    return { ...state, jobs: { ...state.jobs, [frame.snapshot.id]: frame.snapshot } }
+                case 'detached_script':
+                    return { ...state, scripts: { ...state.scripts, [frame.script.id]: frame.script } }
+                case 'subagent':
+                    return { ...state, workers: { ...state.workers, [frame.worker.id]: frame.worker } }
                 case 'reactions':
                     return {
                         ...state,
@@ -348,7 +390,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     !stored.some(
                         (s) =>
                             s.content.Request &&
-                            (JSON.stringify(s.content.Request.content) === JSON.stringify({ chat: q.text }) ||
+                            (JSON.stringify(s.content.Request.content) === JSON.stringify({ chat: storedText(q.text) }) ||
                                 stampedNear(s.content.Request.timestamp, q.sentAt))
                     )
             )
@@ -357,6 +399,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 queued: answered,
                 context: state.context ?? contextOfHistory(stored),
                 entries: mergePage(state.entries, stored),
+                // Only an idle topic: a running turn's own frames decide its outcome.
+                error: state.error ?? (state.phase === 'idle' ? errorOfHistory(stored) : null),
             }
         }
 
@@ -372,7 +416,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     ...state,
                     queued: [
                         ...state.queued,
-                        { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken, sentAt: action.now },
+                        { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken, sentAt: action.now, queue: sentToQueue(action.text, action.queue) },
                     ],
                 }
             }
@@ -409,7 +453,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'sent': {
             // The server stored a message that was waiting: it is history now, not a wait.
             const at = state.queued.findIndex(
-                (q) => JSON.stringify({ chat: q.text }) === JSON.stringify(action.request) || stampedNear(q.sentAt, action.timestamp)
+                (q) => JSON.stringify({ chat: storedText(q.text) }) === JSON.stringify(action.request) || stampedNear(q.sentAt, action.timestamp)
             )
             return at < 0 ? state : { ...state, queued: state.queued.filter((_, i) => i !== at) }
         }
@@ -436,8 +480,10 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'files':
             return { ...state, files: action.files }
 
-        case 'jobs':
-            return { ...state, jobs: Object.fromEntries(action.jobs.map((j) => [j.id, j])) }
+        case 'scripts':
+            return { ...state, scripts: Object.fromEntries(action.scripts.map((s) => [s.id, s])) }
+        case 'workers':
+            return { ...state, workers: Object.fromEntries(action.workers.map((w) => [w.id, w])) }
     }
 }
 

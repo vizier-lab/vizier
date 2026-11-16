@@ -1248,310 +1248,6 @@
         }
       }
     },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs": {
-      "get": {
-        "tags": [
-          "api::v1::agents::jobs"
-        ],
-        "operationId": "list_jobs",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "channel_id",
-            "in": "path",
-            "description": "Channel ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "topic_id",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "In-flight background jobs launched from this topic, oldest first",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_BackgroundJobSnapshot"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Agent not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}": {
-      "get": {
-        "tags": [
-          "api::v1::agents::jobs"
-        ],
-        "operationId": "get_job",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "channel_id",
-            "in": "path",
-            "description": "Channel ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "topic_id",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Background job ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The job, in any state",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No job with that id was launched from this topic",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/cancel": {
-      "post": {
-        "tags": [
-          "api::v1::agents::jobs"
-        ],
-        "operationId": "cancel_job",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "channel_id",
-            "in": "path",
-            "description": "Channel ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "topic_id",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Background job ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelJobBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The job, now cancelled",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No job with that id was launched from this topic",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The job already finished; its final state",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_BackgroundJobSnapshot"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/jobs/{job_id}/pieces/{ordinal}/history": {
-      "get": {
-        "tags": [
-          "api::v1::agents::jobs"
-        ],
-        "operationId": "get_piece_history",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "channel_id",
-            "in": "path",
-            "description": "Channel ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "topic_id",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Background job ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "ordinal",
-            "in": "path",
-            "description": "0-based piece position",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HistoryQuery"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The piece's own conversation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_SessionHistory"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Unknown job or piece",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/agents/{agent_id}/channel/{channel_id}/topics": {
       "get": {
         "tags": [
@@ -9060,6 +8756,133 @@
           }
         }
       }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
+      "get": {
+        "operationId": "list_detached_scripts",
+        "parameters": [
+          {
+            "description": "Agent ID",
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel ID",
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Topic ID",
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_DetachedScriptSnapshot"
+                }
+              }
+            },
+            "description": "The topic's detached scripts: the running ones, then the last 50 that ended, oldest first"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            },
+            "description": "Conversation not found"
+          }
+        },
+        "tags": [
+          "api::v1::agents::detached"
+        ]
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
+      "get": {
+        "operationId": "get_detached_script",
+        "parameters": [
+          {
+            "description": "Agent ID",
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel ID",
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Topic ID",
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Script ID, e.g. d_k3x9a1b2",
+            "in": "path",
+            "name": "script_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_DetachedScriptDetail"
+                }
+              }
+            },
+            "description": "One script with its code, the calls it made and, once final, its report"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            },
+            "description": "Script not found"
+          }
+        },
+        "tags": [
+          "api::v1::agents::detached"
+        ]
+      }
     }
   },
   "components": {
@@ -9860,96 +9683,6 @@
                 "minimum": 0
               },
               "total_bytes": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_BackgroundJobSnapshot": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "description": "The WebUI wire shape (`contracts/http-api.md`).",
-            "required": [
-              "id",
-              "kind",
-              "state",
-              "created_at",
-              "timeout_secs",
-              "pieces"
-            ],
-            "properties": {
-              "cancelled_by": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Canceller"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "created_at": {
-                "type": "string",
-                "format": "date-time"
-              },
-              "delegated_to": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/String"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "finished_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              },
-              "id": {
-                "$ref": "#/components/schemas/String"
-              },
-              "kind": {
-                "$ref": "#/components/schemas/JobKind"
-              },
-              "pieces": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-                }
-              },
-              "reason": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "state": {
-                "$ref": "#/components/schemas/JobState"
-              },
-              "timeout_secs": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -13149,7 +12882,7 @@
               "agent_id",
               "channel",
               "is_thinking",
-              "running_jobs"
+              "running_scripts"
             ],
             "properties": {
               "agent_id": {
@@ -13161,16 +12894,16 @@
               "is_thinking": {
                 "type": "boolean"
               },
-              "running_jobs": {
-                "type": "integer",
-                "description": "Background jobs launched from this topic that are still in flight.",
-                "minimum": 0
-              },
               "title": {
                 "type": "string"
               },
               "topic_id": {
                 "type": "string"
+              },
+              "running_scripts": {
+                "description": "Detached scripts launched from this topic that are still running (spec 058).",
+                "minimum": 0,
+                "type": "integer"
               }
             }
           },
@@ -13585,99 +13318,6 @@
                     "null"
                   ],
                   "description": "The first characters of the key; empty for a key made before they were kept."
-                }
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_Vec_BackgroundJobSnapshot": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "description": "The WebUI wire shape (`contracts/http-api.md`).",
-              "required": [
-                "id",
-                "kind",
-                "state",
-                "created_at",
-                "timeout_secs",
-                "pieces"
-              ],
-              "properties": {
-                "cancelled_by": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Canceller"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "delegated_to": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/String"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "finished_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
-                },
-                "id": {
-                  "$ref": "#/components/schemas/String"
-                },
-                "kind": {
-                  "$ref": "#/components/schemas/JobKind"
-                },
-                "pieces": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-                  }
-                },
-                "reason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "state": {
-                  "$ref": "#/components/schemas/JobState"
-                },
-                "timeout_secs": {
-                  "type": "integer",
-                  "format": "int64",
-                  "minimum": 0
                 }
               }
             }
@@ -15225,7 +14865,7 @@
                 "agent_id",
                 "channel",
                 "is_thinking",
-                "running_jobs"
+                "running_scripts"
               ],
               "properties": {
                 "agent_id": {
@@ -15237,16 +14877,16 @@
                 "is_thinking": {
                   "type": "boolean"
                 },
-                "running_jobs": {
-                  "type": "integer",
-                  "description": "Background jobs launched from this topic that are still in flight.",
-                  "minimum": 0
-                },
                 "title": {
                   "type": "string"
                 },
                 "topic_id": {
                   "type": "string"
+                },
+                "running_scripts": {
+                  "description": "Detached scripts launched from this topic that are still running (spec 058).",
+                  "minimum": 0,
+                  "type": "integer"
                 }
               }
             }
@@ -16796,164 +16436,6 @@
           }
         }
       },
-      "BackgroundJobSnapshot": {
-        "type": "object",
-        "description": "The WebUI wire shape (`contracts/http-api.md`).",
-        "required": [
-          "id",
-          "kind",
-          "state",
-          "created_at",
-          "timeout_secs",
-          "pieces"
-        ],
-        "properties": {
-          "cancelled_by": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Canceller"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "delegated_to": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/JobKind"
-          },
-          "pieces": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BackgroundPieceSnapshot"
-            }
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "state": {
-            "$ref": "#/components/schemas/JobState"
-          },
-          "timeout_secs": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "BackgroundPieceSnapshot": {
-        "type": "object",
-        "required": [
-          "ordinal",
-          "prompt",
-          "state",
-          "agent_id",
-          "started_at"
-        ],
-        "properties": {
-          "agent_id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "ordinal": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "started_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "state": {
-            "$ref": "#/components/schemas/PieceState"
-          },
-          "topic": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        }
-      },
-      "BackgroundReport": {
-        "type": "object",
-        "description": "What `VizierRequestContent::BackgroundReport` carries; rendered for the model by `Display`.",
-        "required": [
-          "job_id",
-          "kind",
-          "entries"
-        ],
-        "properties": {
-          "delegated_to": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ReportEntry"
-            },
-            "description": "One per piece, in ordinal order."
-          },
-          "job_id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/JobKind"
-          }
-        }
-      },
       "BranchHolder": {
         "type": "object",
         "required": [
@@ -17166,43 +16648,6 @@
             ]
           }
         }
-      },
-      "CancelJobBody": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "Canceller": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "agent"
-            ],
-            "properties": {
-              "agent": {
-                "$ref": "#/components/schemas/String"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "person"
-            ],
-            "properties": {
-              "person": {
-                "type": "string"
-              }
-            }
-          }
-        ]
       },
       "CandidateGroup_AgentCandidate": {
         "type": "object",
@@ -20424,25 +19869,6 @@
           }
         }
       },
-      "JobKind": {
-        "type": "string",
-        "enum": [
-          "batch",
-          "delegation"
-        ]
-      },
-      "JobState": {
-        "type": "string",
-        "description": "`running` and `reporting` are the in-flight states. Cancel and the runner race on one\nguarded transition out of `running`, which is what makes a job end exactly once: either\nreported or cancelled, never both.",
-        "enum": [
-          "running",
-          "reporting",
-          "reported",
-          "undelivered",
-          "cancelled",
-          "interrupted"
-        ]
-      },
       "KindField": {
         "type": "object",
         "required": [
@@ -21512,7 +20938,7 @@
           "agent_setup_ready",
           "task_run",
           "dream_cycle",
-          "background_job",
+          "background_work",
           "integration",
           "chat_reply",
           "workspace_message"
@@ -21852,17 +21278,6 @@
             "type": "string"
           }
         }
-      },
-      "PieceState": {
-        "type": "string",
-        "enum": [
-          "running",
-          "answered",
-          "failed",
-          "timed_out",
-          "cancelled",
-          "interrupted"
-        ]
       },
       "PlatformMessageId": {
         "oneOf": [
@@ -23037,37 +22452,6 @@
         "properties": {
           "title": {
             "type": "string"
-          }
-        }
-      },
-      "ReportEntry": {
-        "type": "object",
-        "required": [
-          "ordinal",
-          "prompt",
-          "state",
-          "text",
-          "truncated"
-        ],
-        "properties": {
-          "ordinal": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "prompt": {
-            "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/PieceState",
-            "description": "Never `Running`/`Interrupted`; `Cancelled` only in a cancel's tool result."
-          },
-          "text": {
-            "type": "string",
-            "description": "The answer (truncated) or the reason it did not answer."
-          },
-          "truncated": {
-            "type": "boolean"
           }
         }
       },
@@ -24853,7 +24237,7 @@
           "agent_id",
           "channel",
           "is_thinking",
-          "running_jobs"
+          "running_scripts"
         ],
         "properties": {
           "agent_id": {
@@ -24865,16 +24249,16 @@
           "is_thinking": {
             "type": "boolean"
           },
-          "running_jobs": {
-            "type": "integer",
-            "description": "Background jobs launched from this topic that are still in flight.",
-            "minimum": 0
-          },
           "title": {
             "type": "string"
           },
           "topic_id": {
             "type": "string"
+          },
+          "running_scripts": {
+            "description": "Detached scripts launched from this topic that are still running (spec 058).",
+            "minimum": 0,
+            "type": "integer"
           }
         }
       },
@@ -25783,14 +25167,26 @@
           },
           {
             "type": "object",
-            "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person.",
+            "description": "A background-job report saved before spec 058, read so old conversations keep their\nhistory; never sent any more. Its text is rendered from the stored JSON. Tracked for\nremoval in #82.",
             "required": [
               "background_report"
             ],
             "properties": {
               "background_report": {
-                "$ref": "#/components/schemas/BackgroundReport",
-                "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person."
+                "description": "A background-job report saved before spec 058, read so old conversations keep their\nhistory; never sent any more. Its text is rendered from the stored JSON. Tracked for\nremoval in #82."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Finished detached scripts of this conversation (spec 058). Sent empty by a script's\ntask as a poke; whoever handles it claims the deliverable rows and, only if it got\nsome, runs a turn whose request carries the rendered delivery (`[Background work\nfinished] …`). Never journaled: the rows are the durable part, and recovery pokes again.",
+            "required": [
+              "detached_delivery"
+            ],
+            "properties": {
+              "detached_delivery": {
+                "description": "Finished detached scripts of this conversation (spec 058). Sent empty by a script's\ntask as a poke; whoever handles it claims the deliverable rows and, only if it got\nsome, runs a turn whose request carries the rendered delivery (`[Background work\nfinished] …`). Never journaled: the rows are the durable part, and recovery pokes again.",
+                "type": "string"
               }
             }
           },
@@ -25821,17 +25217,17 @@
             }
           },
           {
-            "type": "object",
             "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015).",
-            "required": [
-              "question_answer"
-            ],
             "properties": {
               "question_answer": {
                 "$ref": "#/components/schemas/QuestionAnswer",
                 "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015)."
               }
-            }
+            },
+            "required": [
+              "question_answer"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -26293,6 +25689,243 @@
             "description": "The current offset, such as `+07:00`. It changes with daylight saving, so it is computed\non every read."
           }
         }
+      },
+      "APIResponse_DetachedScriptDetail": {
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DetachedScriptSnapshot"
+              },
+              {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "report": {
+                    "description": "The `ExecutionReport` once final (or the failure message as a string).",
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "tool_calls": {
+                    "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`.",
+                    "items": {
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "code",
+                  "tool_calls"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "One script as the panel draws it: the activity trail's run detail."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "APIResponse_Vec_DetachedScriptSnapshot": {
+        "properties": {
+          "data": {
+            "items": {
+              "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "delivered": {
+                  "type": "boolean"
+                },
+                "finished_at": {
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "$ref": "#/components/schemas/String"
+                },
+                "intent": {
+                  "type": "string"
+                },
+                "parent_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/String"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "$ref": "#/components/schemas/DetachedScriptState"
+                },
+                "timeout_secs": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "tool_call_count": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "intent",
+                "state",
+                "created_at",
+                "timeout_secs",
+                "delivered",
+                "tool_call_count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "DetachedScriptDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DetachedScriptSnapshot"
+          },
+          {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "report": {
+                "description": "The `ExecutionReport` once final (or the failure message as a string).",
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "tool_calls": {
+                "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`.",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "code",
+              "tool_calls"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "One script as the panel draws it: the activity trail's run detail."
+      },
+      "DetachedScriptSnapshot": {
+        "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "delivered": {
+            "type": "boolean"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/String"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/DetachedScriptState"
+          },
+          "timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_call_count": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "intent",
+          "state",
+          "created_at",
+          "timeout_secs",
+          "delivered",
+          "tool_call_count"
+        ],
+        "type": "object"
+      },
+      "DetachedScriptState": {
+        "description": "Every transition out of `running` is one guarded update, so of two racing causes\n(a cancel and the script finishing, say) exactly one wins.",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "cancelled",
+          "interrupted"
+        ],
+        "type": "string"
       }
     }
   }

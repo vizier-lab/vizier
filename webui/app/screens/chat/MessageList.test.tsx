@@ -102,7 +102,78 @@ describe('a turn that spoke while it worked (spec 053, revised)', () => {
         const html = renderToString(
             <MessageList state={state} agent={{ id: 'oz', name: 'Oz' }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} onReact={() => {}} />
         )
-        expect(html).toContain('Oz is ')
-        expect(html.indexOf('The log points at the deploy.')).toBeGreaterThan(html.indexOf('Oz is '))
+        // The running head names the newest script's intent, not an idle word.
+        expect(html).not.toContain('Oz is ')
+        const head = html.indexOf('>second<')
+        expect(head).toBeGreaterThan(-1)
+        expect(html.indexOf('The log points at the deploy.')).toBeGreaterThan(head)
+    })
+})
+
+describe('a message the turn read while it worked (spec 062)', () => {
+    const report = JSON.stringify({ ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 })
+    const finished: ChatMessage[] = [
+        entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'refactor the auth module' } } }),
+        entry('c1', { ToolCall: { call_id: 'c1', name: 'execute_python', arguments: { intent: 'first', code: '1' } } }, '2026-10-23T10:00:01Z'),
+        entry('r1', { ToolResult: { call_id: 'c1', content: report } }, '2026-10-23T10:00:04Z'),
+        // Sent at :02, read at :04: the row's time is where it was read, its request keeps when it was sent.
+        entry('steer', { Request: { timestamp: '2026-10-23T10:00:02Z', user: 'me', content: { chat: 'keep the old token format' }, mid_turn: true } }, '2026-10-23T10:00:04Z'),
+        entry('c2', { ToolCall: { call_id: 'c2', name: 'execute_python', arguments: { intent: 'second', code: '2' } } }, '2026-10-23T10:00:05Z'),
+        entry('r2', { ToolResult: { call_id: 'c2', content: report } }, '2026-10-23T10:00:08Z'),
+        entry('end', { Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'All done.' } } } }, '2026-10-23T10:00:09Z'),
+    ]
+
+    it('draws trail, the message, trail, then the one reply', () => {
+        const html = draw(finished)
+        const worked = [...html.matchAll(/Worked/g)].map((m) => m.index)
+        expect(worked).toHaveLength(2)
+        const message = html.indexOf('keep the old token format')
+        expect(message).toBeGreaterThan(worked[0]!)
+        expect(worked[1]!).toBeGreaterThan(message)
+        expect(html.indexOf('All done.')).toBeGreaterThan(worked[1]!)
+        expect(html.match(/All done\./g) ?? []).toHaveLength(1)
+    })
+
+    it('starts the part after the message with the agent, as the turn starts', () => {
+        const html = draw(finished)
+        const heads = [...html.matchAll(/>Oz</g)].map((m) => m.index!)
+        expect(heads).toHaveLength(2)
+        const message = html.indexOf('keep the old token format')
+        expect(heads[0]).toBeLessThan(message)
+        expect(heads[1]).toBeGreaterThan(message)
+        expect(heads[1]).toBeLessThan(html.lastIndexOf('Worked'))
+        // The second head says when the agent read the message (10:00:04), the row's own time.
+        const second = html.slice(heads[1], html.lastIndexOf('Worked'))
+        expect(second).toMatch(/type-mono-xs text-faint">\d{2}:\d{2}</)
+    })
+
+    it('draws the message once, inside the turn, after the request that started it', () => {
+        const html = draw(finished)
+        expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)
+        expect(html.indexOf('keep the old token format')).toBeGreaterThan(html.indexOf('refactor the auth module'))
+    })
+})
+
+describe('a turn that ends on a question card', () => {
+    const asked: ChatMessage[] = [
+        entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'get me ready' } } }),
+        entry('end', { Response: { timestamp: '2026-10-23T10:00:05Z', content: { message: { content: '', stats: { duration: { secs: 5, nanos: 0 }, total_input_tokens: 1, total_output_tokens: 1 } as never } } } }, '2026-10-23T10:00:05Z'),
+    ]
+
+    // The card is what the agent said; the reactions and the model line close the turn under it.
+    it('draws the card above the reply footer', () => {
+        const html = renderToString(
+            <MessageList
+                state={{ ...emptyTopic(session), entries: asked }}
+                agent={{ id: 'oz', name: 'Oz' }}
+                hasOlder={false}
+                loadingOlder={false}
+                onLoadOlder={() => {}}
+                onReact={() => {}}
+                questions={() => <div>the question card</div>}
+            />
+        )
+        expect(html).toContain('the question card')
+        expect(html.indexOf('in ·')).toBeGreaterThan(html.indexOf('the question card'))
     })
 })

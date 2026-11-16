@@ -1,7 +1,19 @@
+// lint-tokens-exempt: the browser chrome colours, which no token can carry: a meta tag's content
+// is a plain string the browser reads, not a CSS rule.
 // Which colours a scheme puts on the page, and putting them there. Deliberately light: the startup path
 // imports this and nothing that holds a palette, so the default scheme costs nothing to load.
 import { isHex } from './color'
 import { ROLE_VAR, ROLE_VARS, ROLES, type Appearance, type Mode, type Role, type Scheme } from './roles'
+
+/**
+ * The colour the browser's own chrome takes, per appearance: the ground the page is on.
+ *
+ * A `theme-color` meta tag takes a plain colour, not a token: the browser reads the string, so it
+ * cannot follow `--vz-ground` when a scheme paints a different ground. These are the two grounds
+ * the design system ships (`design/src/tokens/tokens.css`), and the manifest declares the same.
+ */
+export const THEME_COLORS: Record<Appearance, string> = { dark: '#0b0b0c', light: '#ffffff' }
+
 
 /** A `--vz-*` name to a `#rrggbb` value. */
 export type Vars = Record<string, string>
@@ -98,5 +110,8 @@ export function applyTo(el: Pick<HTMLElement, 'style' | 'setAttribute' | 'remove
 /**
  * Runs before the stylesheet, so the first paint is already the chosen scheme. It can't import
  * anything, so it checks each name and value itself, and it can never stop the page from loading.
+ *
+ * It also paints the browser's own chrome, so the address bar follows the scheme before the first
+ * paint: the appearance it resolves is the same one `resolvePaint` resolves.
  */
-export const PRE_PAINT_SCRIPT = `try{var d=document.documentElement,t=localStorage.getItem('vizier.theme'),f=t==='dark'||t==='light';if(f)d.setAttribute('data-theme',t);var p=JSON.parse(localStorage.getItem('vizier.scheme.paint'));if(p){var v;if(p.light&&p.dark)v=(f?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches)?p.dark:p.light;else if(p.light||p.dark){v=p.light||p.dark;d.setAttribute('data-theme',p.light?'light':'dark')}if(v)for(var n in v)if(/^--vz-[a-z0-9-]+$/.test(n)&&/^#[0-9a-fA-F]{6}$/.test(v[n]))d.style.setProperty(n,v[n])}}catch(e){}`
+export const PRE_PAINT_SCRIPT = `try{var d=document.documentElement,t=localStorage.getItem('vizier.theme'),f=t==='dark'||t==='light',a=f?t:null;if(f)d.setAttribute('data-theme',t);try{var p=JSON.parse(localStorage.getItem('vizier.scheme.paint'));if(p){var v;if(p.light&&p.dark)v=(f?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches)?p.dark:p.light;else if(p.light||p.dark){v=p.light||p.dark;a=p.light?'light':'dark';d.setAttribute('data-theme',a)}if(v)for(var n in v)if(/^--vz-[a-z0-9-]+$/.test(n)&&/^#[0-9a-fA-F]{6}$/.test(v[n]))d.style.setProperty(n,v[n])}}catch(e){}if(!a)a=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',a==='dark'?'${THEME_COLORS.dark}':'${THEME_COLORS.light}')}catch(e){}`

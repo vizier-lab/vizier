@@ -7,7 +7,7 @@ export type NotificationCategory =
     | 'agent_setup_ready'
     | 'task_run'
     | 'dream_cycle'
-    | 'background_job'
+    | 'background_work'
     | 'integration'
     | 'chat_reply'
     | 'workspace_message'

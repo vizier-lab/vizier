@@ -1,17 +1,23 @@
 import { FadeRule } from '../shared/SideCard'
 import {
     MobileTopBar,
+    SlideOver,
     TopicHeader,
-    type MobileTopBarProps,
+    type MobileTopBarAgent,
 } from '@vizier/design'
 import { nanoid } from 'nanoid'
-import { useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router'
+import { agentState } from '../../api/endpoints/agents'
 import type { ConversationItem } from '../../api/endpoints/conversations'
+import { detailsPath } from '../../lib/agentDetails'
 import { conversationHref } from '../../lib/conversations'
+import { assetSrc } from '../../lib/fileUrls'
 import { useMobile } from '../../lib/useMobile'
+import { useAgents } from '../../stores/agents'
 import { useNav } from '../../stores/nav'
 import { NotificationsBell } from '../shared/NotificationsBell'
+import { AgentConversations } from '../shell/AgentConversations'
 import { ConversationPicker } from './ConversationPicker'
 
 type Props = {
@@ -23,17 +29,21 @@ type Props = {
     liveTopics?: string[]
     /** The jobs pill and the panel switch. */
     trailing?: ReactNode
-    /** The phone bar's right slot: the jobs count. */
+    /** On a phone, what acts on this conversation (new, delete), at the end of the topic row. */
     mobileTrailing?: ReactNode
     /** The agent and how it is doing, for the phone bar. */
     agentName?: string
     status?: {
-        state: NonNullable<MobileTopBarProps['chat']>['state']
+        state: MobileTopBarAgent['state']
         detail?: ReactNode
     }
 }
 
-/** The top of a conversation: its title opens the conversation picker, which also starts a fresh one. */
+/**
+ * The top of a conversation: its title opens the conversation picker, which also starts a fresh one.
+ * On a phone (spec 056) the bar carries the agent, which switches agent from its name and opens its
+ * details from the side, and the conversation is a second row that opens the topics as a sheet.
+ */
 export function ConversationHeader({
     agentId,
     title,
@@ -47,8 +57,13 @@ export function ConversationHeader({
 }: Props) {
     const mobile = useMobile()
     const setNavOpen = useNav((s) => s.setOpen)
+    const setSwitcherOpen = useNav((s) => s.setSwitcherOpen)
+    const { agents, health } = useAgents()
     const navigate = useNavigate()
+    const { pathname, search } = useLocation()
     const [open, setOpen] = useState(false)
+    // Choosing a conversation in the sheet navigates; the sheet closes behind it.
+    useEffect(() => setOpen(false), [pathname, search])
     const fresh = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
 
     const select = (c: ConversationItem) => {
@@ -57,48 +72,29 @@ export function ConversationHeader({
     }
 
     if (mobile) {
+        const agent = agents.find((a) => a.agent_id === agentId)
         return (
-            <div className="relative">
+            <>
                 <MobileTopBar
                     onMenu={() => setNavOpen(true)}
-                    chat={{
+                    agent={{
                         agentId,
-                        agentName: agentName ?? agentId,
-                        topic: title,
-                        state: status?.state ?? 'live',
+                        name: agentName ?? agent?.name ?? agentId,
+                        imageSrc: assetSrc(agent?.avatar_url),
+                        state: status?.state ?? agentState(health[agentId]),
                         detail: status?.detail,
-                        onTopic: () => setOpen((o) => !o),
+                        onSwitch: () => setSwitcherOpen(true),
+                        onDetails: () => navigate(detailsPath(agentId)),
                     }}
-                    trailing={
-                        <div className="flex items-center gap-4">
-                            {mobileTrailing}
-                            <NotificationsBell />
-                        </div>
-                    }
+                    topic={{ title, onTopic: () => setOpen(true), actions: mobileTrailing }}
+                    trailing={<NotificationsBell />}
                 />
-                {open && (
-                    <>
-                        <button
-                            type="button"
-                            aria-label="Close conversations"
-                            className="fixed inset-0 z-20 cursor-default"
-                            onClick={() => setOpen(false)}
-                        />
-                        <div className="absolute inset-x-8 top-60 z-30">
-                            <ConversationPicker
-                                agentId={agentId}
-                                open
-                                onOpenChange={setOpen}
-                                width={Math.min(400, window.innerWidth - 16)}
-                                current={current}
-                                liveTopics={liveTopics}
-                                onSelect={select}
-                                onNew={fresh}
-                            />
-                        </div>
-                    </>
-                )}
-            </div>
+                <SlideOver open={open} side="bottom" title="Topics" onClose={() => setOpen(false)}>
+                    <div className="flex h-[65dvh] min-h-0 flex-col gap-12">
+                        <AgentConversations agentId={agentId} />
+                    </div>
+                </SlideOver>
+            </>
         )
     }
 

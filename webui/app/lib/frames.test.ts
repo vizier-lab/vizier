@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Frame, WebSocketResponse } from '../api/frames'
-import { emptyTopic, reduce, type Action, type TopicState } from './frames'
+import { emptyTopic, reduce, sentToQueue, storedText, type Action, type TopicState } from './frames'
 import { groupHistory, openTurn, turnEvents } from './trail'
 
 const session = { agent_id: 'plug', channel: 'webui', topic: 't' }
@@ -33,6 +33,32 @@ describe('turn state machine', () => {
         expect(s.label).toBeNull()
         expect(s.context).toEqual({ used: 21000, window: 200000 })
         expect(s.entries.at(-1)?.uid).toBe('rep1')
+    })
+
+    // spec 062: a waiting message says what will happen to it, and the stored request (the text
+    // without `/queue`) still ends the wait.
+    it('marks a message sent with Ctrl+Enter or /queue as queued, and matches it without the command', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'steer me', now: '2026-10-23T10:00:05Z' })
+        s = run(s, { type: 'send', id: '3', text: 'flagged', queue: true, now: '2026-10-23T10:00:06Z' })
+        s = run(s, { type: 'send', id: '4', text: '/queue later please', now: '2026-10-23T10:00:07Z' })
+        expect(s.queued.map((q) => [q.text, !!q.queue])).toEqual([
+            ['steer me', false],
+            ['flagged', true],
+            ['/queue later please', true],
+        ])
+        s = run(s, { type: 'sent', request: { chat: 'later please' }, timestamp: '2030-01-01T00:00:00Z' })
+        expect(s.queued.map((q) => q.text)).toEqual(['steer me', 'flagged'])
+    })
+
+    it('reads /queue the way the server does', () => {
+        expect(storedText('/queue check the logs')).toBe('check the logs')
+        expect(storedText('/QUEUE@bot  check')).toBe('check')
+        expect(storedText('/queueing is fun')).toBe('/queueing is fun')
+        expect(storedText('plain')).toBe('plain')
+        expect(sentToQueue('plain')).toBe(false)
+        expect(sentToQueue('plain', true)).toBe(true)
+        expect(sentToQueue('/queue x')).toBe(true)
     })
 
     it('clears a waiting message once the stored request arrives', () => {
@@ -230,11 +256,25 @@ describe('history and reopening', () => {
 })
 
 describe('side frames', () => {
-    it('keeps jobs by id and replaces a changed one', () => {
-        const job = (state: string) => ({ id: 'j1', kind: 'batch', state, pieces: [] }) as never
-        const s = run(start(), frame({ kind: 'job', snapshot: job('running') }), frame({ kind: 'job', snapshot: job('reported') }))
-        expect(Object.keys(s.jobs)).toEqual(['j1'])
-        expect(s.jobs.j1.state).toBe('reported')
+    it('keeps detached scripts by id and replaces a changed one', () => {
+        const script = (state: string, calls: number) =>
+            ({ id: 'd_1', intent: 'check', state, tool_call_count: calls, delivered: false }) as never
+        const s = run(
+            start(),
+            frame({ kind: 'detached_script', script: script('running', 0) }),
+            frame({ kind: 'detached_script', script: script('running', 2) }),
+            frame({ kind: 'detached_script', script: script('succeeded', 2) }),
+        )
+        expect(Object.keys(s.scripts)).toEqual(['d_1'])
+        expect(s.scripts.d_1.state).toBe('succeeded')
+        expect(s.scripts.d_1.tool_call_count).toBe(2)
+    })
+
+    it('replaces the scripts with a fresh read', () => {
+        const script = (id: string) => ({ id, intent: id, state: 'running' }) as never
+        let s = run(start(), frame({ kind: 'detached_script', script: script('d_old') }))
+        s = run(s, { type: 'scripts', scripts: [script('d_a'), script('d_b')] })
+        expect(Object.keys(s.scripts)).toEqual(['d_a', 'd_b'])
     })
 
     it('prepends a new session file and replaces a relabelled one', () => {
@@ -395,5 +435,20 @@ describe('a turn this tab did not send (live voice)', () => {
         // Appended, not inserted: a stand-in never reorders what is already drawn.
         expect(s.entries.at(-1)?.content.Request?.content).toEqual({ chat: 'second, by voice' })
         expect(s.entries).toHaveLength(earlier.entries.length + 1)
+    })
+})
+
+describe('an error the conversation ended on', () => {
+    const failed = (uid = 'e1') =>
+        entry(uid, { Response: { timestamp: 't', content: { error: { kind: 'rate_limited', message: 'credit exhausted' } }, attachments: [] } } as ChatMessage['content'])
+
+    it('is shown again when the topic is reopened', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed()] })
+        expect(s.error).toEqual({ kind: 'rate_limited', message: 'credit exhausted' })
+    })
+
+    it('is not shown once something was said after it', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed(), request('r2')] })
+        expect(s.error).toBeNull()
     })
 })

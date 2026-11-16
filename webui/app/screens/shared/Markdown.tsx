@@ -9,7 +9,11 @@ import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
 import { Mermaid } from './Mermaid'
 
-type Props = { children: string; size?: ComponentProps<typeof Prose>['size'] }
+type Props = {
+    children: string
+    size?: ComponentProps<typeof Prose>['size']
+    tone?: ComponentProps<typeof Prose>['tone']
+}
 
 // Module level: a fresh plugin array on every render re-parses the whole document each time.
 const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkBreaks, remarkMath]
@@ -48,6 +52,17 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     // A link into the app (a memory wiki link) stays in the tab; anything else opens a new one.
     a: ({ node: _n, href, ...p }) =>
         href?.startsWith('/') && !href.startsWith('//') ? <Link to={href} {...p} /> : <a href={href} {...p} target="_blank" rel="noreferrer noopener" />,
+    // An image from another site is sent no referrer: the app's origin is nobody's business, and
+    // hosts that refuse foreign referrers (hotlink protection) still serve a request without one.
+    // Capped so a large picture cannot take over the screen; its aspect ratio is kept.
+    img: ({ node: _n, className, ...p }) => (
+        <img
+            {...p}
+            className={['inline-block h-auto max-h-[min(50vh,420px)] w-auto max-w-full rounded-md', className].filter(Boolean).join(' ')}
+            referrerPolicy="no-referrer"
+            loading="lazy"
+        />
+    ),
     // No rehype pass may rewrite a block: `code` reads its children as the source text, and a plugin
     // that highlights (rehype-highlight) replaces that text with elements, which draws as [object Object].
     pre: ({ children }) => <>{children}</>,
@@ -71,9 +86,9 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
  * diagram) and math (`$…$` and `$$…$$`, through KaTeX). A fence always wins: `$` inside one is
  * source, because the highlighter reads it as text and KaTeX never sees it.
  */
-export function Markdown({ children, size = 'reply' }: Props) {
+export function Markdown({ children, size = 'reply', tone }: Props) {
     return (
-        <Prose size={size}>
+        <Prose size={size} tone={tone}>
             <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components}>
                 {children}
             </ReactMarkdown>

@@ -16,6 +16,7 @@ import {
   applyClientState,
   blockDurationMs,
   groupHistory,
+  latestIntent,
   liveEvent,
   mergeEntries,
   openTurn,
@@ -103,7 +104,8 @@ test('T3 adjacent thoughts merge', () => {
 
 const say = (text: string, timestamp?: string) => ({ ...entry({ AssistantMessage: text }), timestamp })
 const at = (message: ChatMessage, timestamp: string) => ({ ...message, timestamp })
-const shape = (blocks: TurnBlock[]) => blocks.map((b) => (b.kind === 'trail' ? kinds(b.events).join('+') : `"${b.text}"`))
+const shape = (blocks: TurnBlock[]) =>
+  blocks.map((b) => (b.kind === 'trail' ? kinds(b.events).join('+') : b.kind === 'message' ? `"${b.text}"` : `you: ${b.entry.content.Request?.content && 'chat' in b.entry.content.Request.content ? b.entry.content.Request.content.chat : ''}`))
 
 test('text between two rounds stays in the one trail, where it was written', () => {
   const turns = groupHistory([
@@ -439,7 +441,7 @@ test('an ordinary chat request is still adopted as its turn request', () => {
   assert.equal(turns[0].request?.uid, asked.uid)
 })
 
-// Background jobs: the call that launched a job is tagged with the job id its result quotes,
+// Background jobs (saved before spec 058, #82): the call that launched a job is tagged with the job id its result quotes,
 // so the job tray can jump back to it.
 test('a launching call in history is tagged with the job id from its result', () => {
   const turns = groupHistory([
@@ -668,4 +670,147 @@ test('a turn ended by a turn-ending call keeps the call and its empty reply toge
   assert.equal(turns[0].clientCalls.length, 1)
   assert.ok(turns[0].outcome)
   assert.equal(turns[0].anchorUid, turns[0].outcome?.uid)
+})
+
+test('a detached run reads as running in the background, from history and live', () => {
+  const handle = { detached: true, id: 'd_k3x9a1b2', state: 'running', timeout_secs: 600 }
+  const turns = groupHistory([
+    request('slow'),
+    python('c-d', { intent: 'run the tests', code: 'x', detached: true }),
+    toolResult('c-d', JSON.stringify(handle)),
+    response('started'),
+  ])
+  const event = turnEvents(turns[0])[0]
+  assert.equal(event.kind, 'python')
+  if (event.kind === 'python') {
+    assert.equal(event.detachedId, 'd_k3x9a1b2')
+    assert.equal(event.report, null)
+  }
+
+  const live = appendLiveEvent(
+    appendLiveEvent([], { tool_choice: { name: 'execute_python', args: { intent: 'x', code: 'y' } } }, 'l1'),
+    { tool_response: { response: handle } },
+    'l2',
+  )
+  const run = live.find((e) => e.kind === 'python')
+  assert.ok(run && run.kind === 'python' && run.detachedId === 'd_k3x9a1b2')
+})
+
+// Spec 058: a detached script's delivery is saved as a request, but mid-turn it is a step.
+const delivery = (text: string) =>
+  entry({ Request: { timestamp: '2026-10-03T00:00:00Z', user: 'a', content: { detached_delivery: text } } })
+const DELIVERED = `[Background work finished]
+d_aaaaaaaa  succeeded in 6s  — check vendor A
+result: 3
+d_bbbbbbbb  timed out in 10m 0s  — fetch the changelog
+reason: the script's time limit (600s) was reached`
+
+test('a mid-turn delivery is a step of its turn, which stays one turn', () => {
+  const turns = groupHistory([
+    request('check both'),
+    python('p1', { intent: 'launch', code: '1' }),
+    toolResult('p1', JSON.stringify({ detached: true, id: 'd_aaaaaaaa', state: 'running', timeout_secs: 600 })),
+    delivery(DELIVERED),
+    python('p2', { intent: 'compare', code: '2' }),
+    toolResult('p2', JSON.stringify({ ok: true, result: 1, stdout: '', tool_calls: [], duration_ms: 3 })),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1)
+  assert.equal(openTurn(turns), undefined)
+  const events = turnEvents(turns[0])
+  assert.deepEqual(kinds(events), ['python', 'delivery', 'delivery', 'python'])
+  const first = events[1]
+  assert.ok(first.kind === 'delivery')
+  assert.equal(first.handle, 'd_aaaaaaaa')
+  assert.equal(first.state, 'succeeded')
+  assert.equal(first.took, '6s')
+  assert.equal(first.intent, 'check vendor A')
+  assert.equal(first.body, 'result: 3')
+  const second = events[2]
+  assert.ok(second.kind === 'delivery' && second.took === '10m 0s' && second.state === 'timed out')
+})
+
+// Spec 059: a worker's update rides the same delivery, after any scripts.
+test('a mid-turn subagent update is a step of its turn, one per worker', () => {
+  const turns = groupHistory([
+    request('split it'),
+    delivery(`${DELIVERED}
+
+[Subagent update] s_k3x9a1b2 — task 2 of 3 "find the EU sheet"
+state: asking
+question: Which one?
+reply with reply_subagent(id="s_k3x9a1b2", text=...)`),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1)
+  const events = turnEvents(turns[0])
+  assert.deepEqual(kinds(events), ['delivery', 'delivery', 'worker_update'])
+  const update = events[2]
+  assert.ok(update.kind === 'worker_update')
+  assert.equal(update.handle, 's_k3x9a1b2')
+  assert.equal(update.position, 2)
+  assert.equal(update.state, 'asking')
+  assert.equal(update.body, 'question: Which one?')
+  assert.equal(events[1].kind === 'delivery' && events[1].body, "reason: the script's time limit (600s) was reached")
+})
+
+test('a delivery that wakes an idle agent starts its own turn', () => {
+  const wake = delivery(DELIVERED)
+  const turns = groupHistory([request('hi'), response('hello'), wake, python('p3', { intent: 'x', code: '3' }), response('noted')])
+  assert.equal(turns.length, 2)
+  assert.equal(turns[1].request?.uid, wake.uid)
+  assert.deepEqual(kinds(turnEvents(turns[1])), ['python'])
+})
+
+test('latestIntent is the newest python run that stated one', () => {
+  const py = (id: string, intent: string | null): TrailEvent => ({ kind: 'python', id, intent, code: null, report: null })
+  assert.equal(latestIntent([]), null)
+  assert.equal(latestIntent([{ kind: 'thought', id: 't', text: 'hm' } as TrailEvent]), null)
+  assert.equal(latestIntent([py('1', 'Read the config'), py('2', 'Search memory')]), 'Search memory')
+  // A later run with no intent (or only whitespace) keeps the last stated one.
+  assert.equal(latestIntent([py('1', 'Read the config'), py('2', null), py('3', '  ')]), 'Read the config')
+})
+
+// ---------------------------------------------------------------------------------------------
+// Messages read mid-turn (specs/062-steer-busy-turn contracts/webui.md W3)
+// ---------------------------------------------------------------------------------------------
+
+const steered = (chat: string) =>
+  entry({ Request: { timestamp: '2026-10-03T00:00:00Z', user: 'someone', content: { chat }, mid_turn: true } })
+
+test('a message read mid-turn splits the turn into two trails with one reply', () => {
+  const turns = groupHistory([
+    request('refactor the auth module'),
+    tool('fetch'),
+    steered('keep the old token format'),
+    tool('memory_search'),
+    response('done'),
+  ])
+  assert.equal(turns.length, 1, 'one turn, not two')
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: keep the old token format', 'tool'])
+  assert.ok(turns[0].outcome)
+})
+
+test('two messages read at two boundaries make three trail parts', () => {
+  const turns = groupHistory([
+    request('go'),
+    tool('fetch'),
+    steered('one'),
+    tool('fetch'),
+    steered('two'),
+    tool('fetch'),
+    response('done'),
+  ])
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: one', 'tool', 'you: two', 'tool'])
+})
+
+test('several messages read at one boundary sit together between the same two trails', () => {
+  const turns = groupHistory([request('go'), tool('fetch'), steered('one'), steered('two'), tool('fetch'), response('done')])
+  assert.deepEqual(shape(turns[0].blocks), ['tool', 'you: one', 'you: two', 'tool'])
+})
+
+test('a message the turn never read opens a turn of its own', () => {
+  const turns = groupHistory([request('go'), tool('fetch'), response('done'), request('second'), response('ok')])
+  assert.equal(turns.length, 2)
+  assert.deepEqual(shape(turns[0].blocks), ['tool'])
 })

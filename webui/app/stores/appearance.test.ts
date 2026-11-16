@@ -17,6 +17,7 @@ function fakeBrowser(stored: Record<string, string> = {}) {
     const state = { failing: false }
     const style = new Map<string, string>()
     const attrs = new Map<string, string>()
+    const meta = new Map<string, string>()
     const listeners = new Map<string, (e: unknown) => void>()
     vi.stubGlobal('localStorage', {
         getItem: (k: string) => store.get(k) ?? null,
@@ -40,8 +41,12 @@ function fakeBrowser(stored: Record<string, string> = {}) {
             setAttribute: (n: string, v: string) => void attrs.set(n, v),
             removeAttribute: (n: string) => void attrs.delete(n),
         },
+        querySelector: (s: string) =>
+            s === 'meta[name="theme-color"]'
+                ? { setAttribute: (n: string, v: string) => void meta.set(n, v) }
+                : null,
     })
-    return { store, state, style, attrs, listeners }
+    return { store, state, style, attrs, meta, listeners }
 }
 
 async function freshStore() {
@@ -164,6 +169,16 @@ describe('the store', () => {
         expect(useAppearance.getState().customs).toEqual([])
         expect(style.size).toBe(0)
         expect(store.has('vizier.scheme.paint')).toBe(false)
+    })
+
+    it('paints the browser chrome when the scheme changes', async () => {
+        const { meta } = fakeBrowser()
+        const useAppearance = await freshStore()
+        await useAppearance.getState().load()
+        useAppearance.getState().setMode('dark')
+        expect(meta.get('content')).toBe('#0b0b0c')
+        useAppearance.getState().setMode('light')
+        expect(meta.get('content')).toBe('#ffffff')
     })
 
     it('refuses a taken name and the fifty-first scheme', async () => {

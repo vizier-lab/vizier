@@ -2,11 +2,10 @@ import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteCon
 import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
 import { IconButton, Notice } from '@vizier/design'
 import { nanoid } from 'nanoid'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState, getAgent } from '../api/endpoints/agents'
 import { CHANNEL, listTopics, restartAgent } from '../api/endpoints/chat'
-import { listIntegrations } from '../api/endpoints/integrations'
 import { createProjectSession, projectChannel } from '../api/endpoints/projects'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
@@ -24,12 +23,10 @@ import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
-import { recalledFrom } from '../lib/recall'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
 import type { ModelOverride } from '../api/frames'
-import { HostExecutionNotice } from '../screens/projects/HostExecutionNotice'
 import {
     OpenProjectButton,
     ProjectsRefused,
@@ -44,6 +41,7 @@ import { toast } from '../stores/toasts'
 import { canManageArtifacts, canUseProjects } from '../lib/access'
 import { useTurns } from '../stores/turns'
 import { conversationTitle } from '../lib/conversations'
+import { useMobile } from '../lib/useMobile'
 
 const EMPTY = emptyTopic()
 // The strip's own margin under the composer, and the air between it and the panel.
@@ -135,26 +133,6 @@ export default function Chat() {
         }
     }, [agentId])
 
-    // The host-execution notice is only worth its line when this agent can actually run a
-    // command: the Shell addon, or a project whose own shell switch is on. Nothing is drawn
-    // until the addon list has arrived; if that read fails, the notice stays, because hiding a
-    // disclosure is the worse mistake.
-    const [shellAddon, setShellAddon] = useState<boolean>()
-    useEffect(() => {
-        let alive = true
-        setShellAddon(undefined)
-        listIntegrations(agentId, 'addon')
-            .then((list) => {
-                if (alive)
-                    setShellAddon((list?.items ?? []).some((i) => i.kind === 'shell' && i.enabled))
-            })
-            .catch(() => {
-                if (alive) setShellAddon(true)
-            })
-        return () => {
-            alive = false
-        }
-    }, [agentId])
 
     const [topics, setTopics] = useState<Topic[]>([])
     const userId = useSession((s) => s.user?.user_id)
@@ -179,6 +157,8 @@ export default function Chat() {
     // Stable, so the panel's Escape listener is not re-bound on every render.
     const closeSideChat = useCallback(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [])
     const composerBox = useRef<HTMLDivElement>(null)
+    // The message list's scroll bar narrows its column; the composer below it does not scroll.
+    const [scrollbarWidth, setScrollbarWidth] = useState(0)
     const [composerHeight, setComposerHeight] = useState(120)
     useEffect(() => {
         const el = composerBox.current
@@ -286,8 +266,8 @@ export default function Chat() {
         }
     }, [connection])
 
-    const recalled = useMemo(() => recalledFrom(state.entries), [state.entries])
-    const jobs = useMemo(() => Object.values(state.jobs), [state.jobs])
+    const scripts = useMemo(() => Object.values(state.scripts), [state.scripts])
+    const workers = useMemo(() => Object.values(state.workers), [state.workers])
 
     const lastRequestText = () => {
         for (let i = state.entries.length - 1; i >= 0; i--) {
@@ -317,8 +297,12 @@ export default function Chat() {
 
     // Deleting the conversation on screen: the server refuses while a turn runs in it.
     const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    // On a phone the two sit bare at the end of the topic row (spec 056: no control has a border).
+    const mobile = useMobile()
+    const headerButton = mobile ? ('ghost' as const) : undefined
     const deleteConversation = topicId ? (
         <IconButton
+            variant={headerButton}
             icon="trash"
             aria-label="Delete conversation"
             onClick={() => setDeleting({ topic: topicId, title })}
@@ -329,6 +313,7 @@ export default function Chat() {
     // a project it is a new project session, created server-side so it is listed immediately.
     const newConversation = (
         <IconButton
+            variant={headerButton}
             icon="plus"
             aria-label={projectId ? 'New project session' : 'New conversation'}
             onClick={() => {
@@ -356,8 +341,7 @@ export default function Chat() {
         />
     )
 
-    // What the agent recalled, what it is still working on, what it left behind and
-    // what it changed all live in the status strip under the composer.
+    // What the agent is still working on, what it left behind and what it changed all live in the status strip under the composer.
     const changes =
         projectId && topicId && gitAvailable
             ? {
@@ -451,7 +435,9 @@ export default function Chat() {
                 <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    topicId={topicId}
                     bottomInset={composerHeight}
+                    onScrollbarWidth={setScrollbarWidth}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
                     greeting={opening}
@@ -488,7 +474,6 @@ export default function Chat() {
                             <OpenProjectButton agentId={agentId} />
                         ) : undefined
                     }
-                    recalledFor={() => recalled.length}
                     error={
                         state.error && (
                             <ErrorNotice
@@ -513,7 +498,12 @@ export default function Chat() {
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
                 >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
-                    <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
+                    {/* Padded like the message list, scroll bar included, so the composer lines up with the messages' column. */}
+                    <div
+                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
+                        style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
+                    >
+                    <div className="mx-auto w-full max-w-4xl">
                     <SideChatPanel
                         key={sideChat.id}
                         open={sideChat.open}
@@ -524,10 +514,6 @@ export default function Chat() {
                         channelId={channel}
                         topicId={topicId ?? ''}
                         question={sideChat.question}
-                    />
-                    <HostExecutionNotice
-                        shell={!!shellAddon || !!project?.shell_enabled}
-                        className="mb-8"
                     />
                     <div ref={composerCard}>
                     <Composer
@@ -572,7 +558,7 @@ export default function Chat() {
                                 ? { ...state.context, detail: modelName }
                                 : null
                         }
-                        onSend={(text, attachments, spoken, mentions) =>
+                        onSend={(text, attachments, spoken, mentions, queue) =>
                             send(
                                 agentId,
                                 topicId ?? '',
@@ -580,7 +566,8 @@ export default function Chat() {
                                 attachments,
                                 spoken,
                                 mentions,
-                                canOverrideModel && channel && userId ? modelOverride : null
+                                canOverrideModel && channel && userId ? modelOverride : null,
+                                queue
                             )
                         }
                         onSendAudio={(attachment) =>
@@ -598,15 +585,16 @@ export default function Chat() {
                         }
                     />
                     </div>
-                    {/* The status strip: what the agent recalled, what it is still working
-                        on, what it left in this conversation and what it changed. */}
+                    {/* The status strip: what the agent is still working on, what it left in this conversation and what it changed. */}
                     <div className="mt-8 flex min-w-0 items-center gap-16">
                     <ChatStatusStrip
                         className="shrink-0"
                         agentId={agentId}
                         topicId={topicId ?? ''}
-                        recalled={recalled}
-                        jobs={jobs}
+                        scripts={scripts}
+                        workers={workers}
+                        agentName={agentName}
+                        channel={channel}
                         files={state.files}
                         canPromote={agent ? canManageArtifacts(agent) : false}
                         onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
@@ -626,6 +614,7 @@ export default function Chat() {
                             />
                         </>
                     )}
+                    </div>
                     </div>
                     </div>
                 </div>

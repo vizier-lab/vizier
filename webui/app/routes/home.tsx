@@ -174,7 +174,7 @@ export default function Home() {
     const mobile = useMobile()
 
     if (mobile && !firstRun && !showAll) {
-        return <MobileHome greeting={hello} overview={overview} agents={recent ?? []} health={health} total={agents.length} onShowAll={() => setShowAll(true)} />
+        return <MobileHome agents={agents} health={health} />
     }
 
     return (

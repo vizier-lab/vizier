@@ -32,6 +32,8 @@ export default [
             route(':agentId/skills', 'routes/skills.tsx'),
             route(':agentId/skills/:slug', 'routes/skill.tsx'),
             route(':agentId/skills/:slug/edit', 'routes/skill-edit.tsx'),
+            route(':agentId/functions', 'routes/functions.tsx'),
+            route(':agentId/functions/:name', 'routes/function.tsx'),
             route(':agentId/dream', 'routes/agent-dream.tsx'),
             route(':agentId/usage', 'routes/usage.tsx'),
             route(':agentId/secrets', 'routes/secrets.tsx'),
@@ -40,6 +42,8 @@ export default [
             route(':agentId/integrations/addons', 'routes/integrations-addons.tsx'),
             route(':agentId/integrations/mcp', 'routes/integrations-mcp.tsx'),
             route(':agentId/settings', 'routes/redirect-agent-settings.tsx'),
+            // The phone's way into an agent's pages (spec 056); a wide screen goes to config.
+            route(':agentId/details', 'routes/agent-details.tsx'),
 
             layout('layouts/SettingsLayout.tsx', [
                 route('settings', 'routes/redirect-settings.tsx'),

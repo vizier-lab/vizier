@@ -21,6 +21,13 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Functions',
+        items: [
+            { permission: 'all_agents:manage_functions', label: 'Edit, switch off and delete every agent’s functions' },
+            { permission: 'owned_agents:manage_functions', label: 'Edit, switch off and delete functions of agents they own' },
+        ],
+    },
+    {
         title: 'Projects',
         items: [
             { permission: 'all_agents:projects', label: 'Use and manage projects for every agent' },

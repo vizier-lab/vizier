@@ -4,7 +4,8 @@ import {
     topicDetail,
     topicFiles,
     topicHistory,
-    topicJobs,
+    topicDetachedScripts,
+    topicSubagents,
 } from '../api/endpoints/chat'
 import { forwardLiveVoiceFrame } from '../lib/liveVoice/control'
 import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
@@ -28,7 +29,7 @@ interface Meta {
 type TurnStore = {
     topics: Record<string, TopicState>
     meta: Record<string, Meta>
-    /** Opens a topic: history, files and jobs, then the socket. Safe to call again. */
+    /** Opens a topic: history, files and detached scripts, then the socket. Safe to call again. */
     open: (agentId: string, topicId: string, channel?: string) => Promise<void>
     close: (agentId: string, topicId: string) => void
     send: (
@@ -38,7 +39,9 @@ type TurnStore = {
         attachments?: object[],
         spoken?: boolean,
         mentions?: string[],
-        modelOverride?: ModelOverride | null
+        modelOverride?: ModelOverride | null,
+        /** Run as a new turn after the one in progress instead of steering it (spec 062). */
+        queue?: boolean
     ) => void
     sendAudio: (agentId: string, topicId: string, attachment: object, modelOverride?: ModelOverride | null) => void
     clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
@@ -154,11 +157,12 @@ export const useTurns = create<TurnStore>()((set, get) => {
             channels.set(key, channel)
             update(key, (s) => (s.session.agent_id ? s : emptyTopic({ agent_id: agentId, channel, topic: topicId })))
 
-            const [history, detail, files, jobs] = await Promise.allSettled([
+            const [history, detail, files, scripts, workers] = await Promise.allSettled([
                 topicHistory(agentId, topicId, { limit: PAGE, channel }),
                 topicDetail(agentId, topicId, channel),
                 topicFiles(agentId, topicId, 0, 100, channel),
-                topicJobs(agentId, topicId, channel),
+                topicDetachedScripts(agentId, topicId, channel),
+                topicSubagents(agentId, topicId, channel),
             ])
             if (history.status === 'fulfilled') {
                 const entries = history.value ?? []
@@ -171,8 +175,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
             if (files.status === 'fulfilled') {
                 update(key, (s) => reduce(s, { type: 'files', files: files.value.items }))
             }
-            if (jobs.status === 'fulfilled') {
-                update(key, (s) => reduce(s, { type: 'jobs', jobs: jobs.value ?? [] }))
+            if (scripts.status === 'fulfilled') {
+                update(key, (s) => reduce(s, { type: 'scripts', scripts: scripts.value ?? [] }))
+            }
+            if (workers.status === 'fulfilled') {
+                update(key, (s) => reduce(s, { type: 'workers', workers: workers.value ?? [] }))
             }
             setMeta(key, { loaded: true })
 
@@ -216,8 +223,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
                     topicDetail(agentId, topicId, channelOf(agentId, topicId))
                         .then((d) => update(key, (s) => reduce(s, { type: 'busy', thinking: !!d?.is_thinking })))
                         .catch(() => {})
-                    topicJobs(agentId, topicId, channelOf(agentId, topicId))
-                        .then((jobs) => update(key, (s) => reduce(s, { type: 'jobs', jobs: jobs ?? [] })))
+                    topicDetachedScripts(agentId, topicId, channelOf(agentId, topicId))
+                        .then((scripts) => update(key, (s) => reduce(s, { type: 'scripts', scripts: scripts ?? [] })))
+                        .catch(() => {})
+                    topicSubagents(agentId, topicId, channelOf(agentId, topicId))
+                        .then((workers) => update(key, (s) => reduce(s, { type: 'workers', workers: workers ?? [] })))
                         .catch(() => {})
                 },
             }, channelOf(agentId, topicId))
@@ -234,14 +244,15 @@ export const useTurns = create<TurnStore>()((set, get) => {
             })
         },
 
-        send: (agentId, topicId, text, attachments, spoken, mentions, modelOverride) => {
+        send: (agentId, topicId, text, attachments, spoken, mentions, modelOverride, queue) => {
             const id = String(nextId++)
             const now = new Date().toISOString()
             // Sent whether or not a turn is running: the agent queues it the same way, and a
             // message held in this tab is gone the moment the page is left. The wait is drawn
             // until the server stores it (`sent`, or the next history read).
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken, mentions, modelOverride))
-            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now })
+            const frame = { ...request({ chat: text }, attachments, spoken, mentions, modelOverride), ...(queue ? { queue: true } : {}) }
+            const sent = useConnection.getState().send(agentId, topicId, frame)
+            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken, now, queue })
         },
 
         sendAudio: (agentId, topicId, attachment, modelOverride) => {
