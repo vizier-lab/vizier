@@ -559,3 +559,24 @@ Di tengahnya ada `reflog: reset: moving to fb4315fc` yang **membuang `394a61bd` 
 1. `topic.rs:44-49` — dua doc comment berbeda (T109/FR-062 dan T110/FR-063) menumpuk di atas satu fungsi `owns_session`. **Pra-ada** (`474ead86`), bukan akibat gate. Keputusan Lead: **tidak dirapikan di ronde gate** (mencampur dua hal dalam satu diff), dan **tidak** dibuat task baru tanpa `R:`; dicatat di sini supaya tidak hilang. Kalau `topic.rs` disentuh lagi untuk T113/T114-era, rapikan sekalian.
 2. Build Tauri tidak dijalankan — lihat tabel temuan di atas.
 
+## Status C17 + T113/T114 (16 Nov 2026, setelah gate)
+
+| Langkah | Pemilik | Status |
+|---|---|---|
+| Brief + DoD C17 | Lead | **`selesai`** — brief 2447, dua koreksi angka (`+14` → `+32`, `31` → `32`) |
+| Gate C17 (lepas fitur) | `@sepuh-be` | **`selesai`** — `c71f0e64`, direview Lead, di-push |
+| FR-041 + Delta Log | `@system-analyst` | **`selesai`** — `5d7a188e` |
+| FR-004 (wire + amendment) | `@system-analyst` | **`selesai`** — `fb4315fc` lalu `d34103c7` (aturan saklar-nyala) |
+| Dokumen + papan | Lead | **`selesai`** — `ef129ab9` (`build-flavours.md`, `Readme.md`), papan |
+| **T113** (`live_voice_missing` di `AgentDetail`) | `@sepuh-be` | **`aktif`** — brief 2576, 6 kasus di `agents_seam` |
+| **T114** (alasan pill sampai ke layar) | `@sepuh-be` | **`antre`** — WIP=1, menunggu T113 |
+| Blok 38 sitasi `code_ref` | `@teteh-qa` | **`aktif`** — ditempel ke `state-matrix.md`, lalu SA yang menaikkan pin |
+| `AQ-002` | — | tertutup oleh T113 + T114 (bukan task terpisah) |
+
+**Tiga angka yang berubah dua kali hari ini, dan penyebabnya sama — alat hitung, bukan kode:**
+`15 / +14` (tanpa `#[tokio::test]`), `49` (ber-anchor `\]`, melewatkan 7 `start_paused`), `57` (menghitung **nama** tes, padahal filter `cargo test` mencocokkan **path**: `mod live_voice_input_tests` `agents.rs:1207` menyumbang 5 + 1 di `schema/agent.rs:612` = **62**).
+
+**Aturan turunan:** angka tes hanya dari `running N tests` di output, atau dari hitungan yang menyebut **pola persisnya**; `cargo test` filter = path, jadi selalu pakai `modul::` untuk modul.
+
+**Sisa yang bukan gate:** `schema.d.ts` belum diregenerasi (butuh server hidup; sekarang dua alasan: `AgentDetail` berubah bentuk), `public-api.txt` basi sejak 2026-11-07 (utang pra-ada, `just public-api`, tidak dijaga CI), `docs` e2e `design npm test` butuh `npx playwright install chromium`, dan `WorkspaceComposer.tsx` tidak mengoper live voice sama sekali (0 hit) — permukaan kedua tanpa pill, belum dijadwalkan.
+
