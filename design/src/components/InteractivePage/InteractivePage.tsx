@@ -10,21 +10,25 @@ export type InteractivePageProps = {
   label?: ReactNode;
   /** More header actions beside full screen: Download, Save as PDF. */
   actions?: ReactNode;
+  /** Open full screen: the frame takes its container's whole height and the body fills what the header leaves. */
+  fill?: boolean;
   /** The sandboxed iframe (or, in the catalogue, a stand-in). */
   children: ReactNode;
 } & Omit<HTMLAttributes<HTMLElement>, "title">;
 
 /** The frame around agent-made HTML in a reply (X47): title, "sandboxed page", full screen. */
-export function InteractivePage({ title, label = "sandboxed page", onFullscreen, actions, children, className, ...rest }: InteractivePageProps) {
+export function InteractivePage({ title, label = "sandboxed page", onFullscreen, actions, fill = false, children, className, ...rest }: InteractivePageProps) {
   return (
-    <section className={cx("overflow-hidden rounded-lg border border-border-strong", className)} {...rest}>
-      <header className="flex items-center gap-8 border-b border-border bg-surface py-6 pr-6 pl-12">
+    <section className={cx("overflow-hidden rounded-lg border border-border-strong", fill && "flex h-full flex-col", className)} {...rest}>
+      <header className="flex shrink-0 items-center gap-8 border-b border-border bg-surface py-6 pr-6 pl-12">
         <h3 className="min-w-0 flex-1 truncate type-ui-medium text-fg">{title}</h3>
         {label !== null && <span className="type-mono-xs text-faint">{label}</span>}
         {actions}
-        {onFullscreen && <IconButton variant="ghost" size="sm" icon="maximize" aria-label="Open full screen" onClick={onFullscreen} />}
+        {onFullscreen && (
+          <IconButton variant="ghost" size="sm" icon="maximize" aria-label={fill ? "Exit full screen" : "Open full screen"} onClick={onFullscreen} />
+        )}
       </header>
-      <div className="bg-ground">{children}</div>
+      <div className={cx("bg-ground", fill && "flex min-h-0 flex-1 flex-col")}>{children}</div>
     </section>
   );
 }

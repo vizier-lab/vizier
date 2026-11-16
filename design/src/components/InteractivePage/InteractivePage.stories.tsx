@@ -32,3 +32,9 @@ type Story = StoryObj<typeof meta>;
 
 /** The body here stands in for the sandboxed iframe. */
 export const Default: Story = {};
+
+/** Full screen: the frame fills its container, the body takes the height under the header. */
+export const Fill: Story = {
+  args: { fill: true },
+  decorators: [(Story) => <div className="h-320">{Story()}</div>],
+};
