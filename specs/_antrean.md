@@ -388,3 +388,31 @@ di bawah 50 laporkan median + rentang, jangan p90/p99.
 
 **Sampel 10 Nov bukan sampel bersih** — `LV-BARGE-BEFORE-AUDIO` membuang turn pertama tiap call. Ukur
 sesudah tiga cacat ditutup.
+
+## Merge `master@70d3509a` -> `055-live-voice` (16 Nov 2026)
+
+**Bukan baris task**: tidak ada `FR-` yang mengatur merge itu sendiri, dan memaksakan satu `FR-` ke sini
+akan melanggar aturan `R:`. Dicatat sebagai fakta proses supaya angka dan sisanya bisa dicek.
+
+| Hal | Nilai |
+|---|---|
+| Merge commit | **`vizier@893543d6`** — parent `474ead86` (branch) + `70d3509a` (master), merge-base `d36a4755` |
+| Skala | 29 commit master-only vs 258 branch-only; 383 file berubah (`+32.805 / −6.166`) |
+| Submodule setelah merge | `webui@0d5255f` (merge `5f3bef2`) · `design@35d633a` (merge `4c32bc2`) · `dummyplug@fba9813f` · `landing@a15d98d1` |
+| Konflik | 4 path: `docs/src/SUMMARY.md` (Lead: Live Voice **2.23**, Custom Tools **2.24**), `crates/vizier-core/src/agents/agent/mod.rs` (Sepuh: steer **dan** fast path hidup), `webui` (Sepuh: `frames.ts` dua sisi), `design` (Sepuh: 0 konflik) |
+| Gate (dijalankan Lead di tree ini, bukan kutipan) | `cargo check -p vizier-core --features provider-live-voice` 0 · `-p vizier-http --features live-voice` 0 · `key_tests` **6 passed** · `fast_path` **6 passed** · `steer` **13 passed** + `dummyplug_e2e::messages_sent_while_busy_steer_the_running_turn` **1 passed (5,36 s)** · `webui` typecheck 0, `Test Files 114 passed`, `Tests 1298 passed | 1 skipped` · `design` typecheck 0 |
+| Push | **belum** — `rev-list --left-right --count origin/055-live-voice...HEAD` = `0 30`; menunggu ACC kang |
+
+### Satu tes merah yang bukan tes merah (koreksi diri, 16 Nov 10:05)
+Saya sempat menyimpulkan `messages_sent_while_busy_steer_the_running_turn` **regresi merge** karena gagal 3/3
+di tree merge sementara master murni lulus. **Salah, dan caranya salah dengan pola yang sama seperti yang saya
+peringatkan ke Sepuh:** checkout submodule `dummyplug` di worktree utama masih `c6817ee` (index sudah
+`fba9813f`, ditandai `+`), dan `c6817ee` **belum punya** protokol steer (`test/steer-protocol.test.mjs`
+tidak ada; diff 78 baris di `src/protocol.mjs`). Worktree pembanding master saya justru ter-init bersih ke
+`fba9813f`, jadi perbandingannya tidak setara. Setelah `git submodule update --init dummyplug`, tes yang sama
+**1 passed, 5,36 s** di tree merge. Aturan turunannya (memori Lead `ops/tes-e2e-lulus-vakum`): pembanding wajib menyamakan **checkout** submodule, bukan cuma gitlink-nya, dan durasi `0,00 s` pada tes e2e berarti tesnya belum jalan.
+
+### Sisa yang belum ditutup
+- `webui/app/api/schema.d.ts` **belum** di-regenerate (`node scripts/openapi.mjs` butuh server hidup di `VIZIER_URL`); tidak ditambal tangan.
+- `design npm test` gagal karena `chromium_headless_shell-1248` belum terpasang (`npx playwright install chromium`); typecheck hijau.
+- Push ke `origin/055-live-voice` menunggu ACC kang; belum ada yang di-push.
