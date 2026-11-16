@@ -50,7 +50,7 @@ code_ref:     webui@0d5255f (740 baris `session.ts`) · crates @ `0c158da8` — 
              Hitungannya, metode ditulis: baris tabel `| LV-…` saja, pola
              `[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\.(ts|tsx):[0-9]+(-[0-9]+)?`, satu kejadian per kemunculan ->
              **47 kejadian (39 jenis)** di HEAD — diukur Lead 2026-11-16 14:26 di `e6eeffa4`, dan saya ulang di `6ef314b5`
-             dengan hasil sama. Batas angkanya: `47`/`39` **bisa** direproduksi mesin dengan pola itu; **pecahannya tidak**,
+             dengan hasil sama. Batas angkanya, dua-duanya wajib disebut: (1) `47`/`39` hanya menghitung sitasi yang **menyebut nama berkas** — di baris `| LV-…` masih ada **38 rujukan telanjang** (`:245`, `:223`, …; 27 jenis) yang pola itu tidak lihat, sebagian besar nomor pin lama dalam kurung dan sebagian lain rujukan pendek ke berkas yang disebut di klausa yang sama, jadi `47` **bukan** jumlah seluruh sitasi; (2) `47`/`39` **bisa** direproduksi mesin dengan pola itu, **pecahannya tidak**,
              dan itu bukan kelemahan hitungan — empat pembacaan atas himpunan yang sama memberi empat pecahan berbeda yang
              semuanya berjumlah benar. Rinciannya, beserta aturan masing-masing, ada di **§Riwayat hitungan sitasi**,
              bagian "Pecahan: empat pembacaan, satu total". Yang juga bisa diulang persis: diff-nya,
