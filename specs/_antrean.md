@@ -729,3 +729,12 @@ Aturan:
 - Kalau sudah terlanjur: pilihannya dua dan keduanya harus disebut — push submodule-nya, atau kembalikan gitlink ke commit yang ada di remote. Jangan diamkan.
 - Cek ini **tidak** tertangkap `git status` superproject (cuma `M webui` kalau kotor) maupun `git submodule status` (membaca tree lokal). Yang menangkap: `git ls-tree <remote-ref> webui` dibandingkan `git -C webui ls-remote origin`.
 
+
+### 11. Repo artefacts are English; pushing waits for the User (16 Nov 2026, User instruction 17:11)
+
+Two binding rules, from the User directly:
+
+- **Commit messages and every file under `specs/**` are written in English.** Chat with the User stays Bahasa Indonesia; a brief quoted in chat may be Indonesian, but what lands in the repo is English. This covers `spec.md`, `tasks.md`, `_antrean.md`, `checklists/**`, `state-matrix.md`, `plan.md`, `architecture.md`, `quickstart.md`, and anything added later.
+- **Do not push on every commit.** Local commits pile up; `git push` happens only after the User says so. While waiting, a report states how many commits are ahead of origin and whether any of them touch `crates/` or `webui/` (`git diff --name-only origin/<branch>..HEAD -- crates/ webui/`), so the held-back set is checkable rather than assumed.
+- **No retroactive rewrite.** `--amend`, `rebase` and force-push stay banned (rule 8), so existing Indonesian text is translated when a file is next touched, or in one dedicated pass the User approves. A translation is never mixed with a content change: two diffs, two commits.
+- Submodule-first ordering (rule 10) still applies whenever the push does happen.
