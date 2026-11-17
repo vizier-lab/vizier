@@ -106,7 +106,7 @@ jobs:
             storageClassName: vizier-smoke
             hostPath:
               path: /tmp/vizier-smoke
-              type: DirectoryOrCreate
+              type: Directory
           YAML
 
       - name: Install, exercise WebSocket, replace pod, and verify persistence
