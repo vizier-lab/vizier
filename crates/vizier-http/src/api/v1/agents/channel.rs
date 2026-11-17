@@ -938,9 +938,10 @@ mod question_answer_client_tests {
 
     fn declaration() -> ClientToolDeclaration {
         serde_json::from_value(serde_json::json!({
-            "name": "render",
-            "category": "ui",
-            "description": "Draws a page.",
+            // Not `ui/render`: that retired declaration is dropped (spec 063).
+            "name": "pick_color",
+            "category": "palette",
+            "description": "Asks the person for a colour.",
             "input_schema": { "type": "object" },
         }))
         .unwrap()

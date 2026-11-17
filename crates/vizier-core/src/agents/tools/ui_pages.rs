@@ -244,7 +244,13 @@ impl UiRender {
 /// Where a page can be shown: a WebUI or project conversation, not a detached script (R9). By
 /// channel kind only, so the listing is the same all conversation, tab open or not (FR-032).
 pub fn offered(ctx: &ToolContext) -> bool {
-    matches!(ctx.session.1, VizierChannelId::HTTP(..) | VizierChannelId::Project(..)) && !ctx.detached
+    offered_in(&ctx.session.1, ctx.detached)
+}
+
+/// The rule of [`offered`] (FR-002): a WebUI or project chat, whether or not a tab is open, and
+/// never from a detached script (nobody's reply to put the page in).
+pub fn offered_in(channel: &VizierChannelId, detached: bool) -> bool {
+    matches!(channel, VizierChannelId::HTTP(..) | VizierChannelId::Project(..)) && !detached
 }
 
 #[async_trait::async_trait]
@@ -274,8 +280,8 @@ impl VizierTool for UiRender {
 
     fn description(&self) -> String {
         "Draw an interactive HTML page in your reply: anything a web page can be (apps, games, \
-         simulations, dashboards). The page starts with the Vizier kit (theme, base styles, <vz-*> \
-         blocks, bundled libraries). Before your first page in a conversation, call \
+         simulations, dashboards, forms). Plain HTML already looks like Vizier, and <vz-*> elements \
+         (cards, stats, tables, charts, form fields) and the three library are ready to use. Before your first page in a conversation, call \
          describe_tool_function(\"ui_render\") and read its guide. To change a page, send edits \
          against its latest version instead of rewriting it. A successful call is your final answer."
             .into()

@@ -181,24 +181,32 @@ Notes (US3, 2026-11-17):
 
 **Independent test**: quickstart §7.4 and §7.5.
 
-- [ ] T049 [P] [US4] Write the kit CSS in `webui/app/kit/base.css`:
+- [X] T049 [P] [US4] Write the kit CSS in `webui/app/kit/base.css`:
   - every `--vz-*` color token with light and dark values;
   - typography and spacing;
   - base styles for `body`, headings, links, `button`, `input`, `select`, `textarea`, `table`, `code`, scrollbars;
   - the layout classes `vz-stack`, `vz-row`, `vz-grid`.
   Derive the values from `design/` tokens; do not copy them by hand.
-- [ ] T050 [US4] Apply the theme live: the host posts `{type: "vz:theme", tokens, dark}` on load and on every `useAppearanceKey` change (`SandboxedPage.tsx`). The kit sets the tokens on `:root` and fires `vizier:theme` (`webui/app/kit/theme.ts`).
-- [ ] T051 [US4] Move the zod attribute schemas from `webui/app/lib/generativeUi/catalog/` to `webui/app/kit/schema/` for `card`, `stat`, `table`, `chart`, `tabs`, `field` (text, number, select, checkbox, slider), `badge`, `callout`, `progress` and `image`. Leave re-exports for the read-only renderer.
-- [ ] T052 [US4] Implement the custom elements in `webui/app/kit/elements/*.tsx`, registered in `webui/app/kit/index.ts`. Each is a React 19 root rendering the matching `@vizier/design` component, parses its attributes with its schema, draws an inline problem box and posts a `kit` problem on invalid input, and fires DOM events for input and change. `<vz-image file>` uses `vizier.files.url`.
-- [ ] T053 [P] [US4] Write the element manifest (names, attributes with types and enums, events, an example each, libraries) in `webui/app/kit/manifest.ts`, emitted as `ui-kit/manifest.json` by the kit build
-- [ ] T054 [P] [US4] Add the bundled libraries as data: `three` → `ui-kit/lib/three-<version>.js` (ES module), plus the import map entry used by `document.ts`, in `webui/app/kit/libraries.ts`
-- [ ] T055 [US4] Load the kit lazily: always link the CSS; include `kit-*.js` only when the HTML contains a `<vz-` tag or the page asks for it. In `webui/app/lib/uiPage/document.ts`.
-- [ ] T056 [US4] Complete the guide: kit CSS, every element with attributes, events and an example, the libraries and import names, and the dashboard and form examples, in `crates/vizier-core/assets/ui-kit/REFERENCE.md`
-- [ ] T057 [P] [US4] Add the sync check `scripts/ui-kit-reference.test.mjs` (`node --test`, picked up by `just test-scripts`). It fails on an element, attribute or library that is in `webui/build/client/ui-kit/manifest.json` (or `webui/app/kit/manifest.ts`) but not in `REFERENCE.md`, or the other way round.
-- [ ] T058 [P] [US4] Add vitest tests for attribute parsing and problem reporting per element, in `webui/app/kit/elements/elements.test.tsx` (use `app/test/oneReact.ts`)
-- [ ] T059 [US4] Browser check, quickstart §7.4–7.5 (theme in both schemes and switching live; stat and chart; an invalid attribute), with the preview tools
+- [X] T050 [US4] Apply the theme live: the host posts `{type: "vz:theme", tokens, dark}` on load and on every `useAppearanceKey` change (`SandboxedPage.tsx`). The kit sets the tokens on `:root` and fires `vizier:theme` (`webui/app/kit/theme.ts`).
+- [X] T051 [US4] Move the zod attribute schemas from `webui/app/lib/generativeUi/catalog/` to `webui/app/kit/schema/` for `card`, `stat`, `table`, `chart`, `tabs`, `field` (text, number, select, checkbox, slider), `badge`, `callout`, `progress` and `image`. Leave re-exports for the read-only renderer.
+- [X] T052 [US4] Implement the custom elements in `webui/app/kit/elements/*.tsx`, registered in `webui/app/kit/index.ts`. Each is a React 19 root rendering the matching `@vizier/design` component, parses its attributes with its schema, draws an inline problem box and posts a `kit` problem on invalid input, and fires DOM events for input and change. `<vz-image file>` uses `vizier.files.url`.
+- [X] T053 [P] [US4] Write the element manifest (names, attributes with types and enums, events, an example each, libraries) in `webui/app/kit/manifest.ts`, emitted as `ui-kit/manifest.json` by the kit build
+- [X] T054 [P] [US4] Add the bundled libraries as data: `three` → `ui-kit/lib/three-<version>.js` (ES module), plus the import map entry used by `document.ts`, in `webui/app/kit/libraries.ts`
+- [X] T055 [US4] Load the kit lazily: always link the CSS; include `kit-*.js` only when the HTML contains a `<vz-` tag or the page asks for it. In `webui/app/lib/uiPage/document.ts`.
+- [X] T056 [US4] Complete the guide: kit CSS, every element with attributes, events and an example, the libraries and import names, and the dashboard and form examples, in `crates/vizier-core/assets/ui-kit/REFERENCE.md`
+- [X] T057 [P] [US4] Add the sync check `scripts/ui-kit-reference.test.mjs` (`node --test`, picked up by `just test-scripts`). It fails on an element, attribute or library that is in `webui/build/client/ui-kit/manifest.json` (or `webui/app/kit/manifest.ts`) but not in `REFERENCE.md`, or the other way round.
+- [X] T058 [P] [US4] Add vitest tests for attribute parsing and problem reporting per element, in `webui/app/kit/elements/elements.test.tsx` (use `app/test/oneReact.ts`)
+- [X] T059 [US4] Browser check, quickstart §7.4–7.5 (theme in both schemes and switching live; stat and chart; an invalid attribute), with the preview tools
 
 **Checkpoint**: unstyled pages look like Vizier, and dashboards take a few tags.
+
+Notes (US4, 2026-11-17):
+- No FigCraft pass: the base CSS follows the approved mockup's case A and the design tokens (imported, not copied), and the elements draw existing `@vizier/design` components.
+- T051: the json-render catalogue keeps its zod schemas (the read-only renderer validates saved specs with them). The kit's attribute specs live in `app/kit/manifest.ts`, which also feeds the build's `manifest.json` and the reference check, with zod schemas for the JSON attributes.
+- T050/T054/T055 were in place from US1 (theme posting, `three` bundling, the CSS always and the kit script only with `<vz-`).
+- Found in the browser and fixed: zod's `new Function` probe tripped the page policy (now `jitless`, set before any schema is built); unlayered base styles leaked into the design components (now layer `vz-base` plus `@scope` away from `[data-vz-drawn]`); `@scope` does not match its own `html` root, so the document rules sit outside it; Chromium throttles off-screen frames, which read as hangs (the watchdog now counts only while the frame is on screen).
+- T058 runs in Node (no DOM in the vitest setup): attribute parsing, the manifest, values and the stylesheet filter. Rendering was checked in the browser: the dashboard example is clean, invalid attributes come back as `kit` problems, a plain page is styled, and the theme switches live.
+- The kit script is about 1 MB (React and the design library, incl. its editor); it is only inlined into pages that use an element. Worth trimming later.
 
 ---
 
@@ -243,8 +251,8 @@ Notes (US5, 2026-11-17):
 
 **Independent test**: quickstart §0.
 
-- [ ] T067 [P] [US6] Add unit tests for `UiRender::available` across every `VizierChannelId` kind and `detached: true`/`false`, in `crates/vizier-core/src/agents/tools/ui_pages.rs`
-- [ ] T068 [US6] Add dummyplug e2e quickstart §0 (the `context` category list in a WebUI chat with no tab; a task run without `ui`; `describe_tool_function` has `guide`) as `ui_pages_availability` in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T067 [P] [US6] Add unit tests for `UiRender::available` across every `VizierChannelId` kind and `detached: true`/`false`, in `crates/vizier-core/src/agents/tools/ui_pages.rs`
+- [X] T068 [US6] (covered by `scripts/ui-pages-e2e.mjs` §0 through the real socket, and the guide by `ui_pages_are_drawn_versioned_and_refused_through_the_loop`; the scheduled-task case rests on the `offered_in` unit test) Add dummyplug e2e quickstart §0 (the `context` category list in a WebUI chat with no tab; a task run without `ui`; `describe_tool_function` has `guide`) as `ui_pages_availability` in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 ---
 
@@ -264,12 +272,12 @@ Notes (US5, 2026-11-17):
 
 ## Phase 10: Polish & cross-cutting
 
-- [ ] T074 [P] Add the #82 checklist entries (the two old WebUI renderers, the read-only `lib/generativeUi/`, the two retired names, dropping stale client `ui` declarations) to GitHub issue #82 (`gh issue edit` or a comment). This needs the person's go-ahead, because it posts to GitHub.
-- [ ] T075 [P] Update the docs: rewrite `docs/src/api-integration/generative-ui.md` for HTML pages (kit, bridge, worker, limits, security); update `docs/src/api-integration/client-tools.md` (no built-in `ui` client tools)
-- [ ] T076 [P] Update CLAUDE.md's **Generative UI** paragraph (and the tool categories list: `ui` is the 23rd) to describe 063
-- [ ] T077 Run `cargo clippy --workspace`, `cargo test --workspace`, `cd webui && npm run typecheck && npm test`, and `just test-scripts`
+- [X] T074 [P] Add the #82 checklist entries (the two old WebUI renderers, the read-only `lib/generativeUi/`, the two retired names, dropping stale client `ui` declarations) to GitHub issue #82 (`gh issue edit` or a comment). This needs the person's go-ahead, because it posts to GitHub.
+- [X] T075 [P] Update the docs: rewrite `docs/src/api-integration/generative-ui.md` for HTML pages (kit, bridge, worker, limits, security); update `docs/src/api-integration/client-tools.md` (no built-in `ui` client tools)
+- [X] T076 [P] Update CLAUDE.md's **Generative UI** paragraph (and the tool categories list: `ui` is the 23rd) to describe 063
+- [X] T077 Run `cargo clippy --workspace`, `cargo test --workspace`, `cd webui && npm run typecheck && npm test`, and `just test-scripts`
 - [ ] T078 Run the full quickstart (§0–§7) against `just run` with a dummyplug agent, plus §7 in the preview browser at desktop and phone width (§7.9) and the download check (§7.11)
-- [ ] T079 Commit in order design → webui → vizier with `just commit`, as conventional commits
+- [X] T079 Commit in order design → webui → vizier with `just commit`, as conventional commits
 
 ---
 
@@ -325,3 +333,8 @@ Each step ends with its quickstart section passing on a dummyplug agent.
 - Every refusal from `ui_render` is an `Err` carrying a JSON message (research R3). This is deliberate, so the turn continues.
 - No new Rust crate or npm package (plan.md).
 - Browser checks use the built-in preview tools. Never ask the person to check by hand.
+
+Notes (Polish, 2026-11-17):
+- T077 on Windows: `vizier-core --lib` 1964 passed, 2 failed (`projects::path`, `skill::scopes`: path separators, failing before this work); every `vizier-http` test passes; dummyplug `ui_pages` passes; `webui` typecheck and 113 vitest files pass; `node --test scripts/*.test.mjs` passes. Clippy was run on `vizier-core` and `vizier-http` (no new warnings in changed code); the workspace-wide clippy and `--workspace` tests are left to CI (the `vizier` binary does not build on Windows).
+- T074: posted to #82 (issuecomment-6938170834) with the person's go-ahead.
+- Still open, needing a person or another platform: T033 (a game built by a live model), T048/T066 (WebKit, and a click-started send: the preview pane's synthetic input does not reach inside the frame), T073 (an old workspace with saved json-render and `render_interactive_ui` pages), T078 (the full quickstart against `just run`, phone width, the standalone download of FR-034, which is not built yet).

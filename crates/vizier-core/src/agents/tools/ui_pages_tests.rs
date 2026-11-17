@@ -78,3 +78,26 @@ fn the_guide_is_offered_and_names_the_codes() {
         assert!(guide.contains(code), "{code}");
     }
 }
+
+/// Spec 063 US6 (T067): offered in WebUI and project chats only, and never detached.
+#[test]
+fn offered_only_where_a_page_can_be_shown() {
+    use crate::schema::{DreamStage, VizierChannelId as C, VizierSession};
+    let web = C::HTTP("ana".into(), "vizier-webui".into());
+    let every = [
+        (web.clone(), true),
+        (C::Project("ana".into(), "p1".into()), true),
+        (C::DiscordChanel(1), false),
+        (C::TelegramChannel(1), false),
+        (C::Workspace("w".into()), false),
+        (C::Task("t".into(), crate::time::now()), false),
+        (C::InterAgent(vec!["a".into(), "b".into()]), false),
+        (C::System, false),
+        (C::Subagent, false),
+        (C::Dream(Box::new(VizierSession("a".into(), web.clone(), None)), DreamStage::Extraction), false),
+    ];
+    for (channel, want) in every {
+        assert_eq!(offered_in(&channel, false), want, "{channel:?}");
+        assert!(!offered_in(&channel, true), "never from a detached script: {channel:?}");
+    }
+}
