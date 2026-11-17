@@ -8,10 +8,11 @@ import {
     HandoverSummary,
     JumpToLatest,
     LoadMore,
+    PromptRuler,
     StoppedNote,
     UserMessage,
 } from '@vizier/design'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Presence } from '@vizier/design'
 import type { ChatMessage, Turn } from '../../api/frames'
@@ -45,6 +46,7 @@ import { DetachedSource } from './detachedSource'
 import { mentionsAsCode } from '../../lib/mentions'
 import { planActionsVisible, planOf } from '../../lib/plans'
 import { PlanCard } from './client/PlanCard'
+import { currentPrompt, markTime, promptIndex, waitingUid, withWaiting, type PromptMark } from '../../lib/prompts'
 
 type Props = {
     /** The conversation, so a delivered script's row can read its record (spec 058). */
@@ -81,6 +83,10 @@ type Props = {
     byPlatformName?: boolean
     /** Shown under the greeting of an empty conversation, e.g. "Open a Project" on desktop. */
     emptyAction?: ReactNode
+    /** Every prompt the person sent, as the server lists them: the prompt ruler's marks. */
+    prompts?: PromptMark[]
+    /** Load the history back to a prompt that is not on the page yet, to jump to it. */
+    onLoadThrough?: (mark: PromptMark) => Promise<void>
 }
 
 function stopTime(entry: ChatMessage | undefined) {
@@ -115,7 +121,7 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan }: Props) {
+export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => groupHistory(entries), [entries])
@@ -173,6 +179,8 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         return (
             <UserMessage
                 key={e.uid}
+                data-prompt-uid={e.uid}
+                className="scroll-mt-24"
                 name={byPlatformName && request.user ? personName(request.user) : 'You'}
                 seed={request.user || me?.username}
                 time={time(request.timestamp)}
@@ -412,6 +420,8 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         arrive(
             <UserMessage
                 key={`q-${q.id}`}
+                data-prompt-uid={waitingUid(q.id)}
+                className="scroll-mt-24"
                 queued={{ agentName: agent.name, mode: q.queue ? 'queue' : 'steer' }}
                 seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
@@ -424,16 +434,118 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     if (error) arrive(<div key="error">{error}</div>, 'error')
 
     const source = useMemo(() => (topicId ? { agentId: agent.id, topicId } : null), [agent.id, topicId])
+
+    // The prompt ruler (left edge, from tablet width up): one mark per prompt, the one being read
+    // in the middle. Jumps scroll to a prompt, loading the history back to it when needed.
+    const index = useMemo(() => withWaiting(promptIndex(prompts ?? [], entries), state.queued), [prompts, entries, state.queued])
+    const showRuler = index.length > 0
+    // Unmeasured, the newest prompt: a conversation opens at its end.
+    const [measured, setCurrent] = useState<number | null>(null)
+    const current = measured ?? Math.max(0, index.length - 1)
+    const tops = useRef(new Map<string, number>())
+    const held = useRef<string | null>(null)
+    const release = useCallback(() => {
+        held.current = null
+    }, [])
+    const measure = useCallback(() => {
+        const el = scroller.current
+        if (!el) return
+        // The reading line: a third of the way down. At either end of the conversation it is that
+        // edge of the view: at the top the first prompt on screen is the one being read, at the
+        // bottom the newest.
+        const box = el.getBoundingClientRect()
+        const atStart = el.scrollTop < 4
+        const atEnd = !atStart && el.scrollHeight - el.scrollTop - el.clientHeight < 4
+        const line = box.top + (atStart ? 32 : atEnd ? el.clientHeight - 48 : el.clientHeight / 3)
+        const next = new Map<string, number>()
+        el.querySelectorAll<HTMLElement>('[data-prompt-uid]').forEach((n) => {
+            if (n.dataset.promptUid) next.set(n.dataset.promptUid, n.getBoundingClientRect().top - line)
+        })
+        tops.current = next
+        // A prompt jumped to stays the one being read until the person scrolls themself: where
+        // the page cannot scroll it to the reading line, a neighbour would otherwise take over.
+        const kept = held.current ? index.findIndex((m) => m.uid === held.current) : -1
+        setCurrent(kept >= 0 ? kept : currentPrompt(index, next))
+    }, [index])
+    const frame = useRef(0)
+    const measureSoon = useCallback(() => {
+        cancelAnimationFrame(frame.current)
+        frame.current = requestAnimationFrame(measure)
+    }, [measure])
+    useEffect(() => {
+        measureSoon()
+        return () => cancelAnimationFrame(frame.current)
+    }, [measureSoon, entries])
+
+    const pendingJump = useRef<string | null>(null)
+    const scrollToPrompt = useCallback((uid: string) => {
+        const node = scroller.current?.querySelector<HTMLElement>(`[data-prompt-uid="${CSS.escape(uid)}"]`)
+        if (!node) return false
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        // A long way is jumped, not scrolled: a smooth scroll over many screens takes seconds.
+        const view = scroller.current
+        const far = view ? Math.abs(node.getBoundingClientRect().top - view.getBoundingClientRect().top) > view.clientHeight * 3 : false
+        node.scrollIntoView({ block: 'start', behavior: reduced || far ? 'auto' : 'smooth' })
+        return true
+    }, [])
+    const jump = useCallback(
+        (i: number) => {
+            const mark = index[i]
+            if (!mark) return
+            held.current = mark.uid
+            setCurrent(i)
+            if (scrollToPrompt(mark.uid)) return
+            pendingJump.current = mark.uid
+            void onLoadThrough?.(mark)
+        },
+        [index, onLoadThrough, scrollToPrompt]
+    )
+    // A jump that had to load older history lands once the prompt is on the page.
+    useEffect(() => {
+        if (pendingJump.current && scrollToPrompt(pendingJump.current)) pendingJump.current = null
+    }, [entries, scrollToPrompt])
+
+    // Alt+↑/↓ step to the previous or next prompt from anywhere but a text field.
+    useEffect(() => {
+        if (!showRuler) return
+        const onKey = (e: KeyboardEvent) => {
+            if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+            const t = e.target as HTMLElement | null
+            if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
+            e.preventDefault()
+            // Up from inside a long reply goes to the top of the prompt it answers first.
+            const top = tops.current.get(index[current]?.uid ?? '')
+            const inside = top !== undefined && top < -8
+            jump(e.key === 'ArrowUp' ? (inside ? current : current - 1) : current + 1)
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [showRuler, index, current, jump])
+
+    const describe = useCallback(
+        (i: number) => {
+            const mark = index[i]
+            return mark ? { text: mark.preview, time: mark.timestamp ? markTime(mark.timestamp) : undefined } : undefined
+        },
+        [index]
+    )
+
     return (
         <DetachedSource.Provider value={source}>
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24"
-                style={{ paddingRight: 24 + insetRight }}
+                className={`flex min-h-0 flex-1 flex-col overflow-y-auto pt-24 [--list-pad:24px] ${showRuler ? 'md:[--list-pad:56px]' : ''}`}
+                style={{ paddingLeft: 'var(--list-pad)', paddingRight: `calc(var(--list-pad) + ${insetRight}px)` }}
+                // The person scrolling themself lets go of a prompt jumped to.
+                onWheel={release}
+                onTouchStart={release}
+                onPointerDown={release}
+                onKeyDown={release}
                 onScroll={(e) => {
                     const el = e.currentTarget
                     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
+                    measureSoon()
                 }}
             >
                 <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20">
@@ -451,6 +563,11 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     leaves a flex scroll container's end padding out of what can be scrolled to. */}
                 <div aria-hidden className="shrink-0 transition-[height] duration-[var(--vz-duration-slow)]" style={{ height: bottomInset + 16 }} />
             </div>
+            {showRuler && (
+                <div className="pointer-events-none absolute top-0 left-8 hidden items-center md:flex" style={{ bottom: bottomInset }}>
+                    <PromptRuler className="pointer-events-auto" total={index.length} current={current} preview={describe} onJump={jump} />
+                </div>
+            )}
             <Presence>
                 {!pinned && (
                     <motion.div

@@ -225,12 +225,14 @@ export default function Chat() {
     }, [projectId, topicId, state.phase, refreshGit])
 
     const meta = useTurns((s) => s.meta[key])
+    const prompts = useTurns((s) => s.prompts[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
     const {
         send,
         sendAudio,
         command,
         loadOlder,
+        loadThrough,
         react,
         clientEvent,
         saveClientState,
@@ -431,6 +433,8 @@ export default function Chat() {
                     hasOlder={!!meta?.loaded && !meta.exhausted}
                     loadingOlder={!!meta?.loadingOlder}
                     onLoadOlder={() => void loadOlder(agentId, topicId ?? '')}
+                    prompts={prompts}
+                    onLoadThrough={(mark) => loadThrough(agentId, topicId ?? '', mark)}
                     onReact={(uid, emoji, action) =>
                         react(agentId, topicId ?? '', uid, emoji, action)
                     }

@@ -148,7 +148,8 @@ describe('a message the turn read while it worked (spec 062)', () => {
     })
 
     it('draws the message once, inside the turn, after the request that started it', () => {
-        const html = draw(finished)
+        // The prompt ruler names the current prompt in its accessible value; that is not drawn.
+        const html = draw(finished).replace(/aria-valuetext="[^"]*"/g, '')
         expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)
         expect(html.indexOf('keep the old token format')).toBeGreaterThan(html.indexOf('refactor the auth module'))
     })
