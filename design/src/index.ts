@@ -80,6 +80,7 @@ export * from "./components/IntegrationLogo";
 export * from "./components/InteractivePage";
 export * from "./components/JobsPill";
 export * from "./components/JumpToLatest";
+export * from "./components/PromptRuler";
 export * from "./components/Kbd";
 export * from "./components/KeyValueEditor";
 export * from "./components/KeyValueList";
