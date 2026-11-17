@@ -13,6 +13,7 @@ import { modelOverridePayload } from '../lib/modelOverride'
 import { handleClientCall } from '../lib/clientTools'
 import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
+import { useUiVerify } from './uiVerify'
 import { useSession } from './session'
 import { useAgents } from './agents'
 
@@ -43,7 +44,10 @@ type TurnStore = {
         queue?: boolean
     ) => void
     sendAudio: (agentId: string, topicId: string, attachment: object, modelOverride?: ModelOverride | null) => void
-    clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
+    /** A person's turn from a client tool's drawing (`sourceCallId`) or from an agent page (`page`, spec 063). */
+    clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string, page?: { page_id: string; version: number }) => void
+    /** Save an agent page's state (spec 063 FR-027): one value per page, shared by its versions. */
+    savePageState: (agentId: string, topicId: string, pageId: string, state: unknown) => void
     saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
     /** Submit (or dismiss) a question set the agent asked: one ordinary request, claimed once on the server. */
     answerQuestions: (agentId: string, topicId: string, answer: QuestionAnswerPayload) => void
@@ -193,6 +197,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
                             saveState: (state) => get().saveClientState(agentId, topicId, call.call_id, state),
                         }).then((answer) => send({ client_tool_result: { call_id: call.call_id, ...answer } }))
                     }
+                    // A new page version to check off-screen (spec 063): the verifier runs it.
+                    if (frame.kind === 'ui_verify') {
+                        useUiVerify.getState().add({ ...frame, agentId, topicId, channel: channelOf(agentId, topicId) })
+                        return
+                    }
                     dispatch(agentId, topicId, { type: 'frame', frame, now: new Date().toISOString() })
                 },
                 // After a drop, what happened meanwhile is read back, not replayed.
@@ -253,14 +262,20 @@ export const useTurns = create<TurnStore>()((set, get) => {
             useConnection.getState().send(agentId, topicId, { reaction: { message_uid: uid, emoji, action } })
         },
 
-        clientEvent: (agentId, topicId, text, data, sourceCallId) => {
-            const content = { client_event: { text, data, source_call_id: sourceCallId } } as VizierRequestContent
+        clientEvent: (agentId, topicId, text, data, sourceCallId, page) => {
+            const content = { client_event: { text, data, source_call_id: sourceCallId, page } } as VizierRequestContent
             const now = new Date().toISOString()
             // A click inside a page the agent drew is a request like any other: queued at the
             // agent if it is busy, not dropped here.
             if (useConnection.getState().send(agentId, topicId, request(content))) {
                 dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now })
             }
+        },
+
+        savePageState: (agentId, topicId, pageId, state) => {
+            // The frame already holds it; the server's `ui_page_state` brings it to every tab,
+            // this one included (the frame ignores its own echo).
+            useConnection.getState().send(agentId, topicId, { ui_page_state: { page_id: pageId, state } })
         },
 
         answerQuestions: (agentId, topicId, answer) => {

@@ -617,6 +617,11 @@ export interface UiPageVerifiedFrame {
     ui_page_verified: { page_id: string; version: number; verification: unknown }
 }
 
+/** Server → this socket only: check a new page version off-screen and report (spec 063). */
+export interface UiVerifyFrame {
+    ui_verify: { request_id: string; page_id: string; version: number; observe_ms: number }
+}
+
 /** Server → every socket on the conversation: a page's newly saved state (spec 063). */
 export interface UiPageStateFrame {
     ui_page_state: { page_id: string; state: unknown; state_seq: number }
@@ -642,6 +647,7 @@ export type Frame =
     | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
     | { kind: 'ui_page_verified'; pageId: string; version: number; verification: unknown }
     | { kind: 'ui_page_state'; pageId: string; state: unknown; stateSeq: number }
+    | { kind: 'ui_verify'; requestId: string; pageId: string; version: number; observeMs: number }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -679,6 +685,10 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('ui_page_verified' in raw && isObj(raw.ui_page_verified)) {
         const v = (raw as unknown as UiPageVerifiedFrame).ui_page_verified
         return { kind: 'ui_page_verified', pageId: v.page_id, version: v.version, verification: v.verification }
+    }
+    if ('ui_verify' in raw && isObj(raw.ui_verify)) {
+        const v = (raw as unknown as UiVerifyFrame).ui_verify
+        return { kind: 'ui_verify', requestId: v.request_id, pageId: v.page_id, version: v.version, observeMs: v.observe_ms }
     }
     if ('ui_page_state' in raw && isObj(raw.ui_page_state)) {
         const v = (raw as unknown as UiPageStateFrame).ui_page_state

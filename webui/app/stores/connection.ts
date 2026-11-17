@@ -50,7 +50,7 @@ export const useConnection = create<ConnectionStore>()((set) => ({
     },
 
     send: (agentId, topicId, frame) =>
-        sockets.get(topicKey(agentId, topicId))?.send(withClientExtras(frame)) ?? false,
+        sockets.get(topicKey(agentId, topicId))?.send(withClientExtras(frame, topicKey(agentId, topicId))) ?? false,
 
     retry: (agentId, topicId) => sockets.get(topicKey(agentId, topicId))?.retryNow(),
 }))

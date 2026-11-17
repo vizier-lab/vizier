@@ -7,7 +7,11 @@ import { useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage, Turn } from '../../api/frames'
 import { CHANNEL } from '../../api/endpoints/chat'
 import { transport } from '../../api/transport'
+import { findFile } from '../../lib/generativeUi/media'
 import type { Problem } from '../../lib/uiPage/host'
+import { topicKey } from '../../stores/connection'
+import { useTurns } from '../../stores/turns'
+import { PausedPage, usePaused } from './client/PausedPage'
 import { SandboxedPage } from './client/SandboxedPage'
 import { useChatAreaFullscreen } from './client/useChatAreaFullscreen'
 
@@ -47,12 +51,33 @@ export function renderPages(turn: Turn, ctx: PagesContext): ReactNode {
     )
 }
 
+/** The largest conversation file a page may load through `vizier.files.url`. */
+const MAX_PAGE_FILE_BYTES = 8 * 1024 * 1024
+
+/** A conversation file by name as a `data:` URL: the frame has an opaque origin, so it can use
+ * neither the WebUI's own file URLs nor its `blob:` URLs. */
+async function fileAsDataUrl(agentId: string, topicId: string, name: string): Promise<string> {
+    const files = useTurns.getState().topics[topicKey(agentId, topicId)]?.files ?? []
+    const file = findFile(files, name)
+    if (!file) throw new Error(`no file called ${name} in this conversation`)
+    if (file.size > MAX_PAGE_FILE_BYTES) throw new Error(`${name} is larger than ${MAX_PAGE_FILE_BYTES / 1024 / 1024} MB`)
+    const res = await transport.fetchFile(`/files/${encodeURIComponent(file.file_id)}`)
+    const blob = await res.blob()
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(new Error(`${name} could not be read`))
+        reader.readAsDataURL(blob.type ? blob : new Blob([blob], { type: file.mime_type }))
+    })
+}
+
 function PageReply({ page, ctx }: { page: Entry; ctx: PagesContext }) {
     const wrapperRef = useRef<HTMLDivElement>(null)
     const { area, fullscreen, toggle } = useChatAreaFullscreen(wrapperRef)
     const [problems, setProblems] = useState<Problem[]>([])
     const verification = verificationOf(page.verification)
     const channel = ctx.channel ?? CHANNEL
+    const [paused, run] = usePaused(page.page_id, page.version)
 
     const download = () =>
         void transport.saveFile(
@@ -68,7 +93,15 @@ function PageReply({ page, ctx }: { page: Entry; ctx: PagesContext }) {
                 onFullscreen={toggle}
                 label={
                     <span className="flex items-center gap-6">
-                        {verification?.state === 'unverified' && (
+                        {paused && (
+                            <span
+                                className="rounded-pill border border-retrying-line px-6 type-mono-xs text-retrying"
+                                title="This version froze the tab last time it ran"
+                            >
+                                paused
+                            </span>
+                        )}
+                        {!paused && verification?.state === 'unverified' && (
                             <span
                                 className="rounded-pill border border-border-strong px-6 type-mono-xs text-faint"
                                 title="Not checked for errors: no tab was open when it was made"
@@ -86,17 +119,26 @@ function PageReply({ page, ctx }: { page: Entry; ctx: PagesContext }) {
                     </>
                 }
             >
-                <SandboxedPage
-                    agentId={ctx.agentId}
-                    topicId={ctx.topicId}
-                    channel={ctx.channel}
-                    pageId={page.page_id}
-                    version={page.version}
-                    title={page.title}
-                    fill={fullscreen}
-                    state={ctx.pageStates[page.page_id]?.state}
-                    onProblem={(problem) => setProblems((held) => (held.length >= 20 ? held : [...held, problem]))}
-                />
+                {paused ? (
+                    <PausedPage onRun={run} />
+                ) : (
+                    <SandboxedPage
+                        agentId={ctx.agentId}
+                        topicId={ctx.topicId}
+                        channel={ctx.channel}
+                        pageId={page.page_id}
+                        version={page.version}
+                        title={page.title}
+                        fill={fullscreen}
+                        state={ctx.pageStates[page.page_id]?.state}
+                        onProblem={(problem) => setProblems((held) => (held.length >= 20 ? held : [...held, problem]))}
+                        onSaveState={(state) => useTurns.getState().savePageState(ctx.agentId, ctx.topicId, page.page_id, state)}
+                        onSend={(text, data) =>
+                            useTurns.getState().clientEvent(ctx.agentId, ctx.topicId, text, data, undefined, { page_id: page.page_id, version: page.version })
+                        }
+                        resolveFile={(name) => fileAsDataUrl(ctx.agentId, ctx.topicId, name)}
+                    />
+                )}
             </Frame>
         </div>
     )
@@ -151,6 +193,7 @@ function ProblemsButton({ problems }: { problems: Problem[] }) {
 /** A version before the turn's last: a dashed row that opens it read-only. */
 function EarlierVersion({ page, ctx }: { page: Entry; ctx: PagesContext }) {
     const [open, setOpen] = useState(false)
+    const [paused, run] = usePaused(page.page_id, page.version)
     const verification = verificationOf(page.verification)
     const count = verification?.state === 'problems' ? (verification.problems?.length ?? 0) : 0
     return (
@@ -168,7 +211,11 @@ function EarlierVersion({ page, ctx }: { page: Entry; ctx: PagesContext }) {
             </button>
             {open && (
                 <Frame title={`${page.title} (v${page.version})`} label={<span>read-only</span>}>
-                    <SandboxedPage agentId={ctx.agentId} topicId={ctx.topicId} channel={ctx.channel} pageId={page.page_id} version={page.version} title={page.title} />
+                    {paused ? (
+                        <PausedPage onRun={run} />
+                    ) : (
+                        <SandboxedPage agentId={ctx.agentId} topicId={ctx.topicId} channel={ctx.channel} pageId={page.page_id} version={page.version} title={page.title} />
+                    )}
                 </Frame>
             )}
         </div>

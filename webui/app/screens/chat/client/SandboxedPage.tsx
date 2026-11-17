@@ -11,7 +11,9 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { uiFrameTicket } from '../../../api/endpoints/chat'
 import { transport } from '../../../api/transport'
 import { SendGate, StateCoalescer, UNRESPONSIVE_MS, parseFrameMessage, themeTokens, toFrame, type Problem } from '../../../lib/uiPage/host'
+import { BEATS_TO_CLEAR, clearMounting, markMounting } from '../../../lib/uiPage/mounting'
 import { useAppearanceKey } from '../../../lib/useDark'
+import { topicKey } from '../../../stores/connection'
 
 const INITIAL_HEIGHT = 120
 /** The shortest a page's frame gets in a reply, so a page that reports no height stays visible. */
@@ -61,6 +63,7 @@ export function SandboxedPage(props: SandboxedPageProps) {
     const lastBeat = useRef(0)
     const reportedHang = useRef(false)
     const frameHas = useRef<string | null>(null)
+    const beats = useRef(0)
 
     // A ticket per mount: it lasts ten minutes and grants only this version.
     useEffect(() => {
@@ -71,13 +74,22 @@ export function SandboxedPage(props: SandboxedPageProps) {
         reportedHang.current = false
         uiFrameTicket(agentId, topicId, pageId, version, channel)
             .then((ticket) => {
-                if (!cancelled) setSrc(transport.frameUrl(ticket.path))
+                if (cancelled) return
+                // Marked before the frame loads, so a version that freezes the tab is paused
+                // after the reload (FR-016a); unmarked once it has beaten a few times.
+                beats.current = 0
+                markMounting(pageId, version, topicKey(agentId, topicId))
+                setSrc(transport.frameUrl(ticket.path))
             })
             .catch((e: unknown) => {
-                if (!cancelled) setFailed(e instanceof Error ? e.message : String(e))
+                if (cancelled) return
+                const message = e instanceof Error ? e.message : String(e)
+                setFailed(message)
+                latest.current.onProblem?.({ kind: 'kit', message: `The page could not be opened: ${message}`, source: 'kit' })
             })
         return () => {
             cancelled = true
+            clearMounting(pageId, version)
         }
     }, [agentId, topicId, channel, pageId, version])
 
@@ -126,6 +138,7 @@ export function SandboxedPage(props: SandboxedPageProps) {
                     return
                 case 'heartbeat':
                     lastBeat.current = Date.now()
+                    if (++beats.current === BEATS_TO_CLEAR) clearMounting(latest.current.pageId, latest.current.version)
                     return
                 case 'height':
                     setHeight(Math.max(MIN_HEIGHT, message.px))
@@ -186,6 +199,7 @@ export function SandboxedPage(props: SandboxedPageProps) {
     }, [props.state])
 
     if (failed) {
+        if (mode === 'verify') return null
         return (
             <div role="alert" className="px-12 py-10 type-ui text-failed-text">
                 This page could not be opened: {failed}
