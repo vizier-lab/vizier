@@ -43,7 +43,7 @@ use crate::models::page::Page;
 use vizier_core::schema::session_file::SessionFileRecord;
 use vizier_core::storage::session_file::SessionFileStorage;
 
-pub use vizier_core::service::topics::{TopicEntry, readable_channel, readable_session};
+pub use vizier_core::service::topics::{PromptMark, TopicEntry, readable_channel, readable_session};
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -52,6 +52,10 @@ pub fn channel() -> Router<HTTPState> {
         .route(
             "/{channel_id}/topic/{topic_id}/history",
             get(get_topic_history),
+        )
+        .route(
+            "/{channel_id}/topic/{topic_id}/prompts",
+            get(get_topic_prompts),
         )
         .route(
             "/{channel_id}/topic/{topic_id}/files",
@@ -85,6 +89,12 @@ pub struct HistoryQuery {
     /// page boundary. Ignored without `before`; omitting it keeps the pre-`seq` behaviour.
     pub before_seq: Option<i64>,
     pub limit: Option<usize>,
+    /// Read back to this entry (inclusive) instead of a page of `limit`: everything from it up
+    /// to the `before` cursor, so a reader jumping to an older entry leaves no gap.
+    #[serde(default, deserialize_with = "vizier_core::time::deserialize_query_time")]
+    pub since: Option<chrono::DateTime<chrono::Local>>,
+    /// The `seq` of the entry `since` names, making it exact. Ignored without `since`.
+    pub since_seq: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,8 +139,33 @@ pub async fn get_topic_history(
             params.before,
             params.before_seq,
             params.limit,
+            params.since.map(|at| topics::HistoryFrom { at, seq: params.since_seq }),
         )
         .await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/prompts",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 200, description = "The person's messages in the topic, oldest first", body = APIResponse<Vec<PromptMark>>),
+        (status = 404, description = "Agent or topic not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_topic_prompts(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::prompts(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
         StatusCode::OK,
     )
 }
