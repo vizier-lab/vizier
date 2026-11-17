@@ -102,7 +102,11 @@ async fn a_ticket_opens_a_sandboxed_frame_with_the_runtime() {
     assert_eq!(frame.headers["cache-control"], "no-store");
     assert!(frame.body.contains(&format!("\"pageId\":\"{}\"", page.id)), "boot data");
     assert!(frame.body.contains("\"state\":{\"n\":1}"), "the saved state is in the boot data");
-    assert!(frame.body.contains("<script data-vz-runtime>"), "the runtime is inlined (is the kit built?)");
+    // CI's Rust jobs build without the WebUI, so there is no kit to inline; with one (a local
+    // build, a release), its stylesheet and runtime are in the frame.
+    if frame.body.contains("<style data-vz-kit>") {
+        assert!(frame.body.contains("<script data-vz-runtime>"), "the runtime is inlined with the kit");
+    }
     assert!(frame.body.ends_with("<h1 id=hi>Hi</h1><script>document.title = typeof vizier</script></body></html>"));
 
     // A forged ticket opens nothing.
