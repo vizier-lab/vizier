@@ -28,6 +28,7 @@ export const transport: Transport = {
     upload: (p, f) => current.upload(p, f),
     fetchFile: (p, i) => current.fetchFile(p, i),
     assetUrl: (p) => current.assetUrl(p),
+    frameUrl: (p) => current.frameUrl(p),
     saveFile: (p, f) => current.saveFile(p, f),
     saveText: (t, f) => current.saveText(t, f),
     openFile: (p, f) => current.openFile(p, f),

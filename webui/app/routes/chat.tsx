@@ -18,6 +18,7 @@ import { ChangesSection } from '../screens/chat/ChangesSection'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { renderQuestions } from '../screens/chat/Questions'
+import { renderPages } from '../screens/chat/UiPages'
 import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
 import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
@@ -454,6 +455,14 @@ export default function Chat() {
                         renderQuestions(turn, state.refusals, (answer) =>
                             answerQuestions(agentId, topicId ?? '', answer)
                         )
+                    }
+                    pages={(turn: Turn) =>
+                        renderPages(turn, {
+                            agentId,
+                            topicId: topicId ?? '',
+                            channel,
+                            pageStates: state.pageStates,
+                        })
                     }
                     emptyAction={
                         shouldOfferOpenProject(projectId) ? (

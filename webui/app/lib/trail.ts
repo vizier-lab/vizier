@@ -172,7 +172,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
   // still belongs to a turn rather than being dropped.
   const newTurn = (key: string, request?: ChatMessage): Turn => {
-    const turn: Turn = { key, request, blocks: [], live: false, clientCalls: [], questions: [] }
+    const turn: Turn = { key, request, blocks: [], live: false, clientCalls: [], questions: [], pages: [] }
     turns.push(turn)
     return turn
   }
@@ -256,6 +256,13 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     if (content.QuestionSet) {
       if (!open) open = newTurn(entry.uid)
       open.questions.push(entry)
+      continue
+    }
+
+    // A page version belongs to the reply the turn ends with, like a question set (spec 063).
+    if (content.UiPage) {
+      if (!open) open = newTurn(entry.uid)
+      open.pages.push(entry)
       continue
     }
 

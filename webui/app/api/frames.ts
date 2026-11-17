@@ -364,6 +364,9 @@ export interface ChatMessage {
     QuestionSet?: QuestionSetEntry
     // That a value was requested and what came of it. Never the value itself.
     SensitiveAsk?: { ask_id: string; purpose: string; label?: string | null; state: string }
+    // A version of an interactive page the agent drew (spec 063). `verification` is filled by
+    // the server on every read and updated live by `ui_page_verified`.
+    UiPage?: { page_id: string; version: number; title: string; verification?: unknown }
   }
   reactions?: ReactionEntry[]
   // False for a live reply that arrived without the server's history uid (an older server):
@@ -434,6 +437,9 @@ export interface Turn {
   clientCalls: ClientCallView[]
   // The question sets the turn asked, in order. Drawn after the reply text they ended it with.
   questions: ChatMessage[]
+  // The page versions the turn drew, in order (spec 063). The last is the reply; any before it
+  // (a draft that failed its check) is drawn collapsed.
+  pages: ChatMessage[]
   // True when the person aborted the turn: no outcome, closed by an `abort` command.
   aborted?: boolean
 }
@@ -606,6 +612,21 @@ export interface SessionFileRecord {
     history_uid?: string | null
 }
 
+/** Server → every socket on the conversation: a page version's check finished (spec 063). */
+export interface UiPageVerifiedFrame {
+    ui_page_verified: { page_id: string; version: number; verification: unknown }
+}
+
+/** Server → this socket only: check a new page version off-screen and report (spec 063). */
+export interface UiVerifyFrame {
+    ui_verify: { request_id: string; page_id: string; version: number; observe_ms: number }
+}
+
+/** Server → every socket on the conversation: a page's newly saved state (spec 063). */
+export interface UiPageStateFrame {
+    ui_page_state: { page_id: string; state: unknown; state_seq: number }
+}
+
 export interface SessionFileFrame {
     session_file: { file: SessionFileRecord }
 }
@@ -624,6 +645,9 @@ export type Frame =
     | { kind: 'question_set'; update: QuestionSetUpdate }
     | { kind: 'sensitive_ask'; ask: SensitiveAsk }
     | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
+    | { kind: 'ui_page_verified'; pageId: string; version: number; verification: unknown }
+    | { kind: 'ui_page_state'; pageId: string; state: unknown; stateSeq: number }
+    | { kind: 'ui_verify'; requestId: string; pageId: string; version: number; observeMs: number }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -657,6 +681,18 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
         const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
         return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
+    }
+    if ('ui_page_verified' in raw && isObj(raw.ui_page_verified)) {
+        const v = (raw as unknown as UiPageVerifiedFrame).ui_page_verified
+        return { kind: 'ui_page_verified', pageId: v.page_id, version: v.version, verification: v.verification }
+    }
+    if ('ui_verify' in raw && isObj(raw.ui_verify)) {
+        const v = (raw as unknown as UiVerifyFrame).ui_verify
+        return { kind: 'ui_verify', requestId: v.request_id, pageId: v.page_id, version: v.version, observeMs: v.observe_ms }
+    }
+    if ('ui_page_state' in raw && isObj(raw.ui_page_state)) {
+        const v = (raw as unknown as UiPageStateFrame).ui_page_state
+        return { kind: 'ui_page_state', pageId: v.page_id, state: v.state, stateSeq: v.state_seq }
     }
     if (CLIENT_KEYS.some((k) => k in raw)) return { kind: 'client', frame: raw as unknown as ClientFrame }
     if ('content' in raw) return { kind: 'response', response: raw as unknown as WebSocketResponse }

@@ -86,6 +86,8 @@ export interface TopicState {
     asks: Record<string, SensitiveAsk>
     /** The latest refusal of an answer to each question set, so its card names the question. */
     refusals: Record<string, QuestionRefusal>
+    /** Pages' state saved in another tab, by page id, newest seq kept (spec 063). */
+    pageStates: Record<string, { state: unknown; seq: number }>
 }
 
 export type Action =
@@ -122,6 +124,7 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         session,
         asks: {},
         refusals: {},
+        pageStates: {},
     }
 }
 
@@ -327,6 +330,20 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     }
                 case 'sensitive_ask':
                     return { ...state, asks: { ...state.asks, [frame.ask.ask_id]: frame.ask } }
+                case 'ui_page_verified':
+                    return {
+                        ...state,
+                        entries: state.entries.map((e) =>
+                            e.content.UiPage?.page_id === frame.pageId && e.content.UiPage.version === frame.version
+                                ? { ...e, content: { ...e.content, UiPage: { ...e.content.UiPage, verification: frame.verification } } }
+                                : e
+                        ),
+                    }
+                case 'ui_page_state': {
+                    const held = state.pageStates[frame.pageId]
+                    if (held && held.seq >= frame.stateSeq) return state
+                    return { ...state, pageStates: { ...state.pageStates, [frame.pageId]: { state: frame.state, seq: frame.stateSeq } } }
+                }
                 case 'sensitive_ask_closed':
                     return { ...state, asks: withoutKey(state.asks, frame.askId) }
                 case 'client': {

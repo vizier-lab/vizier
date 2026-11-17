@@ -96,3 +96,38 @@ export type SideChatResponse = components['schemas']['BtwResponse']
 /** Asks one off-the-record question beside a conversation. Nothing is saved except usage. */
 export const askSideChat = (agentId: string, body: SideChatRequest, signal?: AbortSignal) =>
     request<SideChatResponse>('POST', `/agents/${agentId}/btw`, body, { signal })
+
+/** One version of an interactive page, as the page route lists it (spec 063). */
+export interface UiPageVersion {
+    version: number
+    size: number
+    origin: 'full' | 'edits'
+    base_version: number | null
+    created_at: number
+    verification: UiVerification
+}
+
+/** A version's check (spec 063 data-model.md). */
+export type UiVerification =
+    | { state: 'pending' }
+    | { state: 'unverified'; reason: 'no_tab' | 'timeout' | 'closed' }
+    | { state: 'clean'; observed_ms?: number }
+    | { state: 'problems'; observed_ms?: number; problems: { kind: string; message: string; source?: string; line?: number; column?: number; detail?: string }[] }
+
+export interface UiPage {
+    page_id: string
+    title: string
+    latest_version: number
+    state: unknown
+    state_seq: number
+    versions: UiPageVersion[]
+}
+
+export const getUiPage = (agentId: string, topicId: string, pageId: string, channel: string = CHANNEL) =>
+    api.get<UiPage>(`${base(agentId, topicId, channel)}/pages/${encodeURIComponent(pageId)}`)
+
+/** Where to load a frame of one version from: a ten-minute ticket path with no credential. */
+export const uiFrameTicket = (agentId: string, topicId: string, pageId: string, version: number, channel: string = CHANNEL) =>
+    api.get<{ path: string; expires_at: number }>(
+        `${base(agentId, topicId, channel)}/pages/${encodeURIComponent(pageId)}/versions/${version}/frame`
+    )
