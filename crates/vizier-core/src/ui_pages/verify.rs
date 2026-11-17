@@ -4,11 +4,20 @@
 //! first report wins. No responder means no tab, at once; a deadline means a tab that did not
 //! answer. Either way the turn never waits for nobody.
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::sync::oneshot;
 use vizier_schema::{BusError, Envelope, Subject};
 
-use crate::{schema::VizierSession, transport::VizierTransport};
+use crate::{
+    schema::{VizierChannelId, VizierSession},
+    transport::VizierTransport,
+};
 
 use super::limits::{MAX_PROBLEM_CHARS, MAX_PROBLEMS, VERIFY_DEADLINE, VERIFY_OBSERVE_MS};
 
@@ -121,6 +130,95 @@ pub async fn verify(transport: &VizierTransport, session: &VizierSession, page_i
     }
 }
 
+type Pending = Arc<Mutex<HashMap<String, oneshot::Sender<VerifyReply>>>>;
+
+/// One chat socket's answer to its conversation's verify requests (contracts/verify-protocol.md):
+/// while it lives, it is subscribed on [`subject`], hands each request to its tab through `ask`
+/// and replies with the tab's report. Dropping or closing it unsubscribes and answers every
+/// request still waiting on it with `closed`, so a request never hangs on a socket that left.
+pub struct VerifyResponder {
+    pending: Pending,
+    task: tokio::task::AbortHandle,
+}
+
+impl VerifyResponder {
+    /// Start answering for `session`, or `None` for a conversation that has no pages (only WebUI
+    /// and project chats do, FR-002) or when the bus refuses the subscription. `ask` sends the
+    /// tab its `ui_verify` frame and returns `false` once the tab is gone.
+    pub async fn start<F>(transport: &VizierTransport, session: &VizierSession, ask: F) -> Option<Self>
+    where
+        F: Fn(Value) -> bool + Send + Sync + 'static,
+    {
+        if !matches!(session.1, VizierChannelId::HTTP(..) | VizierChannelId::Project(..)) {
+            return None;
+        }
+        let messaging = transport.bus().messaging.clone();
+        let mut requests = match messaging.subscribe((&subject(session)).into()).await {
+            Ok(subscription) => subscription,
+            Err(e) => {
+                tracing::warn!(?session, "a chat socket could not answer page checks: {e}");
+                return None;
+            }
+        };
+        let pending: Pending = Arc::default();
+        let waiting = pending.clone();
+        let task = tokio::spawn(async move {
+            while let Some((_, envelope)) = requests.recv().await {
+                let Some(reply_to) = envelope.reply_to.clone() else { continue };
+                let Ok(request) = envelope.decode::<VerifyRequest>() else { continue };
+                let (tx, rx) = oneshot::channel();
+                lock(&waiting).insert(request.request_id.clone(), tx);
+                if !ask(json!({ "ui_verify": request })) {
+                    lock(&waiting).remove(&request.request_id);
+                    continue;
+                }
+                let messaging = messaging.clone();
+                let waiting = waiting.clone();
+                tokio::spawn(async move {
+                    let reply = match tokio::time::timeout(VERIFY_DEADLINE, rx).await {
+                        Ok(Ok(reply)) => reply,
+                        // The socket closed first.
+                        Ok(Err(_)) => VerifyReply { request_id: request.request_id, closed: true, ..Default::default() },
+                        // The requester has given up by now: nobody to answer.
+                        Err(_) => {
+                            lock(&waiting).remove(&request.request_id);
+                            return;
+                        }
+                    };
+                    if let Ok(envelope) = Envelope::json(VERIFY_KIND, &reply) {
+                        let _ = messaging.publish(&reply_to, envelope).await;
+                    }
+                });
+            }
+        });
+        Some(Self { pending, task: task.abort_handle() })
+    }
+
+    /// The tab's `ui_verify_report`. `false` when no request with that id waits on this socket
+    /// (a late or foreign report, which is ignored). A tab never reports `closed` for itself.
+    pub fn report(&self, payload: &Value) -> bool {
+        let Ok(reply) = serde_json::from_value::<VerifyReply>(payload.clone()) else { return false };
+        let Some(waiter) = lock(&self.pending).remove(&reply.request_id) else { return false };
+        waiter.send(VerifyReply { closed: false, ..reply }).is_ok()
+    }
+
+    /// Stop answering; every waiting request is answered `closed`.
+    pub fn close(&self) {
+        self.task.abort();
+        lock(&self.pending).clear();
+    }
+}
+
+impl Drop for VerifyResponder {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+fn lock(pending: &Pending) -> std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<VerifyReply>>> {
+    pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +269,59 @@ mod tests {
         let value = verify(&transport, &session, "pg_1", 1).await;
         assert_eq!(value["state"], "problems");
         assert_eq!(value["problems"][0], json!({ "kind": "error", "message": "boom", "line": 3 }));
+    }
+
+    fn webui() -> VizierSession {
+        VizierSession("a".into(), VizierChannelId::HTTP("u".into(), "webui".into()), Some("t".into()))
+    }
+
+    /// A responder whose tab is a channel the test reads.
+    async fn tab(transport: &VizierTransport) -> (VerifyResponder, tokio::sync::mpsc::UnboundedReceiver<Value>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let responder = VerifyResponder::start(transport, &webui(), move |frame| tx.send(frame).is_ok()).await.unwrap();
+        (responder, rx)
+    }
+
+    #[tokio::test]
+    async fn a_socket_relays_the_request_to_its_tab_and_its_report_back() {
+        let transport = VizierTransport::new();
+        let (responder, mut frames) = tab(&transport).await;
+        let asked = tokio::spawn({
+            let transport = transport.clone();
+            async move { verify(&transport, &webui(), "pg_1", 2).await }
+        });
+        let frame = frames.recv().await.unwrap();
+        assert_eq!(frame["ui_verify"]["page_id"], "pg_1");
+        assert_eq!(frame["ui_verify"]["version"], 2);
+        assert_eq!(frame["ui_verify"]["observe_ms"], VERIFY_OBSERVE_MS);
+        let request_id = frame["ui_verify"]["request_id"].as_str().unwrap().to_string();
+        assert!(!responder.report(&json!({ "request_id": "someone-else", "problems": [] })));
+        assert!(responder.report(&json!({ "request_id": request_id, "problems": [], "observed_ms": 2000, "closed": true })));
+        assert_eq!(asked.await.unwrap(), json!({ "state": "clean", "observed_ms": 2000 }));
+        assert!(!responder.report(&json!({ "request_id": request_id })), "a report counts once");
+    }
+
+    #[tokio::test]
+    async fn a_socket_that_closes_answers_closed_and_stops_answering() {
+        let transport = VizierTransport::new();
+        let (responder, mut frames) = tab(&transport).await;
+        let asked = tokio::spawn({
+            let transport = transport.clone();
+            async move { verify(&transport, &webui(), "pg_1", 1).await }
+        });
+        frames.recv().await.unwrap();
+        drop(responder);
+        assert_eq!(asked.await.unwrap(), json!({ "state": "unverified", "reason": "closed" }));
+        tokio::task::yield_now().await;
+        assert_eq!(verify(&transport, &webui(), "pg_1", 1).await["reason"], "no_tab", "unsubscribed");
+    }
+
+    #[tokio::test]
+    async fn only_webui_and_project_chats_answer() {
+        let transport = VizierTransport::new();
+        let task = VizierSession("a".into(), VizierChannelId::Task("t".into(), crate::time::now()), None);
+        assert!(VerifyResponder::start(&transport, &task, |_| true).await.is_none());
+        let project = VizierSession("a".into(), VizierChannelId::Project("u".into(), "p".into()), Some("t".into()));
+        assert!(VerifyResponder::start(&transport, &project, |_| true).await.is_some());
     }
 }

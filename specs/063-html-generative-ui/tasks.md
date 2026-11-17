@@ -156,16 +156,22 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 - [x] T039 [US3] Implement `ui_pages::verify::verify(bus, session, page, version) -> Verification`: a bus `request` on `ui.verify.{session_key}` with `{request_id, page_id, version, observe_ms}`. Map `NoResponders`→`unverified(no_tab)`, `Timeout`→`unverified(timeout)`, a `closed` reply→`unverified(closed)`, a report→`clean`/`problems` (cut to 20 problems and 500 characters). Write the result with `set_ui_page_verification` and publish `UiPageVerified`. In `crates/vizier-core/src/ui_pages/verify.rs`.
 - [x] T040 [US3] Call `verify` after every saved version in `ui_render`. On `problems`, return `Err` with `code: "problems"`, `page`, `version` and `problems`. Otherwise return `verified` and `reason`. In `crates/vizier-core/src/agents/tools/ui_pages.rs`.
-- [ ] T041 [US3] Make each topic socket on an `HTTP`/`Project` session subscribe as responder to `ui.verify.{session_key}` while open. On a request, send that socket `ui_verify`, await its `ui_verify_report` (matched by `request_id`, ignored otherwise) and reply on the bus; reply `{closed: true}` if the socket closes first. In `crates/vizier-http/src/api/v1/agents/channel.rs` (and the desktop `TopicConnection`, `crates/vizier-http/src/topic.rs`).
-- [ ] T042 [US3] Sweep `pending` verifications of the claimed agent to `unverified(closed)` in `recovery::recover_agent` (rows under an older fence only), in `crates/vizier-core/src/recovery.rs`
-- [ ] T043 [US3] Implement the off-screen verifier: on `ui_verify`, fetch the version, mount `SandboxedPage mode="verify"` (1024×768, hidden, outside the viewport) with the page's state, collect problems for `observe_ms`, report `unresponsive` when no heartbeat arrives for 1 s, send `ui_verify_report` and unmount. In `webui/app/lib/uiPage/verify.ts` and `webui/app/screens/chat/client/Verifier.tsx`, mounted once by the chat screen.
-- [ ] T044 [US3] Add the error indicator: problems after mount in chat mode light the header indicator, and a popover lists them (design `Floating` + `useDismiss`, per the dismissal convention). Show "v{n} · N problems" on collapsed failed versions. In `webui/app/screens/chat/UiPageEntry.tsx`.
-- [ ] T045 [US3] Add the crash-loop marker: set `vz.mounting = {page, version}` in `localStorage` (inside try/catch) before mounting, and clear it after three heartbeats. If a load finds the marker set, draw that version "paused · Run anyway". In `webui/app/screens/chat/client/SandboxedPage.tsx`.
-- [ ] T046 [US3] Tell the agent about a paused page: the WebUI sends the paused `{page, version}` with the next request's context, and the context section of `crates/vizier-core/src/agents/agent/system_prompt/context.rs` gets one line, *"Page pg_… v3 froze the person's tab and is paused; move heavy work into `vizier.worker`."*, per FR-016a.
-- [ ] T047 [P] [US3] Write the fake-tab script `scripts/ui-pages-e2e.mjs` (`--no-tab`, a scripted `ui_verify_report`: clean, problems, silence, two tabs) that asserts quickstart §3's results, frames and saved versions
+- [X] T041 [US3] Make each topic socket on an `HTTP`/`Project` session subscribe as responder to `ui.verify.{session_key}` while open. On a request, send that socket `ui_verify`, await its `ui_verify_report` (matched by `request_id`, ignored otherwise) and reply on the bus; reply `{closed: true}` if the socket closes first. In `crates/vizier-http/src/api/v1/agents/channel.rs` (and the desktop `TopicConnection`, `crates/vizier-http/src/topic.rs`).
+- [X] T042 [US3] Sweep `pending` verifications of the claimed agent to `unverified(closed)` in `recovery::recover_agent` (rows under an older fence only), in `crates/vizier-core/src/recovery.rs`
+- [X] T043 [US3] Implement the off-screen verifier: on `ui_verify`, fetch the version, mount `SandboxedPage mode="verify"` (1024×768, hidden, outside the viewport) with the page's state, collect problems for `observe_ms`, report `unresponsive` when no heartbeat arrives for 1 s, send `ui_verify_report` and unmount. In `webui/app/lib/uiPage/verify.ts` and `webui/app/screens/chat/client/Verifier.tsx`, mounted once by the chat screen.
+- [X] T044 [US3] Add the error indicator: problems after mount in chat mode light the header indicator, and a popover lists them (design `Floating` + `useDismiss`, per the dismissal convention). Show "v{n} · N problems" on collapsed failed versions. In `webui/app/screens/chat/UiPageEntry.tsx`.
+- [X] T045 [US3] Add the crash-loop marker: set `vz.mounting = {page, version}` in `localStorage` (inside try/catch) before mounting, and clear it after three heartbeats. If a load finds the marker set, draw that version "paused · Run anyway". In `webui/app/screens/chat/client/SandboxedPage.tsx`.
+- [X] T046 [US3] Tell the agent about a paused page: the WebUI sends the paused `{page, version}` with the next request's context, and the context section of `crates/vizier-core/src/agents/agent/system_prompt/context.rs` gets one line, *"Page pg_… v3 froze the person's tab and is paused; move heavy work into `vizier.worker`."*, per FR-016a.
+- [X] T047 [P] [US3] Write the fake-tab script `scripts/ui-pages-e2e.mjs` (`--no-tab`, a scripted `ui_verify_report`: clean, problems, silence, two tabs) that asserts quickstart §3's results, frames and saved versions
 - [ ] T048 [US3] Browser check, quickstart §7.6 (error indicator) and §7.8 (hang on Chromium and WebKit, paused after reload), with the preview tools
 
 **Checkpoint**: a broken first draft is fixed in the same turn while a tab is open.
+
+Notes (US3, 2026-11-17):
+- The socket side is `ui_pages::verify::VerifyResponder` in core (vizier-http has no direct vizier-schema dependency), held by `TopicConnection`; `ui_verify_report` is matched by `request_id`, and closing the socket answers `closed`.
+- T046 rides on the existing `client_context` notes instead of a new line in `context.rs`: the WebUI adds one note per paused page of that conversation (`lib/uiPage/mounting.ts::pausedNotes`), and the engine already puts client notes at the head of the context block for that turn only.
+- `scripts/ui-pages-e2e.mjs` passes §0, §1, §3, §4 and §5 against `dev_serve` on dummyplug. §0 uses `list_tool_functions(category="ui")`: `context` echoes the per-request block, not `SANDBOX.md`.
+- Browser (Chromium, preview pane): a page that throws is reported by the real verifier (`Uncaught Error`, line and column) and the turn continues; a page that blocks for 3 s is `unresponsive`; a planted marker draws "paused · Run anyway", the next request carries the note, and Run anyway mounts it and clears the marker. **Not checked**: WebKit (needs the macOS/Linux desktop app), and a real freeze of the tab.
 
 ---
 
@@ -202,26 +208,32 @@ These are included as tasks. A browser check is a manual quickstart step run wit
 
 **Independent test**: quickstart §4, §5, §7.7 and §8a.
 
-- [ ] T060 [US5] Handle the inbound socket frame `ui_page_state {page_id, state, expected_seq?}` with the `client_call_state` checks (`MAX_STATE_BYTES`, a `RateLimiter` on `HTTPState` at 2/s per page, the page in this session) → `save_ui_page_state` → publish `UiPageState`, in `crates/vizier-http/src/api/v1/agents/channel.rs`
-- [ ] T061 [US5] Add `page: Option<PageSource { page_id, version }>` to `VizierRequestContent::ClientEvent` (exclusive with the source call) in `crates/vizier-core/src/schema/request.rs`. Accept it on the inbound `client_event` when the page belongs to the session, and add `page: <id> v<n>` to the frontmatter in `generate_frontmatter`.
-- [ ] T062 [US5] Write the in-frame bridge v1 in `webui/app/lib/uiPage/bridge.ts`, per contracts/bridge.md:
+- [X] T060 [US5] Handle the inbound socket frame `ui_page_state {page_id, state, expected_seq?}` with the `client_call_state` checks (`MAX_STATE_BYTES`, a `RateLimiter` on `HTTPState` at 2/s per page, the page in this session) → `save_ui_page_state` → publish `UiPageState`, in `crates/vizier-http/src/api/v1/agents/channel.rs`
+- [X] T061 [US5] Add `page: Option<PageSource { page_id, version }>` to `VizierRequestContent::ClientEvent` (exclusive with the source call) in `crates/vizier-core/src/schema/request.rs`. Accept it on the inbound `client_event` when the page belongs to the session, and add `page: <id> v<n>` to the frontmatter in `generate_frontmatter`.
+- [X] T062 [US5] Write the in-frame bridge v1 in `webui/app/lib/uiPage/bridge.ts`, per contracts/bridge.md:
   - `version`, `abilities`, `has`;
   - `state.get`/`set`/`subscribe`;
   - `send`;
   - `files.url`;
   - `worker(fn | "#id")` with `run(input, {timeoutMs})` (default 10 s, maximum 60 s, terminate and reject `timeout`, one run at a time) and `terminate`;
   - `<script type="vz-worker">` support.
-- [ ] T063 [US5] Enforce the host rules in `SandboxedPage.tsx`:
+- [X] T063 [US5] Enforce the host rules in `SandboxedPage.tsx`:
   - `send` only within 10 s of a trusted interaction and at most 1/s;
   - state coalesced to 500 ms and sent as `ui_page_state`;
   - incoming `ui_page_state` frames forwarded to the frame;
   - `files.url` resolved through the transport as a `data:` URL;
   - a new version starts from the page's state.
-- [ ] T064 [P] [US5] Add bridge and host-rule tests (no interaction → `no_interaction`; rate → `rate_limited`; coalescing; a worker timeout terminates; state handed to a new version) in `webui/app/lib/uiPage/bridge.test.ts`
-- [ ] T065 [US5] Extend `scripts/ui-pages-e2e.mjs` with quickstart §4 (state, rate limit, another conversation's page refused) and §5 (`client_event` with `page` starts a turn, and the `context` frontmatter shows `page: P v3`)
+- [X] T064 [P] [US5] Add bridge and host-rule tests (no interaction → `no_interaction`; rate → `rate_limited`; coalescing; a worker timeout terminates; state handed to a new version) in `webui/app/lib/uiPage/bridge.test.ts`
+- [X] T065 [US5] Extend `scripts/ui-pages-e2e.mjs` with quickstart §4 (state, rate limit, another conversation's page refused) and §5 (`client_event` with `page` starts a turn, and the `context` frontmatter shows `page: P v3`)
 - [ ] T066 [US5] Browser check, quickstart §7.7 (send rules) and §8a (worker keeps the page animating, on Chromium and WebKit), with the preview tools
 
 **Checkpoint**: a chess game survives reloads and plays against the agent.
+
+Notes (US5, 2026-11-17):
+- T062/T063 were already in place from US1 (`app/kit/runtime.ts`, `SandboxedPage.tsx`); `vizier.worker` moved to `app/kit/worker.ts` so it can be tested (T064).
+- Page state reuses the `client_state_saves` limiter (2/s), keyed `page:{id}`; a stale `expected_seq` is `state_stale` with the stored `state_seq`.
+- A client event's `page` is kept only for a page of this conversation with that version, and never beside a `source_call_id`.
+- Browser: a send with no interaction is refused `no_interaction`. **Not checked**: a click-started send — the preview pane's synthetic pointer and key events do not reach the page inside the frame (focus moves into it, `elementFromPoint` hits it, the page's script runs). Check by hand or in the desktop app, with §8a on WebKit.
 
 ---
 

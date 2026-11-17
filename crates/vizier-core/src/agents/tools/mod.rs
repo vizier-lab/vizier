@@ -2728,6 +2728,7 @@ mod tests {
                 text: "clicked".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
             &web
         ));
