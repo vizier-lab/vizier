@@ -9,7 +9,11 @@ This is the built-in tool `ui_render` (category `ui`), offered in WebUI and proj
 - **A new page:** `ui_render(title="…", html="…")` returns `{"status": "rendered", "page": "pg_…", "version": 1, "verified": …}`.
 - **A change:** `ui_render(page="pg_…", base_version=N, edits=[{"find": "…", "replace": "…"}])`. Each `find` must match exactly once; the edits apply in order, all or nothing. A full replacement (`html=`) works too. `base_version` must be the latest version, so two writers never overwrite each other.
 - **Refusals** are errors whose message is JSON with a `code`: `invalid_input`, `too_large`, `unknown_page`, `other_conversation`, `stale_base`, `edit_not_found`, `edit_ambiguous`, `problems`.
-- The tool's full guide (page model, kit, bridge, worker, examples) comes back from `describe_tool_function("ui_render")` as `guide`. It lives in `crates/vizier-core/assets/ui-kit/REFERENCE.md`, and `scripts/ui-kit-reference.test.mjs` keeps it in step with the kit.
+- The tool's guide (page model, rules, look, bridge, an index of the elements and examples) comes back from `describe_tool_function("ui_render")` as `guide`. The details are two more tools in category `ui`, offered wherever `ui_render` is, so a page pays only for what it uses:
+  - `ui_describe_elements(names=[…])` returns the attributes, events and an example of each `<vz-*>` element named (`card` and `vz-card` both work; an unknown name comes back in `unknown` with `did_you_mean`).
+  - `ui_examples(kind)` returns a whole example page (`dashboard`, `form`, `game`, `worker`, `three`); with no `kind`, the list.
+
+  The three texts live in `crates/vizier-core/assets/ui-kit/` (`REFERENCE.md`, `ELEMENTS.md`, `EXAMPLES.md`), and `scripts/ui-kit-reference.test.mjs` keeps them in step with the kit.
 
 Limits: 1 MiB per version, 100 edits per call, a 120-character title.
 

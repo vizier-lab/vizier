@@ -87,6 +87,7 @@ pub mod telegram;
 mod think;
 mod time;
 pub mod tts;
+pub mod ui_kit;
 pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
@@ -1594,6 +1595,8 @@ impl BaseTools {
                 deps.storage.clone(),
                 deps.transport.clone(),
             ))
+            .tool(ui_kit::UiDescribeElements)
+            .tool(ui_kit::UiExamples)
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
@@ -1981,6 +1984,8 @@ mod tests {
             entry::<crate::questions::tool_question::AskQuestion>(),
             entry::<crate::questions::tool_sensitive::AskSensitiveInput>(),
             entry::<ui_pages::UiRender>(),
+            entry::<ui_kit::UiDescribeElements>(),
+            entry::<ui_kit::UiExamples>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -2099,6 +2104,8 @@ mod tests {
             ("ask_sensitive_input", Secrets),
             ("ask_question", Questions),
             ("ui_render", Ui),
+            ("ui_describe_elements", Ui),
+            ("ui_examples", Ui),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[

@@ -1,6 +1,8 @@
-// The agent's guide to pages (crates/vizier-core/assets/ui-kit/REFERENCE.md) must name exactly the
-// kit's elements, attributes, events and libraries (specs/063-html-generative-ui T057): an element
-// the guide leaves out is one the agent never uses, and one it invents draws a red box.
+// The agent's guide to pages must name exactly the kit's elements, attributes, events and libraries
+// (specs/063-html-generative-ui T057): an element the guide leaves out is one the agent never uses,
+// and one it invents draws a red box. The guide is split in two: REFERENCE.md (what `ui_render`'s
+// guide returns: the libraries and a one-line index of the elements) and ELEMENTS.md (what
+// `ui_describe_elements` returns: each element's attributes and events).
 //
 // The kit's own list is webui/app/kit/manifest.ts (read directly; Node strips its types), or the
 // built webui/build/client/ui-kit/manifest.json when the WebUI's packages are not installed.
@@ -15,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const referencePath = join(root, 'crates/vizier-core/assets/ui-kit/REFERENCE.md')
+const elementsPath = join(root, 'crates/vizier-core/assets/ui-kit/ELEMENTS.md')
 
 async function kit() {
     try {
@@ -42,16 +45,19 @@ export function documented(markdown) {
     return { elements, libraries: libs.sort() }
 }
 
-test('REFERENCE.md documents exactly the kit', async (t) => {
+test('REFERENCE.md and ELEMENTS.md document exactly the kit', async (t) => {
     const manifest = await kit()
     if (!manifest) {
         t.skip('neither webui/app/kit/manifest.ts (with its packages) nor a built manifest is available')
         return
     }
-    const doc = documented(readFileSync(referencePath, 'utf8'))
+    const guide = readFileSync(referencePath, 'utf8')
+    const doc = documented(readFileSync(elementsPath, 'utf8'))
+    const index = [...(guide.split(/^## Elements$/m)[1]?.split(/^## /m)[0] ?? '').matchAll(/^\| `(vz-[a-z]+)` \|/gm)].map((m) => m[1])
 
     const names = manifest.elements.map((e) => e.name).sort()
-    assert.deepEqual([...doc.elements.keys()].sort(), names, 'the elements in REFERENCE.md and the kit differ')
+    assert.deepEqual([...doc.elements.keys()].sort(), names, 'the elements in ELEMENTS.md and the kit differ')
+    assert.deepEqual(index.sort(), names, "the element index in REFERENCE.md and the kit differ")
 
     for (const element of manifest.elements) {
         const want = Object.entries(element.attributes)
@@ -62,7 +68,7 @@ test('REFERENCE.md documents exactly the kit', async (t) => {
         assert.deepEqual(got.events, Object.keys(element.events).sort(), `<${element.name}> events`)
     }
 
-    assert.deepEqual(doc.libraries, [...manifest.libraries].sort(), 'the libraries in REFERENCE.md and the kit differ')
+    assert.deepEqual(documented(guide).libraries, [...manifest.libraries].sort(), 'the libraries in REFERENCE.md and the kit differ')
 })
 
 test('the parser reads a section the way it is written', () => {

@@ -56,12 +56,17 @@ The guide is `crates/vizier-core/assets/ui-kit/REFERENCE.md`. It contains:
 1. The page model: versions, edits, state across versions.
 2. Rules: no network from script; `https` images, audio and video allowed; drive loops with `requestAnimationFrame`; put anything that can run longer than about 50 ms in `vizier.worker`; size limits.
 3. Kit CSS: tokens and classes.
-4. Every `<vz-*>` element with its attributes, events and an example.
+4. A one-line index of the `<vz-*>` elements, and the rules they share.
 5. Bridge v1 (`contracts/bridge.md`).
 6. Libraries and their import names (`import * as THREE from "three"`).
-7. Four short examples: a dashboard, a canvas game loop, a form that sends, and a game opponent searching in `vizier.worker`.
+7. The list of examples and one short one.
 
-`scripts/ui-kit-reference.test.mjs` keeps the guide in step with the kit's manifest.
+The guide is kept short (about 6 KB) because an agent reads it before its first page. The details are two more tools in category `ui`, offered wherever `ui_render` is, never turn-ending, and answering a name they do not know as data (`unknown`, `did_you_mean`), never an error:
+
+- `ui_describe_elements(names: [string])` → `{elements: [{name, doc}], unknown?, did_you_mean?, available?}`, from `assets/ui-kit/ELEMENTS.md`: each element's attributes, children, events and an example. `card`, `<vz-card>` and `vz-card` are the same name.
+- `ui_examples(kind?: string)` → `{example?, available?: [{kind, what}], did_you_mean?}`, from `assets/ui-kit/EXAMPLES.md`: `dashboard`, `form`, `game`, `worker`, `three`.
+
+`scripts/ui-kit-reference.test.mjs` keeps the guide's index and `ELEMENTS.md` in step with the kit's manifest.
 
 ## Retired names
 
