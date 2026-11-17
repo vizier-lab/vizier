@@ -111,6 +111,32 @@ fn schema_size(schema: &serde_json::Value) -> usize {
     serde_json::to_string(schema).map(|s| s.len()).unwrap_or(usize::MAX)
 }
 
+/// Client declarations a stale WebUI tab may still send (spec 063): the generative UI client
+/// tools `ui/components` and `ui/render`, now the built-in `ui_render`. Declared as they were,
+/// `render` would be renamed `ui_client_render` beside the built-in, so they are dropped.
+/// Tracked for removal with the other legacy shims (#82).
+pub const RETIRED_DECLARATIONS: &[(&str, &str)] = &[("ui", "components"), ("ui", "render")];
+
+/// Remove [`RETIRED_DECLARATIONS`] from `tools`, with a warning naming them. Returns how many
+/// were removed. Categories only they used are ignored by `validate` and `resolve` anyway.
+pub fn drop_retired(tools: &mut Vec<ClientToolDeclaration>) -> usize {
+    let before = tools.len();
+    tools.retain(|tool| {
+        let retired = RETIRED_DECLARATIONS
+            .iter()
+            .any(|(category, name)| tool.category() == *category && tool.name == *name);
+        if retired {
+            tracing::warn!(
+                category = tool.category(),
+                tool = %tool.name,
+                "dropped a retired client tool declaration (spec 063: generative UI is the built-in ui_render); the tab is out of date"
+            );
+        }
+        !retired
+    });
+    before - tools.len()
+}
+
 /// Check every rule of the protocol's §1, in declaration order, and report the first broken.
 pub fn validate(
     tools: &[ClientToolDeclaration],
@@ -349,6 +375,20 @@ mod tests {
         t.output_schema = None;
         t.input_schema = json!({ "type": "object", "description": "x".repeat(17_000) });
         assert_eq!(rule(&[t], &[]), "schema_too_large");
+    }
+
+    #[test]
+    fn retired_ui_declarations_are_dropped_and_others_kept() {
+        let in_ui = |name: &str| {
+            let mut t = tool(name);
+            t.category = Some("ui".into());
+            t
+        };
+        let mut tools = vec![in_ui("components"), in_ui("render"), in_ui("other"), tool("render")];
+        assert_eq!(drop_retired(&mut tools), 2);
+        let left: Vec<_> = tools.iter().map(|t| format!("{}/{}", t.category(), t.name)).collect();
+        assert_eq!(left, ["ui/other", "client/render"]);
+        assert_eq!(drop_retired(&mut tools), 0);
     }
 
     #[test]

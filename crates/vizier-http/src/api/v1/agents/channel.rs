@@ -610,6 +610,64 @@ pub(crate) async fn client_call_state(
     Ok(())
 }
 
+/// A page's state from its frame (spec 063 contracts/verify-protocol.md, FR-027): one value per
+/// page, shared by every version, with the checks and the rate of `client_call_state`. Refused
+/// for a page outside this conversation. Every socket on the conversation gets the new state.
+pub(crate) async fn ui_page_state(
+    storage: &vizier_core::storage::VizierStorage,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    limits: &ClientLimits,
+    payload: &serde_json::Value,
+) -> Result<(), serde_json::Value> {
+    use vizier_core::storage::ui_page::{SaveStateOutcome, UiPageStorage};
+
+    let Some(page_id) = payload.get("page_id").and_then(|id| id.as_str()) else {
+        return Err(client_error("invalid_frame", None, "ui_page_state needs a page_id"));
+    };
+    let state = payload.get("state").cloned().unwrap_or(serde_json::Value::Null);
+    let expected_seq = payload.get("expected_seq").and_then(|seq| seq.as_u64());
+
+    match storage.get_ui_page(page_id).await {
+        Ok(Some(page)) if page.session == *session => {}
+        Ok(_) => return Err(client_error("not_found", Some(page_id), "no page with this id in this conversation")),
+        Err(err) => {
+            tracing::warn!("failed to look up page {page_id}: {err}");
+            return Err(client_error("state_not_saved", Some(page_id), "state not saved"));
+        }
+    }
+    if json_len(&state) > MAX_STATE_BYTES {
+        return Err(client_error(
+            "state_too_large",
+            Some(page_id),
+            format!("state is larger than {MAX_STATE_BYTES} bytes"),
+        ));
+    }
+    if !limits.state_saves.check(&format!("page:{page_id}")) {
+        return Err(client_error("rate_limited", Some(page_id), "too many state saves for this page; try again shortly"));
+    }
+    let state_seq = match storage.save_ui_page_state(page_id, &state, expected_seq).await {
+        Ok(SaveStateOutcome::Saved(seq)) => seq,
+        Ok(SaveStateOutcome::Stale(latest)) => {
+            let mut error = client_error("state_stale", Some(page_id), "the page's state changed meanwhile");
+            error["client_error"]["state_seq"] = serde_json::json!(latest);
+            return Err(error);
+        }
+        Ok(SaveStateOutcome::NotFound) => {
+            return Err(client_error("not_found", Some(page_id), "no page with this id in this conversation"));
+        }
+        Err(err) => {
+            tracing::warn!("failed to save state of page {page_id}: {err}");
+            return Err(client_error("state_not_saved", Some(page_id), "state not saved"));
+        }
+    };
+    transport.publish_session_event(SessionEvent {
+        session: session.clone(),
+        frame: SessionFrame::UiPageState { page_id: page_id.to_string(), state, state_seq },
+    });
+    Ok(())
+}
+
 /// Check a client event (protocol §5) and drop a `source_call_id` that is not a client tool
 /// call in this conversation. `Err` is the `client_error` frame refusing it.
 pub(crate) async fn check_client_event(
@@ -649,6 +707,18 @@ pub(crate) async fn check_client_event(
             .unwrap_or(false)
     {
         event.source_call_id = None;
+    }
+    // Spec 063: an event from a page names it only when the page is in this conversation and
+    // has that version; a page and a source call never come together.
+    if let Some(page) = &event.page {
+        use vizier_core::storage::ui_page::UiPageStorage;
+        let here = match storage.get_ui_page(&page.page_id).await {
+            Ok(Some(record)) => record.session == *session && (1..=record.latest_version).contains(&page.version),
+            _ => false,
+        };
+        if !here || event.source_call_id.is_some() {
+            event.page = None;
+        }
     }
     Ok(())
 }
@@ -700,7 +770,8 @@ pub(crate) fn bind_client_tools(
     connection: &std::sync::Arc<ClientConnection>,
     connections: &vizier_core::agents::client::ClientConnections,
 ) -> Result<(), serde_json::Value> {
-    let tools = std::mem::take(&mut request.client_tools);
+    let mut tools = std::mem::take(&mut request.client_tools);
+    declare::drop_retired(&mut tools);
     let categories = std::mem::take(&mut request.client_categories);
     request.client = None;
     let takes_tools = matches!(
@@ -867,9 +938,10 @@ mod question_answer_client_tests {
 
     fn declaration() -> ClientToolDeclaration {
         serde_json::from_value(serde_json::json!({
-            "name": "render",
-            "category": "ui",
-            "description": "Draws a page.",
+            // Not `ui/render`: that retired declaration is dropped (spec 063).
+            "name": "pick_color",
+            "category": "palette",
+            "description": "Asks the person for a colour.",
             "input_schema": { "type": "object" },
         }))
         .unwrap()

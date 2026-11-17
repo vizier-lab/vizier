@@ -86,9 +86,19 @@ pub async fn api(
     Ok(ApiReply { status, body })
 }
 
-/// The response headers an asset reply forwards (§2).
-pub const ASSET_HEADERS: [&str; 5] =
-    ["content-type", "content-length", "content-range", "accept-ranges", "content-disposition"];
+/// The response headers an asset reply forwards (§2). A page frame
+/// (`specs/063-html-generative-ui` research R7a) is sandboxed by its `content-security-policy`, so
+/// that header must reach the webview with the document.
+pub const ASSET_HEADERS: [&str; 8] = [
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "content-disposition",
+    "content-security-policy",
+    "cache-control",
+    "referrer-policy",
+];
 
 #[derive(Debug, Clone)]
 pub struct AssetReply {

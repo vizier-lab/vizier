@@ -95,9 +95,9 @@ mod tests {
         let binding = ClientBinding {
             node: "local".into(),
             connection_id: connection.id.clone(),
-            tools: vec![tool("ui_render", "ui"), tool("pick_color", "palette"), tool("x", "memory")],
+            tools: vec![tool("board_draw", "board"), tool("pick_color", "palette"), tool("x", "memory")],
             categories: vec![ClientCategoryDeclaration {
-                name: "ui".into(),
+                name: "board".into(),
                 description: Some("Show interactive pages in the conversation".into()),
             }],
         };
@@ -123,7 +123,7 @@ mod tests {
         let md = sandbox_md(&with_client(&base), "30s");
         assert!(md.contains(
             "- memory: Search, read, write and organise long-term memory\n\
-             - ui: (provided by the person's client) Show interactive pages in the conversation\n\
+             - board: (provided by the person's client) Show interactive pages in the conversation\n\
              - palette: (provided by the person's client) Tools provided by the person's client\n\
              - memory_client: (provided by the person's client) Tools provided by the person's client\n\n"
         ), "{md}");

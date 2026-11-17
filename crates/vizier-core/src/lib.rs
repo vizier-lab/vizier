@@ -120,6 +120,8 @@ pub mod skill;
 pub mod storage;
 #[doc(hidden)]
 pub mod telemetry;
+#[doc(hidden)]
+pub mod ui_pages;
 pub(crate) mod usage;
 #[doc(hidden)]
 pub mod utils;

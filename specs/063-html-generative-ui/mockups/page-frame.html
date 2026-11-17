@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>063 · Page frame mockup</title>
+<style>
+  :root {
+    --vz-ground:#ffffff; --vz-panel:#ffffff; --vz-surface:#f4f4f5; --vz-raised:#e9e9ec; --vz-shell:#f1f1f3;
+    --vz-border:#e4e4e7; --vz-border-strong:#d4d4d8; --vz-border-hover:#a1a1aa;
+    --vz-text-faint:#6e6e78; --vz-text-muted:#5b5b66; --vz-text-soft:#3f3f46; --vz-text:#111114;
+    --vz-ink:#111114; --vz-live:#059669; --vz-live-bg:#ecf8f2; --vz-live-text:#046c4e;
+    --vz-failed:#c8371d; --vz-failed-text:#b4321c; --vz-failed-bg:#fdf1ee; --vz-failed-line:#f5c9c0;
+    --vz-retrying:#a86a12; --vz-retrying-bg:#fbf4e6; --vz-retrying-line:#ebd9b0;
+    --vz-chart-1:#9b87f5; --vz-chart-2:#a8842f; --vz-chart-3:#e58fb4;
+    --sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  [data-theme="dark"] {
+    --vz-ground:#0b0b0c; --vz-panel:#0b0b0c; --vz-surface:#151518; --vz-raised:#1c1c20; --vz-shell:#070708;
+    --vz-border:#242428; --vz-border-strong:#303036; --vz-border-hover:#45454d;
+    --vz-text-faint:#8b8b96; --vz-text-muted:#a0a0aa; --vz-text-soft:#d6d6dc; --vz-text:#ededef;
+    --vz-ink:#f2f2f5; --vz-live:#10b981; --vz-live-bg:#0f2a21; --vz-live-text:#10b981;
+    --vz-failed:#e5654b; --vz-failed-text:#f0a394; --vz-failed-bg:#2a1714; --vz-failed-line:#4a2a26;
+    --vz-retrying:#e2b04a; --vz-retrying-bg:#2a2112; --vz-retrying-line:#4a3a1c;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--vz-shell); color:var(--vz-text); font:14px/1.45 var(--sans); }
+  .bar { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:10px 16px;
+         background:var(--vz-panel); border-bottom:1px solid var(--vz-border); }
+  .bar b { flex:1; font-weight:600; }
+  .btn { font:inherit; font-size:13px; color:var(--vz-text); background:var(--vz-surface); border:1px solid var(--vz-border-strong);
+         border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .btn:hover { border-color:var(--vz-border-hover); }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 80px; display:grid; gap:36px; }
+  h2.case { font:600 12px var(--mono); text-transform:uppercase; letter-spacing:.06em; color:var(--vz-text-faint); margin:0 0 4px; }
+  p.note { margin:0 0 12px; color:var(--vz-text-muted); font-size:13px; }
+
+  /* chat bits */
+  .chat { background:var(--vz-ground); border:1px solid var(--vz-border); border-radius:12px; padding:16px; display:grid; gap:12px; }
+  .person { justify-self:end; background:var(--vz-surface); border-radius:12px; padding:8px 12px; max-width:70%; }
+  .trail { display:grid; gap:6px; font-size:13px; color:var(--vz-text-muted); }
+  .step { display:flex; gap:8px; align-items:center; }
+  .step .dot { width:6px; height:6px; border-radius:50%; background:var(--vz-border-hover); }
+
+  /* the frame: design InteractivePage + new header parts */
+  .frame { border:1px solid var(--vz-border-strong); border-radius:10px; overflow:hidden; background:var(--vz-ground); }
+  .frame header { display:flex; align-items:center; gap:8px; padding:6px 6px 6px 12px; background:var(--vz-surface);
+                  border-bottom:1px solid var(--vz-border); position:relative; }
+  .frame h3 { flex:1; min-width:0; margin:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ver { font:11px var(--mono); color:var(--vz-text-faint); }
+  .chip { font:11px var(--mono); padding:1px 6px; border-radius:999px; border:1px solid var(--vz-border-strong); color:var(--vz-text-faint); }
+  .chip.warn { color:var(--vz-retrying); border-color:var(--vz-retrying-line); background:var(--vz-retrying-bg); }
+  .ib { width:26px; height:26px; display:grid; place-items:center; border-radius:6px; border:0; background:transparent;
+        color:var(--vz-text-muted); cursor:pointer; position:relative; }
+  .ib:hover { background:var(--vz-raised); color:var(--vz-text); }
+  .ib svg { width:15px; height:15px; }
+  .ib.err { color:var(--vz-failed); }
+  .ib .count { position:absolute; top:1px; right:0; min-width:13px; height:13px; padding:0 3px; border-radius:999px;
+               background:var(--vz-failed); color:#fff; font:600 9px/13px var(--mono); }
+  .body { position:relative; }
+  .pop { position:absolute; right:6px; top:38px; z-index:3; width:340px; max-width:calc(100% - 12px); background:var(--vz-panel);
+         border:1px solid var(--vz-border-strong); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.14); padding:10px; }
+  .pop .ph { display:flex; align-items:center; gap:6px; margin-bottom:6px; font-weight:600; font-size:13px; }
+  .pop .ph span { flex:1; }
+  .prob { border-top:1px solid var(--vz-border); padding:8px 0 6px; font-size:12px; }
+  .prob code { font:11px var(--mono); color:var(--vz-failed-text); display:block; white-space:pre-wrap; }
+  .prob .where { font:11px var(--mono); color:var(--vz-text-faint); }
+
+  /* collapsed failed version in the trail */
+  .failed-ver { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px dashed var(--vz-failed-line);
+                background:var(--vz-failed-bg); border-radius:8px; font-size:12px; color:var(--vz-failed-text); cursor:pointer; }
+  .failed-ver .t { flex:1; color:var(--vz-text-soft); }
+
+  /* paused */
+  .paused { display:grid; place-items:center; gap:8px; padding:40px 16px; text-align:center; background:var(--vz-surface); }
+  .paused p { margin:0; color:var(--vz-text-muted); font-size:13px; max-width:380px; }
+
+  /* page content stand-ins (what the kit draws) */
+  .page { padding:16px; display:grid; gap:12px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
+  .stat { border:1px solid var(--vz-border); border-radius:8px; padding:10px 12px; }
+  .stat small { color:var(--vz-text-faint); font-size:12px; }
+  .stat div { font-size:20px; font-weight:600; }
+  .bars { display:flex; align-items:end; gap:6px; height:90px; padding:8px 0; border-bottom:1px solid var(--vz-border); }
+  .bars i { flex:1; background:var(--vz-chart-1); border-radius:3px 3px 0 0; }
+  .board { display:grid; grid-template-columns:repeat(8,1fr); aspect-ratio:1; max-width:300px; margin:0 auto; border:1px solid var(--vz-border-strong); }
+  .board i { display:grid; place-items:center; font-size:22px; }
+  .board i:nth-child(16n+1),.board i:nth-child(16n+3),.board i:nth-child(16n+5),.board i:nth-child(16n+7),
+  .board i:nth-child(16n+10),.board i:nth-child(16n+12),.board i:nth-child(16n+14),.board i:nth-child(16n+16) { background:var(--vz-raised); }
+  .think { text-align:center; font-size:12px; color:var(--vz-text-faint); }
+
+  .phone { width:375px; max-width:100%; margin:0 auto; border:8px solid var(--vz-border-strong); border-radius:28px; overflow:hidden; background:var(--vz-ground); }
+  .phone .chat { border:0; border-radius:0; padding:12px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>063 · Page frame mockup</b>
+  <button class="btn" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'">Toggle theme</button>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="max" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></symbol>
+</svg>
+
+<main>
+
+  <!-- A -->
+  <section>
+    <h2 class="case">A · Checked page in a reply</h2>
+    <p class="note">The design <code>InteractivePage</code> frame. The "sandboxed page" label becomes the version, <code>v3</code>. A page that passed checking shows no extra mark. Actions: Download, full screen.</p>
+    <div class="chat">
+      <div class="person">Show me this week's signups</div>
+      <div class="frame">
+        <header>
+          <h3>Signups · week 46</h3>
+          <span class="ver">v3</span>
+          <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+          <button class="ib" title="Open full screen"><svg><use href="#max"/></svg></button>
+        </header>
+        <div class="body page">
+          <div class="stats">
+            <div class="stat"><small>New</small><div>1,284</div></div>
+            <div class="stat"><small>Activated</small><div>61%</div></div>
+            <div class="stat"><small>Churned</small><div>3.2%</div></div>
+          </div>
+          <div class="bars"><i style="height:40%"></i><i style="height:55%"></i><i style="height:48%"></i><i style="height:70%"></i><i style="height:62%"></i><i style="height:88%"></i><i style="height:75%"></i></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section>
+    <h2 class="case">B · Not checked (no tab was open)</h2>
+    <p class="note">The page was saved while no tab had the chat open. A quiet "unchecked" chip sits beside the version, with the tooltip "Not checked for errors: no tab was open when it was made". It is not alarming; the page draws normally. If it throws when drawn now, it moves to state C.</p>
+    <div class="frame">
+      <header>
+        <h3>Chess</h3>
+        <span class="chip" title="Not checked for errors: no tab was open when it was made">unchecked</span>
+        <span class="ver">v1</span>
+        <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+        <button class="ib" title="Open full screen"><svg><use href="#max"/></svg></button>
+      </header>
+      <div class="body page">
+        <div class="board" id="board"></div>
+        <div class="think">Your move</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section>
+    <h2 class="case">C · An error after the page was drawn (error indicator open)</h2>
+    <p class="note">An error raised after mount (here, on a click) lights a red indicator with a count. Pressing it opens a popover listing the problems: Escape, an outside press or × close it. The page keeps running. Sending the problems to the agent is out of scope for phase 1.</p>
+    <div class="frame">
+      <header>
+        <h3>Chess</h3>
+        <span class="ver">v2</span>
+        <button class="ib err" title="2 problems" aria-expanded="true"><svg><use href="#alert"/></svg><span class="count">2</span></button>
+        <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+        <button class="ib" title="Open full screen"><svg><use href="#max"/></svg></button>
+        <div class="pop" role="dialog" aria-label="Problems on this page">
+          <div class="ph"><span>2 problems on this page</span><button class="ib" title="Close"><svg><use href="#x"/></svg></button></div>
+          <div class="prob"><code>TypeError: Cannot read properties of undefined (reading 'piece')</code><span class="where">page · line 214:17 · on click</span></div>
+          <div class="prob"><code>Blocked: img-src http://example.com/wood.png (only https images load)</code><span class="where">blocked · on load</span></div>
+        </div>
+      </header>
+      <div class="body page" style="min-height:280px">
+        <div class="board" id="board2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section>
+    <h2 class="case">D · A turn that fixed its own first draft</h2>
+    <p class="note">v1 failed checking, so the turn continued. In the trail, v1 sits collapsed as a dashed red row ("v1 · 2 problems"); pressing it expands that version read-only, with its problems. The fixed v2 is the reply, drawn as in A.</p>
+    <div class="chat">
+      <div class="person">Make me a chess game I can play against you</div>
+      <div class="trail">
+        <div class="step"><span class="dot"></span>Wrote a page · Chess</div>
+        <div class="failed-ver"><svg width="14" height="14"><use href="#alert"/></svg><span class="t">Chess <span class="ver">v1</span></span><span>2 problems</span><svg width="14" height="14"><use href="#chev"/></svg></div>
+        <div class="step"><span class="dot"></span>Fixed it with 2 edits</div>
+      </div>
+      <div class="frame">
+        <header>
+          <h3>Chess</h3>
+          <span class="ver">v2</span>
+          <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+          <button class="ib" title="Open full screen"><svg><use href="#max"/></svg></button>
+        </header>
+        <div class="body page"><div class="board" id="board3"></div><div class="think">Thinking… (in a worker, the page stays responsive)</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- E -->
+  <section>
+    <h2 class="case">E · Paused: this version froze the tab last time</h2>
+    <p class="note">Only on browsers where frames share the WebUI's thread (WebKit). After a reload, the version that froze the tab is not run. "Run anyway" mounts it once. The agent's next turn is told which version froze, so it can move heavy work into <code>vizier.worker</code>.</p>
+    <div class="frame">
+      <header>
+        <h3>Maze runner</h3>
+        <span class="chip warn">paused</span>
+        <span class="ver">v4</span>
+        <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+      </header>
+      <div class="body paused">
+        <svg width="22" height="22" style="color:var(--vz-retrying)"><use href="#alert"/></svg>
+        <p><b style="color:var(--vz-text)">This page stopped responding last time it ran.</b><br>It is paused so the chat stays usable.</p>
+        <button class="btn"><svg width="11" height="11" style="vertical-align:-1px"><use href="#play"/></svg> Run anyway</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- F -->
+  <section>
+    <h2 class="case">F · Phone (375 px)</h2>
+    <p class="note">The same frame at phone width. Header actions stay as icons, and the title truncates. Full screen fills the chat panel.</p>
+    <div class="phone">
+      <div class="chat">
+        <div class="person">Show me this week's signups</div>
+        <div class="frame">
+          <header>
+            <h3>Signups · week 46</h3>
+            <span class="ver">v3</span>
+            <button class="ib" title="Download"><svg><use href="#dl"/></svg></button>
+            <button class="ib" title="Open full screen"><svg><use href="#max"/></svg></button>
+          </header>
+          <div class="body page">
+            <div class="stats">
+              <div class="stat"><small>New</small><div>1,284</div></div>
+              <div class="stat"><small>Activated</small><div>61%</div></div>
+            </div>
+            <div class="bars"><i style="height:40%"></i><i style="height:55%"></i><i style="height:70%"></i><i style="height:88%"></i><i style="height:75%"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+<script>
+  const start = ["♜♞♝♛♚♝♞♜","♟♟♟♟♟♟♟♟","        ","        ","        ","        ","♙♙♙♙♙♙♙♙","♖♘♗♕♔♗♘♖"];
+  for (const id of ["board","board2","board3"]) {
+    const el = document.getElementById(id);
+    for (const row of start) for (const c of row) { const i = document.createElement("i"); i.textContent = c.trim(); el.appendChild(i); }
+  }
+</script>
+</body>
+</html>

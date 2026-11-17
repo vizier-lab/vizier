@@ -350,6 +350,42 @@ pub(super) fn fill_question_sets(
     Ok(())
 }
 
+/// Fill each `UiPage` entry's verification from `ui_page_version` (`specs/063-html-generative-ui`
+/// R5). A version whose row is gone (its conversation was deleted mid-read) reads as `null`.
+pub(super) fn fill_ui_pages(conn: &sql::Connection, entries: &mut [SessionHistory]) -> sql::Result<()> {
+    let wanted: Vec<(String, i64)> = entries
+        .iter()
+        .filter_map(|entry| match &entry.content {
+            SessionHistoryContent::UiPage { page_id, version, .. } => {
+                Some((page_id.clone(), *version as i64))
+            }
+            _ => None,
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut by_key: HashMap<(String, i64), serde_json::Value> = HashMap::new();
+    for (page_id, version) in &wanted {
+        let rows = conn.query_all(
+            "SELECT verification FROM ui_page_version WHERE page_id = ?1 AND version = ?2",
+            sql::params![page_id, version],
+        )?;
+        if let Some(row) = rows.first() {
+            let text: String = row.get(0)?;
+            if let Ok(value) = serde_json::from_str(&text) {
+                by_key.insert((page_id.clone(), *version), value);
+            }
+        }
+    }
+    for entry in entries.iter_mut() {
+        if let SessionHistoryContent::UiPage { page_id, version, verification, .. } = &mut entry.content {
+            *verification = by_key.get(&(page_id.clone(), *version as i64)).cloned();
+        }
+    }
+    Ok(())
+}
+
 /// The sort key every in-Rust re-sort of history uses.
 ///
 /// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
@@ -373,6 +409,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::Recall { .. } => "Recall",
         SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
         SessionHistoryContent::SensitiveAsk { .. } => "SensitiveAsk",
+        SessionHistoryContent::UiPage { .. } => "UiPage",
     }
 }
 
@@ -495,6 +532,7 @@ impl HistoryStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
+        fill_ui_pages(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -542,6 +580,7 @@ impl HistoryStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
+        fill_ui_pages(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -667,6 +706,7 @@ impl HistoryStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut history)?;
         fill_client_calls(&conn, &mut history)?;
         fill_question_sets(&conn, &mut history)?;
+        fill_ui_pages(&conn, &mut history)?;
 
         Ok((history, handover))
     }

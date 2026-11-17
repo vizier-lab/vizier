@@ -498,3 +498,30 @@ async fn single_node_never_refused() {
     deps.storage.finish_turn(id).await.unwrap();
     assert!(!*deps.storage.ownership_lost(&Scope::Agent("x".into())).borrow());
 }
+
+/// Spec 063: a page check still pending when its owner stopped reads `unverified(closed)` after
+/// the takeover; a finished one and another agent's are untouched.
+#[tokio::test]
+async fn agent_takeover_closes_pending_page_checks() {
+    use crate::storage::ui_page::UiPageStorage;
+    let (deps, _dir) = setup().await;
+    let scope = Scope::Agent("x".into());
+    claim(&deps, &scope).await;
+    claim(&deps, &Scope::Agent("y".into())).await;
+    let pending = deps.ui_pages.create(&session("x", "t"), "Chess", "<p>1</p>").await.unwrap();
+    let done = deps.ui_pages.create(&session("x", "t"), "Clock", "<p>2</p>").await.unwrap();
+    let clean = serde_json::json!({ "state": "clean", "observed_ms": 2000 });
+    deps.storage.set_ui_page_verification(&done.id, 1, &clean).await.unwrap();
+    let other = deps.ui_pages.create(&session("y", "t"), "Other", "<p>3</p>").await.unwrap();
+
+    let fence = claim(&deps, &scope).await;
+    assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
+
+    let read = |id: String| {
+        let storage = deps.storage.clone();
+        async move { storage.get_ui_page_version(&id, 1).await.unwrap().unwrap().verification }
+    };
+    assert_eq!(read(pending.id).await, serde_json::json!({ "state": "unverified", "reason": "closed" }));
+    assert_eq!(read(done.id).await, clean);
+    assert_eq!(read(other.id).await, crate::storage::ui_page::pending_verification());
+}

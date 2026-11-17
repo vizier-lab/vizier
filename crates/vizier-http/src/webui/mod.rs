@@ -14,13 +14,20 @@ fn cache_control(path: &str) -> &'static str {
     let file = path.rsplit('/').next().unwrap_or(path);
     if file == "service-worker.js" {
         "no-store"
-    } else if file == "index.html" || file == "manifest.webmanifest" {
+    } else if file == "index.html" || file == "manifest.webmanifest" || path == "ui-kit/manifest.json" {
         "no-cache"
-    } else if path.starts_with("assets/") {
+    } else if path.starts_with("assets/") || path.starts_with("ui-kit/") {
         "public, max-age=31536000, immutable"
     } else {
         "public, max-age=3600"
     }
+}
+
+/// Whether a file is part of the page kit (`specs/063-html-generative-ui` research R8). Agent pages
+/// run with an opaque origin, and a module script they load is a cross-origin CORS request, so
+/// the kit's files (public, static, never credentialed) allow any origin.
+fn is_kit_file(path: &str) -> bool {
+    path.starts_with("ui-kit/")
 }
 
 /// The extensions a static file carries. A path that ends in anything else is a route, even when
@@ -39,6 +46,13 @@ fn is_asset_path(path: &str) -> bool {
         Some((_, ext)) => ASSET_EXTENSIONS.contains(&ext),
         None => false,
     }
+}
+
+/// A file of the page kit (`ui-kit/…`) from the embedded WebUI build, as text
+/// (`specs/063-html-generative-ui` research R7a).
+pub(crate) fn kit_text(path: &str) -> Option<String> {
+    let content = WebUI::get(&format!("ui-kit/{path}"))?;
+    String::from_utf8(content.data.into_owned()).ok()
 }
 
 pub async fn index() -> impl IntoResponse {
@@ -62,6 +76,9 @@ pub async fn assets(Path(path): Path<String>) -> impl IntoResponse {
             let mut headers = HeaderMap::new();
             headers.insert(header::CONTENT_TYPE, mime_type.as_ref().parse().unwrap());
             headers.insert(header::CACHE_CONTROL, cache_control(&path).parse().unwrap());
+            if is_kit_file(&path) {
+                headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
+            }
 
             (StatusCode::OK, headers, content.data).into_response()
         }
@@ -103,5 +120,14 @@ mod tests {
             "public, max-age=31536000, immutable"
         );
         assert_eq!(cache_control("favicon.svg"), "public, max-age=3600");
+    }
+
+    #[test]
+    fn the_page_kit_is_cached_for_good_except_its_manifest() {
+        assert_eq!(cache_control("ui-kit/kit-CbSNRg9a.js"), "public, max-age=31536000, immutable");
+        assert_eq!(cache_control("ui-kit/lib/three-0.186.1.js"), "public, max-age=31536000, immutable");
+        assert_eq!(cache_control("ui-kit/manifest.json"), "no-cache");
+        assert!(is_kit_file("ui-kit/kit-CbSNRg9a.css"));
+        assert!(!is_kit_file("assets/root-Bp7Ii7RU.css"));
     }
 }

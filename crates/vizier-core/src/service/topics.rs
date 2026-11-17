@@ -415,6 +415,8 @@ pub async fn delete(
     // Its detached scripts stop and go (spec 058). A script another process runs stops at its
     // next progress write, when it finds its row gone.
     s.deps().detached.delete_session(&session).await;
+    // Its interactive pages go, with their HTML (spec 063).
+    s.deps().ui_pages.delete_session(&session).await;
     // Its workers stop and go, with their own conversations (spec 059 FR-017c).
     let workers = s.deps().subagents.delete_session(&session).await;
     crate::agents::subagents::delete_worker_conversations(files, workers).await;
