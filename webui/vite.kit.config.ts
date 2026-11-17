@@ -11,7 +11,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { build, defineConfig, type Plugin, type Rollup } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { manifestData } from './app/kit/manifest'
 
 const OUT = 'build/client/ui-kit'
 
@@ -19,6 +21,8 @@ type Manifest = {
     version: 1
     files: { js?: string; css?: string; runtime?: string }
     libraries: Record<string, string>
+    /** What the kit offers a page (`app/kit/manifest.ts`): the reference is checked against it. */
+    kit?: ReturnType<typeof manifestData>
 }
 
 /** Libraries a page may `import` by name (research R11): the import name, the module to bundle and
@@ -72,6 +76,7 @@ function kitManifest(runtime: boolean): Plugin {
                 if (!runtime && item.type === 'asset' && item.fileName.endsWith('.css')) manifest.files.css = item.fileName
             }
             if (!runtime) {
+                manifest.kit = manifestData()
                 for (const lib of libraries()) {
                     mkdirSync(dirname(join(dir, lib.file)), { recursive: true })
                     writeFileSync(join(dir, lib.file), await bundleLibrary(lib.entry))
@@ -85,17 +90,30 @@ function kitManifest(runtime: boolean): Plugin {
     }
 }
 
+/** The design package's own `@fontsource-variable`, so `base.css` can name the one font file it
+ * inlines (a bare package path in a CSS `url()` is not resolved otherwise). */
+function fontsource(): string {
+    const tokens = createRequire(import.meta.url).resolve('@vizier/design/tokens.css')
+    return join(dirname(dirname(dirname(tokens))), 'node_modules', '@fontsource-variable')
+}
+
 export default defineConfig(({ mode }) => {
     const runtime = mode === 'runtime'
     return {
-        plugins: [tsconfigPaths(), kitManifest(runtime)],
-        resolve: { dedupe: ['react', 'react-dom'] },
+        plugins: [tailwindcss(), tsconfigPaths(), kitManifest(runtime)],
+        resolve: {
+            dedupe: ['react', 'react-dom'],
+            alias: [{ find: /^@fontsource-variable\//, replacement: `${fontsource().replaceAll('\\', '/')}/` }],
+        },
         define: { 'process.env.NODE_ENV': JSON.stringify('production') },
         build: {
             outDir: OUT,
             // The runtime build adds to what the kit build wrote.
             emptyOutDir: !runtime,
             cssCodeSplit: false,
+            // The frame loads nothing by URL: the one font it uses (base.css) is inlined, and no
+            // other asset is (the elements' other font faces are dropped by the kit script).
+            assetsInlineLimit: (file: string) => /schibsted-grotesk-latin-wght-normal/.test(file),
             copyPublicDir: false,
             rollupOptions: {
                 input: runtime ? 'app/kit/runtime.ts' : 'app/kit/index.ts',

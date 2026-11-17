@@ -64,6 +64,9 @@ export function SandboxedPage(props: SandboxedPageProps) {
     const reportedHang = useRef(false)
     const frameHas = useRef<string | null>(null)
     const beats = useRef(0)
+    /** Whether the frame is on screen: a browser slows the timers of a frame out of view, so its
+     * heartbeat is not evidence of a hang then. */
+    const onScreen = useRef(true)
 
     // A ticket per mount: it lasts ten minutes and grants only this version.
     useEffect(() => {
@@ -174,9 +177,15 @@ export function SandboxedPage(props: SandboxedPageProps) {
             }
         }
         window.addEventListener('message', onMessage)
-        // Silence after the page said it runs is a hang (FR-016a): its main thread is stuck.
+        // Silence after the page said it runs is a hang (FR-016a): its main thread is stuck. Only
+        // while it is on screen in a visible tab (or being checked): a browser throttles the
+        // timers of a frame out of view, which would read as a hang.
         const watchdog = setInterval(() => {
             if (!ready.current || reportedHang.current) return
+            if (latest.current.mode !== 'verify' && (!onScreen.current || document.hidden)) {
+                lastBeat.current = Date.now()
+                return
+            }
             if (Date.now() - lastBeat.current > UNRESPONSIVE_MS) {
                 reportedHang.current = true
                 latest.current.onProblem?.({ kind: 'unresponsive', message: 'The page stopped responding.', source: 'page' })
@@ -188,6 +197,18 @@ export function SandboxedPage(props: SandboxedPageProps) {
             coalescer.dispose()
         }
     }, [])
+
+    useEffect(() => {
+        const frame = frameRef.current
+        if (!frame || typeof IntersectionObserver === 'undefined') return
+        const observer = new IntersectionObserver(([entry]) => {
+            onScreen.current = entry.isIntersecting
+            // Back in view: the beats it missed while throttled are not a hang.
+            if (entry.isIntersecting) lastBeat.current = Date.now()
+        })
+        observer.observe(frame)
+        return () => observer.disconnect()
+    }, [src])
 
     // State saved elsewhere is posted in; the echo of this frame's own save is not.
     useEffect(() => {

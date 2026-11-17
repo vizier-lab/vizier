@@ -1,0 +1,8 @@
+/* The design library's styles for the `<vz-*>` elements (specs/063-html-generative-ui T052):
+ * Tailwind over `@vizier/design`, the same utilities the WebUI uses. Injected by the kit script
+ * only when a page uses an element, so a plain page carries only `base.css`. Tailwind's preflight
+ * is layered, so the unlayered `base.css` (and the page's own CSS) still style the page's own
+ * markup. The kit script drops this file's @font-face rules: `base.css` has the one font a frame
+ * can load. */
+@import '@vizier/design/styles.css';
+@source "../../../design/src";
