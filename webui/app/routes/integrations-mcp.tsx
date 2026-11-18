@@ -149,6 +149,11 @@ export default function IntegrationsMcp() {
     )
 }
 
+const pairs = (map: unknown): KeyValuePair[] => Object.entries((map as Record<string, string> | undefined) ?? {}).map(([key, value]) => ({ key, value }))
+
+// Masked values the person left alone go back as they came: the server keeps the secret.
+const toMap = (list: KeyValuePair[]) => Object.fromEntries(list.filter((p) => p.key.trim()).map((p) => [p.key.trim(), p.value]))
+
 type FormProps = {
     item?: IntegrationItem
     onSave: (name: string, settings: Record<string, unknown>, enabled: boolean) => Promise<void>
@@ -163,7 +168,8 @@ function ServerForm({ item, onSave, onCancel, onDelete }: FormProps) {
     const [command, setCommand] = useState(String(s.command ?? ''))
     const [args, setArgs] = useState(((s.args as string[] | undefined) ?? []).join('\n'))
     const [uri, setUri] = useState(String(s.uri ?? ''))
-    const [env, setEnv] = useState<KeyValuePair[]>(Object.entries((s.env as Record<string, string> | undefined) ?? {}).map(([key, value]) => ({ key, value })))
+    const [env, setEnv] = useState<KeyValuePair[]>(pairs(s.env))
+    const [headers, setHeaders] = useState<KeyValuePair[]>(pairs(s.headers))
     const [enabled, setEnabled] = useState(item?.enabled ?? true)
     const [busy, setBusy] = useState(false)
     const [problem, setProblem] = useState<string>()
@@ -207,7 +213,13 @@ function ServerForm({ item, onSave, onCancel, onDelete }: FormProps) {
             />
             <TextField label="Name" mono value={name} helper={`Its tools are listed under ${mcpCategory(name.trim() || 'name')}.`} onChange={(e) => setName(e.target.value)} autoFocus />
             {transport === 'http' ? (
-                <TextField label="URL" mono value={uri} placeholder="https://example.com/mcp" onChange={(e) => setUri(e.target.value)} />
+                <>
+                    <TextField label="URL" mono value={uri} placeholder="https://example.com/mcp" onChange={(e) => setUri(e.target.value)} />
+                    <KeyValueEditor label="Headers" secret value={headers} onChange={setHeaders} addLabel="Add header" />
+                    <p className="-mt-8 type-small text-faint">
+                        Sent with every request, for a server that wants a key: <code className="type-mono-xs">Authorization</code> = <code className="type-mono-xs">Bearer &lt;token&gt;</code>, or its own header such as <code className="type-mono-xs">X-API-Key</code>.
+                    </p>
+                </>
             ) : (
                 <>
                     <TextField label="Command" mono value={command} placeholder="npx" onChange={(e) => setCommand(e.target.value)} />
