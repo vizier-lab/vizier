@@ -18,16 +18,12 @@ export type AgentReplyProps = {
   onMore?: () => void;
 } & HTMLAttributes<HTMLDivElement>;
 
-/** An agent's reply with its meta row (D45). Copy sits top right and ⋯ in the meta row; both show on hover or focus. */
+/** An agent's reply with its meta row (D45). Copy and ⋯ sit at the end of the meta row and show on hover or focus,
+ *  so the text keeps the column's full width, as wide as the activity trail above it. */
 export function AgentReply({ children, state = "default", error, reactions, stats, onCopy, onMore, className, ...rest }: AgentReplyProps) {
   return (
     <div className={cx("group relative flex flex-col gap-10", className)} {...rest}>
-      {onCopy && state !== "streaming" && (
-        <div className="absolute top-0 right-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <IconButton variant="ghost" size="sm" icon="copy" aria-label="Copy reply" onClick={onCopy} />
-        </div>
-      )}
-      <div className={cx("type-prose text-fg", onCopy && "pr-34")} aria-busy={state === "streaming" || undefined}>
+      <div className="type-prose text-fg" aria-busy={state === "streaming" || undefined}>
         {children}
         {state === "streaming" && (
           <span aria-hidden className="ml-2 inline-block h-18 w-2 translate-y-3 bg-live animate-shimmer motion-reduce:animate-none" />
@@ -39,11 +35,12 @@ export function AgentReply({ children, state = "default", error, reactions, stat
           {error}
         </p>
       )}
-      {state !== "streaming" && (reactions || stats || onMore) && (
+      {state !== "streaming" && (reactions || stats || onCopy || onMore) && (
         <div className="flex min-h-34 items-center gap-12">
           {reactions && <div className="flex items-center gap-6">{reactions}</div>}
           {stats && <span className="min-w-0 truncate type-mono-xs text-faint">{stats}</span>}
           <div className="ml-auto flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            {onCopy && <IconButton variant="ghost" size="sm" icon="copy" aria-label="Copy reply" onClick={onCopy} />}
             {onMore && <IconButton variant="ghost" size="sm" icon="more" aria-label="More actions" onClick={onMore} />}
           </div>
         </div>
