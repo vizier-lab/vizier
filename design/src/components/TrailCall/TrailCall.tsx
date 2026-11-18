@@ -78,7 +78,7 @@ export function TrailCall({
       </>
     );
   const time = !lookup && (
-    <span className={cx("shrink-0 type-mono-xs", icons ? "min-w-48 text-right" : "ml-auto", DURATION[state])}>
+    <span className={cx("shrink-0 type-mono-xs", icons ? undefined : "ml-auto", DURATION[state])}>
       {state === "running" ? "running…" : duration}
       {state === "failed" && <span className="sr-only"> (failed)</span>}
     </span>
