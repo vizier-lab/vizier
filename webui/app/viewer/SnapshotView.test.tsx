@@ -6,6 +6,7 @@ import { createViewerHandlers, NOT_IN_A_COPY } from '../lib/share/actions'
 import { parseSnapshot, type Snapshot } from '../lib/share/schema'
 import { loadConversation } from '../lib/share/testing'
 import { mediaFiles, mediaSrc } from './media'
+import { OFFLINE_BANNER, offlineBanner } from './Neutral'
 import { READ_ONLY_LINE, SnapshotView } from './SnapshotView'
 import { createStateStore } from '@json-render/core'
 
@@ -67,6 +68,37 @@ describe('SnapshotView', () => {
         expect(html).toContain('An image too large to include')
     })
 
+    it('folds the activity trail like a finished turn in the chat', () => {
+        const withTrail = draw(
+            snap({
+                include_trail: true,
+                turns: [
+                    {
+                        id: 't1',
+                        role: 'agent',
+                        at: 1,
+                        parts: [{ kind: 'text', markdown: 'Done' }],
+                        trail: [{ kind: 'tool_call', name: 'search', arguments: { q: 'kyoto' }, result: 'trail-result-marker' }],
+                    },
+                ],
+            })
+        )
+        expect(withTrail).toContain('Activity (1 step)')
+        expect(withTrail).not.toContain('trail-result-marker') // the head opens the steps
+    })
+
+    it('names who shared it only when the author chose to (FR-007)', () => {
+        expect(html).not.toContain('Shared by ')
+        expect(draw(snap({ source: { agent_name: 'Atlas', author: 'Alice' } }))).toContain('Shared by Alice')
+    })
+
+    it('the offline banner names the saver only when they chose to (T088)', () => {
+        expect(offlineBanner()).toBe(OFFLINE_BANNER)
+        expect(offlineBanner('  ')).toBe(OFFLINE_BANNER)
+        expect(offlineBanner('Alice')).toContain(OFFLINE_BANNER)
+        expect(offlineBanner('Alice')).toContain('Saved by Alice')
+    })
+
     it('has no composer, send, reaction or delete', () => {
         expect(html).not.toMatch(/<textarea|<form/i)
         expect(html.toLowerCase()).not.toMatch(/aria-label="(send|delete|react)/)
@@ -89,9 +121,12 @@ describe('hostile content', () => {
     const html = draw(snap({ title: '<img src=x onerror=alert(1)>', turns: [{ id: 'h', role: 'agent', at: 1, parts: [{ kind: 'text', markdown: hostile }] }], media: {} }))
 
     it('shows markup as text, runs nothing', () => {
-        expect(html).not.toMatch(/<(script|iframe|svg)\b/i)
+        expect(html).not.toMatch(/<(script|iframe)\b/i)
+        // The agent's sigil is the page's own trusted SVG; nothing from the hostile text becomes one.
+        expect(html).not.toMatch(/<svg\b[^>]*\son(load|error)=/i)
         expect(html).not.toMatch(/<img[^>]*src="x"/)
         expect(html).not.toMatch(/<[^>]*\son(error|load)=/i)
+        expect(html).toContain('&lt;svg onload=alert(1)&gt;')
         expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;') // the title, as text
     })
 

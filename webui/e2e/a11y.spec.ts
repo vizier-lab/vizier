@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { createPlugAgent, expect, login, send, test } from './fixtures'
+import { createPlugAgent, createShare, expect, login, send, test } from './fixtures'
 
 const AGENT = 'e2e-plug'
 
@@ -190,5 +190,123 @@ test.describe('Sharing (spec 063, T078)', () => {
         await box.focus()
         await page.keyboard.press('Space')
         await expect(create).toBeEnabled()
+    })
+
+    test('focus: opening the dialog moves focus in, it wraps inside, and closing returns it', async ({ page }) => {
+        const trigger = page.getByRole('button', { name: /^Share this conversation/ }).first()
+        await trigger.focus()
+        await page.keyboard.press('Enter')
+        const dialog = page.getByRole('dialog', { name: 'Share this conversation' })
+        await expect(dialog).toBeVisible()
+        // The native dialog places focus on its first control (the × in the header).
+        await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+        // Backwards from the first control never reaches the page behind: the wrap ends on the last
+        // control inside, or (at the very edge) on the browser's own UI, which reports as <body>.
+        await page.keyboard.press('Shift+Tab')
+        expect(await dialog.evaluate((d) => d.contains(document.activeElement) || document.activeElement === document.body)).toBe(true)
+        for (let i = 0; i < 5; i++) {
+            await page.keyboard.press('Shift+Tab')
+            expect(await dialog.evaluate((d) => d.contains(document.activeElement) || document.activeElement === document.body), `Shift+Tab ${i + 2}`).toBe(true)
+        }
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
+        await expect(trigger).toBeFocused()
+    })
+
+    test('labels: every control in the dialog has an accessible name, the icon-only ones included', async ({ page }) => {
+        const dialog = await openDialog(page)
+        await dialog.getByRole('radio', { name: 'Specific people' }).check()
+        const search = dialog.getByRole('searchbox', { name: 'Add people by username' })
+        await search.click()
+        await page.keyboard.type('adm')
+        // The live region is a span, so it is told apart from the Notices (which are also role=status).
+        await expect(dialog.locator('span[role="status"]')).toHaveText(/match|No matches/i)
+        const unnamed = await dialog.evaluate((d) =>
+            Array.from(d.querySelectorAll<HTMLElement>('button, input, select, textarea, [role="switch"], [role="tab"]'))
+                .filter((el) => {
+                    const named =
+                        el.getAttribute('aria-label')?.trim() ||
+                        el.getAttribute('aria-labelledby') ||
+                        (el.textContent ?? '').trim() ||
+                        el.closest('label')?.textContent?.trim()
+                    return !named
+                })
+                .map((el) => el.outerHTML.slice(0, 140))
+        )
+        expect(unnamed, 'controls without an accessible name').toEqual([])
+        await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible()
+        // The tab pair is one control: only the selected tab is in the tab order and the arrows move.
+        const link = dialog.getByRole('tab', { name: 'Link' })
+        await expect(link).toHaveAttribute('aria-selected', 'true')
+        await expect(dialog.getByRole('tabpanel')).toBeVisible()
+        await link.focus()
+        await page.keyboard.press('ArrowRight')
+        await expect(dialog.getByRole('tab', { name: 'Offline file' })).toBeFocused()
+        await expect(dialog.getByRole('tab', { name: 'Offline file' })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    test('keyboard: the people picker is walked with the arrow keys, picked with Enter and cleared with Escape', async ({ page }) => {
+        const dialog = await openDialog(page)
+        await dialog.getByRole('radio', { name: 'Specific people' }).check()
+        const search = dialog.getByRole('searchbox', { name: 'Add people by username' })
+        const matches = dialog.getByRole('list', { name: 'Matching users' })
+        const status = dialog.locator('span[role="status"]')
+
+        await search.click()
+        await page.keyboard.type('adm')
+        const first = matches.getByRole('button').first()
+        await expect(first).toBeVisible({ timeout: 10_000 })
+        // The count is announced, with the way to browse the results.
+        await expect(status).toHaveText(/match.*down arrow/i)
+
+        // Down from the field lands on the first result; the arrows walk the list and back to the field.
+        await page.keyboard.press('ArrowDown')
+        await expect(first).toBeFocused()
+        if ((await matches.getByRole('button').count()) > 1) {
+            await page.keyboard.press('ArrowDown')
+            await expect(matches.getByRole('button').nth(1)).toBeFocused()
+            await page.keyboard.press('ArrowUp')
+            await expect(first).toBeFocused()
+        }
+        await page.keyboard.press('ArrowUp')
+        await expect(search).toBeFocused()
+
+        // Escape in the field clears the search instead of closing the dialog.
+        await page.keyboard.press('Escape')
+        await expect(search).toHaveValue('')
+        await expect(matches).toHaveCount(0)
+        await expect(dialog).toBeVisible()
+
+        // Enter on a result picks that person; the field takes focus again and the count is announced.
+        await page.keyboard.type('adm')
+        await expect(first).toBeVisible({ timeout: 10_000 })
+        await page.keyboard.press('ArrowDown')
+        await page.keyboard.press('Enter')
+        await expect(dialog.getByRole('button', { name: /^Remove / }).first()).toBeVisible()
+        await expect(status).toHaveText(/person/i)
+
+        // With nothing to clear, Escape closes the dialog (the native dialog's own cancel).
+        await search.focus()
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
+    })
+
+    test('the share page has named landmarks, one h1, ordered headings and no serious or critical problems', async ({ page }) => {
+        const id = await createShare(page, { title: 'A shared plan' })
+        await page.goto(`/share/${id}`)
+        await expect(page.getByTestId('snapshot-view')).toBeVisible({ timeout: 15_000 })
+        await expect(page.getByRole('main', { name: 'Shared conversation' })).toBeVisible()
+        await expect(page.getByRole('banner')).toContainText('A shared plan')
+        await expect(page.getByRole('contentinfo')).toContainText("This is a copy; the conversation can't continue here.")
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('A shared plan')
+
+        // A message's markdown headings sit below the page's title: one h1, and no skipped level.
+        const levels = await page.evaluate(() => Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6')).map((h) => Number(h.tagName.slice(1))))
+        expect(levels.filter((n) => n === 1), `headings ${levels}`).toHaveLength(1)
+        expect(levels[0], `headings ${levels}`).toBe(1)
+        for (let i = 1; i < levels.length; i++) expect(levels[i] - levels[i - 1], `heading ${i} of ${levels}`).toBeLessThanOrEqual(1)
+
+        // Both projects run this: light and dark, where axe's colour-contrast rule is serious.
+        expect(await violations(page)).toEqual([])
     })
 })

@@ -404,7 +404,7 @@ test.describe('The Share button and the preview dialog', () => {
         await expect(page.getByText('Nothing to share yet').first()).toBeVisible()
         await button.click({ force: true }).catch(() => undefined)
         await expect(page.getByRole('dialog')).toHaveCount(0)
-        // Only the read of the person's own list (the "Shared: N" mark) may happen; nothing is created.
+        // Only the header's read of this conversation's live links may happen; nothing is created.
         expect(sent.filter((x) => !x.startsWith('GET '))).toEqual([])
     })
 

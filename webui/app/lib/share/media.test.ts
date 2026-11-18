@@ -99,6 +99,25 @@ describe('MediaBuilder', () => {
         expect(key).toMatch(/^gone-\d+$/)
         expect(b.media[key]).toBeUndefined()
     })
+    it('leaves every picture out when asked, without reading or encoding anything (FR-023)', async () => {
+        let reads = 0
+        let encodes = 0
+        const b = new MediaBuilder([file('a.png')], { fetchFile: async () => (reads++, { bytes: PNG }), reencode: async () => (encodes++, PNG) }, { skipMedia: true })
+        expect(await b.add('a.png')).toEqual({ ok: false, reason: 'left_out', label: 'a.png was left out of this share' })
+        expect(await b.add('a.png', PNG)).toMatchObject({ ok: false, reason: 'left_out' })
+        expect(reads).toBe(0)
+        expect(encodes).toBe(0)
+        expect(b.media).toEqual({})
+        // Counted once, even though the same name was asked for twice.
+        expect(b.left).toEqual([{ name: 'a.png', reason: 'left_out', label: 'a.png was left out of this share' }])
+    })
+    it('still gives a spec a key with no media behind it when pictures are left out', async () => {
+        const b = new MediaBuilder([file('a.png')], deps(PNG), { skipMedia: true })
+        expect(await b.keyFor('a.png')).toMatch(/^gone-\d+$/)
+        expect(await b.keyFor('chart.png')).toMatch(/^gone-\d+$/)
+        expect(b.media).toEqual({})
+        expect(b.left.map((l) => l.reason)).toEqual(['left_out', 'left_out'])
+    })
 })
 
 describe('spec file names', () => {

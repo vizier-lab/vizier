@@ -23,6 +23,10 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     a: ({ node: _n, href, children }) => <SafeLink href={href ?? ''} label={children} />,
     img: ({ node: _n, alt }) => <span className="type-small text-faint">[image{alt ? `: ${alt}` : ''}]</span>,
     pre: ({ children }) => <>{children}</>,
+    // The page's title is its one `h1`; a message's headings sit one level below it, so a
+    // conversation never draws a second first-level heading or jumps a level (T078).
+    h1: ({ node: _n, children }) => <h2>{children}</h2>,
+    h2: ({ node: _n, children }) => <h3>{children}</h3>,
     code: ({ className, children }) => {
         const text = String(children).replace(/\n$/, '')
         const lang = /language-([^\s]+)/.exec(className ?? '')?.[1]?.toLowerCase()
@@ -35,11 +39,11 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
 // this keeps react-markdown from handing `SafeLink` a rewritten address.
 const keepUrl = (url: string) => url
 
-export function ViewerMarkdown({ children }: { children: string }) {
+export function ViewerMarkdown({ children, size = 'reply' }: { children: string; size?: 'reply' | 'document' }) {
     return (
         // A very long unbroken word (a 100 KB line, a hash, a URL) wraps instead of widening the page (TP-14).
         <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">
-            <Prose size="reply">
+            <Prose size={size}>
                 <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components} urlTransform={keepUrl}>
                     {children}
                 </ReactMarkdown>

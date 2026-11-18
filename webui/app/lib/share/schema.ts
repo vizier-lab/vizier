@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { magicMatches } from './sniff'
 import { isAllowedMime, SHARE_LIMITS, SNAPSHOT_FORMAT_VERSION, type MediaMime } from './limits'
 
-export type PlaceholderReason = 'oversized' | 'missing' | 'unsupported'
+export type PlaceholderReason = 'oversized' | 'missing' | 'unsupported' | 'left_out'
 
 export interface TextPart { kind: 'text'; markdown: string }
 export interface MediaPart { kind: 'media'; key: string; alt?: string }
@@ -33,7 +33,8 @@ export interface Snapshot {
     generator?: string
     created_at: number
     title: string
-    source: { agent_name: string; agent_avatar?: string }
+    /** FR-007: `author` is present only when the author chose to show their name. */
+    source: { agent_name: string; agent_avatar?: string; author?: string }
     include_trail: boolean
     turns: Turn[]
     media: Record<string, MediaEntry>
@@ -82,6 +83,14 @@ export function cleanJson<T>(value: T): T {
 const text = (max: number) => z.string().refine((s) => byteLength(s) <= max)
 const optionalText = (max: number) => z.string().max(max).optional()
 
+/** Strips control characters from a display name and trims it; empty means no name was given. */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
+export function cleanAuthorName(s: string): string | undefined {
+    const clean = s.replace(CONTROL, '').trim()
+    return clean === '' ? undefined : clean
+}
+
 const TextSchema = z.object({ kind: z.literal('text'), markdown: text(SHARE_LIMITS.textBytes) })
 const MediaSchema = z.object({ kind: z.literal('media'), key: z.string().regex(KEY), alt: optionalText(2000) })
 const UiSchema = z.object({
@@ -114,7 +123,7 @@ const QuestionSchema = z.object({
     state: optionalText(40).catch(undefined),
     items: z.array(ItemSchema).max(50),
 })
-const REASONS = ['oversized', 'missing', 'unsupported'] as const
+const REASONS = ['oversized', 'missing', 'unsupported', 'left_out'] as const
 const PlaceholderSchema = z.object({
     kind: z.literal('placeholder'),
     reason: z.enum(REASONS).catch('unsupported'),
@@ -187,7 +196,14 @@ const TopSchema = z.object({
     generator: z.string().max(200).optional().catch(undefined),
     created_at: z.number().finite().catch(0),
     title: z.string().catch(''),
-    source: z.object({ agent_name: z.string().max(200).catch(''), agent_avatar: z.string().regex(KEY).optional().catch(undefined) }).catch({ agent_name: '' }),
+    source: z
+        .object({
+            agent_name: z.string().max(200).catch(''),
+            agent_avatar: z.string().regex(KEY).optional().catch(undefined),
+            /** Optional so a snapshot written before FR-007 still reads; a bad name is dropped, never fatal. */
+            author: z.string().max(200).transform(cleanAuthorName).optional().catch(undefined),
+        })
+        .catch({ agent_name: '' }),
     include_trail: z.boolean(),
     turns: z.array(z.unknown()).max(SHARE_LIMITS.turns),
     media: z.record(z.string(), z.unknown()).catch({}),
@@ -294,11 +310,15 @@ export function parseSnapshot(input: unknown): ParseResult {
     // An unreferenced key is dropped, as the contract says.
     for (const key of Object.keys(media)) if (!referenced.has(key) && !referencedBySpec(turns, key) && key !== t.source.agent_avatar) delete media[key]
 
+    const source: Snapshot['source'] = { agent_name: t.source.agent_name }
+    if (t.source.agent_avatar && media[t.source.agent_avatar]) source.agent_avatar = t.source.agent_avatar
+    if (typeof t.source.author === 'string' && t.source.author) source.author = t.source.author
+
     const snapshot: Snapshot = {
         format_version: 1,
         created_at: t.created_at,
         title: t.title.slice(0, SHARE_LIMITS.titleLength),
-        source: t.source.agent_avatar && media[t.source.agent_avatar] ? { agent_name: t.source.agent_name, agent_avatar: t.source.agent_avatar } : { agent_name: t.source.agent_name },
+        source,
         include_trail: t.include_trail,
         turns,
         media,

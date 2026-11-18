@@ -55,5 +55,45 @@ export async function send(page: Page, text: string) {
     await box.press('Enter')
 }
 
+/**
+ * A public share posted straight to the API, so a spec that is not about creating links has one to
+ * open. The message carries markdown headings, which is what the viewer's outline is checked on (T078).
+ */
+export async function createShare(page: Page, options: { title?: string; markdown?: string } = {}): Promise<string> {
+    const title = options.title ?? `e2e share ${Date.now()}`
+    const snapshot = {
+        format_version: 1,
+        generator: 'e2e',
+        created_at: Date.now(),
+        title,
+        source: { agent_name: 'e2e' },
+        include_trail: false,
+        turns: [
+            {
+                id: 't1',
+                role: 'agent',
+                at: Date.now(),
+                parts: [{ kind: 'text', markdown: options.markdown ?? '# The plan\n\nA short answer.\n\n## The steps\n\n1. one\n2. two' }],
+            },
+        ],
+        media: {},
+        rehydration: null,
+    }
+    const res = await page.request.post('/api/v1/shares', {
+        headers: { Authorization: `Bearer ${await token(page)}` },
+        data: {
+            agent_id: 'e2e-plug',
+            topic_id: 'a11y',
+            title,
+            audience: 'public',
+            include_trail: false,
+            removals: { credentials: 0, paths: 0, recall: 0, reasoning: 0, media: 0 },
+            snapshot,
+        },
+    })
+    expect(res.status(), await res.text()).toBe(201)
+    return (await res.json()).data.share_id
+}
+
 export const test = base
 export { expect }

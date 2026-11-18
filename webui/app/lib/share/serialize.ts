@@ -8,7 +8,7 @@ import { SHARE_LIMITS, SNAPSHOT_FORMAT_VERSION } from './limits'
 import { MediaBuilder, rewriteSpecFiles, specFileNames, type MediaDeps, defaultMediaDeps } from './media'
 import { stripPaths } from './paths'
 import { newCounts, redactText, redactValue } from './redact'
-import { byteLength, parseSnapshot, type Part, type PlaceholderPart, type PlaceholderReason, type Removals, type Snapshot, type TrailEntry, type Turn } from './schema'
+import { byteLength, cleanAuthorName, parseSnapshot, type Part, type PlaceholderPart, type PlaceholderReason, type Removals, type Snapshot, type TrailEntry, type Turn } from './schema'
 
 export type ShareErrorCode = 'too_many_turns' | 'empty' | 'too_large' | 'invalid' | 'people' | 'audience'
 
@@ -26,8 +26,12 @@ export interface SerializeOptions {
     agentName: string
     /** The conversation's title; empty falls back to a plain default. */
     title?: string
+    /** FR-007: the author's display name, present only when they chose to show it. */
+    author?: string
     /** Activity trail on or off. Default off (FR-009). */
     includeTrail?: boolean
+    /** FR-023: leave every picture and sound out, so the share is smaller. Default off. */
+    skipMedia?: boolean
     /** Files of the conversation, for images and attachments. */
     files?: readonly SessionFileRecord[]
     /** True while a turn is streaming; undefined = decide from the shape of the history. */
@@ -111,7 +115,7 @@ export function completedLength(entries: readonly ChatMessage[], force?: boolean
 export async function serializeEntries(allEntries: readonly ChatMessage[], opts: SerializeOptions): Promise<SerializeResult> {
     const includeTrail = opts.includeTrail === true
     const counts = newCounts()
-    const media = new MediaBuilder(opts.files ?? [], opts.media ?? defaultMediaDeps)
+    const media = new MediaBuilder(opts.files ?? [], opts.media ?? defaultMediaDeps, { skipMedia: opts.skipMedia === true })
     const cut = completedLength(allEntries, opts.turnInProgress)
     const entries = allEntries.slice(0, cut)
     const turnInProgress = cut < allEntries.length || opts.turnInProgress === true
@@ -226,6 +230,7 @@ export async function serializeEntries(allEntries: readonly ChatMessage[], opts:
         ;(turn.trail ??= []).push(t)
     }
     const placeholders = media.left
+    // Every left-out picture counts, whether it was left out on its own or because the person asked for none (FR-023).
     counts.media = placeholders.length
 
     // Ids in order, and the 5,000 turn cap as a refusal rather than a silent cut.
@@ -233,12 +238,14 @@ export async function serializeEntries(allEntries: readonly ChatMessage[], opts:
     turns.forEach((t, i) => (t.id = `t${i + 1}`))
 
     const title = cleanText((opts.title ?? '').trim(), counts).slice(0, SHARE_LIMITS.titleLength)
+    // FR-007: no name travels unless one was chosen; a name that cleans to nothing is left out.
+    const author = cleanAuthorName(cleanText((opts.author ?? '').trim(), counts).slice(0, 200))
     const snapshot: Snapshot = {
         format_version: SNAPSHOT_FORMAT_VERSION,
         generator: opts.generator ?? 'vizier-webui',
         created_at: opts.now ?? Date.now(),
         title: title || DEFAULT_TITLE,
-        source: { agent_name: cleanText(opts.agentName, counts).slice(0, 200) },
+        source: { agent_name: cleanText(opts.agentName, counts).slice(0, 200), ...(author ? { author } : {}) },
         include_trail: includeTrail,
         turns,
         media: media.media,

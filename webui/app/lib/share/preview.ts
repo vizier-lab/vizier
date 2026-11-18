@@ -49,7 +49,25 @@ export const snapshotBytes = (snapshot: Snapshot): number => byteLength(JSON.str
 
 export const formatBytes = (n: number): string => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MiB` : n >= 1024 ? `${Math.round(n / 1024)} KiB` : `${n} B`)
 
-export function buildPreview(result: SerializeResult): Preview {
+/** The link budget: the whole POST body less the request wrapper. */
+export const LINK_LIMIT_BYTES = SHARE_LIMITS.bodyBytes - SHARE_LIMITS.envelopeBytes
+
+/** Where the snapshot goes: a stored link (POSTed, body-limited) or a file the person keeps. */
+export type PreviewLabel = 'link' | 'offline'
+
+export interface PreviewOptions {
+    /** Bytes this destination accepts; defaults to the link budget. */
+    limitBytes?: number
+    /** Names the destination in a refusal; defaults to the link wording. */
+    label?: PreviewLabel
+}
+
+const DESTINATION: Record<PreviewLabel, string> = {
+    link: 'a shared conversation',
+    offline: 'an offline file',
+}
+
+export function buildPreview(result: SerializeResult, opts?: PreviewOptions): Preview {
     const { snapshot } = result
     let messages = 0
     let pages = 0
@@ -65,7 +83,8 @@ export function buildPreview(result: SerializeResult): Preview {
     }
     const images = Object.keys(snapshot.media).length
     const sizeBytes = snapshotBytes(snapshot)
-    const limitBytes = SHARE_LIMITS.bodyBytes - SHARE_LIMITS.envelopeBytes
+    const limitBytes = opts?.limitBytes ?? LINK_LIMIT_BYTES
+    const destination = DESTINATION[opts?.label ?? 'link']
     const removals = { ...result.removals }
     const removed = (Object.keys(removals) as RemovalKind[])
         .filter((k) => removals[k] > 0)
@@ -88,7 +107,7 @@ export function buildPreview(result: SerializeResult): Preview {
         if (snapshot.include_trail && trailBytes > 0) options.push(`Turn off the agent’s activity (about ${formatBytes(trailBytes)}).`)
         if (images > 0) options.push(`Share a conversation with fewer images (${images} images take about ${formatBytes(mediaBytes)}).`)
         options.push('Start a new conversation with the part you want to share.')
-        refusal = { reason: 'too_large', message: `This conversation would be ${formatBytes(sizeBytes)}; a shared conversation can be at most ${formatBytes(limitBytes)}. Nothing was cut.`, options }
+        refusal = { reason: 'too_large', message: `This conversation would be ${formatBytes(sizeBytes)}; ${destination} can be at most ${formatBytes(limitBytes)}. Nothing was cut.`, options }
     }
 
     return {

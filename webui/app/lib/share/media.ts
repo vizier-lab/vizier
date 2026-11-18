@@ -18,6 +18,12 @@ export interface MediaDeps {
 
 export type MediaOutcome = { ok: true; key: string } | { ok: false; reason: PlaceholderReason; label: string }
 
+/** How the `media` map is built. */
+export interface MediaBuildOptions {
+    /** FR-023: leave every picture and sound out, without reading or encoding any of them. */
+    skipMedia?: boolean
+}
+
 export { sniffMime }
 
 /** A JPEG without its APP1 (EXIF, XMP), APP13 (IPTC) and comment segments: the GPS position and camera go, the pixels do not change. */
@@ -213,10 +219,13 @@ export class MediaBuilder {
 
     constructor(
         private readonly files: readonly SessionFileRecord[],
-        private readonly deps: MediaDeps = defaultMediaDeps
+        private readonly deps: MediaDeps = defaultMediaDeps,
+        private readonly options: MediaBuildOptions = {}
     ) {}
 
     async add(name: string, inline?: Uint8Array): Promise<MediaOutcome> {
+        // FR-023: nothing is read, decoded or stored; every picture and sound becomes a line saying it was left out.
+        if (this.options.skipMedia) return this.leave(name, this.fail('left_out', name))
         if (!inline) {
             const known = this.byName.get(name)
             if (known) return known
@@ -236,7 +245,14 @@ export class MediaBuilder {
     }
 
     private fail(reason: PlaceholderReason, name: string): MediaOutcome {
-        const what = reason === 'missing' ? 'is no longer available' : reason === 'oversized' ? 'is too large to include' : 'is not an image that can be shared'
+        const what =
+            reason === 'missing'
+                ? 'is no longer available'
+                : reason === 'oversized'
+                ? 'is too large to include'
+                : reason === 'left_out'
+                ? 'was left out of this share'
+                : 'is not an image that can be shared'
         return { ok: false, reason, label: `${name.slice(0, 120)} ${what}` }
     }
 

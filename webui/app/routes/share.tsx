@@ -41,7 +41,8 @@ export { DAMAGED }
 export function Neutral({ message, signIn, shareId }: { message: string; signIn?: boolean; shareId?: string }) {
     const returnTo = shareId ? `/share/${encodeURIComponent(shareId)}` : undefined
     return (
-        <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-16 px-24 text-center">
+        <main aria-label="Shared conversation" className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-16 px-24 text-center">
+            <h1 className="sr-only">Shared conversation</h1>
             <Notice tone="info" title={message} />
             {signIn && (
                 <Link
@@ -87,7 +88,8 @@ export default function Share() {
     switch (view.state) {
         case 'loading':
             return (
-                <main className="mx-auto max-w-3xl px-24 py-32" aria-busy="true">
+                <main aria-label="Shared conversation" className="mx-auto max-w-4xl xl:max-w-5xl 2xl:max-w-6xl px-24 py-32" aria-busy="true">
+                    <span className="sr-only">Loading the shared conversation…</span>
                     <Skeleton />
                 </main>
             )

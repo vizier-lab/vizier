@@ -7,6 +7,11 @@ export const SHARE_LIMITS = {
     bodyBytes: 5 * 1024 * 1024,
     /** Room the request wrapper (ids, title, people, removals) may take beside the snapshot. */
     envelopeBytes: 16 * 1024,
+    /**
+     * The offline file's conversation content (FR-046). A file is built in the browser and never sent,
+     * so it has no request wrapper and is not held to the link's 5 MiB.
+     */
+    offlineBytes: 20 * 1024 * 1024,
     /** One media item, raw bytes after re-encoding. */
     mediaBytes: 1024 * 1024,
     /** Media items in one snapshot (equals the generative UI's distinct-file limit). */
@@ -27,6 +32,8 @@ export const SHARE_LIMITS = {
     trailArgumentBytes: 32 * 1024,
     createPerHour: 10,
     activePerPerson: 200,
+    /** Live snapshot bytes per person (FR-047). Enforced server-side, inside the create transaction. */
+    snapshotsBytesPerPerson: 250 * 1024 * 1024,
     /** Failed opens of a share per visitor per minute (FR-049). */
     missPerMinute: 60,
     /** People search: most matches per search, searches per minute per person (FR-012). */

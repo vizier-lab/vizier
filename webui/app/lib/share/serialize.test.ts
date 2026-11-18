@@ -96,6 +96,30 @@ describe('serializeEntries: content', () => {
         expect(first.map((p) => p.kind)).toEqual(['text', 'placeholder'])
     })
 
+    it('leaves every picture and sound out on request, and counts them under removals.media (FR-023)', async () => {
+        const { snapshot, removals, placeholders } = await run(false, fx.entries, { skipMedia: true })
+        expect(Object.keys(snapshot.media)).toEqual([])
+        expect(removals.media).toBe(2) // photo.png as an attachment, chart.png from the page
+        expect(placeholders.map((p) => p.reason)).toEqual(['left_out', 'left_out'])
+        expect(placeholders.map((p) => p.label)).toEqual(['photo.png was left out of this share', 'chart.png was left out of this share'])
+        const parts = snapshot.turns.flatMap((t) => t.parts)
+        expect(parts.some((p) => p.kind === 'media')).toBe(false)
+        // The page keeps a key for its picture, but no media entry answers to it: the viewer shows a placeholder.
+        const ui = parts.find((p) => p.kind === 'ui') as unknown as { spec: { elements: Record<string, { props: Record<string, unknown> }> } }
+        expect(ui.spec.elements.pic.props.file).toMatch(/^gone-\d+$/)
+        expect(snapshot.media[ui.spec.elements.pic.props.file as string]).toBeUndefined()
+        // An older viewer degrades the new reason instead of rejecting the document; this one keeps it.
+        const parsed = parseSnapshot(JSON.parse(JSON.stringify(snapshot)))
+        expect(parsed.ok && parsed.snapshot.media).toEqual({})
+        expect(parsed.ok && parsed.snapshot.turns.flatMap((t) => t.parts).filter((p) => p.kind === 'placeholder').map((p) => p.reason)).toEqual(['left_out', 'left_out'])
+    })
+
+    it('counts nothing under removals.media when pictures are kept', async () => {
+        const { snapshot, removals } = await run(false)
+        expect(Object.keys(snapshot.media)).toEqual(['m1', 'm2'])
+        expect(removals.media).toBe(0)
+    })
+
     it('puts no person name, id or agent id in the document', async () => {
         const text = dump((await run(false)).snapshot)
         for (const s of ['alice"', 'agent-1', 'topic-1', 'u1"']) expect(text).not.toContain(s)
@@ -130,6 +154,21 @@ describe('serializeEntries: content', () => {
         const r = await run(false, [big], { turnInProgress: false })
         expect(r.truncated).toBe(1)
         expect(r.snapshot.turns[0].parts[0]).toMatchObject({ kind: 'text' })
+    })
+})
+
+describe('serializeEntries: the author\'s name (FR-007)', () => {
+    it('carries the name only when the author chose to show it', async () => {
+        expect((await run(false, fx.entries, { author: 'Alice' })).snapshot.source).toEqual({ agent_name: fx.agent_name, author: 'Alice' })
+        expect((await run(false)).snapshot.source).toEqual({ agent_name: fx.agent_name })
+    })
+    it('leaves the name out when it is blank after trimming', async () => {
+        expect((await run(false, fx.entries, { author: '   ' })).snapshot.source).not.toHaveProperty('author')
+    })
+    it('writes a document the parser accepts unchanged, with the name', async () => {
+        const { snapshot } = await run(false, fx.entries, { author: 'Alice' })
+        const parsed = parseSnapshot(JSON.parse(JSON.stringify(snapshot)))
+        expect(parsed.ok && parsed.snapshot).toEqual(snapshot)
     })
 })
 

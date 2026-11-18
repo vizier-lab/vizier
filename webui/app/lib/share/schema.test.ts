@@ -158,6 +158,26 @@ describe('parseSnapshot: unicode (T006)', () => {
     })
 })
 
+describe('parseSnapshot: the author\'s name (FR-007)', () => {
+    it('keeps the name of an author who chose to show it', () => {
+        const s = ok(base({ source: { agent_name: 'Ada', author: 'Alice' } }))
+        expect(s.source).toEqual({ agent_name: 'Ada', author: 'Alice' })
+    })
+    it('leaves the name absent when it was not given, as a snapshot from before FR-007 does', () => {
+        const s = ok(base())
+        expect(s.source).toEqual({ agent_name: 'Ada' })
+        expect(s.source).not.toHaveProperty('author')
+    })
+    it('drops an oversized or non-string name rather than rejecting the snapshot', () => {
+        expect(ok(base({ source: { agent_name: 'Ada', author: 'x'.repeat(201) } })).source).not.toHaveProperty('author')
+        expect(ok(base({ source: { agent_name: 'Ada', author: 42 } })).source).not.toHaveProperty('author')
+    })
+    it('strips control characters, and drops a name that is only control characters or spaces', () => {
+        expect(ok(base({ source: { agent_name: 'Ada', author: '  Ali\u0000ce\u001b  ' } })).source.author).toBe('Alice')
+        expect(ok(base({ source: { agent_name: 'Ada', author: '\u0000\u001b \t' } })).source).not.toHaveProperty('author')
+    })
+})
+
 describe('jsonDepth', () => {
     it('counts nesting without recursion', () => {
         let v: unknown = 1

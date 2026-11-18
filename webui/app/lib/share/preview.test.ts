@@ -108,6 +108,56 @@ describe('buildPreview: refusals', () => {
     })
 })
 
+describe('buildPreview: the offline file limit (FR-046)', () => {
+    const big = async (bytes: number) => {
+        const r = await make()
+        const chunk = 'x'.repeat(100_000)
+        const parts = Array.from({ length: Math.ceil(bytes / chunk.length) }, () => ({ kind: 'text' as const, markdown: chunk }))
+        r.snapshot.turns.push({ id: 'big', role: 'agent', at: 1, parts })
+        return r
+    }
+    const offline = (r: SerializeResult) => buildPreview(r, { limitBytes: SHARE_LIMITS.offlineBytes, label: 'offline' })
+
+    it('defaults to the link budget and still calls itself a shared conversation', async () => {
+        const p = buildPreview(await big(6 * 1024 * 1024))
+        expect(p.limitBytes).toBe(SHARE_LIMITS.bodyBytes - SHARE_LIMITS.envelopeBytes)
+        expect(p.limitBytes).toBe(5 * 1024 * 1024 - 16 * 1024)
+        expect(p.sizeBytes).toBeGreaterThan(p.limitBytes)
+        expect(p.refusal?.reason).toBe('too_large')
+        expect(p.refusal?.message).toContain('a shared conversation can be at most')
+        expect(p.canShare).toBe(false)
+    })
+
+    it('lets a 6 MB conversation through as a file that the link refuses, counting the same bytes', async () => {
+        const r = await big(6 * 1024 * 1024)
+        const link = buildPreview(r)
+        const file = offline(r)
+        expect(link.canShare).toBe(false)
+        expect(file.limitBytes).toBe(SHARE_LIMITS.offlineBytes)
+        expect(file.limitBytes).toBe(20 * 1024 * 1024)
+        expect(file.sizeBytes).toBeGreaterThan(SHARE_LIMITS.bodyBytes)
+        expect(file.refusal).toBeNull()
+        expect(file.canShare).toBe(true)
+        expect(file.sizeBytes).toBe(link.sizeBytes)
+        expect(JSON.stringify(r.snapshot)).toHaveLength(file.sizeBytes)
+    })
+
+    it('refuses a file above 20 MB with that limit and the ways to shrink it, never cutting', async () => {
+        const r = await big(SHARE_LIMITS.offlineBytes + 1024)
+        const before = JSON.stringify(r.snapshot)
+        const file = offline(r)
+        expect(file.refusal?.reason).toBe('too_large')
+        expect(file.refusal?.message).toContain(formatBytes(SHARE_LIMITS.offlineBytes))
+        expect(file.refusal?.message).toContain(formatBytes(file.sizeBytes))
+        expect(file.refusal?.message).toContain('an offline file can be at most')
+        expect(file.refusal?.options.length).toBeGreaterThan(0)
+        expect(file.canShare).toBe(false)
+        expect(JSON.stringify(r.snapshot)).toBe(before)
+        // the link budget is not what refused it: the same snapshot is far past both
+        expect(buildPreview(r).refusal?.reason).toBe('too_large')
+    })
+})
+
 describe('creating, and cancelling (TP-25)', () => {
     const choice = { agentId: 'a1', topicId: 't1', title: 'Demo', audience: 'public' as const }
     let result: SerializeResult
