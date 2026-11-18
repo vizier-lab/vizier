@@ -19,6 +19,7 @@ import { formatIssues, validateUi, type UiSpec } from '../../../lib/generativeUi
 import { topicKey } from '../../../stores/connection'
 import { useTurns } from '../../../stores/turns'
 import { collectWatches, startWatching, type WatchBinding } from '../../../lib/generativeUi/watch'
+import { useChatAreaFullscreen } from './useChatAreaFullscreen'
 
 const registry: ComponentRegistry = guarded(baseRegistry)
 const NO_FILES: never[] = []
@@ -121,25 +122,7 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
 
     // Expanded, the interface covers the chat area, pinned over its rectangle.
     const wrapperRef = useRef<HTMLDivElement>(null)
-    const [area, setArea] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
-    const measure = () => {
-        const rect = wrapperRef.current?.closest('[data-chat-area]')?.getBoundingClientRect()
-        return rect
-            ? { top: rect.top, left: rect.left, width: rect.width, height: window.innerHeight - rect.top }
-            : { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight }
-    }
-    const fullscreen = area !== null
-    useEffect(() => {
-        if (!fullscreen) return
-        const onResize = () => setArea(measure())
-        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setArea(null)
-        window.addEventListener('resize', onResize)
-        window.addEventListener('keydown', onKey)
-        return () => {
-            window.removeEventListener('resize', onResize)
-            window.removeEventListener('keydown', onKey)
-        }
-    }, [fullscreen])
+    const { area, fullscreen, toggle } = useChatAreaFullscreen(wrapperRef)
 
     const download = () => {
         const blob = new Blob([JSON.stringify({ title, spec }, null, 2)], { type: 'application/json' })
@@ -156,7 +139,8 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
             <Frame
                 title={title}
                 label="interface"
-                onFullscreen={() => setArea(fullscreen ? null : measure())}
+                fill={fullscreen}
+                onFullscreen={toggle}
                 actions={
                     <>
                         {sent && (
@@ -171,8 +155,8 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
                 <div
                     role="region"
                     aria-label={title}
-                    className="flex min-w-0 flex-col gap-12 overflow-auto p-16"
-                    style={{ maxHeight: fullscreen ? '100%' : `${Math.round(window.innerHeight * MAX_HEIGHT_RATIO)}px` }}
+                    className={`flex min-w-0 flex-col gap-12 overflow-auto p-16 ${fullscreen ? 'min-h-0 flex-1' : ''}`}
+                    style={fullscreen ? undefined : { maxHeight: `${Math.round(window.innerHeight * MAX_HEIGHT_RATIO)}px` }}
                 >
                     <MediaFiles.Provider value={files}>
                         <JSONUIProvider registry={registry} store={page.store} handlers={handlers} functions={COMPUTED_FUNCTIONS}>

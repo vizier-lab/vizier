@@ -14,6 +14,7 @@ export const HISTORY_KINDS: Record<string, Disposition> = {
     ToolCall: 'trail-on',
     ToolResult: 'trail-on',
     QuestionSet: 'trail-off',
+    UiPage: 'trail-off',
     SensitiveAsk: 'never',
     Recall: 'never',
     Checkpoint: 'never',

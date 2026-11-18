@@ -10,6 +10,7 @@
 
 import { IconButton, InteractivePage as Frame } from '@vizier/design'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useChatAreaFullscreen } from './useChatAreaFullscreen'
 import type { ClientCallView } from '../../../api/frames'
 import type { ClientCallContext } from '../../../lib/clientTools'
 import { PALETTE_SOURCES, PRINTED_MESSAGE, fileName, printDocument, srcdoc, standaloneDocument } from '../../../lib/pageDocument'
@@ -149,25 +150,7 @@ export function InteractivePage({ call, ctx }: { call: ClientCallView; ctx: Clie
     // Expanded, the page covers the chat area, pinned over its rectangle rather than moved in
     // the DOM, which would reload the page.
     const wrapperRef = useRef<HTMLDivElement>(null)
-    const [area, setArea] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
-    const measure = () => {
-        const rect = wrapperRef.current?.closest('[data-chat-area]')?.getBoundingClientRect()
-        return rect
-            ? { top: rect.top, left: rect.left, width: rect.width, height: window.innerHeight - rect.top }
-            : { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight }
-    }
-    const fullscreen = area !== null
-    useEffect(() => {
-        if (!fullscreen) return
-        const onResize = () => setArea(measure())
-        const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setArea(null)
-        window.addEventListener('resize', onResize)
-        window.addEventListener('keydown', onKey)
-        return () => {
-            window.removeEventListener('resize', onResize)
-            window.removeEventListener('keydown', onKey)
-        }
-    }, [fullscreen])
+    const { area, fullscreen, toggle } = useChatAreaFullscreen(wrapperRef)
 
     // Save as PDF goes through the browser's print dialog: the page cannot be captured from
     // out here, since its frame is a different origin. It is printed from a short-lived hidden
@@ -213,7 +196,8 @@ export function InteractivePage({ call, ctx }: { call: ClientCallView; ctx: Clie
         >
             <Frame
                 title={title}
-                onFullscreen={() => setArea(fullscreen ? null : measure())}
+                fill={fullscreen}
+                onFullscreen={toggle}
                 actions={
                     <>
                         <IconButton variant="ghost" size="sm" icon="download" aria-label="Download the page as an HTML file" onClick={download} />
@@ -235,7 +219,10 @@ export function InteractivePage({ call, ctx }: { call: ClientCallView; ctx: Clie
                         display: 'block',
                         border: 0,
                         width: '100%',
-                        height: fullscreen ? '100%' : `${Math.min(height, maxHeight)}px`,
+                        // Full screen, the frame's body is a column and the page takes all of it.
+                        flex: fullscreen ? '1 1 0' : undefined,
+                        minHeight: fullscreen ? 0 : undefined,
+                        height: fullscreen ? undefined : `${Math.min(height, maxHeight)}px`,
                         background: 'transparent',
                         colorScheme: look.dark ? 'dark' : 'light',
                         // The page reports its own height; the frame eases to it.

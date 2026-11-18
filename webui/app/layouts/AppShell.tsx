@@ -13,6 +13,7 @@ import { useNotifications } from '../stores/notifications'
 import { NotificationsPopup } from '../screens/notifications/NotificationsPopup'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { NotificationToasts } from '../screens/shared/NotificationToasts'
+import { Verifier } from '../screens/chat/client/Verifier'
 import { OfflineBanner } from '../screens/shared/OfflineBanner'
 import { NewAgentDialog } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
@@ -240,6 +241,7 @@ export default function AppShell() {
                 <AgentSwitcherSheet current={routeAgent ?? lastAgent} />
                 <NotificationsPopup />
                 <NotificationToasts />
+                <Verifier />
                 <ToastRegion />
                 <NewAgentDialog />
             </div>
@@ -259,6 +261,7 @@ export default function AppShell() {
             </ShellFrame>
             <NotificationsPopup />
             <NotificationToasts />
+            <Verifier />
             <ToastRegion />
             <NewAgentDialog />
         </div>

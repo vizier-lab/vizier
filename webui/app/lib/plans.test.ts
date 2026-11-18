@@ -20,7 +20,7 @@ function turn(key: string, report: unknown): Turn {
             },
         ],
         live: false,
-        clientCalls: [], questions: [],
+        clientCalls: [], questions: [], pages: [],
     }
 }
 

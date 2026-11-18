@@ -4,6 +4,7 @@ import {
     topicDetail,
     topicFiles,
     topicHistory,
+    topicPrompts,
     topicDetachedScripts,
     topicSubagents,
 } from '../api/endpoints/chat'
@@ -13,8 +14,10 @@ import { modelOverridePayload } from '../lib/modelOverride'
 import { handleClientCall } from '../lib/clientTools'
 import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
+import { useUiVerify } from './uiVerify'
 import { useSession } from './session'
 import { useAgents } from './agents'
+import type { PromptMark } from '../lib/prompts'
 
 const PAGE = 50
 
@@ -28,6 +31,10 @@ interface Meta {
 type TurnStore = {
     topics: Record<string, TopicState>
     meta: Record<string, Meta>
+    /** Every prompt the person sent in each topic, as the server lists them (the prompt ruler). */
+    prompts: Record<string, PromptMark[]>
+    /** Loads the history back to one prompt, so the page can scroll to it. */
+    loadThrough: (agentId: string, topicId: string, mark: PromptMark) => Promise<void>
     /** Opens a topic: history, files and detached scripts, then the socket. Safe to call again. */
     open: (agentId: string, topicId: string, channel?: string) => Promise<void>
     close: (agentId: string, topicId: string) => void
@@ -43,7 +50,10 @@ type TurnStore = {
         queue?: boolean
     ) => void
     sendAudio: (agentId: string, topicId: string, attachment: object, modelOverride?: ModelOverride | null) => void
-    clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
+    /** A person's turn from a client tool's drawing (`sourceCallId`) or from an agent page (`page`, spec 063). */
+    clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string, page?: { page_id: string; version: number }) => void
+    /** Save an agent page's state (spec 063 FR-027): one value per page, shared by its versions. */
+    savePageState: (agentId: string, topicId: string, pageId: string, state: unknown) => void
     saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
     /** Submit (or dismiss) a question set the agent asked: one ordinary request, claimed once on the server. */
     answerQuestions: (agentId: string, topicId: string, answer: QuestionAnswerPayload) => void
@@ -90,9 +100,21 @@ export const useTurns = create<TurnStore>()((set, get) => {
             meta: { ...cur.meta, [key]: { ...{ exhausted: false, loadingOlder: false, loaded: false }, ...cur.meta[key], ...patch } },
         }))
 
+    /** Re-reads the topic's prompts. Best effort: the ruler keeps the list it had. */
+    const refreshPrompts = async (agentId: string, topicId: string) => {
+        const key = topicKey(agentId, topicId)
+        try {
+            const marks = (await topicPrompts(agentId, topicId, channelOf(agentId, topicId))) ?? []
+            set((cur) => ({ prompts: { ...cur.prompts, [key]: marks } }))
+        } catch {
+            /* the ruler keeps what it had */
+        }
+    }
+
     /** Re-reads the newest page, so stand-ins give way to what the server stored. */
     const refreshHistory = async (agentId: string, topicId: string) => {
         const key = topicKey(agentId, topicId)
+        void refreshPrompts(agentId, topicId)
         try {
             const entries = await topicHistory(agentId, topicId, {
                 limit: PAGE,
@@ -129,6 +151,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
     return {
         topics: {},
         meta: {},
+        prompts: {},
 
         dispatch,
 
@@ -138,6 +161,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
             channels.set(key, channel)
             update(key, (s) => (s.session.agent_id ? s : emptyTopic({ agent_id: agentId, channel, topic: topicId })))
 
+            void refreshPrompts(agentId, topicId)
             const [history, detail, files, scripts, workers] = await Promise.allSettled([
                 topicHistory(agentId, topicId, { limit: PAGE, channel }),
                 topicDetail(agentId, topicId, channel),
@@ -192,6 +216,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
                             sendEvent: (text, data) => get().clientEvent(agentId, topicId, text, data, call.call_id),
                             saveState: (state) => get().saveClientState(agentId, topicId, call.call_id, state),
                         }).then((answer) => send({ client_tool_result: { call_id: call.call_id, ...answer } }))
+                    }
+                    // A new page version to check off-screen (spec 063): the verifier runs it.
+                    if (frame.kind === 'ui_verify') {
+                        useUiVerify.getState().add({ ...frame, agentId, topicId, channel: channelOf(agentId, topicId) })
+                        return
                     }
                     dispatch(agentId, topicId, { type: 'frame', frame, now: new Date().toISOString() })
                 },
@@ -253,14 +282,20 @@ export const useTurns = create<TurnStore>()((set, get) => {
             useConnection.getState().send(agentId, topicId, { reaction: { message_uid: uid, emoji, action } })
         },
 
-        clientEvent: (agentId, topicId, text, data, sourceCallId) => {
-            const content = { client_event: { text, data, source_call_id: sourceCallId } } as VizierRequestContent
+        clientEvent: (agentId, topicId, text, data, sourceCallId, page) => {
+            const content = { client_event: { text, data, source_call_id: sourceCallId, page } } as VizierRequestContent
             const now = new Date().toISOString()
             // A click inside a page the agent drew is a request like any other: queued at the
             // agent if it is busy, not dropped here.
             if (useConnection.getState().send(agentId, topicId, request(content))) {
                 dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now })
             }
+        },
+
+        savePageState: (agentId, topicId, pageId, state) => {
+            // The frame already holds it; the server's `ui_page_state` brings it to every tab,
+            // this one included (the frame ignores its own echo).
+            useConnection.getState().send(agentId, topicId, { ui_page_state: { page_id: pageId, state } })
         },
 
         answerQuestions: (agentId, topicId, answer) => {
@@ -295,6 +330,30 @@ export const useTurns = create<TurnStore>()((set, get) => {
             // checkpoint/lobotomy as the line they are.
             if (command === 'abort') dispatch(agentId, topicId, { type: 'abort', now })
             else dispatch(agentId, topicId, { type: 'command', command, now })
+        },
+
+        loadThrough: async (agentId, topicId, mark) => {
+            const key = topicKey(agentId, topicId)
+            const entries = get().topics[key]?.entries ?? []
+            if (entries.some((e) => e.uid === mark.uid)) return
+            const oldest = entries.find((e) => !e.uid.startsWith('live-'))
+            if (!oldest || get().meta[key]?.loadingOlder) return
+            setMeta(key, { loadingOlder: true })
+            try {
+                // Everything from the prompt to the oldest entry held, so the page stays whole.
+                const older: ChatMessage[] =
+                    (await topicHistory(agentId, topicId, {
+                        before: oldest.timestamp,
+                        before_seq: oldest.seq,
+                        since: mark.timestamp,
+                        since_seq: mark.seq,
+                        channel: channelOf(agentId, topicId),
+                    })) ?? []
+                update(key, (s) => reduce(s, { type: 'history', entries: older, position: 'older' }))
+                setMeta(key, { loadingOlder: false })
+            } catch {
+                setMeta(key, { loadingOlder: false })
+            }
         },
 
         loadOlder: async (agentId, topicId) => {

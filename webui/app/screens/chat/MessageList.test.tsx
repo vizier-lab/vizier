@@ -148,8 +148,33 @@ describe('a message the turn read while it worked (spec 062)', () => {
     })
 
     it('draws the message once, inside the turn, after the request that started it', () => {
-        const html = draw(finished)
+        // The prompt ruler names the current prompt in its accessible value; that is not drawn.
+        const html = draw(finished).replace(/aria-valuetext="[^"]*"/g, '')
         expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)
         expect(html.indexOf('keep the old token format')).toBeGreaterThan(html.indexOf('refactor the auth module'))
+    })
+})
+
+describe('a turn that ends on a question card', () => {
+    const asked: ChatMessage[] = [
+        entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'get me ready' } } }),
+        entry('end', { Response: { timestamp: '2026-10-23T10:00:05Z', content: { message: { content: '', stats: { duration: { secs: 5, nanos: 0 }, total_input_tokens: 1, total_output_tokens: 1 } as never } } } }, '2026-10-23T10:00:05Z'),
+    ]
+
+    // The card is what the agent said; the reactions and the model line close the turn under it.
+    it('draws the card above the reply footer', () => {
+        const html = renderToString(
+            <MessageList
+                state={{ ...emptyTopic(session), entries: asked }}
+                agent={{ id: 'oz', name: 'Oz' }}
+                hasOlder={false}
+                loadingOlder={false}
+                onLoadOlder={() => {}}
+                onReact={() => {}}
+                questions={() => <div>the question card</div>}
+            />
+        )
+        expect(html).toContain('the question card')
+        expect(html.indexOf('in ·')).toBeGreaterThan(html.indexOf('the question card'))
     })
 })

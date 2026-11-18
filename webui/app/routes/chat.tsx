@@ -18,6 +18,7 @@ import { ChangesSection } from '../screens/chat/ChangesSection'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { renderQuestions } from '../screens/chat/Questions'
+import { renderPages } from '../screens/chat/UiPages'
 import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
 import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
@@ -223,12 +224,14 @@ export default function Chat() {
     }, [projectId, topicId, state.phase, refreshGit])
 
     const meta = useTurns((s) => s.meta[key])
+    const prompts = useTurns((s) => s.prompts[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
     const {
         send,
         sendAudio,
         command,
         loadOlder,
+        loadThrough,
         react,
         clientEvent,
         saveClientState,
@@ -431,6 +434,8 @@ export default function Chat() {
                     hasOlder={!!meta?.loaded && !meta.exhausted}
                     loadingOlder={!!meta?.loadingOlder}
                     onLoadOlder={() => void loadOlder(agentId, topicId ?? '')}
+                    prompts={prompts}
+                    onLoadThrough={(mark) => loadThrough(agentId, topicId ?? '', mark)}
                     onReact={(uid, emoji, action) =>
                         react(agentId, topicId ?? '', uid, emoji, action)
                     }
@@ -455,6 +460,14 @@ export default function Chat() {
                         renderQuestions(turn, state.refusals, (answer) =>
                             answerQuestions(agentId, topicId ?? '', answer)
                         )
+                    }
+                    pages={(turn: Turn) =>
+                        renderPages(turn, {
+                            agentId,
+                            topicId: topicId ?? '',
+                            channel,
+                            pageStates: state.pageStates,
+                        })
                     }
                     emptyAction={
                         shouldOfferOpenProject(projectId) ? (
@@ -490,7 +503,8 @@ export default function Chat() {
                         className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
                         style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
                     >
-                    <div className="mx-auto w-full max-w-4xl">
+                    {/* 28px wider than the messages' max-w-4xl: the composer card's own px-14 bleeds out, so its text lines up with the messages' text. */}
+                    <div className="mx-auto w-full max-w-[calc(var(--container-4xl)+28px)]">
                     <SideChatPanel
                         key={sideChat.id}
                         open={sideChat.open}

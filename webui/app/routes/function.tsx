@@ -1,53 +1,22 @@
-import {
-    Badge,
-    Button,
-    CodeBlock,
-    Dialog,
-    DiffView,
-    EmptyState,
-    KeyValueList,
-    Notice,
-    RevisionRow,
-    Select,
-    Skeleton,
-    Switch,
-    Tab,
-    TabList,
-    Textarea,
-    TextField,
-} from '@vizier/design'
-import { useCallback, useEffect, useState } from 'react'
+import { Badge, Button, CodeBlock, DiffView, EmptyState, Eyebrow, FilterTabs, KeyValueList, Notice, RevisionRow, Skeleton, Switch } from '@vizier/design'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ApiError } from '../api/client'
 import {
     deleteFunction,
     diffFunction,
-    editFunction,
     getFunction,
-    listFunctions,
     listFunctionVersions,
     rollbackFunction,
     setFunctionEnabled,
     type FunctionDetail,
     type FunctionDiff,
-    type FunctionEdit,
-    type FunctionProblem,
     type FunctionVersion,
 } from '../api/endpoints/functions'
 import { canManageFunctions } from '../lib/access'
 import { relativeTime } from '../lib/format'
-import {
-    NAME_PATTERN,
-    authorLabel,
-    isOutOfDate,
-    missingCalls,
-    nameTaken,
-    offNote,
-    parseSchema,
-    problemText,
-    problemsOf,
-    schemaText,
-} from '../lib/functions'
+import { authorLabel, isOutOfDate, missingCalls, nameTaken, problemText, problemsOf, schemaText } from '../lib/functions'
+import { highlightCode } from '../lib/highlight'
 import { diffLines } from '../lib/revisions'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
@@ -59,8 +28,8 @@ const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.mes
 
 type View = 'script' | 'input' | 'changes'
 
-/** One function (spec 061): its script and input, what it calls, its history, and for people who
- * can edit the agent: edit, switch, roll back and delete. */
+/** One function (spec 061): its script and input, with what it calls and its history beside it.
+ * People who can manage the agent's functions switch, edit, roll back and delete it. */
 export default function FunctionPage() {
     const { agentId = '', name = '' } = useParams()
     const navigate = useNavigate()
@@ -69,11 +38,10 @@ export default function FunctionPage() {
     const agentName = agent?.name
     const [fn, setFn] = useState<FunctionDetail | null>(null)
     const [missing, setMissing] = useState(false)
-    const [versions, setVersions] = useState<FunctionVersion[]>([])
+    const [versions, setVersions] = useState<FunctionVersion[] | null>(null)
     const [view, setView] = useState<View>('script')
     const [compare, setCompare] = useState<number | null>(null)
     const [diff, setDiff] = useState<FunctionDiff | null>(null)
-    const [editing, setEditing] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [deleteBusy, setDeleteBusy] = useState(false)
 
@@ -131,15 +99,18 @@ export default function FunctionPage() {
         setDeleteBusy(true)
         try {
             await deleteFunction(agentId, fn.id)
-            toast.success(`${fn.call_as} deleted`)
+            toast.success('Function deleted')
             navigate(`/${agentId}/functions`)
         } catch (e) {
-            toast.error('Couldn’t delete it', messageOf(e, ''))
+            toast.error('Couldn’t delete the function', messageOf(e, ''))
         } finally {
             setDeleteBusy(false)
             setDeleting(false)
         }
     }
+
+    const scriptTokens = useMemo(() => (fn ? highlightCode(fn.script, 'python') : undefined), [fn])
+    const schemaTokens = useMemo(() => (fn ? highlightCode(schemaText(fn.input_schema), 'json') : undefined), [fn])
 
     const back = { href: `/${agentId}/functions`, label: 'Functions' }
     if (missing) {
@@ -151,24 +122,28 @@ export default function FunctionPage() {
     }
 
     const attention = missingCalls(fn?.needs_attention)
+    const pick = (version: number) => {
+        setCompare(version)
+        setView('changes')
+    }
     return (
         <PageFrame
             fill
             back={back}
             title={fn?.call_as ?? name}
-            meta={
-                fn
-                    ? `${fn.category} · version ${fn.current_version} · ${authorLabel(fn.author, agentName)} · ${relativeTime(fn.updated_at)}${fn.enabled ? '' : ` · ${offNote(fn.disabled_by, agentName)}`}`
-                    : undefined
-            }
+            meta={fn ? `${fn.category} · version ${fn.current_version} · updated ${relativeTime(fn.updated_at)}` : undefined}
             actions={
+                fn &&
                 canEdit && (
                     <>
-                        {fn && <Switch checked={fn.enabled} onCheckedChange={(on) => void toggle(on)} aria-label={fn.enabled ? 'Switch off' : 'Switch on'} />}
-                        <Button variant="ghost" icon="trash" disabled={!fn} onClick={() => setDeleting(true)}>
+                        <label className="flex items-center gap-8 type-ui text-muted">
+                            <Switch checked={fn.enabled} aria-label="On" onCheckedChange={(on) => void toggle(on)} />
+                            {fn.enabled ? 'On' : 'Off'}
+                        </label>
+                        <Button variant="ghost" icon="trash" onClick={() => setDeleting(true)}>
                             Delete
                         </Button>
-                        <Button variant="primary" icon="pencil" disabled={!fn} onClick={() => setEditing(true)}>
+                        <Button variant="primary" icon="pencil" onClick={() => navigate(`/${agentId}/functions/${encodeURIComponent(fn.name)}/edit`)}>
                             Edit
                         </Button>
                     </>
@@ -176,126 +151,131 @@ export default function FunctionPage() {
             }
         >
             <Panes
-                paneLabel="About and history"
+                paneLabel="About this function"
                 pane={
-                    <div className="flex flex-col gap-20 p-16">
-                        {fn ? (
-                            <>
-                                {nameTaken(fn.needs_attention) && (
-                                    <Notice tone="failed" title="Its name is taken">
-                                        A tool attached after it has the name {fn.name}, so the agent can’t call this function until it is renamed.
-                                    </Notice>
+                    fn ? (
+                        <>
+                            <p className="type-body-para text-fg">{fn.description}</p>
+                            {!fn.enabled && (
+                                <Notice tone="info" title="Switched off">
+                                    {fn.disabled_by ? `${authorLabel(fn.disabled_by, agentName)} switched it off. ` : ''}The agent can’t call it until it is switched on.
+                                </Notice>
+                            )}
+                            {nameTaken(fn.needs_attention) && (
+                                <Notice tone="failed" title="Its name is taken">
+                                    A tool attached after it has the name {fn.name}, so the agent can’t call this function until it is renamed.
+                                </Notice>
+                            )}
+                            {attention.length > 0 && (
+                                <Notice tone="failed" title="Needs attention">
+                                    It calls {attention.join(', ')}, which the agent no longer has. A call fails at that step.
+                                </Notice>
+                            )}
+                            <KeyValueList
+                                items={[
+                                    { label: 'Call as', value: <span className="type-mono-sm">{fn.call_as}(input)</span> },
+                                    { label: 'Category', value: <Badge>{fn.category}</Badge> },
+                                    { label: 'Made by', value: authorLabel(versions?.at(-1)?.author ?? fn.author, agentName) },
+                                    ...(versions && versions.length > 1 ? [{ label: 'Last edited by', value: authorLabel(fn.author, agentName) }] : []),
+                                    { label: 'Model-backed', value: fn.model_backed ? 'Yes' : 'No' },
+                                    { label: 'Last called', value: fn.last_called_at ? relativeTime(fn.last_called_at) : 'Never' },
+                                ]}
+                            />
+                            <CallList title="Calls" names={fn.calls} none="No other tools." />
+                            <CallList title="Called by" names={fn.callers} none="No other function calls it." />
+                            <section className="flex flex-col gap-8">
+                                <Eyebrow as="h3" count={versions?.length || undefined}>
+                                    History
+                                </Eyebrow>
+                                {versions === null ? (
+                                    <Skeleton variant="lines" lines={3} />
+                                ) : (
+                                    <div className="-mx-8 flex flex-col">
+                                        {versions.map((v) => (
+                                            <RevisionRow
+                                                key={v.version}
+                                                revision={v.version}
+                                                author={`${authorLabel(v.author, agentName)}${v.trigger === 'rollback' && v.restored_from ? ` · restored v${v.restored_from}` : ''}${v.reason ? ` · “${v.reason}”` : ''}`}
+                                                time={relativeTime(v.at)}
+                                                selected={compare === v.version}
+                                                onSelect={v.version === fn.current_version ? undefined : () => pick(v.version)}
+                                            />
+                                        ))}
+                                    </div>
                                 )}
-                                {attention.length > 0 && (
-                                    <Notice tone="failed" title="Needs attention">
-                                        It calls {attention.join(', ')}, which the agent no longer has. A call fails at that step.
-                                    </Notice>
-                                )}
-                                <KeyValueList
-                                    items={[
-                                        { label: 'Calls', value: fn.calls.length ? fn.calls.join(', ') : 'no tools' },
-                                        { label: 'Called by', value: fn.callers.length ? fn.callers.join(', ') : 'no other function' },
-                                        { label: 'Model-backed', value: fn.model_backed ? 'yes' : 'no' },
-                                        { label: 'Last called', value: fn.last_called_at ? relativeTime(fn.last_called_at) : 'never' },
-                                    ]}
-                                />
-                                <div className="flex flex-col">
-                                    <p className="pb-6 type-ui-strong text-fg">History</p>
-                                    {versions.map((v) => (
-                                        <RevisionRow
-                                            key={v.version}
-                                            revision={v.version}
-                                            author={`${authorLabel(v.author, agentName)}${v.trigger === 'rollback' && v.restored_from ? ` · restored v${v.restored_from}` : ''}${v.reason ? ` · “${v.reason}”` : ''}`}
-                                            time={relativeTime(v.at)}
-                                            selected={compare === v.version}
-                                            onSelect={
-                                                v.version === fn.current_version
-                                                    ? undefined
-                                                    : () => {
-                                                          setCompare(v.version)
-                                                          setView('changes')
-                                                      }
-                                            }
-                                        />
-                                    ))}
-                                </div>
-                            </>
-                        ) : (
-                            <Skeleton className="h-160" />
-                        )}
-                    </div>
+                            </section>
+                        </>
+                    ) : (
+                        <Skeleton lines={5} />
+                    )
                 }
             >
-                <div className="flex min-h-0 flex-1 flex-col gap-14 overflow-auto p-16 sm:p-24">
-                    {fn && <p className="type-body text-fg">{fn.description}</p>}
-                    <TabList aria-label="Function">
-                        <Tab selected={view === 'script'} onClick={() => setView('script')}>
-                            Script
-                        </Tab>
-                        <Tab selected={view === 'input'} onClick={() => setView('input')}>
-                            Input
-                        </Tab>
-                        <Tab selected={view === 'changes'} onClick={() => setView('changes')}>
-                            Changes
-                        </Tab>
-                    </TabList>
-                    {!fn ? (
-                        <Skeleton className="h-240" />
-                    ) : view === 'script' ? (
-                        <CodeBlock code={fn.script} language="python" lineNumbers />
-                    ) : view === 'input' ? (
-                        <div className="flex flex-col gap-10">
-                            <CodeBlock code={schemaText(fn.input_schema)} language="json" />
-                            {fn.output_description && <p className="type-small-para text-muted">Returns: {fn.output_description}</p>}
-                        </div>
-                    ) : diff ? (
-                        <div className="flex flex-col gap-14">
-                            {diff.category && (
-                                <p className="type-small text-muted">
-                                    Category <Badge>{diff.category.from}</Badge> → <Badge>{diff.category.to}</Badge>
-                                </p>
-                            )}
-                            <DiffView
-                                variant="code"
-                                title={`script · v${diff.from} → v${diff.to}`}
-                                lines={diffLines(diff.script)}
-                                restoreLabel={canEdit ? `Restore v${diff.from}` : undefined}
-                                onRestore={canEdit ? () => void restore(diff.from) : undefined}
-                            />
-                            {diff.description.hunks.length > 0 && <DiffView title="description" lines={diffLines(diff.description)} />}
-                            {diff.input_schema.hunks.length > 0 && <DiffView variant="code" title="input schema" lines={diffLines(diff.input_schema)} />}
-                        </div>
-                    ) : (
-                        <EmptyState icon="restore" title="Pick a version" message="Choose an earlier version in History to see what changed since, and restore it." />
+                <div className="flex items-center gap-12">
+                    <span className="flex-1 truncate type-mono-sm text-muted">
+                        {view === 'script' ? `${fn?.name ?? name}.py` : view === 'input' ? 'input schema' : diff ? `v${diff.from} → v${diff.to}` : 'changes'}
+                    </span>
+                    {view === 'changes' && diff && canEdit && (
+                        <Button size="sm" variant="secondary" icon="restore" onClick={() => void restore(diff.from)}>
+                            Restore v{diff.from}
+                        </Button>
                     )}
+                    <FilterTabs
+                        aria-label="Show"
+                        value={view}
+                        onChange={setView}
+                        options={[
+                            { value: 'script', label: 'Script' },
+                            { value: 'input', label: 'Input' },
+                            { value: 'changes', label: 'Changes' },
+                        ]}
+                    />
                 </div>
-            </Panes>
-
-            <Dialog open={editing} title={`Edit ${fn?.call_as ?? ''}`} confirmLabel="" onConfirm={() => {}} onCancel={() => setEditing(false)}>
-                {editing && fn && (
-                    <EditForm
-                        agentId={agentId}
-                        fn={fn}
-                        onCancel={() => setEditing(false)}
-                        onReload={() => {
-                            setEditing(false)
-                            load()
-                        }}
-                        onSaved={(version, newName) => {
-                            setEditing(false)
-                            toast.success(`Saved as version ${version}`)
-                            if (newName !== fn.name) navigate(`/${agentId}/functions/${encodeURIComponent(newName)}`, { replace: true })
-                            else load()
-                        }}
+                {!fn ? (
+                    <Skeleton lines={14} />
+                ) : view === 'script' ? (
+                    <CodeBlock code={fn.script} tokens={scriptTokens} language="python" filename={`${fn.name}.py`} lineNumbers className="max-w-[100ch]" />
+                ) : view === 'input' ? (
+                    <div className="flex max-w-[100ch] flex-col gap-12">
+                        <CodeBlock code={schemaText(fn.input_schema)} tokens={schemaTokens} language="json" filename="input.schema.json" />
+                        {fn.output_description && (
+                            <KeyValueList items={[{ label: 'Returns', value: fn.output_description }]} />
+                        )}
+                    </div>
+                ) : diff ? (
+                    <div className="flex max-w-[100ch] flex-col gap-14">
+                        {diff.category && (
+                            <p className="type-small text-muted">
+                                Category <Badge>{diff.category.from}</Badge> → <Badge>{diff.category.to}</Badge>
+                            </p>
+                        )}
+                        {diff.script.hunks.length > 0 && <DiffView variant="code" title="script" lines={diffLines(diff.script)} />}
+                        {diff.description.hunks.length > 0 && <DiffView title="description" lines={diffLines(diff.description)} />}
+                        {diff.input_schema.hunks.length > 0 && <DiffView variant="code" title="input schema" lines={diffLines(diff.input_schema)} />}
+                        {!diff.category && diff.script.hunks.length + diff.description.hunks.length + diff.input_schema.hunks.length === 0 && (
+                            <p className="type-small text-muted">Nothing the page shows changed between these versions.</p>
+                        )}
+                    </div>
+                ) : (
+                    <EmptyState
+                        icon="restore"
+                        title={versions && versions.length > 1 ? 'Pick a version' : 'No earlier versions'}
+                        message={
+                            versions && versions.length > 1
+                                ? 'Choose an earlier version in History to see what changed since, and restore it.'
+                                : 'Each edit is kept as a version. Once there is an earlier one, its changes show here.'
+                        }
                     />
                 )}
-            </Dialog>
+            </Panes>
 
             <ConfirmDialog
                 open={deleting}
-                title={`Delete ${fn?.call_as ?? ''}?`}
-                message={`Its ${fn?.current_version ?? ''} version(s) are deleted. The deletion stays in the agent’s activity.`}
-                removes={fn?.callers.length ? fn.callers.map((c) => `${c} calls it and will need attention`) : undefined}
+                title={`Delete ${fn?.call_as ?? 'function'}?`}
+                removes={[
+                    `The function and its ${fn?.current_version === 1 ? 'version' : `${fn?.current_version ?? ''} versions`}`,
+                    ...(fn?.callers ?? []).map((c) => `${c} calls it and will need attention`),
+                ]}
+                message="The deletion stays in the agent’s activity."
                 confirmLabel="Delete function"
                 busy={deleteBusy}
                 onConfirm={() => void remove()}
@@ -305,145 +285,24 @@ export default function FunctionPage() {
     )
 }
 
-const NEW_CATEGORY = '__new__'
-
-type EditFormProps = {
-    agentId: string
-    fn: FunctionDetail
-    onCancel: () => void
-    onReload: () => void
-    onSaved: (version: number, name: string) => void
-}
-
-/** A person's edit: saved as a new version they author. No sample run; every problem at once. */
-function EditForm({ agentId, fn, onCancel, onReload, onSaved }: EditFormProps) {
-    const [name, setName] = useState(fn.name)
-    const [description, setDescription] = useState(fn.description)
-    const [categories, setCategories] = useState<string[]>([fn.category])
-    const [category, setCategory] = useState(fn.category)
-    const [newCategory, setNewCategory] = useState('')
-    const [newCategoryDescription, setNewCategoryDescription] = useState('')
-    const [schema, setSchema] = useState(schemaText(fn.input_schema))
-    const [output, setOutput] = useState(fn.output_description ?? '')
-    const [script, setScript] = useState(fn.script)
-    const [reason, setReason] = useState('')
-    const [busy, setBusy] = useState(false)
-    const [problems, setProblems] = useState<FunctionProblem[]>([])
-    const [stale, setStale] = useState(false)
-
-    useEffect(() => {
-        listFunctions(agentId).then(
-            (l) => setCategories(l.categories.map((c) => c.name)),
-            () => {}
-        )
-    }, [agentId])
-
-    const creating = category === NEW_CATEGORY
-    const nameOk = NAME_PATTERN.test(name)
-    const newCategoryOk = !creating || (NAME_PATTERN.test(newCategory) && newCategoryDescription.trim().length > 0)
-    const canSave = nameOk && newCategoryOk && description.trim().length > 0 && !busy
-
-    const submit = async () => {
-        const parsed = parseSchema(schema)
-        if (!parsed.ok) {
-            setProblems([{ code: 'schema_json', message: parsed.message }])
-            return
-        }
-        const targetCategory = creating ? newCategory : category
-        const edit: FunctionEdit = {
-            expected_version: fn.current_version,
-            name: name !== fn.name ? name : undefined,
-            description: description.trim() !== fn.description ? description.trim() : undefined,
-            category: targetCategory !== fn.category ? targetCategory : undefined,
-            category_description: creating ? newCategoryDescription.trim() : undefined,
-            input_schema: schema !== schemaText(fn.input_schema) ? parsed.value : undefined,
-            output_description: output !== (fn.output_description ?? '') ? output : undefined,
-            script: script !== fn.script ? script : undefined,
-            reason: reason.trim() || undefined,
-        }
-        setBusy(true)
-        setProblems([])
-        try {
-            const saved = await editFunction(agentId, fn.id, edit)
-            onSaved(saved.version, saved.tool?.name ?? name)
-        } catch (e) {
-            if (isOutOfDate(e)) setStale(true)
-            else setProblems(problemsOf(e))
-        } finally {
-            setBusy(false)
-        }
-    }
-
+/** The functions or tools on one side of a call, as code names. */
+function CallList({ title, names, none }: { title: string; names: string[]; none: string }) {
     return (
-        <form
-            className="flex flex-col gap-16"
-            onSubmit={(e) => {
-                e.preventDefault()
-                if (canSave) void submit()
-            }}
-        >
-            {stale && (
-                <Notice tone="failed" title="This function changed since you opened it" actions={<Button onClick={onReload}>Reload</Button>}>
-                    Reload to see the change, then edit again.
-                </Notice>
+        <section className="flex flex-col gap-8">
+            <Eyebrow as="h3" count={names.length || undefined}>
+                {title}
+            </Eyebrow>
+            {names.length ? (
+                <span className="flex flex-wrap gap-4">
+                    {names.map((n) => (
+                        <Badge key={n} className="font-mono">
+                            {n}
+                        </Badge>
+                    ))}
+                </span>
+            ) : (
+                <p className="type-small text-faint">{none}</p>
             )}
-            {problems.length > 0 && (
-                <Notice tone="failed" title="Not saved, fix these">
-                    <ul className="list-disc pl-20">
-                        {problems.map((p, i) => (
-                            <li key={i}>{problemText(p)}</li>
-                        ))}
-                    </ul>
-                </Notice>
-            )}
-            <TextField
-                label="Name"
-                mono
-                value={name}
-                autoComplete="off"
-                spellCheck={false}
-                helper={nameOk ? 'The agent calls it by this name; it can’t be the name of another tool the agent has.' : 'Lower-case letters, digits and _, starting with a letter.'}
-                invalid={!nameOk}
-                onChange={(e) => setName(e.target.value)}
-            />
-            <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-            <Select
-                label="Category"
-                value={category}
-                onChange={setCategory}
-                options={[...categories.map((c) => ({ value: c, label: c })), { value: NEW_CATEGORY, label: 'New category…' }]}
-            />
-            {creating && (
-                <>
-                    <TextField label="New category name" mono value={newCategory} invalid={newCategory.length > 0 && !NAME_PATTERN.test(newCategory)} onChange={(e) => setNewCategory(e.target.value)} />
-                    <TextField
-                        label="New category description"
-                        value={newCategoryDescription}
-                        helper="Required for a new category: one line saying what it is for."
-                        onChange={(e) => setNewCategoryDescription(e.target.value)}
-                    />
-                </>
-            )}
-            <Textarea label="Input schema (JSON)" mono rows={6} value={schema} spellCheck={false} onChange={(e) => setSchema(e.target.value)} />
-            <TextField label="What it returns" value={output} helper="Optional." onChange={(e) => setOutput(e.target.value)} />
-            <Textarea
-                label="Script"
-                mono
-                rows={12}
-                value={script}
-                spellCheck={false}
-                helper="The arguments are the dict input; the last expression is the result."
-                onChange={(e) => setScript(e.target.value)}
-            />
-            <TextField label="Why" value={reason} helper="Optional, kept with the version." onChange={(e) => setReason(e.target.value)} />
-            <div className="flex justify-end gap-10">
-                <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-                    Cancel
-                </Button>
-                <Button type="submit" variant="primary" loading={busy} disabled={!canSave}>
-                    Save as v{fn.current_version + 1}
-                </Button>
-            </div>
-        </form>
+        </section>
     )
 }

@@ -1,0 +1,286 @@
+/* The Vizier kit's stylesheet for agent-made pages (specs/063-html-generative-ui research R11,
+ * tasks T049). Inlined into every page's frame, so a page written as plain HTML already looks
+ * like Vizier (mockups/page-frame.html case A) and follows the WebUI's theme.
+ *
+ * - The tokens are the design system's own file, not a copy: light by default, dark by the OS or
+ *   by `<html data-theme="dark">`, which the runtime sets from the theme the host posts (and the
+ *   host also posts the person's live custom colours, so a custom scheme reaches the page).
+ * - The element styles live in the cascade layer `vz-base`, ordered after Tailwind's `base`
+ *   (preflight, present when a page uses `<vz-*>`) and before its `components` and `utilities`:
+ *   they beat preflight, the design components' own utilities beat them, and a page's own
+ *   unlayered CSS beats everything here. Each rule is also wrapped in `:where()`.
+ * - The frame loads nothing by URL, so the sans font is inlined as a data URL by the kit build;
+ *   the mono font falls back to the system's.
+ */
+@layer theme, base, vz-base, components, utilities;
+@import '@vizier/design/tokens.css';
+
+@font-face {
+    font-family: 'Schibsted Grotesk Variable';
+    font-style: normal;
+    font-display: swap;
+    font-weight: 400 900;
+    src: url('@fontsource-variable/schibsted-grotesk/files/schibsted-grotesk-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+:root {
+    color-scheme: light dark;
+    --vz-font-sans: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+    --vz-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+:root[data-theme='light'] {
+    color-scheme: light;
+}
+:root[data-theme='dark'] {
+    color-scheme: dark;
+}
+
+@layer vz-base {
+/* The document itself: outside the scope below, which does not match its own root. */
+:where(html) {
+    background: var(--vz-ground);
+    color: var(--vz-text);
+    font: 14px/1.5 var(--vz-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+}
+:where(html) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--vz-border-strong) transparent;
+}
+
+/* The page's own markup only: not what an element draws (`data-vz-drawn`, the design components
+ * style themselves), but again what a page puts inside an element (`data-vz-body`). */
+@scope (:root, [data-vz-body]) to ([data-vz-drawn]) {
+/* Document ----------------------------------------------------------------------------------- */
+
+:where(*, *::before, *::after) {
+    box-sizing: border-box;
+}
+:where(body) {
+    margin: 0;
+    padding: var(--vz-space-16);
+}
+:where(:focus-visible) {
+    outline: var(--vz-space-2) solid var(--vz-focus);
+    outline-offset: var(--vz-space-2);
+}
+::selection {
+    background: var(--vz-selection);
+    color: var(--vz-selection-text);
+}
+
+/* Text --------------------------------------------------------------------------------------- */
+
+:where(h1, h2, h3, h4, h5, h6) {
+    margin: 0 0 var(--vz-space-8);
+    color: var(--vz-ink);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+}
+:where(h1) { font-size: 22px; }
+:where(h2) { font-size: 18px; }
+:where(h3) { font-size: 16px; }
+:where(h4, h5, h6) { font-size: 14px; }
+:where(p, ul, ol, dl, blockquote, pre, figure) {
+    margin: 0 0 var(--vz-space-12);
+}
+:where(ul, ol) {
+    padding-left: var(--vz-space-20);
+}
+:where(small) {
+    color: var(--vz-text-faint);
+    font-size: 12px;
+}
+:where(a) {
+    color: var(--vz-live-text);
+    text-decoration: underline;
+    text-decoration-color: var(--vz-border-hover);
+    text-underline-offset: 2px;
+}
+:where(a:hover) {
+    text-decoration-color: currentColor;
+}
+:where(hr) {
+    border: 0;
+    border-top: 1px solid var(--vz-border);
+    margin: var(--vz-space-16) 0;
+}
+:where(blockquote) {
+    margin-left: 0;
+    padding-left: var(--vz-space-12);
+    border-left: 2px solid var(--vz-border-strong);
+    color: var(--vz-text-muted);
+}
+:where(code, kbd, samp, pre) {
+    font-family: var(--vz-font-mono);
+    font-size: 12.5px;
+}
+:where(:not(pre) > code, kbd) {
+    padding: 1px var(--vz-space-4);
+    border-radius: var(--vz-radius-xs);
+    background: var(--vz-surface);
+    border: 1px solid var(--vz-border);
+}
+:where(pre) {
+    padding: var(--vz-space-12);
+    border-radius: var(--vz-radius-md);
+    background: var(--vz-surface);
+    border: 1px solid var(--vz-border);
+    overflow: auto;
+}
+:where(img, svg, video, canvas) {
+    max-width: 100%;
+}
+:where(img, video) {
+    height: auto;
+}
+
+/* Controls ----------------------------------------------------------------------------------- */
+
+:where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+}
+:where(button, input[type='button'], input[type='submit'], input[type='reset']) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--vz-space-6);
+    min-height: 32px;
+    padding: 0 var(--vz-space-12);
+    border: 1px solid var(--vz-border-strong);
+    border-radius: var(--vz-radius-md);
+    background: var(--vz-surface);
+    color: var(--vz-text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 120ms, background 120ms;
+}
+:where(button, input[type='button'], input[type='submit'], input[type='reset']):hover {
+    border-color: var(--vz-border-hover);
+}
+:where(button, input[type='button'], input[type='submit'], input[type='reset']):active {
+    background: var(--vz-pressed);
+}
+:where(button[type='submit'], input[type='submit'], button.primary) {
+    border-color: var(--vz-ink);
+    background: var(--vz-ink);
+    color: var(--vz-ground);
+}
+:where(button[type='submit'], input[type='submit'], button.primary):hover {
+    background: var(--vz-ink-hover);
+}
+:where(button:disabled, input:disabled, select:disabled, textarea:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'], [type='reset']), select, textarea) {
+    min-height: 32px;
+    padding: var(--vz-space-6) var(--vz-space-10);
+    border: 1px solid var(--vz-border-strong);
+    border-radius: var(--vz-radius-md);
+    background: var(--vz-ground);
+    color: var(--vz-text);
+    font-size: 13px;
+}
+:where(input, select, textarea):hover {
+    border-color: var(--vz-border-hover);
+}
+:where(input, select, textarea):focus-visible {
+    outline-color: var(--vz-live);
+}
+:where(textarea) {
+    min-height: 80px;
+    resize: vertical;
+}
+:where(input[type='checkbox'], input[type='radio'], input[type='range'], progress, meter) {
+    accent-color: var(--vz-ink);
+}
+:where(label) {
+    color: var(--vz-text-soft);
+    font-size: 13px;
+}
+:where(fieldset) {
+    margin: 0 0 var(--vz-space-12);
+    padding: var(--vz-space-12);
+    border: 1px solid var(--vz-border);
+    border-radius: var(--vz-radius-md);
+}
+:where(legend) {
+    padding: 0 var(--vz-space-4);
+    color: var(--vz-text-muted);
+    font-size: 12px;
+}
+
+/* Tables ------------------------------------------------------------------------------------- */
+
+:where(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+:where(th) {
+    color: var(--vz-text-faint);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: left;
+}
+:where(th, td) {
+    padding: var(--vz-space-8) var(--vz-space-10);
+    border-bottom: 1px solid var(--vz-border);
+}
+:where(tbody tr:hover) {
+    background: var(--vz-surface);
+}
+
+/* Scrollbars --------------------------------------------------------------------------------- */
+
+
+/* Layout ------------------------------------------------------------------------------------- */
+
+/* A column with a gap; `data-gap="4|8|12|16|24"` changes it. */
+:where(.vz-stack) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vz-gap, var(--vz-space-12));
+}
+/* A row that wraps, centred on the cross axis. */
+:where(.vz-row) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vz-gap, var(--vz-space-8));
+}
+/* Equal columns that fall to fewer as the page narrows; `--vz-min` is a column's least width. */
+:where(.vz-grid) {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(var(--vz-min, 160px), 100%), 1fr));
+    gap: var(--vz-gap, var(--vz-space-12));
+}
+:where([data-gap='4']) { --vz-gap: var(--vz-space-4); }
+:where([data-gap='8']) { --vz-gap: var(--vz-space-8); }
+:where([data-gap='12']) { --vz-gap: var(--vz-space-12); }
+:where([data-gap='16']) { --vz-gap: var(--vz-space-16); }
+:where([data-gap='24']) { --vz-gap: var(--vz-space-24); }
+
+/* Muted helper text and a bordered panel, for pages that want them without the elements. */
+:where(.vz-muted) {
+    color: var(--vz-text-muted);
+}
+:where(.vz-panel) {
+    padding: var(--vz-space-12) var(--vz-space-14);
+    border: 1px solid var(--vz-border);
+    border-radius: var(--vz-radius-lg);
+    background: var(--vz-panel);
+}
+}
+}
+
+/* Elements that have not upgraded yet take no space and do not flash. */
+:where(vz-card:not(:defined), vz-stat:not(:defined), vz-table:not(:defined), vz-chart:not(:defined), vz-tabs:not(:defined), vz-field:not(:defined), vz-badge:not(:defined), vz-callout:not(:defined), vz-progress:not(:defined), vz-image:not(:defined)) {
+    visibility: hidden;
+}

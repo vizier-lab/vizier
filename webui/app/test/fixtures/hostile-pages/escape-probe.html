@@ -1,0 +1,51 @@
+<!--
+  Spec 063 quickstart §7.2 (SC-008): a page that tries every way out of its frame. Each probe reports
+  "PROBE <name>: blocked" or "PROBE <name>: LEAK <detail>" through console.error, which the host
+  collects into the page's problem list, so the result is readable from the WebUI without reaching
+  into the frame. Draw it with ui_render and open the page's problem list: every line must say
+  blocked. The https image is the one load that is allowed (FR-015a).
+-->
+<h3>Escape probe</h3>
+<ol id="out"></ol>
+<img id="ok" src="https://www.vizier.rs/favicon.svg" alt="" width="16" height="16">
+<script>
+  const out = document.getElementById('out')
+  const say = (name, leaked, detail = '') => {
+    const line = `PROBE ${name}: ${leaked ? 'LEAK ' + detail : 'blocked'}`
+    const li = document.createElement('li')
+    li.textContent = line
+    out.appendChild(li)
+    console.error(line)
+  }
+  const tryRead = (name, read) => {
+    try {
+      const value = read()
+      say(name, value !== undefined && value !== null && value !== '', String(value).slice(0, 60))
+    } catch (e) {
+      say(name, false)
+    }
+  }
+  tryRead('localStorage', () => localStorage.length + ' keys')
+  tryRead('cookie', () => document.cookie)
+  tryRead('parent.document', () => parent.document.title)
+  tryRead('top.location', () => top.location.href)
+  tryRead('origin', () => (self.origin === 'null' ? '' : self.origin))
+  fetch('/api/v1/auth/users/me').then(r => say('fetch same-origin', true, 'status ' + r.status), () => say('fetch same-origin', false))
+  fetch('https://www.vizier.rs/').then(r => say('fetch https', true, 'status ' + r.status), () => say('fetch https', false))
+  try {
+    const ws = new WebSocket('wss://echo.websocket.events')
+    ws.onopen = () => say('websocket', true, 'open')
+    ws.onerror = () => say('websocket', false)
+  } catch (e) { say('websocket', false) }
+  const s = document.createElement('script')
+  s.src = 'https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js'
+  s.onload = () => say('remote script', true, 'loaded')
+  s.onerror = () => say('remote script', false)
+  document.head.appendChild(s)
+  tryRead('window.open', () => (window.open('https://www.vizier.rs/') ? 'opened' : ''))
+  const plain = new Image()
+  plain.onload = () => say('http image', true, 'loaded')
+  plain.onerror = () => say('http image', false)
+  plain.src = 'http://www.vizier.rs/favicon.svg'
+  document.getElementById('ok').onerror = () => console.error('PROBE https image: did not load (offline?)')
+</script>
