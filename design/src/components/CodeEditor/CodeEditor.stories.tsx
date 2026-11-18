@@ -51,4 +51,13 @@ export const Plain: Story = {
   },
 };
 
+/** Line numbers, and a line too long for the field: it wraps, and keeps its one number. */
+export const LineNumbers: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState(`${SCRIPT}
+url = "https://example.com/an/unbroken/path/that/is/much/too/long/to/fit/on/one/line/of/the/field"`);
+    return <CodeEditor {...args} lineNumbers value={v} onChange={setV} />;
+  },
+};
+
 export const Invalid: Story = { args: { invalid: true, helper: "line 2, column 40: expected ')'" } };
