@@ -110,6 +110,7 @@ function Run({
                         failed={i === lastTrail && failed}
                         aborted={i === lastTrail && segment.aborted}
                         agentName={name}
+                        agentId={segment.agentId}
                     />
                 )
             })}

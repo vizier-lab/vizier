@@ -89,7 +89,7 @@ function WorkerEntry({
             steps={
                 entries ? (
                     trail.length > 0 ? (
-                        <Trail trail={trail} live={worker.state === 'running'} agentName={agentName} />
+                        <Trail trail={trail} live={worker.state === 'running'} agentName={agentName} agentId={agentId} />
                     ) : (
                         <p className="type-small text-faint">No steps yet.</p>
                     )

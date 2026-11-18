@@ -286,6 +286,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     failed={i === lastTrail && failed}
                     aborted={i === lastTrail && turn.aborted}
                     agentName={agent.name}
+                    agentId={agent.id}
                 />
             )
         })
