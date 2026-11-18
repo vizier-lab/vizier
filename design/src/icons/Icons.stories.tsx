@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toneModes, type ToneMode } from "../tokens/tokens";
 import { Icon } from "./Icon";
 import { iconNames, lucideNames } from "./map";
+import { brandNames, brands } from "./brands";
 
 type Args = { tone: ToneMode | "inherit"; size: number };
 
@@ -59,6 +60,23 @@ export const All: Story = {
       </div>
     );
   },
+};
+
+/** The brand logos the activity trail draws for the services a tool reaches (Simple Icons, CC0), in the text colour. */
+export const Brands: Story = {
+  render: ({ size }) => (
+    <ul className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-8">
+      {brandNames.map((name) => (
+        <li key={name} className="flex flex-col items-center gap-8 rounded-md border border-border px-8 py-12 text-fg">
+          <svg viewBox="0 0 24 24" width={size} height={size} role="img" aria-label={brands[name].title} className="fill-current">
+            <path d={brands[name].path} />
+          </svg>
+          <span className="type-mono-sm text-fg">{name}</span>
+          <span className="type-mono-xs text-muted">{brands[name].title}</span>
+        </li>
+      ))}
+    </ul>
+  ),
 };
 
 /** Every icon in every tone. Also guards against a Lucide rename: a missing glyph fails the render. */

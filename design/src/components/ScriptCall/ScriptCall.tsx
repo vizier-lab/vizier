@@ -5,6 +5,8 @@ import { cx } from "../../lib/cx";
 export type ScriptCallProps = {
   /** "memory_search". */
   name: string;
+  /** What the call belongs to (a CallGlyphIcon), drawn before its name to match the run's icons. */
+  icon?: ReactNode;
   /** A short form of the arguments: "vector db benchmark", "infra/qdrant.md, +3". */
   args?: ReactNode;
   duration?: ReactNode;
@@ -16,12 +18,13 @@ export type ScriptCallProps = {
 } & HTMLAttributes<HTMLDivElement>;
 
 /** A call made from inside a python run, nested under it (D52). */
-export function ScriptCall({ name, args, duration, state = "ok", repeat, details, className, ...rest }: ScriptCallProps) {
+export function ScriptCall({ name, icon, args, duration, state = "ok", repeat, details, className, ...rest }: ScriptCallProps) {
   const [open, setOpen] = useState(false);
   const failed = state === "failed";
   const row = (
     <>
       <Icon name={failed ? "close" : "check"} size={12} tone={failed ? "failed" : "live"} title={failed ? "failed" : "ok"} />
+      {icon && <span className={cx("flex shrink-0", failed ? "text-failed" : "text-faint")}>{icon}</span>}
       <span className={cx("type-mono-sm", failed ? "text-failed" : "text-soft")}>
         {name}
         {repeat && repeat > 1 && <span className="text-faint"> ×{repeat}</span>}

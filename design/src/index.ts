@@ -4,6 +4,7 @@ export * from "./tokens/tokens";
 // Icons
 export { Icon, type IconProps } from "./icons/Icon";
 export { icons, iconNames, lucideNames, type IconName } from "./icons/map";
+export { brands, brandNames, type BrandName } from "./icons/brands";
 
 // Brand
 export * from "./brand";
@@ -177,6 +178,7 @@ export * from "./components/ToggleSection";
 export * from "./components/ToolList";
 export * from "./components/Tooltip";
 export * from "./components/TopicHeader";
+export * from "./components/CallIcons";
 export * from "./components/TrailCall";
 export * from "./components/TrailHead";
 export * from "./components/UnsavedIndicator";
