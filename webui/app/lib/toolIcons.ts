@@ -43,7 +43,7 @@ const BUILTIN: Record<BuiltinCategory, Described> = {
     scheduling: { label: 'Schedule', icon: 'calendar', phrase: 'worked on the schedule' },
     agents: { label: 'Background work', icon: 'layers', phrase: 'checked background work' },
     skills: { label: 'Skills', icon: 'skills', phrase: 'used its skills' },
-    files: { label: 'Files', icon: 'file', phrase: 'worked with files' },
+    files: { label: 'Files', icon: 'attach', phrase: 'worked with files' },
     scratchpad: { label: 'Scratchpad', icon: 'notebook-pen', phrase: 'took notes' },
     web: { label: 'Web', icon: 'globe', phrase: 'browsed the web' },
     audio: { label: 'Audio', icon: 'volume-2', phrase: 'worked with audio' },
