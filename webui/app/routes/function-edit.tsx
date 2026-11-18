@@ -190,13 +190,14 @@ export default function FunctionEditPage() {
                     <div className="grid grid-cols-1 items-start gap-16 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                         <CodeEditor
                             label="Script"
+                            lineNumbers
                             rows={18}
                             value={script}
                             tokens={scriptTokens}
                             helper="The arguments are the dict input; the last expression is the result."
                             onChange={setScript}
                         />
-                        <CodeEditor label="Input schema (JSON)" rows={18} value={schema} tokens={schemaTokens} onChange={setSchema} />
+                        <CodeEditor label="Input schema (JSON)" lineNumbers rows={18} value={schema} tokens={schemaTokens} onChange={setSchema} />
                     </div>
                     <TextField label="Why" value={reason} helper="Optional, kept with the version." onChange={(e) => setReason(e.target.value)} />
                 </form>
