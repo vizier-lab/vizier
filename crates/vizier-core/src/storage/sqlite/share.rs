@@ -120,9 +120,26 @@ fn list(
     summaries(conn, &sql, args)
 }
 
+/// The summed size of an author's live shares (FR-047). Never counts a revoked row: its
+/// `size_bytes` is kept for the list, but the snapshot body is gone.
+fn live_bytes(conn: &Connection, creator_id: &str) -> Result<i64> {
+    let bytes: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(size_bytes), 0) FROM shared_snapshot
+         WHERE creator_id = ?1 AND revoked_at IS NULL",
+        params![creator_id],
+        |row| row.get(0),
+    )?;
+    Ok(bytes.max(0))
+}
+
 #[async_trait::async_trait]
 impl ShareStorage for SqlStorage {
-    async fn insert_share(&self, share: &ShareContent, max_active: usize) -> Result<InsertOutcome> {
+    async fn insert_share(
+        &self,
+        share: &ShareContent,
+        max_active: usize,
+        max_live_bytes: i64,
+    ) -> Result<InsertOutcome> {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
         // One author's creates are serialised on every backend (a no-op on SQLite, whose
@@ -145,6 +162,12 @@ impl ShareStorage for SqlStorage {
         )?;
         if active >= max_active as i64 {
             return Ok(InsertOutcome::CapReached);
+        }
+        // FR-047: the same transaction that counts the shares sums their bytes, so a second
+        // create cannot pass on a total that the first one is about to invalidate.
+        let live = live_bytes(&conn, &share.record.creator_id)?;
+        if live.saturating_add(share.record.size_bytes) > max_live_bytes {
+            return Ok(InsertOutcome::QuotaExceeded);
         }
         let r = &share.record;
         conn.execute(
@@ -261,6 +284,11 @@ impl ShareStorage for SqlStorage {
         Ok(n.max(0) as usize)
     }
 
+    async fn live_bytes_by_creator(&self, creator_id: &str) -> Result<i64> {
+        let conn = self.conn.lock()?;
+        live_bytes(&conn, creator_id)
+    }
+
     async fn delete_shares_by_creator(&self, creator_id: &str) -> Result<usize> {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
@@ -281,6 +309,37 @@ impl ShareStorage for SqlStorage {
         )?;
         tx.commit()?;
         Ok(n)
+    }
+
+    async fn revoke_shares_by_topic(
+        &self,
+        agent_id: &str,
+        topic_id: &str,
+        by: &str,
+        at: i64,
+    ) -> Result<usize> {
+        let conn = self.conn.lock()?;
+        let changed = conn.execute(
+            "UPDATE shared_snapshot SET revoked_at = ?1, revoked_by = ?2, snapshot_json = ''
+             WHERE agent_id = ?3 AND topic_id = ?4 AND revoked_at IS NULL",
+            params![at, by, agent_id, topic_id],
+        )?;
+        Ok(changed)
+    }
+
+    async fn revoke_shares_by_agent(
+        &self,
+        agent_id: &str,
+        by: &str,
+        at: i64,
+    ) -> Result<usize> {
+        let conn = self.conn.lock()?;
+        let changed = conn.execute(
+            "UPDATE shared_snapshot SET revoked_at = ?1, revoked_by = ?2, snapshot_json = ''
+             WHERE agent_id = ?3 AND revoked_at IS NULL",
+            params![at, by, agent_id],
+        )?;
+        Ok(changed)
     }
 }
 
@@ -336,13 +395,13 @@ mod tests {
     async fn insert_and_get_keep_the_bytes() {
         let s = storage();
         let c = share("a", "u1", Audience::Specific, &["u2", "u3"], 10);
-        assert_eq!(s.insert_share(&c, 200).await.unwrap(), InsertOutcome::Inserted);
+        assert_eq!(s.insert_share(&c, 200, i64::MAX).await.unwrap(), InsertOutcome::Inserted);
         let got = s.get_share("a").await.unwrap().unwrap();
         assert_eq!(got.snapshot_json.as_bytes(), c.snapshot_json.as_bytes());
         assert_eq!(got.record, c.record);
         assert_eq!(got.people, vec!["u2", "u3"]);
         assert!(s.get_share("missing").await.unwrap().is_none());
-        assert_eq!(s.insert_share(&c, 200).await.unwrap(), InsertOutcome::IdTaken);
+        assert_eq!(s.insert_share(&c, 200, i64::MAX).await.unwrap(), InsertOutcome::IdTaken);
     }
 
     #[tokio::test]
@@ -350,9 +409,9 @@ mod tests {
         let s = storage();
         for (i, id) in ["a", "b", "c"].iter().enumerate() {
             let who = if i == 2 { "u2" } else { "u1" };
-            s.insert_share(&share(id, who, Audience::Public, &[], i as i64), 200).await.unwrap();
+            s.insert_share(&share(id, who, Audience::Public, &[], i as i64), 200, i64::MAX).await.unwrap();
         }
-        s.insert_share(&share("d", "u1", Audience::Specific, &["x", "y"], 5), 200).await.unwrap();
+        s.insert_share(&share("d", "u1", Audience::Specific, &["x", "y"], 5), 200, i64::MAX).await.unwrap();
         let mine = s.list_shares_by_creator("u1", None, 10).await.unwrap();
         let ids: Vec<_> = mine.iter().map(|m| m.record.share_id.as_str()).collect();
         assert_eq!(ids, ["d", "b", "a"]);
@@ -371,7 +430,7 @@ mod tests {
     #[tokio::test]
     async fn revoke_is_conditional_and_idempotent() {
         let s = storage();
-        s.insert_share(&share("a", "u1", Audience::Public, &[], 1), 200).await.unwrap();
+        s.insert_share(&share("a", "u1", Audience::Public, &[], 1), 200, i64::MAX).await.unwrap();
         assert!(s.revoke_share("a", "u1", 50).await.unwrap());
         assert!(!s.revoke_share("a", "admin", 99).await.unwrap());
         assert!(!s.revoke_share("nope", "u1", 99).await.unwrap());
@@ -383,7 +442,7 @@ mod tests {
     #[tokio::test]
     async fn revoking_deletes_the_snapshot_text_and_keeps_the_row() {
         let s = storage();
-        s.insert_share(&share("a", "u1", Audience::Public, &[], 1), 200).await.unwrap();
+        s.insert_share(&share("a", "u1", Audience::Public, &[], 1), 200, i64::MAX).await.unwrap();
         assert!(!s.get_share("a").await.unwrap().unwrap().snapshot_json.is_empty());
         assert!(s.revoke_share("a", "u1", 5).await.unwrap());
         let got = s.get_share("a").await.unwrap().unwrap();
@@ -391,7 +450,7 @@ mod tests {
         assert_eq!(got.record.revoked_at, Some(5));
         // The id stays taken, so a new share can never reuse it.
         assert_eq!(
-            s.insert_share(&share("a", "u1", Audience::Public, &[], 6), 200).await.unwrap(),
+            s.insert_share(&share("a", "u1", Audience::Public, &[], 6), 200, i64::MAX).await.unwrap(),
             InsertOutcome::IdTaken
         );
     }
@@ -416,8 +475,8 @@ mod tests {
     async fn deleting_a_user_takes_their_shares_and_audience_rows_with_it() {
         let s = storage();
         let u = s.create_user("gone", "h", "role").await.unwrap();
-        s.insert_share(&share("own", &u.user_id, Audience::Public, &[], 1), 200).await.unwrap();
-        s.insert_share(&share("theirs", "u1", Audience::Specific, &[&u.user_id, "u2"], 2), 200).await.unwrap();
+        s.insert_share(&share("own", &u.user_id, Audience::Public, &[], 1), 200, i64::MAX).await.unwrap();
+        s.insert_share(&share("theirs", "u1", Audience::Specific, &[&u.user_id, "u2"], 2), 200, i64::MAX).await.unwrap();
         s.delete_user(&u.user_id).await.unwrap();
         assert!(s.get_share("own").await.unwrap().is_none());
         assert_eq!(s.get_share("theirs").await.unwrap().unwrap().people, vec!["u2"]);
@@ -427,17 +486,17 @@ mod tests {
     #[tokio::test]
     async fn the_cap_counts_active_only_and_audience_rows_cascade() {
         let s = storage();
-        s.insert_share(&share("a", "u1", Audience::Specific, &["u2"], 1), 2).await.unwrap();
-        s.insert_share(&share("b", "u1", Audience::Public, &[], 2), 2).await.unwrap();
+        s.insert_share(&share("a", "u1", Audience::Specific, &["u2"], 1), 2, i64::MAX).await.unwrap();
+        s.insert_share(&share("b", "u1", Audience::Public, &[], 2), 2, i64::MAX).await.unwrap();
         assert_eq!(
-            s.insert_share(&share("c", "u1", Audience::Public, &[], 3), 2).await.unwrap(),
+            s.insert_share(&share("c", "u1", Audience::Public, &[], 3), 2, i64::MAX).await.unwrap(),
             InsertOutcome::CapReached
         );
         assert_eq!(s.count_active_by_creator("u1").await.unwrap(), 2);
         s.revoke_share("b", "u1", 9).await.unwrap();
         assert_eq!(s.count_active_by_creator("u1").await.unwrap(), 1);
         assert_eq!(
-            s.insert_share(&share("c", "u1", Audience::Public, &[], 3), 2).await.unwrap(),
+            s.insert_share(&share("c", "u1", Audience::Public, &[], 3), 2, i64::MAX).await.unwrap(),
             InsertOutcome::Inserted
         );
         assert_eq!(s.delete_shares_by_creator("u1").await.unwrap(), 3);
@@ -457,7 +516,7 @@ mod tests {
         for i in 0..8 {
             let s = s.clone();
             tasks.push(tokio::spawn(async move {
-                s.insert_share(&share(&format!("p{i}"), "u1", Audience::Public, &[], i), 3).await.unwrap()
+                s.insert_share(&share(&format!("p{i}"), "u1", Audience::Public, &[], i), 3, i64::MAX).await.unwrap()
             }));
         }
         let mut inserted = 0;
@@ -468,6 +527,112 @@ mod tests {
         }
         assert_eq!(inserted, 3);
         assert_eq!(s.count_active_by_creator("u1").await.unwrap(), 3);
+    }
+
+    /// FR-047: the total is the sum of `size_bytes` of one person's live shares. A revoked
+    /// row keeps its recorded size for the list but no longer counts.
+    #[tokio::test]
+    async fn live_bytes_counts_live_shares_only() {
+        let s = storage();
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), 0);
+        let a = share("a", "u1", Audience::Public, &[], 1);
+        let b = share("b", "u1", Audience::Public, &[], 2);
+        let (a_size, b_size) = (a.record.size_bytes, b.record.size_bytes);
+        s.insert_share(&a, 200, i64::MAX).await.unwrap();
+        s.insert_share(&b, 200, i64::MAX).await.unwrap();
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), a_size + b_size);
+        assert!(s.revoke_share("a", "u1", 5).await.unwrap());
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), b_size);
+        // Someone else's shares are not part of it.
+        let c = share("c", "u2", Audience::Public, &[], 3);
+        let c_size = c.record.size_bytes;
+        s.insert_share(&c, 200, i64::MAX).await.unwrap();
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), b_size);
+        assert_eq!(s.live_bytes_by_creator("u2").await.unwrap(), c_size);
+    }
+
+    /// FR-047: the budget is checked inside the insert transaction and a refusal writes nothing;
+    /// landing exactly on the budget is allowed.
+    #[tokio::test]
+    async fn the_byte_budget_refuses_and_stores_nothing() {
+        let s = storage();
+        let a = share("a", "u1", Audience::Public, &[], 1);
+        let size = a.record.size_bytes;
+        assert_eq!(s.insert_share(&a, 200, size).await.unwrap(), InsertOutcome::Inserted);
+        let b = share("b", "u1", Audience::Public, &[], 2);
+        assert_eq!(size, b.record.size_bytes, "same id length, same document size");
+        assert_eq!(
+            s.insert_share(&b, 200, size * 2 - 1).await.unwrap(),
+            InsertOutcome::QuotaExceeded
+        );
+        assert!(s.get_share("b").await.unwrap().is_none(), "nothing was stored");
+        assert_eq!(s.count_active_by_creator("u1").await.unwrap(), 1);
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), size);
+        assert_eq!(s.insert_share(&b, 200, size * 2).await.unwrap(), InsertOutcome::Inserted);
+        assert_eq!(s.live_bytes_by_creator("u1").await.unwrap(), size * 2);
+    }
+
+    /// Two parallel creates cannot both pass the same byte budget.
+    #[tokio::test]
+    async fn parallel_creates_over_the_byte_budget_leave_at_most_the_budget() {
+        let s = Arc::new(storage());
+        let budget = share("p0", "u1", Audience::Public, &[], 0).record.size_bytes * 3;
+        let mut tasks = vec![];
+        for i in 0..8 {
+            let s = s.clone();
+            tasks.push(tokio::spawn(async move {
+                s.insert_share(&share(&format!("p{i}"), "u1", Audience::Public, &[], i), 200, budget)
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut inserted = 0;
+        for t in tasks {
+            if t.await.unwrap() == InsertOutcome::Inserted {
+                inserted += 1;
+            }
+        }
+        assert_eq!(inserted, 3);
+        assert!(s.live_bytes_by_creator("u1").await.unwrap() <= budget);
+    }
+
+    /// Cascading revoke: deleting a topic or agent revokes its active shares.
+    #[tokio::test]
+    async fn cascading_revoke_by_topic_and_agent_empties_content() {
+        let s = storage();
+        let mut a = share("s1", "u1", Audience::Public, &[], 1);
+        a.record.agent_id = "agent-x".into();
+        a.record.topic_id = "topic-1".into();
+        let mut b = share("s2", "u1", Audience::Public, &[], 2);
+        b.record.agent_id = "agent-x".into();
+        b.record.topic_id = "topic-2".into();
+        let mut c = share("s3", "u1", Audience::Public, &[], 3);
+        c.record.agent_id = "agent-y".into();
+        c.record.topic_id = "topic-1".into();
+
+        s.insert_share(&a, 200, i64::MAX).await.unwrap();
+        s.insert_share(&b, 200, i64::MAX).await.unwrap();
+        s.insert_share(&c, 200, i64::MAX).await.unwrap();
+
+        // Revoking topic-1 of agent-x affects s1 only
+        assert_eq!(s.revoke_shares_by_topic("agent-x", "topic-1", "u1", 100).await.unwrap(), 1);
+        let s1 = s.get_share("s1").await.unwrap().unwrap();
+        assert!(s1.record.revoked_at.is_some());
+        assert_eq!(s1.snapshot_json, "");
+        let s2 = s.get_share("s2").await.unwrap().unwrap();
+        assert!(s2.record.revoked_at.is_none());
+        assert!(!s2.snapshot_json.is_empty());
+        let s3 = s.get_share("s3").await.unwrap().unwrap();
+        assert!(s3.record.revoked_at.is_none());
+
+        // Revoking agent-x revokes remaining active shares of agent-x (s2)
+        assert_eq!(s.revoke_shares_by_agent("agent-x", "u1", 200).await.unwrap(), 1);
+        let s2 = s.get_share("s2").await.unwrap().unwrap();
+        assert!(s2.record.revoked_at.is_some());
+        assert_eq!(s2.snapshot_json, "");
+        // s3 belongs to agent-y, untouched
+        let s3 = s.get_share("s3").await.unwrap().unwrap();
+        assert!(s3.record.revoked_at.is_none());
     }
 
     /// SC-009: creating the share tables leaves every other table's definition as it was.
@@ -514,5 +679,9 @@ mod tests {
         revoke_is_conditional_and_idempotent,
         the_cap_counts_active_only_and_audience_rows_cascade,
         parallel_creates_at_the_cap_leave_at_most_the_cap,
+        live_bytes_counts_live_shares_only,
+        the_byte_budget_refuses_and_stores_nothing,
+        parallel_creates_over_the_byte_budget_leave_at_most_the_budget,
+        cascading_revoke_by_topic_and_agent_empties_content,
     );
 }

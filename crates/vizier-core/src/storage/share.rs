@@ -154,13 +154,23 @@ pub enum InsertOutcome {
     IdTaken,
     /// The author already has the maximum of active shares.
     CapReached,
+    /// The author's live snapshots plus this one would exceed the byte budget (FR-047).
+    QuotaExceeded,
 }
 
 #[async_trait::async_trait]
 pub trait ShareStorage {
     /// Insert the row and its audience rows in one transaction, checking the author's active
-    /// count inside it so two parallel creates cannot both pass the cap.
-    async fn insert_share(&self, share: &ShareContent, max_active: usize) -> Result<InsertOutcome>;
+    /// count and live byte total inside it so two parallel creates cannot both pass either cap.
+    async fn insert_share(
+        &self,
+        share: &ShareContent,
+        max_active: usize,
+        max_live_bytes: i64,
+    ) -> Result<InsertOutcome>;
+
+    /// The summed `size_bytes` of an author's live (not revoked) shares: the FR-047 total.
+    async fn live_bytes_by_creator(&self, creator_id: &str) -> Result<i64>;
 
     /// One share, revoked or not, with its content and named people.
     async fn get_share(&self, share_id: &str) -> Result<Option<ShareContent>>;
@@ -196,12 +206,27 @@ pub trait ShareStorage {
     /// Delete an author's shares, and the person's place in other shares' audiences (the
     /// account is gone). Returns how many shares were deleted.
     async fn delete_shares_by_creator(&self, creator_id: &str) -> Result<usize>;
+
+    /// Revoke all active shares belonging to a topic/session (cascading revoke on chat deletion).
+    async fn revoke_shares_by_topic(&self, agent_id: &str, topic_id: &str, by: &str, at: i64) -> Result<usize>;
+
+    /// Revoke all active shares belonging to an agent (cascading revoke on agent deletion).
+    async fn revoke_shares_by_agent(&self, agent_id: &str, by: &str, at: i64) -> Result<usize>;
 }
 
 #[async_trait::async_trait]
 impl ShareStorage for VizierStorage {
-    async fn insert_share(&self, share: &ShareContent, max_active: usize) -> Result<InsertOutcome> {
-        self.0.insert_share(share, max_active).await
+    async fn insert_share(
+        &self,
+        share: &ShareContent,
+        max_active: usize,
+        max_live_bytes: i64,
+    ) -> Result<InsertOutcome> {
+        self.0.insert_share(share, max_active, max_live_bytes).await
+    }
+
+    async fn live_bytes_by_creator(&self, creator_id: &str) -> Result<i64> {
+        self.0.live_bytes_by_creator(creator_id).await
     }
 
     async fn get_share(&self, share_id: &str) -> Result<Option<ShareContent>> {
@@ -240,6 +265,14 @@ impl ShareStorage for VizierStorage {
 
     async fn delete_shares_by_creator(&self, creator_id: &str) -> Result<usize> {
         self.0.delete_shares_by_creator(creator_id).await
+    }
+
+    async fn revoke_shares_by_topic(&self, agent_id: &str, topic_id: &str, by: &str, at: i64) -> Result<usize> {
+        self.0.revoke_shares_by_topic(agent_id, topic_id, by, at).await
+    }
+
+    async fn revoke_shares_by_agent(&self, agent_id: &str, by: &str, at: i64) -> Result<usize> {
+        self.0.revoke_shares_by_agent(agent_id, by, at).await
     }
 }
 

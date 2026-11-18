@@ -50,7 +50,7 @@ Index: `(user_id)` (for a later "shared with me" list). Rows exist only when `au
 - **create**: one transaction inserts the row and the audience rows. A primary-key clash is retried once with a new id.
 - **revoke** (FR-039): `UPDATE … SET revoked_at = ?, revoked_by = ?, snapshot_json = '' WHERE share_id = ? AND revoked_at IS NULL`: the snapshot body is deleted for good and the row remains as a tombstone; a second call changes nothing and still answers success to the author (idempotent, so a double click is harmless). The audience rows of a revoked share are no longer consulted.
 - **serve**: only `revoked_at IS NULL`.
-- **conversation deleted**: nothing happens (the snapshot is a copy: FR-005, User Story 5 scenario 8, SC-010).
+- **conversation or agent deleted**: active link shares are automatically revoked (`revoke_shares_by_topic` / `revoke_shares_by_agent`: cascading revoke, User Story 5 scenario 8, SC-010). The snapshot payload is wiped clean (`snapshot_json = ''`), and the URL becomes unavailable. Offline bundles already exported remain locally readable on disk.
 - **author's account deleted**: the user-deletion service calls `delete_shares_by_creator` and removes the person from the audiences of other people's shares (FR-045). Losing the permission to share, or access to the agent, changes nothing (FR-045). Accounts have no disabled state yet.
 - **purge of revoked rows**: not in this version. A tombstone costs a few hundred bytes (the content is gone) and is kept so the author's list can say "revoked"; the 200-active cap does not count revoked ones. A retention purge can be added with the notification purge pattern when there is a reason.
 

@@ -308,7 +308,7 @@ async fn the_two_hundred_and_first_active_share_is_429() {
             snapshot_json,
             people: vec![],
         };
-        assert_eq!(storage.insert_share(&share, 200).await.unwrap(), InsertOutcome::Inserted);
+        assert_eq!(storage.insert_share(&share, 200, i64::MAX).await.unwrap(), InsertOutcome::Inserted);
     }
     assert_eq!(create(&e, &e.alice, json!({})).await.status, 429);
     // A revoked share does not count.

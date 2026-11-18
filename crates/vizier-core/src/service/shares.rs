@@ -43,6 +43,12 @@ pub const MAX_PEOPLE_MATCHES: usize = 10;
 const MEDIA_MIME_ALLOW: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 /// Active shares per person.
 pub const MAX_ACTIVE_PER_PERSON: usize = 200;
+/// Live snapshot bytes per person (FR-047). The WebUI twin is `snapshotsBytesPerPerson` in
+/// `webui/app/lib/share/limits.ts`; this one is enforced server-side, inside the insert
+/// transaction, so two parallel creates cannot both pass it.
+pub const MAX_TOTAL_BYTES: i64 = 250 * 1024 * 1024;
+/// The machine-readable code of the FR-047 refusal.
+pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
 /// The only snapshot format this build reads and writes.
 pub const FORMAT_VERSION: i64 = 1;
 
@@ -316,7 +322,15 @@ async fn check_people(
 
 /// Creates a share from the raw request body.
 pub async fn create(s: &Services, who: &Principal, body: &[u8]) -> Result<CreatedShare, ServiceError> {
-    create_with(s, who, body, &mut new_share_id, MAX_ACTIVE_PER_PERSON).await
+    create_with(
+        s,
+        who,
+        body,
+        &mut new_share_id,
+        MAX_ACTIVE_PER_PERSON,
+        MAX_TOTAL_BYTES,
+    )
+    .await
 }
 
 async fn create_with(
@@ -325,6 +339,7 @@ async fn create_with(
     body: &[u8],
     next_id: &mut (dyn FnMut() -> String + Send),
     max_active: usize,
+    max_total_bytes: i64,
 ) -> Result<CreatedShare, ServiceError> {
     if body.len() > MAX_BODY_BYTES {
         return Err(ServiceError::TooLarge("The snapshot is too large to share".into()));
@@ -397,7 +412,7 @@ async fn create_with(
         let outcome = s
             .deps()
             .storage
-            .insert_share(&share, max_active)
+            .insert_share(&share, max_active, max_total_bytes)
             .await
             .map_err(|e| storage_error("Failed to store the share", e))?;
         match outcome {
@@ -420,6 +435,19 @@ async fn create_with(
                 return Err(ServiceError::RateLimited(
                     "You have reached the limit of active shares; revoke one first".into(),
                 ));
+            }
+            // FR-047: the refusal names the limit, its value, and how to free room. Nothing of
+            // the new snapshot was written.
+            InsertOutcome::QuotaExceeded => {
+                return Err(ServiceError::Invalid {
+                    status: 413,
+                    message: format!(
+                        "You have reached the {} MB of stored snapshots allowed per person; \
+                         revoke a share to free room",
+                        MAX_TOTAL_BYTES / (1024 * 1024)
+                    ),
+                    code: Some(QUOTA_EXCEEDED.into()),
+                });
             }
             InsertOutcome::IdTaken if attempt == 0 => continue,
             InsertOutcome::IdTaken => break,
@@ -855,17 +883,17 @@ mod service_tests {
     async fn a_clash_on_the_id_is_retried_once() {
         let w = world().await;
         let fixed = "AAAAAAAAAAAAAAAAAAAAA".to_string();
-        let first = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || fixed.clone(), 200)
+        let first = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || fixed.clone(), 200, i64::MAX)
             .await
             .unwrap();
         assert_eq!(first.share_id, fixed);
         let mut calls = vec![fixed.clone(), "BBBBBBBBBBBBBBBBBBBBB".to_string()].into_iter();
-        let second = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || calls.next().unwrap(), 200)
+        let second = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || calls.next().unwrap(), 200, i64::MAX)
             .await
             .unwrap();
         assert_eq!(second.share_id, "BBBBBBBBBBBBBBBBBBBBB");
         // Two clashes in a row is a failure, not a loop.
-        let err = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || fixed.clone(), 200)
+        let err = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut || fixed.clone(), 200, i64::MAX)
             .await
             .unwrap_err();
         assert_eq!(err.status(), 500);
@@ -874,12 +902,62 @@ mod service_tests {
     #[tokio::test]
     async fn the_active_cap_refuses_and_a_revoked_share_frees_a_place() {
         let w = world().await;
-        let a = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2).await.unwrap();
-        create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2).await.unwrap();
-        let err = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2).await.unwrap_err();
+        let a = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2, i64::MAX).await.unwrap();
+        create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2, i64::MAX).await.unwrap();
+        let err = create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2, i64::MAX).await.unwrap_err();
         assert_eq!(err.status(), 429);
         assert!(w.s.deps().storage.revoke_share(&a.share_id, &w.owner.user_id, 1).await.unwrap());
-        assert!(create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2).await.is_ok());
+        assert!(create_with(&w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 2, i64::MAX).await.is_ok());
+    }
+
+    /// FR-047 through the service: live bytes are summed, a revoked share stops counting, and a
+    /// create that would cross the budget is refused with a stable code and stores nothing. The
+    /// budget is a parameter so the test crosses it without writing 250 MB.
+    #[tokio::test]
+    async fn the_snapshot_budget_counts_live_shares_and_refuses_with_a_code() {
+        let w = world().await;
+        let storage = &w.s.deps().storage;
+        let first = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap();
+        let size = storage.live_bytes_by_creator(&w.owner.user_id).await.unwrap();
+        assert!(size > 0);
+        assert_eq!(
+            size,
+            storage.get_share(&first.share_id).await.unwrap().unwrap().record.size_bytes
+        );
+        // A revoked share stops counting, though its recorded size stays for the list.
+        revoke(&w.s, &w.owner, &first.share_id).await.unwrap();
+        assert_eq!(storage.live_bytes_by_creator(&w.owner.user_id).await.unwrap(), 0);
+
+        // Just under the budget: one snapshot of `size` against `size + 1`.
+        let fits = create_with(
+            &w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 200, size + 1,
+        )
+        .await
+        .unwrap();
+        assert_eq!(storage.live_bytes_by_creator(&w.owner.user_id).await.unwrap(), size);
+        // The next one would cross it: 413 with a stable code, and nothing stored.
+        let err = create_with(
+            &w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 200, size + 1,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!((err.status(), err.code()), (413, Some("quota_exceeded")));
+        assert!(err.message().contains("250 MB"), "{}", err.message());
+        assert!(err.message().contains("revoke"), "{}", err.message());
+        assert_eq!(storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 1);
+        assert_eq!(storage.live_bytes_by_creator(&w.owner.user_id).await.unwrap(), size);
+        assert!(storage.get_share(&fits.share_id).await.unwrap().is_some());
+
+        // Two live shares are summed; landing exactly on the budget is allowed.
+        revoke(&w.s, &w.owner, &fits.share_id).await.unwrap();
+        for _ in 0..2 {
+            create_with(
+                &w.s, &w.owner, &body("dp-a", "public", None), &mut new_share_id, 200, size * 2,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(storage.live_bytes_by_creator(&w.owner.user_id).await.unwrap(), size * 2);
     }
 
     #[tokio::test]

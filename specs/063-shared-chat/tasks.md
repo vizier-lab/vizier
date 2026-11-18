@@ -211,9 +211,9 @@ description: "Task list for Shared Chat Snapshots"
 
 ## Phase 8: Polish and cross-cutting
 
-- [ ] T078 [P] Accessibility: dialog focus trap, labels, keyboard path for the people picker, viewer landmarks and contrast; add cases to `webui/e2e/a11y.spec.ts` and `webui/e2e/mobile.spec.ts`
+- [X] T078 [P] Accessibility: dialog focus trap (native `showModal`), accessible names on every control, keyboard path for the people picker (arrows, Enter, Escape, announced count), viewer landmarks and one ordered heading tree; contrast passes AA. Fixed here: closing the dialog now returns focus to the share button (a native `<dialog>` only restores a node that is still mounted). Evidence: `webui/e2e/a11y.spec.ts` (5 cases), `webui/e2e/mobile.spec.ts` (2 cases) — 14 passed across desktop-light, desktop-dark, mobile-light
 - [x] T079 [P] Add a "Shared chat" paragraph to `CLAUDE.md` (architecture, where the pieces live, the security layers, the open import spec) — `AGENTS.md` is a symlink to it, so edit `CLAUDE.md` only
-- [ ] T080 [P] Add the `docs/src/SUMMARY.md` entries for the two new pages and run `just landing-build`
+- [X] T080 [P] Both pages were already listed in `docs/src/SUMMARY.md` (2.24 Sharing Conversations, 3.6 Shared Chat API). `just landing-build` (after `git submodule update --init landing` + `npm install`) built 44 pages; both render as `dist/docs/configuration/sharing/index.html` (“Sharing Conversations | Vizier”) and `dist/docs/api-integration/shares/index.html`
 - [ ] T081 Run the whole `specs/063-shared-chat/quickstart.md` (and time SC-001: Share → copied link under 30 s for a 200-message, 10-image chat) against a binary with a dummyplug agent (`just run-d`), including §7 on a copy of an existing workspace database and on PostgreSQL, and §8 with `oha`; record results at the bottom of the quickstart
 - [ ] T082 In the repository root run `cargo clippy --workspace`, `cargo nextest run -p vizier-core -p vizier-http`, `cargo test -p vizier-core --no-default-features`, `cd webui && npm run typecheck && npm test && npx playwright test e2e/share.spec.ts`, and `cd app && cargo test` (desktop dispatcher parity); fix what they show
 - [ ] T083 Review the open decisions in `spec.md` Clarifications with the maintainers and update the spec and docs for whatever they change; commit with `just commit "feat(share): …"` in order design → webui → vizier
@@ -227,7 +227,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 - [X] T085 FR-011: the audience is not preselected. `ShareDialog` opens with no choice, Create is disabled until one is chosen, `createLink` refuses a missing audience. Evidence: `ShareDialog.test.tsx` ("opens with no audience selected…", "refuses to create when no audience was chosen")
 - [X] T086 FR-020: the dialog tells the person that automatic removal cannot recognise everything and that they are responsible. Evidence: `REVIEW_WARNING`, `ShareDialog.test.tsx`
 - [ ] T084 FR-007 author name: DEFERRED. It needs a field in the snapshot (`source.author`, chosen at create time, so a cached public body stays viewer-independent, analysis A3), a switch in the dialog with the defaults of FR-007, and the viewer line. Format change: schedule it before the first release, because it touches the stored format
-- [ ] T087 FR-023 leave out all pictures and audio: DEFERRED. A switch in the dialog and a `skip` mode in `MediaBuilder` that counts them under `removals.media`; no backend change
+- [X] T087 FR-023 leave out all pictures and audio: a `Leave out pictures and audio` switch in the dialog and a `skipMedia` mode in `MediaBuilder` that returns `left_out` placeholders before any fetch or encode; `removals.media` counts them. `left_out` degrades to `unsupported` in older viewers (`z.enum(REASONS).catch`), so no format bump. Evidence: `media.test.ts`, `serialize.test.ts`, `ShareDialog.test.tsx`
 - [X] T088 FR-035: the Offline tab warns that a file cannot be revoked or limited to an audience, and the file opens with an "unverified copy" banner. Evidence: `OFFLINE_WARNING`, `OFFLINE_BANNER`, `main.test.tsx`. The "who saved it" name waits for T084
 - [X] T089 FR-036: My Shares has "Download file" for the author's own shares; it reads the share through `GET /shares/{id}` and exports it, creating nothing. Not shown in the administrator's "All shares" view. Evidence: `MySharesPage.test.tsx` (`ShareRow`)
 - [X] T090 FR-038: a chat with live shares shows "Shared: N live links", leading to My Shares. It reads the existing list (newest first, up to 5 pages of 100), so a person with more than 500 newer shares may not see the mark; no backend change. Evidence: `shares.test.ts`, `ShareDialog.test.tsx` ("the shared mark")
@@ -235,7 +235,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 - [X] T092 FR-043: `ShareListItem.title` is optional; My Shares shows "Title not shown" for a share the administrator is not in the audience of and offers only Revoke for it (no Open, Copy or Download). Evidence: `MySharesPage.test.tsx`
 - [ ] T093 FR-044 tell the author when someone else revokes: DEFERRED (backend: an inbox notification from `service::shares::revoke` when `by != creator`). Needs `cargo`
 - [X] T094 FR-045: deleting an account removes its shares and its place in other audiences. Evidence: `storage/sqlite/share.rs` test "FR-045", `service/users.rs` `delete_user`. Losing the permission leaves shares working: T062
-- [ ] T095 FR-046 offline file up to 20 MB: DEFERRED. The preview uses the 5 MiB link limit for the file too (stricter, safe). Needs a mode argument in `buildPreview`
+- [X] T095 FR-046 offline file up to 20 MB: `SHARE_LIMITS.offlineBytes` (20 MB) is used by `buildPreview(result, { limitBytes, label })` for the offline tab only; the link budget stays `bodyBytes - envelopeBytes` (5 MiB, matching the Rust twin). Evidence: `preview.test.ts`, `ShareDialog.test.tsx`
 - [ ] T096 FR-047 250 MB of snapshots per person: DEFERRED (backend: sum of `size_bytes` of live shares inside the insert transaction, plus the refusal text). Needs `cargo`
 - [X] T097 FR-048 2,000 messages: `SHARE_LIMITS.turns` is 5,000 (a message is at most one turn), so a 2,000-message conversation that fits 5 MiB is shareable. Evidence: `limits.ts`, `serialize.test.ts` turn cap
 - [X] T098 FR-050 one share per double confirmation: `singleFlight` wraps the create call. Evidence: `singleFlight.test.ts`. The two-confirmations-in-one-second Playwright trial of SC-015 is part of T060
@@ -276,7 +276,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 | FR-020 review warning | T086 | done |
 | FR-021 pictures inside, raster only | T031, T101 | done |
 | FR-022 1 MB, reduce or placeholder | T031, T101 (TP-12) | done (pictures; audio becomes a placeholder) |
-| FR-023 leave out all pictures | T087 | DEFERRED |
+| FR-023 leave out all pictures | T087 | DONE |
 | FR-024 interactive results usable | T025, T034 | done |
 | FR-025 results only change the viewer's own display | T034, T070 (TP-44) | done |
 | FR-026 author logic isolated, time-limited | T004, T034 (TP-45) | done |
@@ -299,7 +299,7 @@ Added by the round-2 analysis (`analysis.md`). Each is marked done with its evid
 | FR-043 admin list and revoke, no content, no title or names | T061, T064, T066, T092 | done |
 | FR-044 author told when someone else revokes | T093 | DEFERRED |
 | FR-045 account deletion revokes and removes from audiences | T062, T065, T094 | done |
-| FR-046 5 MB link, 20 MB file, refused not cut | T023, T032; the 20 MB file limit T095 | partly: file limit DEFERRED (5 MiB applies to both) |
+| FR-046 5 MB link, 20 MB file, refused not cut | T023, T032; the 20 MB file limit T095 | DONE: 5 MiB link, 20 MB file |
 | FR-047 10 / hour, 200 live, 250 MB total | T016, T023; total T096 | partly: 250 MB DEFERRED |
 | FR-048 2,000 messages | T097 | done (cap is 5,000 turns) |
 | FR-049 unguessable id, 60 misses / min | T015, T016, T052 | done |

@@ -121,7 +121,7 @@ A person can see every link they have shared, with its audience and date, open i
 5. **Given** a chat that has live shares, **When** its author opens it, **Then** the chat shows that it is shared and leads to those shares.
 6. **Given** an administrator, **When** they list shares on the instance, **Then** they see each share's author, agent, kind of audience, number of named people, date and size, and can revoke any. They see a share's title and the names of its named people only when they are in its audience. Opening a share they are not in the audience of gets the "not available" page.
 7. **Given** an administrator revokes someone's share, **When** that happens, **Then** the author is told which share was revoked.
-8. **Given** a share exists, **When** its author edits, continues, clears or deletes the original chat, or the agent is deleted, **Then** the share shows exactly what it showed when it was created.
+8. **Given** a share exists, **When** its author edits or continues the original chat, **Then** the share displays unchanged as a frozen snapshot. **When** the author or an administrator deletes the original chat or the agent, **Then** all active link shares of that conversation or agent are automatically revoked (cascading revoke for data protection / right-to-be-forgotten), rendering the link unavailable. Offline `.vizier.html` bundles downloaded prior to deletion remain locally readable.
 
 ---
 
@@ -274,7 +274,7 @@ Reading a share needs no permission to share and no access to the agent the conv
 - **SC-007**: In a test set of at least 100 hostile conversations, 0 cause any effect outside their own display, in the link view as a signed-in user and in the offline file: nothing sent, nothing run, nothing read, no request made, no markup breakout.
 - **SC-008**: Every interactive result kind that works in a chat responds in a shared view, within the same time it takes in the original chat.
 - **SC-009**: A revoked restricted share is refused on the next attempt in 100% of cases, and a revoked public share is refused for every new visitor within 5 minutes.
-- **SC-010**: After the original chat, its files and its agent are deleted, 100% of existing shares of it display unchanged.
+- **SC-010**: When a chat topic or agent is deleted, 100% of its active link shares are automatically revoked (cascading revoke: content erased and URL returns unavailable), ensuring sensitive information is purged upon source deletion. Existing offline files remain viewable on the user's local disk.
 - **SC-011**: A public share of a 200-message conversation with 10 pictures is readable within 3 seconds of opening the link on an ordinary connection, and the preview for it appears within 3 seconds of pressing Share.
 - **SC-012**: 1,000 visitors opening one public share within a minute do not slow an ongoing chat on the same instance by more than 10%.
 - **SC-013**: An administrator outside a share's audience obtains 0 bytes of its conversation content, and neither its title nor the names of its named people, through any surface, while being able to list and revoke it.
@@ -307,9 +307,9 @@ The requirements above are unchanged. These are not yet met by the implementatio
 |---|---|---|
 | FR-041, removing named people from an existing share | **Deferred.** The backend has no route for it; the WebUI does not invent one. Until it exists the author revokes the share and creates a new one. Widening the audience is already impossible (no update route) | T091 |
 | FR-007, the author's display name (optional, defaults per audience) | Deferred. Needs a field in the snapshot format | T084 |
-| FR-023, leaving out all pictures and audio | Deferred | T087 |
+| FR-023, leaving out all pictures and audio | Done | T087 |
 | FR-044, telling the author when someone else revokes | Deferred (backend) | T093 |
-| FR-046, a 20 MB limit for the offline file | Deferred; the stricter 5 MB link limit applies to both | T095 |
+| FR-046, a 20 MB limit for the offline file | Done: the offline file gets 20 MB, a link keeps the 5 MiB body limit | T095 |
 | FR-047, 250 MB of snapshots per person | Deferred (backend) | T096 |
 | FR-052, the record of share actions | Deferred (backend) | T099 |
 | FR-030, no audience in the read response | Done | T104 |
