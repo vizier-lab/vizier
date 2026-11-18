@@ -34,6 +34,7 @@
 - [2.21 Time](./configuration/time.md)
 - [2.22 Workspaces](./configuration/workspaces.md)
 - [2.23 Custom Tools](./configuration/custom-tools.md)
+- [2.24 Sharing Conversations](./configuration/sharing.md)
 
 # 3. API Integration
 
@@ -42,6 +43,7 @@
 - [3.3 Generative UI](./api-integration/generative-ui.md)
 - [3.4 Examples](./api-integration/examples.md)
 - [3.5 Building on vizier-core](./api-integration/building-on-vizier-core.md)
+- [3.6 Shared Chat API](./api-integration/shares.md)
 
 # 4. Deployment
 

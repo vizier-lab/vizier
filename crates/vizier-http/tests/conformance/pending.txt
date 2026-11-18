@@ -6,4 +6,6 @@
 /inbox/stream
 /integrations/kinds/{id}/icon
 /providers/custom/test
+# public read with optional sign-in: no desktop twin worth comparing; see tests/shares.rs
+/shares/{share_id}
 /workspaces/{id}/topics/{tid}/stream

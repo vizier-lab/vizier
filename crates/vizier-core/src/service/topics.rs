@@ -530,6 +530,14 @@ pub async fn delete(
                 user: Some(who.user_id.clone()),
                 agent_id: None,
             });
+            // Cascading revoke for any active shared chat links of this topic.
+            let now = crate::time::now().timestamp_millis();
+            let _ = s
+                .deps()
+                .storage
+                .revoke_shares_by_topic(agent_id, &topic_id, &who.user_id, now)
+                .await;
+
             Ok("Topic deleted".into())
         }
         Err(ClearError::TurnActive) => Err(conflict(TURN_ACTIVE)),

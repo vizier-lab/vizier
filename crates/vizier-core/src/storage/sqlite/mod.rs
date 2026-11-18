@@ -33,6 +33,7 @@ mod provider;
 mod question;
 mod reaction;
 mod scratch;
+mod share;
 mod secret;
 mod custom_tool;
 pub(crate) use custom_tool::delete_agent_custom_tools;
@@ -482,6 +483,7 @@ impl SqlStorage {
         init_custom_tool_schema(conn)?;
         init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
+        share::init_share_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
         // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
         // rows stay for the timeline's order. Every existing entry was a message, so the default
