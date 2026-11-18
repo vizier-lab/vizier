@@ -31,9 +31,13 @@ export function ServerRow({ name, transport, target, state, detail, category, to
             <span className="type-mono-xs break-all text-faint">{target}</span>
           </div>
         </div>,
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <Status state={state} font="sans" />
-          {detail && <span className="type-small text-faint">{detail}</span>}
+          {detail && (
+            <span className="type-small line-clamp-3 text-faint [overflow-wrap:anywhere]" title={typeof detail === "string" ? detail : undefined}>
+              {detail}
+            </span>
+          )}
         </div>,
         <span className="type-mono-sm text-muted">{category}</span>,
         <span className="type-mono-sm text-muted">{tools ?? "–"}</span>,
