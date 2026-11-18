@@ -14,5 +14,8 @@ pub enum McpClientConfig {
     },
     Http {
         uri: String,
+        /// Sent with every request, e.g. `Authorization: Bearer …` or `X-API-Key`.
+        #[serde(default)]
+        headers: Option<HashMap<String, String>>,
     },
 }

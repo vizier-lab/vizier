@@ -29,11 +29,43 @@ fn is_http(settings: &Value) -> bool {
     settings.get("transport").and_then(|t| t.as_str()) == Some("http")
 }
 
+/// A `SecretMap` setting as a map of its string values.
+fn string_map(settings: &Value, key: &str) -> HashMap<String, String> {
+    settings
+        .get(key)
+        .and_then(|e| e.as_object())
+        .map(|e| {
+            e.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Headers the transport sets itself; rmcp refuses a request that also carries one of them.
+const RESERVED_HEADERS: &[&str] = &["accept", "content-type", "mcp-session-id", "mcp-protocol-version", "last-event-id"];
+
+/// Why a header can't be sent, if it can't: an invalid name or value, or one the transport owns.
+fn header_problem(name: &str, value: &str) -> Option<String> {
+    let Ok(parsed) = reqwest::header::HeaderName::from_bytes(name.trim().as_bytes()) else {
+        return Some(format!("'{name}' is not a valid header name"));
+    };
+    if RESERVED_HEADERS.contains(&parsed.as_str()) {
+        return Some(format!("the '{name}' header is set by the MCP transport and can't be overridden"));
+    }
+    if reqwest::header::HeaderValue::from_str(value).is_err() {
+        return Some(format!("the value of '{name}' has characters a header can't carry"));
+    }
+    None
+}
+
 /// The stored settings as the client config `McpServer` connects with.
 pub fn client_config(settings: &Value) -> Option<McpClientConfig> {
     if is_http(settings) {
+        let headers = string_map(settings, "headers");
         return Some(McpClientConfig::Http {
             uri: string_setting(settings, "uri")?.to_string(),
+            headers: (!headers.is_empty()).then_some(headers),
         });
     }
     let args = settings
@@ -41,15 +73,7 @@ pub fn client_config(settings: &Value) -> Option<McpClientConfig> {
         .and_then(|a| a.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
-    let env: HashMap<String, String> = settings
-        .get("env")
-        .and_then(|e| e.as_object())
-        .map(|e| {
-            e.iter()
-                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-                .collect()
-        })
-        .unwrap_or_default();
+    let env = string_map(settings, "env");
     Some(McpClientConfig::Local {
         command: string_setting(settings, "command")?.to_string(),
         args,
@@ -79,6 +103,7 @@ impl IntegrationKind for McpKind {
                 KindField::new("args", "Arguments", FieldType::StringList),
                 KindField::new("env", "Environment", FieldType::SecretMap),
                 KindField::new("uri", "URL", FieldType::String),
+                KindField::new("headers", "Headers", FieldType::SecretMap),
             ],
         }
     }
@@ -93,6 +118,13 @@ impl IntegrationKind for McpKind {
         match settings.get("transport").and_then(|t| t.as_str()) {
             None | Some("local") | Some("http") => {}
             Some(other) => return Err(format!("unknown transport '{other}'")),
+        }
+        if is_http(settings) {
+            for (name, value) in string_map(settings, "headers") {
+                if let Some(problem) = header_problem(&name, &value) {
+                    return Err(problem);
+                }
+            }
         }
         if !self.missing(settings).is_empty() {
             return Err(if is_http(settings) {
@@ -190,7 +222,28 @@ mod tests {
         ));
         assert!(matches!(
             client_config(&json!({"transport": "http", "uri": "http://x"})),
-            Some(McpClientConfig::Http { .. })
+            Some(McpClientConfig::Http { headers: None, .. })
         ));
+        assert!(matches!(
+            client_config(&json!({"transport": "http", "uri": "http://x",
+                                  "headers": {"Authorization": "Bearer t"}})),
+            Some(McpClientConfig::Http { headers: Some(ref h), .. }) if h["Authorization"] == "Bearer t"
+        ));
+    }
+
+    #[test]
+    fn headers_are_checked_and_redacted() {
+        let http = |headers: Value| json!({"transport": "http", "uri": "http://x", "headers": headers});
+        assert!(McpKind.validate("gym", &http(json!({"Authorization": "Bearer t", "X-API-Key": "k"}))).is_ok());
+        assert!(McpKind.validate("gym", &http(json!({"bad name": "v"}))).is_err());
+        assert!(McpKind.validate("gym", &http(json!({"Accept": "text/plain"}))).is_err());
+        assert!(McpKind.validate("gym", &http(json!({"Mcp-Session-Id": "s"}))).is_err());
+        assert!(McpKind.validate("gym", &http(json!({"X-Key": "line
+break"}))).is_err());
+
+        let stored = http(json!({"Authorization": "Bearer secret-token-a91c"}));
+        assert_eq!(McpKind.redact(&stored)["headers"], json!({"Authorization": "••••a91c"}));
+        let merged = McpKind.merge_secrets(&stored, http(json!({"Authorization": "••••a91c"})));
+        assert_eq!(merged["headers"], stored["headers"]);
     }
 }
