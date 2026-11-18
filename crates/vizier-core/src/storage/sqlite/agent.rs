@@ -151,6 +151,8 @@ impl AgentStorage for SqlStorage {
         )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
+        // Its interactive pages and their versions (spec 063); the blobs go by prefix.
+        super::ui_page::delete_agent_pages(&conn, agent_id)?;
         // Its custom tools, versions, categories and their log (spec 061).
         super::delete_agent_custom_tools(&conn, agent_id)?;
         // Its notifications go with it; their read rows cascade (spec 029).

@@ -24,8 +24,12 @@ use rmcp::{
     ClientHandler, RoleClient, ServiceError, ServiceExt,
     model::{CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation},
     service::{NotificationContext, RunningService},
-    transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess},
+    transport::{
+        ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig,
+    },
 };
+use reqwest::header::{HeaderName, HeaderValue};
 
 use crate::{
     config::tools::mcp::McpClientConfig,
@@ -318,7 +322,7 @@ impl McpServer {
                 Some(client)
             }
             Ok(Err(e)) => {
-                self.disconnect(state, format!("connect failed: {e}"));
+                self.disconnect(state, format!("connect failed: {}", describe_connect_error(&e.to_string())));
                 None
             }
             Err(_) => {
@@ -358,6 +362,29 @@ impl McpServer {
     }
 }
 
+/// rmcp's connect errors carry the transport's full Rust type in brackets
+/// (`Transport [rmcp::transport::worker::WorkerTransport<…>] error: …`), which a person can't
+/// read and which overflows the status column. Drop the type, and name the one cause people
+/// hit most: a remote server that wants credentials, which vizier cannot send yet.
+fn describe_connect_error(raw: &str) -> String {
+    // rmcp says "Auth required" when the 401 carries `WWW-Authenticate`, and reports a bare one
+    // as an unexpected response.
+    if raw.contains("Auth required") || raw.contains("401 Unauthorized") {
+        return "the server requires authentication: add its key or token under Headers (OAuth sign-in isn't supported yet)".into();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut depth = 0usize;
+    for c in raw.chars() {
+        match c {
+            '[' => depth += 1,
+            ']' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Errors that mean the connection itself is gone, as opposed to the server answering a call
 /// with an error.
 fn is_connection_error(e: &ServiceError) -> bool {
@@ -380,10 +407,75 @@ impl McpClientConfig {
                 let transport = TokioChildProcess::new(command)?;
                 Ok(handler.serve(transport).await?)
             }
-            Self::Http { uri } => {
-                let transport = StreamableHttpClientTransport::from_uri(uri.clone());
+            Self::Http { uri, headers } => {
+                // Validated on save, so a header that still fails to parse is skipped, not fatal.
+                let custom_headers: HashMap<HeaderName, HeaderValue> = headers
+                    .iter()
+                    .flatten()
+                    .filter_map(|(k, v)| Some((HeaderName::from_bytes(k.trim().as_bytes()).ok()?, HeaderValue::from_str(v).ok()?)))
+                    .collect();
+                let config = StreamableHttpClientTransportConfig::with_uri(uri.as_str()).custom_headers(custom_headers);
+                let transport = StreamableHttpClientTransport::from_config(config);
                 Ok(handler.serve(transport).await?)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A remote server answers 401 to whatever it gets; the request it saw is returned.
+    async fn first_request_to_a_401_server(config: impl FnOnce(String) -> McpClientConfig) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let uri = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 16 * 1024];
+            let n = socket.read(&mut buf).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&buf[..n]).to_lowercase()
+        });
+        let handler = McpHandler {
+            info: ClientConfig::new(ClientCapabilities::default(), Implementation::new("test", "0")),
+            tools_stale: Arc::new(AtomicBool::new(false)),
+        };
+        let result = config(uri).connect(handler).await;
+        let request = server.await.unwrap();
+        let error = result.err().expect("a 401 must fail the connect").to_string();
+        assert!(describe_connect_error(&error).starts_with("the server requires authentication"), "{error}");
+        request
+    }
+
+    #[tokio::test]
+    async fn configured_headers_are_sent_to_a_remote_server() {
+        let request = first_request_to_a_401_server(|uri| McpClientConfig::Http {
+            uri,
+            headers: Some(HashMap::from([
+                ("Authorization".to_string(), "Bearer t0ken".to_string()),
+                ("X-API-Key".to_string(), "k3y".to_string()),
+            ])),
+        })
+        .await;
+        assert!(request.contains("authorization: bearer t0ken"), "{request}");
+        assert!(request.contains("x-api-key: k3y"), "{request}");
+    }
+
+    #[test]
+    fn an_auth_failure_is_named() {
+        let raw = "Send message error Transport [rmcp::transport::worker::WorkerTransport<rmcp::transport::streamable_http_client::StreamableHttpClientWorker<reqwest::Client>>] error: Auth required, when send initialize request";
+        assert!(describe_connect_error(raw).starts_with("the server requires authentication"));
+    }
+
+    #[test]
+    fn the_transport_type_is_dropped() {
+        let raw = "Send message error Transport [a::B<c::D>] error: connection refused";
+        assert_eq!(describe_connect_error(raw), "Send message error Transport error: connection refused");
+        assert_eq!(describe_connect_error("plain"), "plain");
     }
 }

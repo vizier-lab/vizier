@@ -171,6 +171,14 @@ pub async fn authorize_topic(
     Ok(config)
 }
 
+/// An inclusive lower bound on a history read: the entry to read back to, by its time and,
+/// when it has one, its `seq`.
+#[derive(Debug, Clone, Copy)]
+pub struct HistoryFrom {
+    pub at: chrono::DateTime<chrono::Local>,
+    pub seq: Option<i64>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn history(
     s: &Services,
@@ -181,6 +189,7 @@ pub async fn history(
     before: Option<chrono::DateTime<chrono::Local>>,
     before_seq: Option<i64>,
     limit: Option<usize>,
+    from: Option<HistoryFrom>,
 ) -> Result<Vec<SessionHistory>, ServiceError> {
     authorize_topic(s, who, agent_id, channel_id).await?;
     let session = readable_session(agent_id.to_string(), &who.username, channel_id, topic_id);
@@ -188,11 +197,103 @@ pub async fn history(
     // Every entry kind is returned, `AssistantMessage` included: the intermediate narration
     // an agent writes alongside its tool calls is part of the trail the WebUI renders, and
     // dropping it here is what used to make it invisible.
-    s.deps()
+    let storage = &s.deps().storage;
+    // With a lower bound the read is the whole range back to it, whatever `limit` says: a
+    // reader jumping to an older entry gets everything in between, so its pages stay whole.
+    let read = match from {
+        Some(from) => storage.list_session_history_from(session, from.at, from.seq, before, before_seq).await,
+        None => storage.list_session_history(session, before, before_seq, limit).await,
+    };
+    read.map_err(|_| ServiceError::NotFound("Not found".into()))
+}
+
+/// One message a person sent in a conversation, for the WebUI's prompt ruler: where it is in
+/// the history (`uid`, `seq`, `timestamp`, the history cursor) and the start of what it said.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct PromptMark {
+    pub uid: String,
+    pub seq: Option<i64>,
+    pub timestamp: chrono::DateTime<chrono::Local>,
+    /// The first line of the message, at most [`PROMPT_PREVIEW_CHARS`] characters.
+    pub preview: String,
+}
+
+/// How much of a prompt the ruler's label shows.
+pub const PROMPT_PREVIEW_CHARS: usize = 120;
+
+/// The person's messages in one conversation, oldest first: what they typed, spoke, answered
+/// or sent from a page the agent drew. Requests a machine sent (a delivery, a scheduled run, a
+/// command) are not prompts.
+pub async fn prompts(
+    s: &Services,
+    who: &Principal,
+    agent_id: &str,
+    channel_id: &str,
+    topic_id: TopicId,
+) -> Result<Vec<PromptMark>, ServiceError> {
+    authorize_topic(s, who, agent_id, channel_id).await?;
+    let session = readable_session(agent_id.to_string(), &who.username, channel_id, topic_id);
+    let requests = s
+        .deps()
         .storage
-        .list_session_history(session, before, before_seq, limit)
+        .list_session_requests(session)
         .await
-        .map_err(|_| ServiceError::NotFound("Not found".into()))
+        .map_err(|_| ServiceError::NotFound("Not found".into()))?;
+    Ok(requests.iter().filter_map(prompt_mark).collect())
+}
+
+fn prompt_mark(entry: &SessionHistory) -> Option<PromptMark> {
+    use crate::schema::{SessionHistoryContent, VizierRequestContent as C};
+    let SessionHistoryContent::Request(request) = &entry.content else { return None };
+    let text = match &request.content {
+        C::Chat(text) | C::Prompt(text) => text.clone(),
+        C::AudioChat(_, transcript) | C::AudioPrompt(_, transcript) => {
+            transcript.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Voice message".into())
+        }
+        C::ClientEvent(event) => event.text.clone(),
+        C::QuestionAnswer(answer) => answer.text.clone(),
+        _ => return None,
+    };
+    // A message with only files says so, rather than leaving the label blank.
+    let mut preview = preview_of(&text);
+    if preview.is_empty() {
+        preview = match request.attachments.len() {
+            0 => String::new(),
+            1 => "1 attachment".into(),
+            n => format!("{n} attachments"),
+        };
+    }
+    Some(PromptMark { uid: entry.uid.clone(), seq: entry.seq, timestamp: entry.timestamp, preview })
+}
+
+/// The first non-empty line, cut at [`PROMPT_PREVIEW_CHARS`] characters with an ellipsis.
+fn preview_of(text: &str) -> String {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    if line.chars().count() <= PROMPT_PREVIEW_CHARS {
+        return line.to_string();
+    }
+    let cut: String = line.chars().take(PROMPT_PREVIEW_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::preview_of;
+
+    #[test]
+    fn a_preview_is_the_first_line_that_says_something() {
+        assert_eq!(preview_of("\n  \n  add Bandung  \nand Tokyo"), "add Bandung");
+        assert_eq!(preview_of(""), "");
+    }
+
+    #[test]
+    fn a_long_line_is_cut_with_an_ellipsis() {
+        let long = "x".repeat(300);
+        let p = preview_of(&long);
+        assert_eq!(p.chars().count(), super::PROMPT_PREVIEW_CHARS);
+        assert!(p.ends_with('…'));
+    }
 }
 
 pub async fn list_files(
@@ -415,6 +516,8 @@ pub async fn delete(
     // Its detached scripts stop and go (spec 058). A script another process runs stops at its
     // next progress write, when it finds its row gone.
     s.deps().detached.delete_session(&session).await;
+    // Its interactive pages go, with their HTML (spec 063).
+    s.deps().ui_pages.delete_session(&session).await;
     // Its workers stop and go, with their own conversations (spec 059 FR-017c).
     let workers = s.deps().subagents.delete_session(&session).await;
     crate::agents::subagents::delete_worker_conversations(files, workers).await;

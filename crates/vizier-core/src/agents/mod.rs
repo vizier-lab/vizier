@@ -790,6 +790,7 @@ impl AgentHost {
         }
         self.deps.session_files.delete_blobs(&files).await;
         self.deps.artifacts.delete_agent_files(agent_id).await;
+        self.deps.ui_pages.delete_agent_blobs(agent_id).await;
         for integration in attached {
             self.deps
                 .transport

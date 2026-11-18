@@ -87,6 +87,8 @@ pub mod telegram;
 mod think;
 mod time;
 pub mod tts;
+pub mod ui_kit;
+pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
 mod webui;
@@ -136,10 +138,13 @@ pub enum ToolCategory {
     /// Make, change and organise the agent's own custom tools (`specs/061-agent-custom-tools`).
     /// The custom tools themselves are listed under the agent's own categories.
     CustomTools,
+    /// Interactive pages drawn in a WebUI reply (`specs/063-html-generative-ui`). Offered only in
+    /// WebUI and project conversations, by the tool's `available`.
+    Ui,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 22] = [
+    pub const ALL: [ToolCategory; 23] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -162,6 +167,7 @@ impl ToolCategory {
         Self::Subagents,
         Self::History,
         Self::CustomTools,
+        Self::Ui,
     ];
 
     pub fn name(self) -> &'static str {
@@ -188,6 +194,7 @@ impl ToolCategory {
             Self::Workspaces => "workspaces",
             Self::Subagents => "subagents",
             Self::CustomTools => "custom_tools",
+            Self::Ui => "ui",
         }
     }
 
@@ -233,6 +240,9 @@ impl ToolCategory {
                 "Hire temporary workers for parts of a task, wait for them, answer their questions and stop them"
             }
             Self::CustomTools => "Make, change and organise your own custom tools",
+            Self::Ui => {
+                "Draw interactive HTML pages (apps, games, dashboards) in your reply and change them with small edits"
+            }
         }
     }
 }
@@ -269,11 +279,13 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
         "delegate_agent",
         "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
     ),
-    (
-        "ui_render_interactive_ui",
-        "render_interactive_ui was replaced by ui_render. Start with ui_components().",
-    ),
+    ("ui_render_interactive_ui", UI_REPLACED),
+    ("render_interactive_ui", UI_REPLACED),
+    ("ui_components", UI_REPLACED),
 ];
+
+/// Spec 063: the WebUI's generative UI client tools became the built-in `ui_render`.
+const UI_REPLACED: &str = "This tool was replaced by ui_render (category ui), which draws an HTML page and ends the turn. Read its guide first: describe_tool_function(\"ui_render\").";
 
 /// The guidance for a retired tool name, if the name is known.
 pub fn retired_hint(name: &str) -> Option<&'static str> {
@@ -734,6 +746,10 @@ pub trait VizierToolDyn {
 
     fn output_schema(&self) -> serde_json::Value;
 
+    /// A long reference read on demand through `describe_tool_function` (`guide`), for a tool
+    /// whose use does not fit its description (`specs/063-html-generative-ui` R2).
+    fn guide(&self) -> Option<&'static str>;
+
     async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError>;
 }
 
@@ -779,6 +795,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
         Self::output_schema()
     }
 
+    fn guide(&self) -> Option<&'static str> {
+        <Self as VizierTool>::guide()
+    }
+
     async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError> {
         let input = serde_json::from_str(&args).map_err(|err| VizierError(err.to_string()))?;
         let output = self.call(input, ctx).await?;
@@ -814,6 +834,12 @@ pub trait VizierTool {
     /// the other end overrides this and decides per turn.
     fn available(&self, _ctx: &ToolContext) -> bool {
         true
+    }
+
+    /// A reference too long for the description, returned by `describe_tool_function` as
+    /// `guide`. The description should say to read it. Default none.
+    fn guide() -> Option<&'static str> {
+        None
     }
 
     fn input_schema() -> serde_json::Value {
@@ -1562,6 +1588,15 @@ impl BaseTools {
                 deps.storage.clone(),
                 deps.transport.clone(),
             ))
+            // Interactive pages (spec 063): always registered, offered only in WebUI and project
+            // conversations by `available`, so other prompts never list the `ui` category.
+            .tool(ui_pages::UiRender::new(
+                deps.ui_pages.clone(),
+                deps.storage.clone(),
+                deps.transport.clone(),
+            ))
+            .tool(ui_kit::UiDescribeElements)
+            .tool(ui_kit::UiExamples)
             .tool(vector_memory::attachments::AttachArtifactToMemory {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
@@ -1948,6 +1983,9 @@ mod tests {
             entry::<GetSecret>(),
             entry::<crate::questions::tool_question::AskQuestion>(),
             entry::<crate::questions::tool_sensitive::AskSensitiveInput>(),
+            entry::<ui_pages::UiRender>(),
+            entry::<ui_kit::UiDescribeElements>(),
+            entry::<ui_kit::UiExamples>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -2065,6 +2103,9 @@ mod tests {
             // Beside `set_secret`/`get_secret`: the value goes to a script (spec 042).
             ("ask_sensitive_input", Secrets),
             ("ask_question", Questions),
+            ("ui_render", Ui),
+            ("ui_describe_elements", Ui),
+            ("ui_examples", Ui),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
@@ -2177,10 +2218,12 @@ mod tests {
                 );
             }
         }
-        assert_eq!(
-            retired_hint("ui_render_interactive_ui"),
-            Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
-        );
+        // Spec 063: the generative UI client tools point at the built-in and its guide.
+        for name in ["ui_render_interactive_ui", "render_interactive_ui", "ui_components"] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("ui_render") && hint.contains("describe_tool_function"), "{hint}");
+        }
+        assert_eq!(retired_hint("ui_render"), None, "ui_render is the built-in, not retired");
         // Spec 058 contracts/detached-flag.md §5.
         for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
             let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
@@ -2265,10 +2308,10 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `custom_tools` (spec 061) is the last; `history` (spec 060) is the one before it.
-        assert_eq!(names.last(), Some(&"custom_tools"));
-        assert_eq!(names[names.len() - 2], "history");
-        assert_eq!(names.len(), 22);
+        // `ui` (spec 063) is the last; `custom_tools` (spec 061) is the one before it.
+        assert_eq!(names.last(), Some(&"ui"));
+        assert_eq!(names[names.len() - 2], "custom_tools");
+        assert_eq!(names.len(), 23);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2692,6 +2735,7 @@ mod tests {
                 text: "clicked".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
             &web
         ));

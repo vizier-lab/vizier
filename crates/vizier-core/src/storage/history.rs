@@ -58,6 +58,38 @@ pub trait HistoryStorage {
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
 
+    /// History from one entry (inclusive) up to `before` (exclusive), oldest first, with no
+    /// limit: what a reader holding a newer page loads to reach an older entry in one read,
+    /// without leaving a gap (the WebUI's prompt ruler). Each cursor is an exact entry when its
+    /// `seq` is given.
+    async fn list_session_history_from(
+        &self,
+        session: VizierSession,
+        from: Timestamp,
+        from_seq: Option<i64>,
+        before: Option<Timestamp>,
+        before_seq: Option<i64>,
+    ) -> Result<Vec<SessionHistory>> {
+        let after_from = |e: &SessionHistory| (e.timestamp, e.seq.unwrap_or(i64::MAX)) >= (from, from_seq.unwrap_or(i64::MIN));
+        Ok(self
+            .list_session_history(session, before, before_seq, None)
+            .await?
+            .into_iter()
+            .filter(after_from)
+            .collect())
+    }
+
+    /// Every request a session stored, oldest first, not filled: the cheap read behind the
+    /// list of a conversation's prompts.
+    async fn list_session_requests(&self, session: VizierSession) -> Result<Vec<SessionHistory>> {
+        Ok(self
+            .list_session_history(session, None, None, None)
+            .await?
+            .into_iter()
+            .filter(|entry| matches!(entry.content, SessionHistoryContent::Request(_)))
+            .collect())
+    }
+
     async fn list_session_by_time_window(
         &self,
         session: VizierSession,
@@ -159,6 +191,23 @@ impl HistoryStorage for VizierStorage {
         self.0
             .list_session_history(session, before, before_seq, limit)
             .await
+    }
+
+    async fn list_session_history_from(
+        &self,
+        session: VizierSession,
+        from: Timestamp,
+        from_seq: Option<i64>,
+        before: Option<Timestamp>,
+        before_seq: Option<i64>,
+    ) -> Result<Vec<SessionHistory>> {
+        self.0
+            .list_session_history_from(session, from, from_seq, before, before_seq)
+            .await
+    }
+
+    async fn list_session_requests(&self, session: VizierSession) -> Result<Vec<SessionHistory>> {
+        self.0.list_session_requests(session).await
     }
 
     async fn list_session_by_time_window(

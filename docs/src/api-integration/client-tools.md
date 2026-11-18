@@ -2,7 +2,7 @@
 
 A WebSocket client can give the agent tools of its own: drawing something on the person's screen, asking them to pick a file, reading the browser's location. The client declares each tool on the request it sends; the agent can call it from its scripts during that turn; the call comes back over the same socket, and the client answers it. vizier only checks the declarations' shape, names them, and carries calls and answers.
 
-This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI uses it for its own generated interfaces (`ui_render`, see [Generative UI](./generative-ui.md)), registered through the same mechanism a WebUI extension uses (`registerClientTool` in `webui/app/lib/clientTools.ts`).
+This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI declares no client tools of its own: its generated pages are the built-in tool `ui_render` (see [Generative UI](./generative-ui.md)). An extension registers its tools with `registerClientTool` in `webui/app/lib/clientTools.ts`. A declaration in category `ui` named `components` or `render` (the WebUI's tools before spec 063) is dropped with a warning instead of being offered.
 
 ```
 ws://<host>/api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat?token=<jwt>
@@ -55,7 +55,7 @@ Any request (`chat`, `audio_chat`, `client_event`) may carry:
 
 At most 32 tools and 16 categories per request.
 
-**Scope**: the tools exist for the one turn this request starts, and only while this connection stays open. They are not remembered. The next request must declare them again; the WebUI declares them on every request. Requests over REST cannot declare tools. `prompt` and `silent_read` requests ignore declarations in version 1.
+**Scope**: the tools exist for the one turn this request starts, and only while this connection stays open. They are not remembered. The next request must declare them again; the WebUI declares them on every request. Requests over REST cannot declare tools. `prompt` and `silent_read` requests ignore declarations in version 1. A `question_answer` request takes them like a chat message, so an agent that asked a question first can still call your tools in the turn the answer starts.
 
 **Caching advice**: the agent's system prompt lists your categories (not your tools). Sending the same declaration on every request keeps that prompt identical from turn to turn, which keeps provider prompt caching effective. Changing your declared set between requests works, but costs cache hits.
 

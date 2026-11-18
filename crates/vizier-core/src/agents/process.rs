@@ -2908,6 +2908,7 @@ mod btw_tests {
                 text: "click".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
         ];
         for content in &activity {
@@ -2940,7 +2941,7 @@ mod btw_tests {
         assert_eq!(chat_turn_prompt(&VizierRequestContent::Chat("hi".into()), None).as_deref(), Some("hi"));
         assert_eq!(
             chat_turn_prompt(
-                &VizierRequestContent::ClientEvent(ClientEvent { text: "click".into(), data: None, source_call_id: None }),
+                &VizierRequestContent::ClientEvent(ClientEvent { text: "click".into(), data: None, source_call_id: None, page: None }),
                 None
             )
             .as_deref(),

@@ -217,6 +217,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/files/{file_id}", get(files::download_file))
+        // A page frame: public, its ticket is the proof (spec 063 research R7a).
+        .route("/ui-frames/{ticket}", get(agents::ui_pages::ui_frame))
         // Shared chat snapshots (spec 063). Creating needs a session and is capped at 5 MiB
         // here, the innermost body limit, which beats the router-wide `disable()`; reading is
         // open to anyone, with a session only when there is one.

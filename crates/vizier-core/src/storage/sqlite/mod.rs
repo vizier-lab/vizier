@@ -11,6 +11,7 @@ use crate::utils::build_path;
 mod agent;
 pub mod artifact;
 mod detached_script;
+mod ui_page;
 mod subagent;
 mod catalogue;
 mod client_call;
@@ -480,6 +481,7 @@ impl SqlStorage {
         init_detached_script_schema(conn)?;
         init_subagent_schema(conn)?;
         init_custom_tool_schema(conn)?;
+        init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
         share::init_share_schema(conn)?;
         workspace::init_workspace_schema(conn)?;
@@ -759,6 +761,51 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;
     Ok(())
 }
+
+/// The interactive page tables (`specs/063-html-generative-ui/data-model.md`): pages and their
+/// versions. The HTML is in the blob store. New tables, so no migration is needed. Split out so
+/// the storage tests can stand them up in memory.
+pub fn init_ui_page_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(UI_PAGE_SCHEMA)?;
+    Ok(())
+}
+
+/// Shared by SQLite init and the PostgreSQL migration `0011_ui_pages.sql`, which spells the same
+/// tables. Times are epoch milliseconds; JSON is kept as text.
+const UI_PAGE_SCHEMA: &str = "
+        CREATE TABLE IF NOT EXISTS ui_page (
+            id              TEXT PRIMARY KEY,
+            agent_id        TEXT NOT NULL,
+            session_channel TEXT NOT NULL,
+            session_topic   TEXT,
+            title           TEXT NOT NULL,
+            latest_version  INTEGER NOT NULL,
+            state           TEXT,
+            state_seq       INTEGER NOT NULL DEFAULT 0,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            owner_node      TEXT,
+            owner_token     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_ui_page_session
+            ON ui_page(agent_id, session_channel, session_topic);
+
+        CREATE TABLE IF NOT EXISTS ui_page_version (
+            page_id      TEXT NOT NULL,
+            version      INTEGER NOT NULL,
+            size         INTEGER NOT NULL,
+            sha256       TEXT NOT NULL,
+            origin       TEXT NOT NULL,
+            base_version INTEGER,
+            edit_count   INTEGER,
+            verification TEXT NOT NULL,
+            history_uid  TEXT,
+            created_at   INTEGER NOT NULL,
+            owner_node   TEXT,
+            owner_token  INTEGER,
+            PRIMARY KEY (page_id, version)
+        );
+";
 
 /// The custom tool tables (`specs/061-agent-custom-tools/data-model.md`): tools, their
 /// immutable versions, agent-owned categories and the lifecycle event log. New tables, so no

@@ -583,6 +583,7 @@ mod tests {
             returns: "any JSON value".into(),
             example: String::new(),
             custom: None,
+            guide: None,
         }
     }
 

@@ -42,8 +42,11 @@ The process is started with the agent and communicates over stdin/stdout.
 | Field | Required | Description |
 |-------|----------|-------------|
 | `uri` | yes | MCP endpoint URL |
+| `headers` | no | HTTP headers sent with every request, e.g. `{"Authorization": "Bearer <token>"}` or `{"X-API-Key": "<key>"}` |
 
-Uses the MCP *Streamable HTTP* transport (`rmcp`). Authentication headers are not currently configurable — use a server that doesn't need them or put a proxy in front.
+Uses the MCP *Streamable HTTP* transport (`rmcp`). In the WebUI, the **Headers** editor on a remote server is where a key or token goes. A header the transport sets itself (`Accept`, `Content-Type`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`) or a malformed name or value is refused when you save. A server that answers `401` shows as failed with "the server requires authentication".
+
+OAuth sign-in (the MCP authorization flow, where the server sends you to a login page) is not supported yet. For such a server, use a personal access token if it offers one, or put a proxy in front.
 
 ## Tool naming
 
@@ -85,7 +88,7 @@ Tool input schemas are passed through from the server. Calls are subject to the 
 
 The agent then sees `mcp_github__create_issue`, `mcp_github__search_repositories`, and so on.
 
-Every value in a server's `env` map is encrypted at rest; `command`, `args`, `transport` and the URL stay readable. See [Encryption at Rest](./encryption.md) for the key and backup rules.
+Every value in a server's `env` and `headers` maps is encrypted at rest and shown masked (`••••a91c`) in the WebUI and API; `command`, `args`, `transport`, the URL and the header names stay readable. See [Encryption at Rest](./encryption.md) for the key and backup rules.
 
 ## Migration note
 

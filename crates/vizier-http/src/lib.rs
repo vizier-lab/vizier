@@ -28,6 +28,7 @@ mod state;
 mod test_support;
 pub mod topic;
 pub mod workspace_topic;
+mod ui_frame;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
@@ -182,6 +183,7 @@ where
         api::v1::agents::agent_usage_conversation,
         api::v1::agents::channel::list_topics,
         api::v1::agents::channel::get_topic_history,
+        api::v1::agents::channel::get_topic_prompts,
         api::v1::agents::channel::list_topic_files,
         api::v1::agents::channel::promote_topic_file,
         api::v1::agents::channel::delete_topic,
@@ -194,6 +196,10 @@ where
         api::v1::agents::channel::chat,
         api::v1::agents::detached::list_detached_scripts,
         api::v1::agents::detached::get_detached_script,
+        api::v1::agents::ui_pages::get_ui_page,
+        api::v1::agents::ui_pages::get_ui_page_version,
+        api::v1::agents::ui_pages::get_ui_frame_ticket,
+        api::v1::agents::ui_pages::ui_frame,
         api::v1::agents::subagents::list_subagents,
         api::v1::agents::subagents::get_subagent,
         api::v1::agents::subagents::subagent_history,
@@ -381,6 +387,7 @@ where
             api::v1::providers::custom::CustomProviderBody,
             api::v1::agents::channel::HistoryQuery,
             api::v1::agents::channel::TopicEntry,
+            api::v1::agents::channel::PromptMark,
             api::v1::agents::channel::RenameTopicRequest,
             api::v1::agents::ChatRequest,
             api::v1::agents::ChatResponse,
@@ -538,6 +545,7 @@ where
             crate::models::response::APIResponse<vizier_core::schema::AgentSummary>,
             crate::models::response::APIResponse<api::v1::agents::AgentDetail>,
             crate::models::response::APIResponse<Vec<api::v1::agents::channel::TopicEntry>>,
+            crate::models::response::APIResponse<Vec<api::v1::agents::channel::PromptMark>>,
             crate::models::response::APIResponse<api::v1::agents::ChatResponse>,
             crate::models::response::APIResponse<api::v1::agents::core::CoreContentResponse>,
             crate::models::response::APIResponse<api::v1::agents::core::CoreUpdateResponse>,

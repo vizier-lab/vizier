@@ -70,8 +70,13 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 11,
-        name: "0011_shared_snapshot",
-        sql: include_str!("migrations/0011_shared_snapshot.sql"),
+        name: "0011_ui_pages",
+        sql: include_str!("migrations/0011_ui_pages.sql"),
+    },
+    Migration {
+        version: 12,
+        name: "0012_shared_snapshot",
+        sql: include_str!("migrations/0012_shared_snapshot.sql"),
     },
 ];
 

@@ -108,6 +108,18 @@ pub struct ClientEvent {
     pub data: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_call_id: Option<String>,
+    /// The agent page it came from (spec 063 FR-028): the person acted on a page, so the agent
+    /// knows which one and which version. Exclusive with `source_call_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<PageSource>,
+}
+
+/// An agent page and the version a client event came from.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct PageSource {
+    pub page_id: String,
+    pub version: u32,
 }
 
 impl Display for ClientEvent {
@@ -562,6 +574,9 @@ impl VizierRequest {
             if let Some(source) = &event.source_call_id {
                 frontmatter.insert("source_call".into(), json!(source));
             }
+            if let Some(page) = &event.page {
+                frontmatter.insert("page".into(), json!(format!("{} v{}", page.page_id, page.version)));
+            }
             frontmatter.insert("sent_at".into(), json!(self.sent_at()));
             frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
@@ -750,6 +765,7 @@ mod tests {
                 text: "x".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
             VizierRequestContent::Btw(SideChat {
                 question: "q".into(),
@@ -1027,6 +1043,7 @@ mod tests {
                 text: "Submitted filters".into(),
                 data,
                 source_call_id: source.map(str::to_string),
+                page: None,
             }),
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -1046,6 +1063,15 @@ mod tests {
 
         let frontmatter = client_event(None, None).generate_frontmatter().unwrap();
         assert!(!frontmatter.contains("source_call"), "{frontmatter}");
+        assert!(!frontmatter.contains("page:"), "{frontmatter}");
+
+        // Spec 063: an event from a page names the page and its version.
+        let mut from_page = client_event(None, None);
+        if let VizierRequestContent::ClientEvent(event) = &mut from_page.content {
+            event.page = Some(PageSource { page_id: "pg_1".into(), version: 3 });
+        }
+        let frontmatter = from_page.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("page: pg_1 v3"), "{frontmatter}");
     }
 
     #[test]

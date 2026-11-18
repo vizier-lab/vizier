@@ -378,6 +378,12 @@ impl SessionStorage for SqlStorage {
              AND topic IS NOT DISTINCT FROM ?3",
             params![agent_id, channel.to_slug(), topic],
         )?;
+        // Its interactive pages and their versions (spec 063). Their HTML blobs are removed by
+        // `UiPages::delete_session_blobs`, which the conversation's deletion calls first.
+        super::ui_page::delete_session_pages(
+            &conn,
+            &crate::schema::VizierSession(agent_id.clone(), channel.clone(), Some(topic.clone())),
+        )?;
         // The questions it asked, and the values it asked for.
         super::question::delete_session(&conn, &agent_id, &channel.to_slug(), &topic)?;
         // So do its scratch files.

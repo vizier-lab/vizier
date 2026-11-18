@@ -75,6 +75,7 @@ pub mod rerank;
 pub mod scratch;
 pub mod secret;
 pub mod custom_tool;
+pub mod ui_page;
 pub mod session;
 pub mod session_file;
 pub mod migrate;
@@ -153,6 +154,7 @@ where
         + TurnStorage
         + SecretStorage
         + CustomToolStorage
+        + ui_page::UiPageStorage
         + NotificationStorage
         + ProjectStorage
         + share::ShareStorage

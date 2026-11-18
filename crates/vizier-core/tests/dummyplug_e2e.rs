@@ -2147,3 +2147,64 @@ async fn a_restart_mid_turn_reads_the_message_exactly_once() {
 
     runtime.shutdown().await.unwrap();
 }
+
+/// Spec 063 quickstart §0–§2: `ui_render` through the real loop. A new page with no tab open is
+/// saved, drawn from a history entry, reported unchecked and ends the turn; an edit makes the next
+/// version; a stale base, another conversation and an ambiguous edit are refused and the turn goes
+/// on; the guide is read through `describe_tool_function`.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_pages_are_drawn_versioned_and_refused_through_the_loop() {
+    use vizier_core::storage::ui_page::UiPageStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("pages");
+    let call = |code: &str| run_python(code, false, None);
+
+    // §0: the guide.
+    let guide = chat(
+        runtime.transport(),
+        &session,
+        &serde_json::json!({ "tool": "describe_tool_function", "arguments": { "name": "ui_render" } }).to_string(),
+    )
+    .await;
+    assert!(guide.contains("guide") && guide.contains("base_version"), "{guide}");
+
+    // §1: a new page, no tab open.
+    chat(runtime.transport(), &session, &call("ui_render(title='Hello', html='<h1>Hi</h1><p>one</p>')")).await;
+    let history = history_of(&runtime, &session).await;
+    let (page_id, version) = history
+        .iter()
+        .find_map(|h| match &h.content {
+            SessionHistoryContent::UiPage { page_id, version, .. } => Some((page_id.clone(), *version)),
+            _ => None,
+        })
+        .expect("a UiPage entry");
+    assert_eq!(version, 1);
+    let stored = runtime.deps().storage.get_ui_page_version(&page_id, 1).await.unwrap().unwrap();
+    assert_eq!(stored.verification, serde_json::json!({ "state": "unverified", "reason": "no_tab" }));
+    assert!(matches!(history.last().map(|h| &h.content), Some(SessionHistoryContent::Response(_))));
+
+    // §2: an edit makes version 2 from version 1.
+    let edit = format!("ui_render(page='{page_id}', base_version=1, edits=[{{'find': 'Hi', 'replace': 'Hello there'}}])");
+    chat(runtime.transport(), &session, &call(&edit)).await;
+    let page = runtime.deps().storage.get_ui_page(&page_id).await.unwrap().unwrap();
+    assert_eq!(page.latest_version, 2);
+    let html = runtime.deps().ui_pages.html(&page, 2).await.unwrap().unwrap();
+    assert_eq!(html, "<h1>Hello there</h1><p>one</p>");
+
+    // The same edit again is stale; the refusal reaches the model and the turn goes on.
+    let stale = chat(runtime.transport(), &session, &call(&edit)).await;
+    assert!(stale.contains("stale_base") && stale.contains("\\\"latest\\\":2") || stale.contains("\"latest\":2"), "{stale}");
+    assert_eq!(runtime.deps().storage.get_ui_page(&page_id).await.unwrap().unwrap().latest_version, 2);
+
+    // An ambiguous find names the edit and the count.
+    let ambiguous = format!("ui_render(page='{page_id}', base_version=2, edits=[{{'find': '<', 'replace': '['}}])");
+    let refused = chat(runtime.transport(), &session, &call(&ambiguous)).await;
+    assert!(refused.contains("edit_ambiguous"), "{refused}");
+
+    // Another conversation cannot change it.
+    let other = web_session("elsewhere");
+    let foreign = chat(runtime.transport(), &other, &call(&format!("ui_render(page='{page_id}', base_version=2, html='<p>x</p>')"))).await;
+    assert!(foreign.contains("other_conversation"), "{foreign}");
+
+    runtime.shutdown().await.unwrap();
+}

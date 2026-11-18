@@ -43,7 +43,7 @@ use crate::models::page::Page;
 use vizier_core::schema::session_file::SessionFileRecord;
 use vizier_core::storage::session_file::SessionFileStorage;
 
-pub use vizier_core::service::topics::{TopicEntry, readable_channel, readable_session};
+pub use vizier_core::service::topics::{PromptMark, TopicEntry, readable_channel, readable_session};
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -52,6 +52,10 @@ pub fn channel() -> Router<HTTPState> {
         .route(
             "/{channel_id}/topic/{topic_id}/history",
             get(get_topic_history),
+        )
+        .route(
+            "/{channel_id}/topic/{topic_id}/prompts",
+            get(get_topic_prompts),
         )
         .route(
             "/{channel_id}/topic/{topic_id}/files",
@@ -85,6 +89,12 @@ pub struct HistoryQuery {
     /// page boundary. Ignored without `before`; omitting it keeps the pre-`seq` behaviour.
     pub before_seq: Option<i64>,
     pub limit: Option<usize>,
+    /// Read back to this entry (inclusive) instead of a page of `limit`: everything from it up
+    /// to the `before` cursor, so a reader jumping to an older entry leaves no gap.
+    #[serde(default, deserialize_with = "vizier_core::time::deserialize_query_time")]
+    pub since: Option<chrono::DateTime<chrono::Local>>,
+    /// The `seq` of the entry `since` names, making it exact. Ignored without `since`.
+    pub since_seq: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,8 +139,33 @@ pub async fn get_topic_history(
             params.before,
             params.before_seq,
             params.limit,
+            params.since.map(|at| topics::HistoryFrom { at, seq: params.since_seq }),
         )
         .await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/prompts",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 200, description = "The person's messages in the topic, oldest first", body = APIResponse<Vec<PromptMark>>),
+        (status = 404, description = "Agent or topic not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_topic_prompts(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        topics::prompts(&svc(&state), &user, &agent_id, &channel_id, topic_id).await,
         StatusCode::OK,
     )
 }
@@ -610,6 +645,64 @@ pub(crate) async fn client_call_state(
     Ok(())
 }
 
+/// A page's state from its frame (spec 063 contracts/verify-protocol.md, FR-027): one value per
+/// page, shared by every version, with the checks and the rate of `client_call_state`. Refused
+/// for a page outside this conversation. Every socket on the conversation gets the new state.
+pub(crate) async fn ui_page_state(
+    storage: &vizier_core::storage::VizierStorage,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    limits: &ClientLimits,
+    payload: &serde_json::Value,
+) -> Result<(), serde_json::Value> {
+    use vizier_core::storage::ui_page::{SaveStateOutcome, UiPageStorage};
+
+    let Some(page_id) = payload.get("page_id").and_then(|id| id.as_str()) else {
+        return Err(client_error("invalid_frame", None, "ui_page_state needs a page_id"));
+    };
+    let state = payload.get("state").cloned().unwrap_or(serde_json::Value::Null);
+    let expected_seq = payload.get("expected_seq").and_then(|seq| seq.as_u64());
+
+    match storage.get_ui_page(page_id).await {
+        Ok(Some(page)) if page.session == *session => {}
+        Ok(_) => return Err(client_error("not_found", Some(page_id), "no page with this id in this conversation")),
+        Err(err) => {
+            tracing::warn!("failed to look up page {page_id}: {err}");
+            return Err(client_error("state_not_saved", Some(page_id), "state not saved"));
+        }
+    }
+    if json_len(&state) > MAX_STATE_BYTES {
+        return Err(client_error(
+            "state_too_large",
+            Some(page_id),
+            format!("state is larger than {MAX_STATE_BYTES} bytes"),
+        ));
+    }
+    if !limits.state_saves.check(&format!("page:{page_id}")) {
+        return Err(client_error("rate_limited", Some(page_id), "too many state saves for this page; try again shortly"));
+    }
+    let state_seq = match storage.save_ui_page_state(page_id, &state, expected_seq).await {
+        Ok(SaveStateOutcome::Saved(seq)) => seq,
+        Ok(SaveStateOutcome::Stale(latest)) => {
+            let mut error = client_error("state_stale", Some(page_id), "the page's state changed meanwhile");
+            error["client_error"]["state_seq"] = serde_json::json!(latest);
+            return Err(error);
+        }
+        Ok(SaveStateOutcome::NotFound) => {
+            return Err(client_error("not_found", Some(page_id), "no page with this id in this conversation"));
+        }
+        Err(err) => {
+            tracing::warn!("failed to save state of page {page_id}: {err}");
+            return Err(client_error("state_not_saved", Some(page_id), "state not saved"));
+        }
+    };
+    transport.publish_session_event(SessionEvent {
+        session: session.clone(),
+        frame: SessionFrame::UiPageState { page_id: page_id.to_string(), state, state_seq },
+    });
+    Ok(())
+}
+
 /// Check a client event (protocol §5) and drop a `source_call_id` that is not a client tool
 /// call in this conversation. `Err` is the `client_error` frame refusing it.
 pub(crate) async fn check_client_event(
@@ -649,6 +742,18 @@ pub(crate) async fn check_client_event(
             .unwrap_or(false)
     {
         event.source_call_id = None;
+    }
+    // Spec 063: an event from a page names it only when the page is in this conversation and
+    // has that version; a page and a source call never come together.
+    if let Some(page) = &event.page {
+        use vizier_core::storage::ui_page::UiPageStorage;
+        let here = match storage.get_ui_page(&page.page_id).await {
+            Ok(Some(record)) => record.session == *session && (1..=record.latest_version).contains(&page.version),
+            _ => false,
+        };
+        if !here || event.source_call_id.is_some() {
+            event.page = None;
+        }
     }
     Ok(())
 }
@@ -693,13 +798,15 @@ pub(crate) fn check_client_context(request: &mut VizierRequest) -> Result<(), se
 }
 
 /// Move a request's checked declarations into its binding to `connection`. Only a request
-/// that starts a chat turn takes client tools; on any other they are dropped unread.
+/// that starts a chat turn takes client tools (a question answer is one: it is the person's
+/// next message); on any other they are dropped unread.
 pub(crate) fn bind_client_tools(
     request: &mut VizierRequest,
     connection: &std::sync::Arc<ClientConnection>,
     connections: &vizier_core::agents::client::ClientConnections,
 ) -> Result<(), serde_json::Value> {
-    let tools = std::mem::take(&mut request.client_tools);
+    let mut tools = std::mem::take(&mut request.client_tools);
+    declare::drop_retired(&mut tools);
     let categories = std::mem::take(&mut request.client_categories);
     request.client = None;
     let takes_tools = matches!(
@@ -707,6 +814,7 @@ pub(crate) fn bind_client_tools(
         VizierRequestContent::Chat(_)
             | VizierRequestContent::AudioChat(..)
             | VizierRequestContent::ClientEvent(_)
+            | VizierRequestContent::QuestionAnswer(_)
     );
     if tools.is_empty() || !takes_tools {
         return Ok(());
@@ -714,6 +822,18 @@ pub(crate) fn bind_client_tools(
     declare::validate(&tools, &categories).map_err(|err| err.frame())?;
     request.client = Some(connections.bind(connection, tools, categories));
     Ok(())
+}
+
+/// The turn a submitted question answer starts, with what the socket's own request said about
+/// its client: `questions::submit` builds that turn's request anew, so the binding and the
+/// client's notes are put back here. Without them the turn would have no client tools, and an
+/// agent that asked a question could not draw its answer.
+pub(crate) fn answer_turn(received: &mut VizierRequest, prepared: VizierRequest) -> VizierRequest {
+    VizierRequest {
+        client: received.client.take(),
+        client_context: std::mem::take(&mut received.client_context),
+        ..prepared
+    }
 }
 
 /// A reaction from this socket, applied through the shared ingest path. The new set reaches
@@ -841,6 +961,88 @@ pub async fn handle_socket(
     }
     drop(write_tx);
     let _ = write_handle.await;
+}
+
+#[cfg(test)]
+mod question_answer_client_tests {
+    use super::*;
+    use vizier_core::{
+        agents::client::{ClientConnections, declare::ClientToolDeclaration},
+        questions::model::QuestionAnswer,
+    };
+
+    fn declaration() -> ClientToolDeclaration {
+        serde_json::from_value(serde_json::json!({
+            // Not `ui/render`: that retired declaration is dropped (spec 063).
+            "name": "pick_color",
+            "category": "palette",
+            "description": "Asks the person for a colour.",
+            "input_schema": { "type": "object" },
+        }))
+        .unwrap()
+    }
+
+    fn answer(tools: Vec<ClientToolDeclaration>) -> VizierRequest {
+        VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::QuestionAnswer(QuestionAnswer {
+                set_id: "set-1".into(),
+                text: String::new(),
+                answers: Vec::new(),
+                answerer: None,
+                declined: false,
+            }),
+            client_tools: tools,
+            client_context: vec!["This client renders mermaid.".into()],
+            ..Default::default()
+        }
+    }
+
+    /// An answer is the person's next message, so its turn takes the client's tools like a chat
+    /// message does: an agent that asked first can still draw its reply.
+    #[test]
+    fn a_question_answer_is_bound_to_its_connection() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut request = answer(vec![declaration()]);
+        bind_client_tools(&mut request, &connection, &ClientConnections::new()).unwrap();
+        let binding = request.client.as_ref().expect("the answer is bound");
+        assert_eq!(binding.tools.len(), 1);
+        assert!(request.client_tools.is_empty());
+    }
+
+    /// The request `submit` builds knows nothing of the socket; the binding and the notes are
+    /// carried over to it, and everything else is the prepared request's.
+    #[test]
+    fn the_prepared_turn_keeps_the_binding_and_the_notes() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut received = answer(vec![declaration()]);
+        bind_client_tools(&mut received, &connection, &ClientConnections::new()).unwrap();
+        let prepared = VizierRequest {
+            user: "alice".into(),
+            content: VizierRequestContent::Chat("prepared".into()),
+            metadata: serde_json::json!({ "via": "question_answer" }),
+            ..Default::default()
+        };
+
+        let turn = answer_turn(&mut received, prepared);
+
+        assert!(turn.client.is_some());
+        assert_eq!(turn.client_context, vec!["This client renders mermaid."]);
+        assert!(matches!(turn.content, VizierRequestContent::Chat(ref text) if text == "prepared"));
+        assert_eq!(turn.metadata["via"], "question_answer");
+    }
+
+    /// An answer with no declarations starts an ordinary turn.
+    #[test]
+    fn an_answer_without_declarations_has_no_binding() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let connection = ClientConnection::new(tx);
+        let mut request = answer(Vec::new());
+        bind_client_tools(&mut request, &connection, &ClientConnections::new()).unwrap();
+        assert!(request.client.is_none());
+    }
 }
 
 #[cfg(test)]

@@ -1,66 +1,54 @@
 # Generative UI
 
-In the WebUI, an agent can answer with an **interface** instead of (or beside) text: a dashboard, a form, a chart, a chess board, a 3D terrain you can orbit. It is built from a catalogue of ready-made components, drawn in the WebUI's own look, and it stays in the conversation.
+In a WebUI or project chat, an agent can answer with an **interactive page**: an app, a game, a simulation, a dashboard or a form, drawn inside its reply. The page is plain HTML the agent writes, and Vizier keeps it with its versions.
 
-This is a [client tool](./client-tools.md) the WebUI registers: the agent calls `ui_render` from a Python script, and the call **ends its turn**: the interface is the reply. Other clients do not offer it, so an agent talking to you from Discord or Telegram never sees it.
+This is the built-in tool `ui_render` (category `ui`), offered in WebUI and project conversations, whether or not a tab is open. It is not offered in scheduled tasks, dreams, Discord, Telegram, Workspaces, or from a detached script. A successful call ends the turn: the page is the reply.
 
-## What an agent can build
+## How an agent draws a page
 
-| Group | Components |
-|---|---|
-| Layout | `Stack`, `Row`, `Grid`, `Card`, `Tabs`, `Fold`, `Divider` |
-| Text | `Heading`, `Text` (a markdown subset), `Badge`, `Callout`, `Code` |
-| Data | `Stat`, `Table`, `KeyValue`, `Progress`, `Chart` (bar, line, area, pie) |
-| Links and media | `Link`, `Image`, `Audio`, `Video`, `FileCard`, `Gallery` |
-| Input | `TextInput`, `NumberInput`, `Slider`, `Select`, `Checkbox`, `Switch`, `RadioGroup` |
-| Action | `Button` |
-| Surface | `Canvas2D`, `Scene3D` with `Box`, `Sphere`, `Cylinder`, `Plane`, `Group3D`, lights, `OrbitControls`, `Heightfield`, `Mesh` |
-| Control | `Effect` (runs actions on load and on a timer) |
+- **A new page:** `ui_render(title="…", html="…")` returns `{"status": "rendered", "page": "pg_…", "version": 1, "verified": …}`.
+- **A change:** `ui_render(page="pg_…", base_version=N, edits=[{"find": "…", "replace": "…"}])`. Each `find` must match exactly once; the edits apply in order, all or nothing. A full replacement (`html=`) works too. `base_version` must be the latest version, so two writers never overwrite each other.
+- **Refusals** are errors whose message is JSON with a `code`: `invalid_input`, `too_large`, `unknown_page`, `other_conversation`, `stale_base`, `edit_not_found`, `edit_ambiguous`, `problems`.
+- The tool's guide (page model, rules, look, bridge, an index of the elements and examples) comes back from `describe_tool_function("ui_render")` as `guide`. The details are two more tools in category `ui`, offered wherever `ui_render` is, so a page pays only for what it uses:
+  - `ui_describe_elements(names=[…])` returns the attributes, events and an example of each `<vz-*>` element named (`card` and `vz-card` both work; an unknown name comes back in `unknown` with `did_you_mean`).
+  - `ui_examples(kind)` returns a whole example page (`dashboard`, `form`, `game`, `worker`, `three`); with no `kind`, the list.
 
-There is no free-form HTML, CSS or script in the interface itself: props are closed lists (`gap: sm`, `tone: ok`, colours from the theme). That keeps every interface in the WebUI's look, in light and dark, and keeps agent text from restyling or scripting the page.
+  The three texts live in `crates/vizier-core/assets/ui-kit/` (`REFERENCE.md`, `ELEMENTS.md`, `EXAMPLES.md`), and `scripts/ui-kit-reference.test.mjs` keeps them in step with the kit.
 
-## How an agent learns it
+Limits: 1 MiB per version, 100 edits per call, a 120-character title.
 
-Without a skill and without anything in its standing instructions. The agent sees a one-line `ui` category, then:
+## Checking a version
 
-1. `list_tool_functions(category="ui")` shows `ui_components` and `ui_render`.
-2. `describe_tool_function("ui_render")` is a short cheat sheet of the spec's shape.
-3. `ui_components()` is an index of every component; `ui_components(names=["Table", "Chart"])` gives exact props, events and an example for each; `ui_components(recipe="board_game")` returns a complete interface to adapt. The text is generated from the same definitions that validate and draw, so it cannot drift.
-4. A mistake in `ui_render` returns **every** problem at once, each with its JSON path, the valid options and the nearest name, and the turn continues so the agent can fix it.
+When a tab has the conversation open, each new version is mounted off-screen in that tab for two seconds. Uncaught errors, rejected promises, `console.error`, anything the page policy blocked, an invalid `<vz-*>` attribute, and a page that stops responding are reported back:
 
-Recipes: `dashboard`, `form`, `tabs_and_filter`, `board_game`, `scene_3d`, `canvas_2d`.
+- **Clean:** the call succeeds with `verified: true`.
+- **Problems:** the version is **saved**, and the call fails with `code: "problems"` and the list, so the agent fixes it with edits in the same turn.
+- **No tab, or no answer within 10 s:** the call succeeds with `verified: false` and `reason` `no_tab` or `timeout`; the WebUI shows an "unchecked" chip.
 
-## An interface is alive
+The check travels on the Fleet bus (`ui.{session}.verify`); every chat socket on the conversation answers, and the first report wins (`contracts/verify-protocol.md` in `specs/063-html-generative-ui/`).
 
-The spec holds elements, an initial `state` and, optionally, `logic`.
+A version that **froze the tab** (where a frame shares the WebUI's thread) is drawn paused after a reload, with *Run anyway*, and the agent's next turn in that conversation is told which version froze.
 
-- **Local interaction.** Inputs write to state, tabs and toggles change what is visible, a `Button` runs actions (`setState`, `pushState`, `removeState`, `validateForm`). None of it costs an agent turn.
-- **Expressions.** Any prop can be a value or an expression: `{"$state": "/a/b"}`, `{"$bindState": "/a/b"}` (two-way, for inputs), `{"$template": "Hi ${/name}"}`, `{"$cond": …}`, `{"$computed": "add", "args": {…}}`, and inside a `repeat` `{"$item": "field"}` and `{"$index": true}`. The pure `$computed` functions are `add sub mul div mod min max abs round floor eq not and or len at concat join slice includes range`.
-- **Logic.** `logic` holds small pure JavaScript functions (`{"step": {"params": ["game", "index"], "body": "…"}}`) for rules and maths: legal chess moves, terrain noise. An action `run {fn, args, into}` calls one and writes the result to state. Functions run locally in a sandbox with no network, no page access and a 250 ms limit; a function that never returns is stopped and shown as an inline error while the page stays responsive.
-- **Watching.** `watch` runs actions when a state path changes (a slider regenerating terrain); `Effect` runs them on load and on a timer (paused off screen and in a hidden tab, stopped after ten minutes without the person touching anything).
-- **Asking the agent.** `sendMessage {text, data}` posts a message as the person and starts a turn. It only works from an action chain that began at the person's own click or key press, at most once a second; timers, watches and logic functions can never send.
-- **Saved state.** State is saved with the conversation (top-level keys starting with `_` are derived and not saved), so the interface survives a reload and shows the same in another tab.
+## The page and its kit
 
-## Files and links
+Every page starts with the **Vizier kit**:
 
-Media components refer to the conversation's **session files by name** (what `list_session_files` returns): `{"type": "Image", "props": {"file": "forecast.png", "alt": "Forecast"}}`. The WebUI resolves the name when it draws, so a file made later appears, and a deleted one shows "File not available" in that spot only. `ui_render` checks the names when it is called and answers with the names and types of the files that exist. Audio and video never play by themselves. `Image` also takes a small `data:image/` graphic; external addresses are not loaded.
+- **Theme and base CSS:** the design tokens, the font and styles for plain HTML elements (headings, links, buttons, inputs, tables, code), plus the layout classes `vz-stack`, `vz-row`, `vz-grid`. The page follows the person's theme, live. The kit's rules sit in a cascade layer, so a page's own CSS always wins.
+- **Elements**, drawn with the WebUI's own components, loaded only when a page uses one: `<vz-card>`, `<vz-stat>`, `<vz-table>`, `<vz-chart>`, `<vz-tabs>`, `<vz-field>`, `<vz-badge>`, `<vz-callout>`, `<vz-progress>`, `<vz-image>`. They are described once in `webui/app/kit/manifest.ts`.
+- **Libraries** a page imports by name, with no network: `three`.
+- **The bridge, `window.vizier`:** `state.get/set/subscribe` (one JSON value per page, shared by its versions and tabs, kept across reloads), `send(text, data)` (the person's next turn, only within 10 s of their own click or key press and at most once a second), `files.url(name)` (a file of the conversation as a `data:` URL), and `worker(fn)` (heavy work on its own thread, with a time limit).
 
-Links (`Link`, and links in `Text`) accept `https`, `http` and `mailto` only. They open in a new tab without an opener, and the real host is shown beside a label that does not say it, so a label cannot hide the destination.
+## Security
 
-## Limits
+A page runs in a frame served from its own address (`/api/v1/ui-frames/{ticket}`, a signed ticket valid for ten minutes for one version) with its own policy:
 
-| What | Limit |
-|---|---|
-| Interface size, elements, depth | 256 KB, 1500, 16 |
-| Items drawn by one `repeat` | 2048 |
-| Logic source, functions, params per function | 64 KB, 32, 8 |
-| One logic call | 250 ms, 256 KB in and out |
-| `Heightfield` resolution, `Canvas2D` shapes | 192, 5000 |
-| Saved state | 64 KB (excluding `_` keys) |
-| `sendMessage` | once a second; text 4000 characters; data 64 KB |
+- the frame has an opaque origin, so it reads no cookie, storage or token of the WebUI and cannot reach the parent page;
+- script cannot use the network (`connect-src 'none'`), load remote scripts, styles or fonts, open popups or submit forms;
+- images, audio and video may come from any `https:` address; `http:` is blocked;
+- the page's raw source is served as `text/plain`.
 
-## For client authors
+The WebUI enforces the bridge's rules (who may send, how often, how large the state is), and the server checks them again: a state save or a page event is accepted only for a page of that conversation.
 
-`ui_render` is declared with `ends_turn: true`: see [Tools that end the turn](./client-tools.md#3a-tools-that-end-the-turn). A client that wants the same behaviour for its own tool sets that flag; nothing about generative UI is special to the server.
+## Older pages
 
-Interfaces drawn by the earlier `render_interactive_ui` (a hand-written HTML page in a sandboxed frame) still open from history with their saved state. That tool is no longer offered to agents.
+Pages drawn before this tool, by the json-render client tool (`ui` + `render`) and by `render_interactive_ui`, still draw with their state in the conversations that have them. Those names are retired: a call to `ui_components` or `render_interactive_ui` answers with guidance to use `ui_render`, and a WebUI tab that still declares the old client tools has them dropped. The read-only renderers are tracked for removal before 1.0 in [#82](https://github.com/vizier-lab/vizier/issues/82).

@@ -110,6 +110,20 @@ pub enum SessionFrame {
         ask_id: String,
         outcome: crate::questions::model::AskState,
     },
+    /// A page version's check finished (`specs/063-html-generative-ui` R6): its outcome, for
+    /// every tab that draws it.
+    UiPageVerified {
+        page_id: String,
+        version: u32,
+        verification: serde_json::Value,
+    },
+    /// A page's newly saved state (`specs/063-html-generative-ui` R12), for every tab that
+    /// draws the page, the saver's included as its confirmation.
+    UiPageState {
+        page_id: String,
+        state: serde_json::Value,
+        state_seq: u64,
+    },
 }
 
 /// Something that happened in a Workspace (`specs/053-workspace-channel/contracts/socket-frames.md`).
