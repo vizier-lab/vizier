@@ -535,6 +535,19 @@ impl SessionFileStorage for VizierStorage {
             .await
     }
 
+    async fn add_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        mime_type: &str,
+        size: u64,
+        file_id: &str,
+    ) -> Result<SessionFileRecord> {
+        self.0
+            .add_session_file(session, filename, mime_type, size, file_id)
+            .await
+    }
+
     async fn list_session_files(&self, session: &VizierSession) -> Result<Vec<SessionFileRecord>> {
         self.0.list_session_files(session).await
     }

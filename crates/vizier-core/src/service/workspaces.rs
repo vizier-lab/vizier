@@ -1104,7 +1104,7 @@ pub async fn post(
                 let _ = s
                     .deps()
                     .storage
-                    .save_session_file(&session, &file.name, &file.mime_type, file.size, &file.file_id)
+                    .add_session_file(&session, &file.name, &file.mime_type, file.size, &file.file_id)
                     .await;
             }
         }

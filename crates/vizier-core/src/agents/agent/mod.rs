@@ -1113,9 +1113,15 @@ impl VizierAgent {
         // The ones that are now session files: the request is about to lose its attachments, so
         // this is the only record of them the message can be built from.
         let mut stored: Vec<VizierAttachment> = vec![];
-        for attachment in &req.attachments {
+        for attachment in &mut req.attachments {
             match self.store_session_file(session, attachment).await {
-                Ok(()) => stored.push(attachment.clone()),
+                Ok(name) => {
+                    // Under the name it was stored as (`report (2).pdf` when the conversation
+                    // already had another `report.pdf`), so the model, the labels and history
+                    // all name the file the agent's tools will find.
+                    attachment.filename = name;
+                    stored.push(attachment.clone());
+                }
                 Err(e) => {
                     tracing::warn!(
                         "attachment '{}' could not be stored, continuing without it: {}",
@@ -1555,9 +1561,9 @@ impl VizierAgent {
                                 .await
                             {
                                 let mime_type = get_mime_type(&attachment.filename);
-                                if self
+                                if let Ok(saved) = self
                                     .storage
-                                    .save_session_file(
+                                    .add_session_file(
                                         &ctx.session,
                                         &attachment.filename,
                                         &mime_type,
@@ -1565,9 +1571,8 @@ impl VizierAgent {
                                         &file_record.id,
                                     )
                                     .await
-                                    .is_ok()
                                 {
-                                    stored_files.push(attachment.filename.clone());
+                                    stored_files.push(saved.filename);
                                 }
                             }
                         }
@@ -1883,12 +1888,13 @@ impl VizierAgent {
         history.extend(in_progress);
     }
 
-    /// Store one attachment of the request as a session file.
+    /// Store one attachment of the request as a session file, keeping any other file of that
+    /// name; answers the name it was stored under.
     async fn store_session_file(
         &self,
         session: &VizierSession,
         attachment: &VizierAttachment,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let content = self
             .transport
             .send_file_resolve(attachment.clone())
@@ -1900,8 +1906,9 @@ impl VizierAgent {
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
         let mime_type = get_mime_type(&attachment.filename);
-        self.storage
-            .save_session_file(
+        let saved = self
+            .storage
+            .add_session_file(
                 session,
                 &attachment.filename,
                 &mime_type,
@@ -1910,7 +1917,7 @@ impl VizierAgent {
             )
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
-        Ok(())
+        Ok(saved.filename)
     }
 
     /// The history uid of the saved `Request` a journaled turn is working on.
@@ -2320,9 +2327,9 @@ impl VizierAgent {
                                     .await
                                 {
                                     let mime_type = get_mime_type(&attachment.filename);
-                                    if self
+                                    if let Ok(saved) = self
                                         .storage
-                                        .save_session_file(
+                                        .add_session_file(
                                             &ctx.session,
                                             &attachment.filename,
                                             &mime_type,
@@ -2330,9 +2337,8 @@ impl VizierAgent {
                                             &file_record.id,
                                         )
                                         .await
-                                        .is_ok()
                                     {
-                                        stored_files.push(attachment.filename.clone());
+                                        stored_files.push(saved.filename);
                                     }
                                 }
                             }

@@ -508,8 +508,9 @@ impl Inner {
                     .transport
                     .send_file_upload(attachment.filename.clone(), content)
                     .await?;
-                self.storage
-                    .save_session_file(
+                let saved = self
+                    .storage
+                    .add_session_file(
                         session,
                         &attachment.filename,
                         &get_mime_type(&attachment.filename),
@@ -517,11 +518,11 @@ impl Inner {
                         &record.id,
                     )
                     .await?;
-                anyhow::Ok(())
+                anyhow::Ok(saved.filename)
             }
             .await;
             match saved {
-                Ok(()) => names.push(attachment.filename.clone()),
+                Ok(name) => names.push(name),
                 Err(e) => tracing::warn!(file = %attachment.filename, "could not save a detached script's file: {e}"),
             }
         }
