@@ -15,7 +15,7 @@ export type CodeToken = { text: string; tone?: CodeTone };
 export type CodeLine = CodeToken[];
 
 // Code colours are their own tokens, so a scheme can change them without touching a status.
-const TONE: Record<CodeTone, string> = {
+export const CODE_TONE_CLASS: Record<CodeTone, string> = {
   keyword: "text-code-keyword",
   string: "text-code-string",
   number: "text-code-number",
@@ -89,7 +89,7 @@ export function CodeBlock({ code, tokens, language, filename, lineNumbers, onCop
                     ? " "
                     : line.map((token, j) =>
                         token.tone ? (
-                          <span key={j} className={TONE[token.tone]}>
+                          <span key={j} className={CODE_TONE_CLASS[token.tone]}>
                             {token.text}
                           </span>
                         ) : (

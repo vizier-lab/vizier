@@ -48,6 +48,7 @@ export * from "./components/Checkbox";
 export * from "./components/Chart";
 export * from "./components/CheckpointDivider";
 export * from "./components/CodeBlock";
+export * from "./components/CodeEditor";
 export * from "./components/ColorField";
 export * from "./components/CommandNote";
 export * from "./components/CreateChooser";

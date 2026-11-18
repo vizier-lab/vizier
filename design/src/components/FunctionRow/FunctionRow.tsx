@@ -79,7 +79,10 @@ export function FunctionRow({
       }
       action={
         onEnabledChange ? (
-          <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label={`${enabled ? "Switch off" : "Switch on"} ${callAs}`} />
+          // The row's own 16px inset, so the switch doesn't sit on the card's edge.
+          <span className="flex pr-16">
+            <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label={`${enabled ? "Switch off" : "Switch on"} ${callAs}`} />
+          </span>
         ) : undefined
       }
       href={href}

@@ -14,7 +14,7 @@ export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[
   { page: "artifacts", label: "Artifacts", icon: "folder" },
   { page: "tasks", label: "Schedule", icon: "calendar" },
   { page: "skills", label: "Skills", icon: "skills" },
-  { page: "functions", label: "Functions", icon: "code" },
+  { page: "functions", label: "Functions", icon: "functions" },
   { page: "dreams", label: "Dreams", icon: "dreams" },
 ];
 
