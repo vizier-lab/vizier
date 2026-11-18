@@ -127,8 +127,15 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
+    // The scroller as state too, so the scroll-bar measurement starts when the element attaches,
+    // not only on mount (the ref can still be empty then, which left the composer misaligned).
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+    const attachScroller = useCallback((el: HTMLDivElement | null) => {
+        scroller.current = el
+        setScrollEl(el)
+    }, [])
     useEffect(() => {
-        const el = scroller.current
+        const el = scrollEl
         if (!el || !onScrollbarWidth) return
         const measure = () => onScrollbarWidth(el.offsetWidth - el.clientWidth)
         measure()
@@ -137,7 +144,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         ro.observe(el)
         if (el.firstElementChild) ro.observe(el.firstElementChild)
         return () => ro.disconnect()
-    }, [onScrollbarWidth])
+    }, [scrollEl, onScrollbarWidth])
     const [pinned, setPinned] = useState(true)
     const [unseen, setUnseen] = useState(0)
     const lastCount = useRef(entries.length)
@@ -534,7 +541,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         <DetachedSource.Provider value={source}>
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
-                ref={scroller}
+                ref={attachScroller}
                 className={`flex min-h-0 flex-1 flex-col overflow-y-auto pt-24 [--list-pad:24px] ${showRuler ? 'md:[--list-pad:56px]' : ''}`}
                 style={{ paddingLeft: 'var(--list-pad)', paddingRight: `calc(var(--list-pad) + ${insetRight}px)` }}
                 // The person scrolling themself lets go of a prompt jumped to.

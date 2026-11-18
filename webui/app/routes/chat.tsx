@@ -502,7 +502,8 @@ export default function Chat() {
                         className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
                         style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
                     >
-                    <div className="mx-auto w-full max-w-4xl">
+                    {/* 28px wider than the messages' max-w-4xl: the composer card's own px-14 bleeds out, so its text lines up with the messages' text. */}
+                    <div className="mx-auto w-full max-w-[calc(var(--container-4xl)+28px)]">
                     <SideChatPanel
                         key={sideChat.id}
                         open={sideChat.open}
