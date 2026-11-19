@@ -1,9 +1,11 @@
 import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Floating } from "../Floating/Floating";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
 import { useDismiss } from "../../lib/dismiss";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 
 /** What a strip item counts. */
 export type StatusStripItemId = "memory" | "work" | "subagents" | "files" | "changes" | "lsp";
@@ -50,6 +52,7 @@ export function StatusStripButton({
   label,
   onPress,
   onRaised,
+  indicator,
 }: {
   item: StatusStripItem;
   pressed: boolean;
@@ -58,7 +61,13 @@ export function StatusStripButton({
   onPress: () => void;
   /** Drawn on a raised surface (the composer deck): pressed and hover use the surface colour instead. */
   onRaised?: boolean;
+  /**
+   * A layout id shared by one strip's buttons: the pressed pill becomes one indicator that
+   * slides from item to item instead of each button lighting up on its own.
+   */
+  indicator?: string;
 }) {
+  const sliding = !!indicator;
   const dot = dotOf(item);
   return (
     <button
@@ -67,20 +76,46 @@ export function StatusStripButton({
       aria-label={item.display ? `${item.display}: ${item.label}` : `${item.count} ${item.label}`}
       onClick={onPress}
       className={cx(
-        "inline-flex h-29 shrink-0 items-center gap-4 rounded-pill px-8 transition-colors",
+        // isolate keeps the sliding pill behind the content without letting it fall behind the strip.
+        "relative isolate inline-flex shrink-0 items-center gap-4 rounded-pill px-8 transition-colors",
+        onRaised ? "h-24" : "h-29",
         onRaised
           ? pressed
-            ? "bg-surface text-fg shadow-[inset_0_0_0_1px_var(--vz-border-strong)]"
+            ? cx("text-fg", !sliding && "bg-surface ring-1 ring-inset ring-border-strong")
             : "text-muted enabled:hover:bg-surface enabled:hover:text-fg"
           : pressed
             ? "bg-raised text-fg"
             : "text-muted enabled:hover:bg-raised enabled:hover:text-fg",
       )}
     >
+      {sliding && pressed && (
+        <motion.span
+          aria-hidden
+          layoutId={indicator}
+          className="absolute inset-0 -z-10 rounded-pill bg-surface ring-1 ring-inset ring-border-strong"
+          transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.9 }}
+        />
+      )}
       <Icon name={item.icon} size={15} />
       <span className="type-mono-xs-medium">{item.display ?? item.count}</span>
       {dot && <span aria-hidden className={cx("size-6 rounded-pill", DOT_CLASS[dot])} />}
-      {label && <span className="ml-2 type-small-medium whitespace-nowrap">{label}</span>}
+      {sliding ? (
+        <AnimatePresence initial={false}>
+          {label && (
+            <motion.span
+              key="label"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: "auto", opacity: 1, transition: { duration: motionDurations.base, ease: motionEases.arrive } }}
+              exit={{ width: 0, opacity: 0, transition: { duration: motionDurations.fast, ease: motionEases.standard } }}
+              className="overflow-hidden type-small-medium whitespace-nowrap"
+            >
+              <span className="pl-2">{label}</span>
+            </motion.span>
+          )}
+        </AnimatePresence>
+      ) : (
+        label && <span className="ml-2 animate-fade-in type-small-medium whitespace-nowrap">{label}</span>
+      )}
     </button>
   );
 }

@@ -63,7 +63,7 @@ export type ComposerProps = {
   tokenText?: string;
   /** Replaces "Message {agentName} — type / for skills", e.g. in a Workspace topic. */
   placeholder?: string;
-  /** In a ComposerDeck: the box casts its shadow upward onto the back panel standing on it. */
+  /** In a ComposerDeck: a solid box casting its shadow upward onto the back panel standing on it. */
   lifted?: boolean;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">;
 
@@ -196,8 +196,7 @@ export function Composer({
         <div
           className={cx(
             "flex flex-col gap-10 rounded-xl border px-14 pt-14 pb-12",
-            "bg-surface/70 backdrop-blur-md",
-            lifted && "shadow-lift",
+            lifted ? "bg-surface shadow-lift" : "bg-surface/70 backdrop-blur-md",
             disabled ? "border-border" : "border-border-strong focus-within:border-live",
           )}
         >

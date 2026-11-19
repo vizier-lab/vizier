@@ -33,7 +33,7 @@ function Sheet({ id, onClose }: { id: StatusStripItemId; onClose: () => void }) 
       ) : (
         <ul className="flex flex-col">
           {list.map((r) => (
-            <li key={r} className="truncate rounded-md px-8 py-8 type-ui text-fg hover:bg-surface">
+            <li key={r} className="truncate rounded-md px-8 py-8 type-ui text-fg hover:bg-raised">
               {r}
             </li>
           ))}
@@ -70,7 +70,7 @@ function Demo({
         onClose: () => setAsideOpen(false),
         content: (
           <div className="flex flex-col gap-12 px-16 py-14">
-            <p className="self-end rounded-lg bg-surface px-12 py-8 type-ui text-fg">Which of these runbooks is the oldest?</p>
+            <p className="self-end rounded-lg bg-raised px-12 py-8 type-ui text-fg">Which of these runbooks is the oldest?</p>
             <p className="type-body text-fg">
               ops/escalation-policy — last edited 14 months ago. The on-call rotation note replaced most of it in March, so it's the likeliest to be stale.
             </p>

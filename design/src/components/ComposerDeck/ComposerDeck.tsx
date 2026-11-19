@@ -1,12 +1,14 @@
-import { useRef, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { IconButton } from "../IconButton/IconButton";
 import { StatusStripButton, type StatusStripItem, type StatusStripItemId } from "../StatusStrip/StatusStrip";
 import { StatusPanelInDeck } from "../StatusStrip/StatusPanel";
 import { useDismiss } from "../../lib/dismiss";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 
 /** The deck's lip: the back panel's height above the composer when it is closed. */
-const LIP = 36;
+const LIP = 30;
 
 /** Something that takes the deck's pressed slot without being a strip item: a `/btw` aside. */
 export type ComposerDeckAside = {
@@ -38,17 +40,44 @@ export type ComposerDeckProps = {
 
 /**
  * The composer and its back panel (D62, drawn on "Composer · two panels"). The back panel is
- * an inset card of frosted glass standing on the composer's top edge; the composer, frosted
- * too, casts its shadow up onto it. Nothing runs under the composer, so its glass stays clear. Closed, only its lip shows, with the status strip;
- * an item opens its sheet by growing the card upward over the conversation, and the strip
- * becomes the sheet's header (the open item pressed and named, the x at the right). The
- * composer never moves. The sheet closes on its x, on Escape and on a press outside the deck.
+ * an inset card standing on the composer's top edge: its header frosted glass in the deck's
+ * colour, its sheet the composer's own colour. The composer, solid, casts its shadow up onto
+ * it. Closed, only its lip shows, with the status strip; an item opens its sheet by growing
+ * the card upward over the conversation, and the strip becomes the sheet's header (the open
+ * item pressed and named, the x at the right). The composer never moves.
+ * The sheet closes on its x, on Escape and on a press outside the deck.
+ *
+ * Motion: the sheet grows to its measured height on the arrive ease and folds back faster on
+ * the standard ease, so the card rises out of the lip and settles into it again; switching
+ * sections glides between the two heights while the new section fades in. With reduced
+ * motion the height snaps and only the fades remain.
  */
 export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing, children, className }: ComposerDeckProps) {
   const deck = useRef<HTMLDivElement>(null);
+  const indicator = `deck-tab-${useId()}`;
   const active = aside ? null : (items.find((i) => i.id === open) ?? null);
   const expanded = !!aside || !!active;
   const close = () => (aside ? aside.onClose() : onOpenChange(null));
+  const reduced = useReducedMotion();
+
+  // The sheet's content, kept through the closing fold so it does not vanish mid-way.
+  const content = aside ? aside.content : active ? sheet?.(active, close) : null;
+  const contentKey = aside ? "aside" : (active?.id ?? null);
+  const kept = useRef<{ key: string; node: ReactNode } | null>(null);
+  if (expanded && contentKey) kept.current = { key: contentKey, node: content };
+  const shown = expanded ? { key: contentKey!, node: content } : kept.current;
+
+  // The sheet's natural height, followed as its content changes (a search narrowing a list).
+  const inner = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    setHeight(el.offsetHeight);
+    const ro = new ResizeObserver(() => setHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [shown?.key]);
   useDismiss(!!active, () => onOpenChange(null), deck);
 
   const press = (item: StatusStripItem) => {
@@ -64,13 +93,19 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
         // Anchored at the composer's top edge, so opening grows it upward only.
         style={{ bottom: `calc(100% - ${LIP}px)` }}
         className={cx(
-          "absolute inset-x-24 z-0 flex flex-col overflow-hidden rounded-t-xl border border-b-0 bg-raised/60 backdrop-blur-lg backdrop-saturate-150 max-lg:inset-x-12",
-          expanded ? "border-border-strong shadow-popover" : "border-border",
+          "absolute inset-x-24 z-0 flex flex-col overflow-hidden rounded-t-xl border border-b-0 bg-deck/60 backdrop-blur-lg backdrop-saturate-150 transition-[border-color,box-shadow] duration-(--vz-duration-base) max-lg:inset-x-12",
+          // A translucent edge, so the frosted rim reads as glass rather than a drawn line.
+          expanded ? "border-border-strong/60 shadow-popover" : "border-border/60",
         )}
       >
-        <div className={cx("flex shrink-0 items-center gap-4 px-6", expanded && "border-b border-border")} style={{ height: LIP }}>
+        <div
+          className={cx(
+            "flex shrink-0 items-center gap-4 px-4",
+          )}
+          style={{ height: LIP }}
+        >
           {aside && (
-            <span className="inline-flex h-29 shrink-0 items-center gap-6 rounded-pill border border-border-strong bg-surface px-10">
+            <span className="inline-flex h-24 shrink-0 items-center gap-6 rounded-pill border border-border-strong bg-surface px-10">
               <span className="type-code font-medium text-live-text">{aside.label}</span>
               {aside.note && <span className="type-small text-muted whitespace-nowrap">{aside.note}</span>}
             </span>
@@ -84,6 +119,7 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
                 label={active?.id === item.id ? sectionName(item) : undefined}
                 onPress={() => press(item)}
                 onRaised
+                indicator={indicator}
               />
             ))}
           </div>
@@ -93,11 +129,41 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
             <IconButton variant="ghost" size="sm" icon="close" aria-label={aside ? "Close side chat" : "Close panel"} onClick={close} />
           )}
         </div>
-        {expanded && (
-          <StatusPanelInDeck.Provider value={true}>
-            <div className="flex min-h-0 flex-col">{aside ? aside.content : active && sheet?.(active, close)}</div>
-          </StatusPanelInDeck.Provider>
-        )}
+        <motion.div
+          initial={false}
+          aria-hidden={!expanded || undefined}
+          inert={!expanded}
+          animate={{ height: expanded ? height : 0 }}
+          transition={
+            reduced
+              ? { duration: 0 }
+              : expanded
+                ? { duration: motionDurations.slow, ease: motionEases.arrive }
+                : { duration: motionDurations.base, ease: motionEases.standard }
+          }
+          onAnimationComplete={() => {
+            if (!expanded) kept.current = null;
+          }}
+          // The sheet is the composer's colour: the header stays the deck's, so it reads as the
+          // tab the sheet hangs from, and the sheet as an extension of where you write.
+          // A solid card inset in the glass: the deck's frosted rim shows down both sides.
+          className="mx-6 shrink-0 overflow-hidden rounded-t-lg"
+        >
+          {shown && (
+            <StatusPanelInDeck.Provider value={true}>
+              <motion.div
+                key={shown.key}
+                ref={inner}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: expanded ? 1 : 0 }}
+                transition={{ duration: expanded ? motionDurations.base : motionDurations.fast, ease: motionEases.standard }}
+                className="flex flex-col rounded-t-lg border border-b-0 border-border bg-surface"
+              >
+                {shown.node}
+              </motion.div>
+            </StatusPanelInDeck.Provider>
+          )}
+        </motion.div>
       </div>
       <div className="relative z-10">{children}</div>
     </div>

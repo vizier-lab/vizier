@@ -18,6 +18,7 @@
   --vz-surface: #f4f4f5; /* bg/surface */
   --vz-raised: #e9e9ec; /* bg/raised */
   --vz-pressed: #dcdce0; /* bg/pressed */
+  --vz-deck: #e9e9ec; /* bg/deck */
 
   --vz-border: #e4e4e7; /* line/border */
   --vz-border-strong: #d4d4d8; /* line/border-strong */
@@ -124,6 +125,7 @@
     --vz-surface: #151518; /* bg/surface */
     --vz-raised: #1c1c20; /* bg/raised */
     --vz-pressed: #26262b; /* bg/pressed */
+    --vz-deck: #26262b; /* bg/deck */
 
     --vz-border: #242428; /* line/border */
     --vz-border-strong: #303036; /* line/border-strong */
@@ -184,6 +186,7 @@
   --vz-surface: #151518; /* bg/surface */
   --vz-raised: #1c1c20; /* bg/raised */
   --vz-pressed: #26262b; /* bg/pressed */
+  --vz-deck: #26262b; /* bg/deck */
 
   --vz-border: #242428; /* line/border */
   --vz-border-strong: #303036; /* line/border-strong */

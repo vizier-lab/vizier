@@ -27,6 +27,7 @@
   --color-surface: var(--vz-surface);
   --color-raised: var(--vz-raised);
   --color-pressed: var(--vz-pressed);
+  --color-deck: var(--vz-deck);
   --color-border: var(--vz-border);
   --color-border-strong: var(--vz-border-strong);
   --color-focus: var(--vz-focus);
