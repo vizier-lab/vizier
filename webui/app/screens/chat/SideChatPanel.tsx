@@ -141,7 +141,7 @@ export function SideChatPanel({
         return (
             <div className="flex max-h-[50vh] min-h-0 flex-col">
                 {question?.trim() && (
-                    <p className="mx-16 mt-14 line-clamp-4 max-w-[80%] self-end rounded-lg bg-surface px-12 py-8 type-ui text-fg [overflow-wrap:anywhere]">
+                    <p className="mx-16 mt-14 line-clamp-4 max-w-[80%] self-end rounded-lg bg-raised px-12 py-8 type-ui text-fg [overflow-wrap:anywhere]">
                         {question.trim()}
                     </p>
                 )}

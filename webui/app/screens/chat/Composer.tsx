@@ -75,7 +75,7 @@ type Props = {
     project?: { id: string; mode: ProjectMode; shell?: boolean }
     onModeChange?: (mode: ProjectMode) => void
     topicId?: string
-    /** In front of the status strip's back panel: the box casts its shadow up onto it. */
+    /** In front of the status strip's back panel: a solid box casting its shadow up onto it. */
     lifted?: boolean
 }
 

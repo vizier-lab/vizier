@@ -16,7 +16,7 @@ type Props = {
     onAvailabilityChange?: (available: boolean) => void
 }
 
-const triggerClass = 'flex h-28 w-[240px] min-w-0 max-w-full items-center justify-end gap-6 rounded-md border border-transparent bg-transparent pr-6 pl-8 text-right type-mono-xs text-muted hover:text-fg focus-visible:border-live focus-visible:outline-none'
+const triggerClass = 'flex h-24 w-[240px] min-w-0 max-w-full items-center justify-end gap-6 rounded-md border border-transparent bg-transparent pr-6 pl-8 text-right type-mono-xs text-muted hover:text-fg focus-visible:border-live focus-visible:outline-none'
 const label = (choice: Pick<Choice, 'provider' | 'model'>) => `${choice.provider}/${choice.model}`
 
 /** One searchable provider/model choice. The provider and complete model id remain separate. */

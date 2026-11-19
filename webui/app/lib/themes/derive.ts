@@ -78,6 +78,9 @@ export function derive(keys: Keys): Record<Role, Hex> {
         'bg/surface': surface,
         'bg/raised': toward(0.1),
         'bg/pressed': toward(0.16),
+        // Behind the composer: a step down in light (it reads as recessed), a clear step up in
+        // dark, where a shadow does not show and only a lighter surface separates the two.
+        'bg/deck': toward(dark ? 0.16 : 0.1),
         'line/border': toward(0.12),
         'line/border-strong': toward(0.2),
         'line/focus': ensureContrast(away(0.15), content, 3),

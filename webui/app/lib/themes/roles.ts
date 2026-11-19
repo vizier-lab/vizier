@@ -11,6 +11,7 @@ const ROLE_TABLE = [
     ['bg/surface', '--vz-surface', 'Cards'],
     ['bg/raised', '--vz-raised', 'Raised'],
     ['bg/pressed', '--vz-pressed', 'Pressed'],
+    ['bg/deck', '--vz-deck', 'Composer back panel'],
     ['line/border', '--vz-border', 'Border'],
     ['line/border-strong', '--vz-border-strong', 'Strong border'],
     ['line/focus', '--vz-focus', 'Focus ring'],
