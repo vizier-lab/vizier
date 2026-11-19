@@ -478,7 +478,7 @@ export default function Chat() {
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     {/* Padded like the message list, scroll bar included, so the composer lines up with the messages' column. */}
                     <div
-                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
+                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-12 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
                         style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
                     >
                     {/* The composer stays max-w-4xl plus its own 28px; the messages are narrower (max-w-3xl), inside the deck. */}
