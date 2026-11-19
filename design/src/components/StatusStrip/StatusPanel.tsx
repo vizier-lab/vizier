@@ -54,12 +54,8 @@ export function StatusPanel({
         aria-label={typeof title === "string" ? title : undefined}
         className={cx("flex max-h-[min(436px,55vh)] flex-col", className)}
       >
-        {(meta != null || headerAction) && (
-          <div className="flex items-center justify-end gap-8 px-16 pt-10">
-            {meta != null && <span className="type-mono-xs text-faint whitespace-nowrap">{meta}</span>}
-            {headerAction}
-          </div>
-        )}
+        {/* The deck's pressed pill already carries the count, so the meta is not repeated here. */}
+        {headerAction && <div className="flex items-center justify-end gap-8 px-16 pt-10">{headerAction}</div>}
         {search && <div className="px-16 pt-10">{search}</div>}
         {tabs && <div className="px-16 pt-10">{tabs}</div>}
         <div className="min-h-0 flex-1 overflow-y-auto px-16 py-8">{children}</div>

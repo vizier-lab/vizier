@@ -59,7 +59,10 @@ export function StatusStripButton({
   /** Shown after the count, e.g. "Background work" while that sheet is open. */
   label?: string;
   onPress: () => void;
-  /** Drawn on a raised surface (the composer deck): pressed and hover use the surface colour instead. */
+  /**
+   * Drawn in the composer deck's glass header: every item at full strength so it reads over
+   * whatever shows through, hover on the surface colour, and the pressed item in the live colour.
+   */
   onRaised?: boolean;
   /**
    * A layout id shared by one strip's buttons: the pressed pill becomes one indicator that
@@ -81,8 +84,8 @@ export function StatusStripButton({
         onRaised ? "h-24" : "h-29",
         onRaised
           ? pressed
-            ? cx("text-fg", !sliding && "bg-surface ring-1 ring-inset ring-border-strong")
-            : "text-muted enabled:hover:bg-surface enabled:hover:text-fg"
+            ? cx("text-on-live", !sliding && "bg-live")
+            : "text-fg enabled:hover:bg-surface"
           : pressed
             ? "bg-raised text-fg"
             : "text-muted enabled:hover:bg-raised enabled:hover:text-fg",
@@ -92,13 +95,24 @@ export function StatusStripButton({
         <motion.span
           aria-hidden
           layoutId={indicator}
-          className="absolute inset-0 -z-10 rounded-pill bg-surface ring-1 ring-inset ring-border-strong"
+          className={cx("absolute inset-0 -z-10 rounded-pill", onRaised ? "bg-live" : "bg-surface ring-1 ring-inset ring-border-strong")}
           transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.9 }}
         />
       )}
       <Icon name={item.icon} size={15} />
       <span className="type-mono-xs-medium">{item.display ?? item.count}</span>
-      {dot && <span aria-hidden className={cx("size-6 rounded-pill", DOT_CLASS[dot])} />}
+      {dot && (
+        <span
+          aria-hidden
+          className={cx(
+            "size-6 rounded-pill",
+            // In the deck's live pill a live dot would vanish: it takes the pill's text colour.
+            onRaised && pressed && (dot === "live" || dot === "pulse")
+              ? cx("bg-on-live", dot === "pulse" && "animate-shimmer")
+              : DOT_CLASS[dot],
+          )}
+        />
+      )}
       {sliding ? (
         <AnimatePresence initial={false}>
           {label && (

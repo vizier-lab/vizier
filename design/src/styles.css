@@ -38,6 +38,8 @@
   --color-muted: var(--vz-text-muted);
   --color-soft: var(--vz-text-soft);
   --color-fg: var(--vz-text);
+  /* Text on the live colour (the composer deck's open pill): the white made for the green selection. */
+  --color-on-live: var(--vz-selection-text);
   --color-ink: var(--vz-ink);
   --color-ink-hover: var(--vz-ink-hover);
   --color-ink-pressed: var(--vz-ink-pressed);

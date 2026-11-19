@@ -66,7 +66,6 @@ function Demo({
   const aside: ComposerDeckAside | null = asideOpen
     ? {
         label: "/btw",
-        note: "never saved",
         onClose: () => setAsideOpen(false),
         content: (
           <div className="flex flex-col gap-12 px-16 py-14">

@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { IconButton } from "../IconButton/IconButton";
+import { Icon } from "../../icons/Icon";
 import { StatusStripButton, type StatusStripItem, type StatusStripItemId } from "../StatusStrip/StatusStrip";
 import { StatusPanelInDeck } from "../StatusStrip/StatusPanel";
 import { useDismiss } from "../../lib/dismiss";
@@ -40,11 +40,11 @@ export type ComposerDeckProps = {
 
 /**
  * The composer and its back panel (D62, drawn on "Composer · two panels"). The back panel is
- * an inset card standing on the composer's top edge: its header frosted glass in the deck's
- * colour, its sheet the composer's own colour. The composer, solid, casts its shadow up onto
- * it. Closed, only its lip shows, with the status strip; an item opens its sheet by growing
- * the card upward over the conversation, and the strip becomes the sheet's header (the open
- * item pressed and named, the x at the right). The composer never moves.
+ * an inset card of frosted glass, in the deck's colour, standing on the composer's top edge; an
+ * open sheet is a solid card in the composer's own colour, inset so a glass rim frames it. The composer, solid,
+ * casts its shadow up onto it. Closed, only its lip shows, with the status strip; an item
+ * opens its sheet by growing the card upward over the conversation, and the strip becomes the sheet's header (the open
+ * item pressed, the x at the right). The composer never moves.
  * The sheet closes on its x, on Escape and on a press outside the deck.
  *
  * Motion: the sheet grows to its measured height on the arrive ease and folds back faster on
@@ -77,7 +77,7 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
     const ro = new ResizeObserver(() => setHeight(el.offsetHeight));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [shown?.key]);
+  }, [!!shown]);
   useDismiss(!!active, () => onOpenChange(null), deck);
 
   const press = (item: StatusStripItem) => {
@@ -100,7 +100,8 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
       >
         <div
           className={cx(
-            "flex shrink-0 items-center gap-4 px-4",
+            // 6px, the rim's width: the first pill and the x line up with the card's edges below.
+            "flex shrink-0 items-center gap-4 px-6",
           )}
           style={{ height: LIP }}
         >
@@ -116,7 +117,6 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
                 key={item.id}
                 item={item}
                 pressed={active?.id === item.id}
-                label={active?.id === item.id ? sectionName(item) : undefined}
                 onPress={() => press(item)}
                 onRaised
                 indicator={indicator}
@@ -126,7 +126,15 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
           <span className="flex-1" />
           {trailing && <div className="flex min-w-0 max-w-[55%] shrink items-center justify-end">{trailing}</div>}
           {expanded && (
-            <IconButton variant="ghost" size="sm" icon="close" aria-label={aside ? "Close side chat" : "Close panel"} onClick={close} />
+            <button
+              type="button"
+              aria-label={aside ? "Close side chat" : "Close panel"}
+              onClick={close}
+              // Full strength, like the strip: the header is glass, and a muted glyph is lost on it.
+              className="flex size-24 shrink-0 items-center justify-center rounded-sm text-fg hover:bg-surface"
+            >
+              <Icon name="close" size={13} />
+            </button>
           )}
         </div>
         <motion.div
@@ -144,23 +152,25 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
           onAnimationComplete={() => {
             if (!expanded) kept.current = null;
           }}
-          // The sheet is the composer's colour: the header stays the deck's, so it reads as the
-          // tab the sheet hangs from, and the sheet as an extension of where you write.
-          // A solid card inset in the glass: the deck's frosted rim shows down both sides.
+          // The sheet is a solid card in the composer's colour, inset in the deck's glass so a
+          // frosted rim runs down both sides.
           className="mx-6 shrink-0 overflow-hidden rounded-t-lg"
         >
           {shown && (
             <StatusPanelInDeck.Provider value={true}>
-              <motion.div
-                key={shown.key}
-                ref={inner}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: expanded ? 1 : 0 }}
-                transition={{ duration: expanded ? motionDurations.base : motionDurations.fast, ease: motionEases.standard }}
-                className="flex flex-col rounded-t-lg border border-b-0 border-border bg-surface"
-              >
-                {shown.node}
-              </motion.div>
+              {/* The card's colour and edge sit on this layer, which never fades, so a section
+                  fading in never shows the glass through it. */}
+              <div ref={inner} className="rounded-t-lg border border-b-0 border-border bg-surface">
+                <motion.div
+                  key={shown.key}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: expanded ? 1 : 0 }}
+                  transition={{ duration: expanded ? motionDurations.base : motionDurations.fast, ease: motionEases.standard }}
+                  className="flex flex-col"
+                >
+                  {shown.node}
+                </motion.div>
+              </div>
             </StatusPanelInDeck.Provider>
           )}
         </motion.div>
@@ -168,17 +178,4 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
       <div className="relative z-10">{children}</div>
     </div>
   );
-}
-
-const SECTION_NAMES: Partial<Record<StatusStripItemId, string>> = {
-  memory: "Recalled memory",
-  work: "Background work",
-  subagents: "Subagents",
-  files: "Session files",
-  changes: "Changes",
-  lsp: "Language servers",
-};
-
-function sectionName(item: StatusStripItem) {
-  return SECTION_NAMES[item.id] ?? item.label;
 }
