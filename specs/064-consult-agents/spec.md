@@ -220,14 +220,13 @@ with the agent that asked. They can read them but not write in them.
 consultation, so the people responsible for B need a record of it. It is not needed for the
 core flow.
 
-**Independent Test**: After A consults B, a person who may view B's platform conversations finds
-the consultation in B's conversation list, labelled with A, and can read it. The composer is not
-offered, and a person who may not view B's conversations does not see it.
+**Independent Test**: After A consults B, a person who may edit B finds the consultation in B's
+conversation list, labelled with A, and can read it. The composer is not offered, and a person
+who may only chat with B does not see it.
 
 **Acceptance Scenarios**:
 
-1. **Given** a finished consultation, **When** someone allowed to view B's channel conversations
-   opens B, **Then** the consultation is listed, labelled as a consultation from A, and readable.
+1. **Given** a finished consultation, **When** someone who may edit B opens B, **Then** the consultation is listed, labelled as a consultation from A, and readable.
 2. **Given** that conversation, **Then** no one can post in it from the WebUI.
 
 ---
@@ -332,21 +331,23 @@ unchanged.
 **Who may be consulted**
 
 - **FR-010**: An agent MUST be able to consult only agents the person on whose behalf it is
-  working may use. That is the person in the conversation, for a WebUI or project chat, and the
-  person the platform identity is linked to, on Discord and Telegram. An agent not in that set
+  working may use. That is the person in the conversation, for a WebUI or project chat. Discord
+  and Telegram identities are not linked to people, so those conversations fall under FR-011.
+  An agent not in that set
   MUST be answered exactly as an agent that does not exist. "May use" means the person may chat
   with that agent, under the same view rule that decides whether it appears to them in the WebUI.
   Owning or being able to edit the agent is not required, and there is no separate allow-list.
-- **FR-011**: In a conversation with no person (a scheduled run, or a channel message from someone
-  not linked to a person), the consulting agent's owner MUST be the person whose access decides.
+- **FR-011**: In a conversation with no person (a scheduled run, a Discord or Telegram message),
+  the consulting agent's owner MUST be the person whose access decides. An agent with no owner
+  MUST NOT consult, and is told why.
   Dreams MUST NOT consult.
 - **FR-012**: Agents MUST be able to list the agents they may consult in the current conversation,
   with each one's name, id, short description and availability.
 - **FR-013**: Access MUST be checked when a consultation starts and again on every reply or
   follow-up.
 - **FR-014**: Consulting MUST be visible to the consulted agent's people: a consultation
-  conversation MUST be readable by those who may view that agent's channel conversations, and MUST
-  be labelled with the consulting agent. No person MUST be able to post in it.
+  conversation MUST be readable by those who may edit that agent (its owner, or the all-agents
+  edit permission), and MUST be labelled with the consulting agent. No person MUST be able to post in it.
 
 **Limits**
 
