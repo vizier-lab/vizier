@@ -481,7 +481,7 @@ export default function Chat() {
                         className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
                         style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
                     >
-                    {/* 28px wider than the messages' max-w-4xl: the composer card's own px-14 bleeds out, so its text lines up with the messages' text. */}
+                    {/* The composer stays max-w-4xl plus its own 28px; the messages are narrower (max-w-3xl), inside the deck. */}
                     <div className="mx-auto w-full max-w-[calc(var(--container-4xl)+28px)]">
                     {/* The composer and its back panel: the status strip and the model picker ride the
                         panel's lip, an open item (or a /btw aside) grows it upward into a sheet. */}
@@ -511,7 +511,6 @@ export default function Chat() {
                             sideChat.open
                                 ? {
                                       label: '/btw',
-                                      note: 'never saved',
                                       onClose: closeSideChat,
                                       content: (
                                           <SideChatPanel

@@ -556,7 +556,8 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     measureSoon()
                 }}
             >
-                <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20">
+                {/* max-w-3xl: the messages sit well inside the composer deck, which is narrower than the composer. */}
+                <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-20">
                     {hasOlder && <LoadMore look="auto" label="Load older" loading={loadingOlder} onLoad={onLoadOlder} />}
                     {items.length === 0 && !running ? (
                         <div className="my-auto flex flex-col items-center gap-20">
