@@ -125,7 +125,7 @@
     --vz-surface: #151518; /* bg/surface */
     --vz-raised: #1c1c20; /* bg/raised */
     --vz-pressed: #26262b; /* bg/pressed */
-    --vz-deck: #26262b; /* bg/deck */
+    --vz-deck: #1c1c20; /* bg/deck */
 
     --vz-border: #242428; /* line/border */
     --vz-border-strong: #303036; /* line/border-strong */
@@ -186,7 +186,7 @@
   --vz-surface: #151518; /* bg/surface */
   --vz-raised: #1c1c20; /* bg/raised */
   --vz-pressed: #26262b; /* bg/pressed */
-  --vz-deck: #26262b; /* bg/deck */
+  --vz-deck: #1c1c20; /* bg/deck */
 
   --vz-border: #242428; /* line/border */
   --vz-border-strong: #303036; /* line/border-strong */

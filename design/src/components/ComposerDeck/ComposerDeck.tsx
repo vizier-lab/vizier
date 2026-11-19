@@ -8,7 +8,8 @@ import { cx } from "../../lib/cx";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 
 /** The deck's lip: the back panel's height above the composer when it is closed. */
-const LIP = 30;
+// 36px: the 24px pills sit with 6px above and below, the same as the 6px side padding and rim.
+const LIP = 36;
 
 /** Something that takes the deck's pressed slot without being a strip item: a `/btw` aside. */
 export type ComposerDeckAside = {
@@ -111,7 +112,9 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
               {aside.note && <span className="type-small text-muted whitespace-nowrap">{aside.note}</span>}
             </span>
           )}
-          <div className="flex min-w-0 items-center gap-4 overflow-x-auto [scrollbar-width:none]">
+          {/* The strip never shrinks, so the open item is never pushed out of sight; the trailing
+              slot (the model picker) takes what is left and truncates. */}
+          <div className="flex shrink-0 items-center gap-4">
             {items.map((item) => (
               <StatusStripButton
                 key={item.id}
@@ -124,7 +127,7 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing
             ))}
           </div>
           <span className="flex-1" />
-          {trailing && <div className="flex min-w-0 max-w-[55%] shrink items-center justify-end">{trailing}</div>}
+          {trailing && <div className="flex min-w-0 shrink items-center justify-end">{trailing}</div>}
           {expanded && (
             <button
               type="button"

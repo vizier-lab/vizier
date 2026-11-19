@@ -25,7 +25,7 @@ export const colorTokens: ColorToken[] = [
   { name: "bg/surface", cssVar: "--vz-surface", tw: "surface", group: "bg", description: "Cards, panels, chat bubbles, trail" },
   { name: "bg/raised", cssVar: "--vz-raised", tw: "raised", group: "bg", description: "Inputs, hovered and selected rows, active nav, menus" },
   { name: "bg/pressed", cssVar: "--vz-pressed", tw: "pressed", group: "bg", description: "Secondary, ghost and row controls while pressed (hover is bg/raised)" },
-  { name: "bg/deck", cssVar: "--vz-deck", tw: "deck", group: "bg", description: "The composer's back panel: darker than the composer in light, lighter in dark" },
+  { name: "bg/deck", cssVar: "--vz-deck", tw: "deck", group: "bg", description: "The composer's back panel: a step toward the text from the composer, in both themes" },
   { name: "line/border", cssVar: "--vz-border", tw: "border", group: "line", description: "Dividers and card edges" },
   { name: "line/border-strong", cssVar: "--vz-border-strong", tw: "border-strong", group: "line", description: "Input and button edges, timeline spine" },
   { name: "line/focus", cssVar: "--vz-focus", tw: "focus", group: "line", description: "Keyboard focus ring (Focus/ring) on buttons, toggles, tabs, rows and menus. Text entry focus stays emerald: typing is live." },
