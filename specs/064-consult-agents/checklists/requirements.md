@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain (2 open: FR-010 access set, FR-033 member agents' Workspace records)
+- [x] No [NEEDS CLARIFICATION] markers remain (FR-010 and FR-033 resolved 2026-11-20)
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -33,4 +33,4 @@
 
 - Tool names (`consult_agent`, the retired Workspace tools) appear on purpose: they are what agents
   see and call, the same convention earlier specs (053, 059) followed.
-- The two open markers are waiting on the user's answers. Resolve them before `/speckit-plan`.
+- All items pass. Ready for `/speckit-plan`.

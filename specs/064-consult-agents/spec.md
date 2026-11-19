@@ -6,6 +6,15 @@
 
 **Status**: Draft
 
+## Clarifications
+
+### Session 2026-11-20
+
+- Q: Which agents count as "available to the user" for consulting? → A: Any agent the person may
+  chat with (view rights). No ownership or allow-list is required (FR-010).
+- Q: What happens to each member agent's own record of a Workspace topic on upgrade? → A: It is
+  deleted with the Workspace (FR-033).
+
 **Input**: User description: "let's remove workspace features entirely instead for inter-agent collaboration, we'll provide a `consult_agent` (let me know if you have better name) tool what it does allow agent to talk to prompt agent just like how it can prompt/hire a subagent, in fact it should behave just like how subagents features like, but instead connected to a "temporary" agent, i connect to a real separate agent available to the user"
 
 ## Context
@@ -325,10 +334,9 @@ unchanged.
 - **FR-010**: An agent MUST be able to consult only agents the person on whose behalf it is
   working may use. That is the person in the conversation, for a WebUI or project chat, and the
   person the platform identity is linked to, on Discord and Telegram. An agent not in that set
-  MUST be answered exactly as an agent that does not exist.
-  [NEEDS CLARIFICATION: Which agents count as "available to the user"? (a) agents the person may
-  chat with (view rights); (b) only agents the person owns, or may edit; (c) (a), and also only
-  agents the consulting agent's owner has allowed it to consult.]
+  MUST be answered exactly as an agent that does not exist. "May use" means the person may chat
+  with that agent, under the same view rule that decides whether it appears to them in the WebUI.
+  Owning or being able to edit the agent is not required, and there is no separate allow-list.
 - **FR-011**: In a conversation with no person (a scheduled run, or a channel message from someone
   not linked to a person), the consulting agent's owner MUST be the person whose access decides.
   Dreams MUST NOT consult.
@@ -406,10 +414,10 @@ unchanged.
   tools, and no guidance MUST name a retired tool.
 - **FR-033**: On upgrade, Workspace data (timelines, topics, membership, read positions,
   Workspace notifications and permissions) MUST be removed. Agents' memory, usage already recorded,
-  and their conversations outside Workspaces MUST be untouched.
-  [NEEDS CLARIFICATION: What happens to each member agent's own record of a Workspace topic (its
-  turns and what it read)? (a) deleted with the Workspace; (b) kept as read-only past
-  conversations of that agent; (c) kept but hidden, removed later with the compatibility code.]
+  and their conversations outside Workspaces MUST be untouched. Each member agent's own record of
+  a Workspace topic (its turns, what it read, and that conversation's files, scratch files and
+  pending turns) MUST be deleted with the Workspace. Nothing about Workspaces is kept readable.
+  What an agent already wrote to its memory from a Workspace stays, because memory is untouched.
 - **FR-034**: Silent reading on Discord and Telegram, and the way mid-turn messages show in every
   WebUI chat, MUST be unchanged.
 - **FR-035**: Any compatibility code kept for the removal (old names, old data, old notifications)
