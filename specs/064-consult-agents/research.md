@@ -80,8 +80,8 @@ effect), and follow-ups for workers too (out of scope: a worker is one task).
 ## D5 - Access: the person's view right, resolved in core
 
 **Decision**: `consultations::access::principal_for_turn(deps, ctx)` decides whose access
-counts. For an `HTTP`/`Project` session it is `web_user()`. For every other kind (Discord,
-Telegram, Task, System, a detached script's conversation of those kinds) it is A's `owner_id`.
+counts. For an `HTTP`/`Project` session it is `web_user()`. For `Task` and `System` it is A's
+`owner_id`. Discord and Telegram never get this far (see below).
 An agent with no owner gets `{status: "no_owner"}`. The person is resolved to a `Principal`
 through the same path `Services::principal_for` uses, with method `System`. B is consultable when
 `access::can_view_agent(principal, B)`, B ≠ A, and B is not in the chain (D8). An unknown agent
@@ -89,9 +89,20 @@ and a not-allowed one both answer `{status: "unknown_agent"}` with the same mess
 runs on `consult_agent`, `reply_consultation` (both transitions) and `list_consultable_agents`.
 Dreams are refused through `may_hire`'s existing dream test, applied to consultations as well.
 
+**Discord and Telegram are deferred** (FR-011a, until
+[vizier-lab/vizier#116](https://github.com/vizier-lab/vizier/issues/116)). `may_consult(ctx)` is
+false when the conversation's channel has a `platform()`, or when the turn descends from one: a
+detached script or worker launched there keeps its parent's session as `hiring_session`, so the
+test reads the **root** conversation (`ctx.session`, or the hiring session a detached copy
+inherits). The tools are then absent from the catalogue and from the category lines, like any
+tool whose `available(ctx)` is false. When #116 lands, the platform branch of
+`principal_for_turn` resolves the verified person and this test goes away. That is a
+follow-up spec, not compatibility code, so it gets no #82 entry.
+
 **Rationale**: Clarification Q1 (view rights), FR-010, FR-011 and FR-013. No code links Discord
-or Telegram identities to people (`service/mod.rs` has only `principal_for(user_id)`), so the
-owner rule is the only sound fallback, and the spec now says so. Authorization lives in core, per
+or Telegram identities to people (`service/mod.rs` has only `principal_for(user_id)`), and the
+profile's platform ids are self-declared, so neither the speaker nor the owner rule is sound
+there yet. Authorization lives in core, per
 CLAUDE.md ("new authorization goes in core").
 
 **Alternatives considered**: Using the scheduled task's `requester` as the person. This is more

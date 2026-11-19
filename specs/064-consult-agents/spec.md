@@ -14,6 +14,8 @@
   chat with (view rights). No ownership or allow-list is required (FR-010).
 - Q: What happens to each member agent's own record of a Workspace topic on upgrade? → A: It is
   deleted with the Workspace (FR-033).
+- Q: Who decides access in Discord and Telegram conversations? → A: No one yet. Consulting is not
+  offered there until verified channel identities land (#116, FR-011a).
 
 **Input**: User description: "let's remove workspace features entirely instead for inter-agent collaboration, we'll provide a `consult_agent` (let me know if you have better name) tool what it does allow agent to talk to prompt agent just like how it can prompt/hire a subagent, in fact it should behave just like how subagents features like, but instead connected to a "temporary" agent, i connect to a real separate agent available to the user"
 
@@ -154,6 +156,8 @@ exist, and the list of consultable agents leaves B out.
    and never A itself.
 4. **Given** a turn with no person in it (a scheduled run, a dream), **When** A consults, **Then**
    the rule of FR-011 decides.
+5. **Given** a Discord or Telegram conversation, **When** A lists its tools, **Then** the
+   consultation tools are not offered (FR-011a, until #116).
 
 ---
 
@@ -331,16 +335,19 @@ unchanged.
 **Who may be consulted**
 
 - **FR-010**: An agent MUST be able to consult only agents the person on whose behalf it is
-  working may use. That is the person in the conversation, for a WebUI or project chat. Discord
-  and Telegram identities are not linked to people, so those conversations fall under FR-011.
-  An agent not in that set
+  working may use. That is the person in the conversation, for a WebUI or project chat. An
+  agent not in that set
   MUST be answered exactly as an agent that does not exist. "May use" means the person may chat
   with that agent, under the same view rule that decides whether it appears to them in the WebUI.
   Owning or being able to edit the agent is not required, and there is no separate allow-list.
-- **FR-011**: In a conversation with no person (a scheduled run, a Discord or Telegram message),
-  the consulting agent's owner MUST be the person whose access decides. An agent with no owner
-  MUST NOT consult, and is told why.
-  Dreams MUST NOT consult.
+- **FR-011**: In a conversation with no person (a scheduled run), the consulting agent's owner
+  MUST be the person whose access decides. An agent with no owner MUST NOT consult, and is told
+  why. Dreams MUST NOT consult.
+- **FR-011a**: Consulting MUST NOT be offered in Discord or Telegram conversations, or in work
+  started from them (their detached scripts and subagent workers). Those platform identities are
+  self-declared, so nothing proves who is asking. This is deferred until verified channel
+  identities land ([vizier-lab/vizier#116](https://github.com/vizier-lab/vizier/issues/116)),
+  when the verified person's access will decide, as in FR-010.
 - **FR-012**: Agents MUST be able to list the agents they may consult in the current conversation,
   with each one's name, id, short description and availability.
 - **FR-013**: Access MUST be checked when a consultation starts and again on every reply or
@@ -476,6 +483,9 @@ unchanged.
 - No limit on how many consultations an agent may open, beyond the time limit and the depth
   setting.
 - Per-consultation overrides (a different model, a tool subset) are out of scope.
+- Consulting from Discord and Telegram is out of scope until verified channel identities
+  ([vizier-lab/vizier#116](https://github.com/vizier-lab/vizier/issues/116)) give those
+  conversations a person whose access can be checked.
 - People cannot start, stop, reply to or follow up a consultation. Both views are read-only.
 - The UI parts (the Consultations strip item and panel, consultation labels in the consulted
   agent's conversation list, and the Workspace removal in the rail) are drawn before they are built,

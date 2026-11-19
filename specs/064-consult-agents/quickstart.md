@@ -77,7 +77,12 @@ The automated form of everything below is `node scripts/consultations-e2e.mjs` (
 3. Consult `alpha` from `alpha`. **Expect**: `{status: "self"}`.
 4. A scheduled task of `alpha` consults `beta`. **Expect**: success (the owner `admin` may view
    `beta`), and `on_behalf_of: none`.
-5. As `viewer`, list `gamma`'s conversations. **Expect**: no consultation rows (`viewer` cannot
+5. In a Discord or Telegram conversation with `alpha` (or with the reader stubbed, a
+   `discord__…` session sent through `POST /agents/alpha/prompt`'s test path in
+   `dummyplug_e2e.rs`), run `list_tool_functions(category="consultations")`. **Expect**: an
+   unknown category (`did_you_mean` data). The same holds for a detached script launched there
+   (FR-011a).
+6. As `viewer`, list `gamma`'s conversations. **Expect**: no consultation rows (`viewer` cannot
    edit `gamma`).
 
 ## 6. Limits (FR-015 to FR-017, SC-005)
