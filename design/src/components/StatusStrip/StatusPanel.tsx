@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { IconButton } from "../IconButton/IconButton";
 import { cx } from "../../lib/cx";
 
@@ -24,6 +24,12 @@ export type StatusPanelProps = {
 };
 
 /**
+ * Inside the composer deck, a panel is the deck's sheet: the deck draws the card, names the
+ * open section and closes it, so the panel drops its own border, title and x.
+ */
+export const StatusPanelInDeck = createContext(false);
+
+/**
  * The panel a status-strip item opens (D62): a title, a search, filters, a scrolling
  * list and a footer, floating above the strip. It closes on its x, on Escape and on a
  * press outside it.
@@ -40,6 +46,29 @@ export function StatusPanel({
   width,
   className,
 }: StatusPanelProps) {
+  const inDeck = useContext(StatusPanelInDeck);
+  if (inDeck) {
+    return (
+      <div
+        role="region"
+        aria-label={typeof title === "string" ? title : undefined}
+        className={cx("flex max-h-[min(436px,55vh)] flex-col", className)}
+      >
+        {(meta != null || headerAction) && (
+          <div className="flex items-center justify-end gap-8 px-16 pt-10">
+            {meta != null && <span className="type-mono-xs text-faint whitespace-nowrap">{meta}</span>}
+            {headerAction}
+          </div>
+        )}
+        {search && <div className="px-16 pt-10">{search}</div>}
+        {tabs && <div className="px-16 pt-10">{tabs}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto px-16 py-8">{children}</div>
+        {footer && (
+          <div className="flex items-center justify-between gap-12 border-t border-border px-16 py-10">{footer}</div>
+        )}
+      </div>
+    );
+  }
   return (
     <div
       role="dialog"

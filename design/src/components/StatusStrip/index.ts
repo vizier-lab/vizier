@@ -1,5 +1,6 @@
 export {
   StatusStrip,
+  StatusStripButton,
   type StatusStripDot,
   type StatusStripItem,
   type StatusStripItemId,

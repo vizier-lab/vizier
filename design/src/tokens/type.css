@@ -227,4 +227,6 @@
   --vz-shadow-popover: 0 12px 32px -8px rgb(0 0 0 / 0.5);
   /* Elevation/dialog: dialogs and confirmations */
   --vz-shadow-dialog: 0 20px 48px -12px rgb(0 0 0 / 0.55);
+  /* Elevation/lift: the composer in front of its back panel, casting upward onto it */
+  --vz-shadow-lift: 0 -8px 20px -4px rgb(0 0 0 / 0.45);
 }

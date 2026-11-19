@@ -151,6 +151,7 @@
   --shadow-*: initial;
   --shadow-popover: var(--vz-shadow-popover);
   --shadow-dialog: var(--vz-shadow-dialog);
+  --shadow-lift: var(--vz-shadow-lift);
 }
 
 /* iOS Safari zooms the page into any field set under 16px and leaves it zoomed. Touch screens get

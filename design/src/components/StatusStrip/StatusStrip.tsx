@@ -40,6 +40,51 @@ function dotOf(item: StatusStripItem): StatusStripDot | null {
   return item.dot ?? (item.busy ? "live" : null);
 }
 
+/**
+ * One strip item: its glyph, its count and its dot. Pressed while its panel is open; with
+ * `label`, the pressed item also names its section (the composer deck's header).
+ */
+export function StatusStripButton({
+  item,
+  pressed,
+  label,
+  onPress,
+  onRaised,
+}: {
+  item: StatusStripItem;
+  pressed: boolean;
+  /** Shown after the count, e.g. "Background work" while that sheet is open. */
+  label?: string;
+  onPress: () => void;
+  /** Drawn on a raised surface (the composer deck): pressed and hover use the surface colour instead. */
+  onRaised?: boolean;
+}) {
+  const dot = dotOf(item);
+  return (
+    <button
+      type="button"
+      aria-expanded={item.onSelect ? undefined : pressed}
+      aria-label={item.display ? `${item.display}: ${item.label}` : `${item.count} ${item.label}`}
+      onClick={onPress}
+      className={cx(
+        "inline-flex h-29 shrink-0 items-center gap-4 rounded-pill px-8 transition-colors",
+        onRaised
+          ? pressed
+            ? "bg-surface text-fg shadow-[inset_0_0_0_1px_var(--vz-border-strong)]"
+            : "text-muted enabled:hover:bg-surface enabled:hover:text-fg"
+          : pressed
+            ? "bg-raised text-fg"
+            : "text-muted enabled:hover:bg-raised enabled:hover:text-fg",
+      )}
+    >
+      <Icon name={item.icon} size={15} />
+      <span className="type-mono-xs-medium">{item.display ?? item.count}</span>
+      {dot && <span aria-hidden className={cx("size-6 rounded-pill", DOT_CLASS[dot])} />}
+      {label && <span className="ml-2 type-small-medium whitespace-nowrap">{label}</span>}
+    </button>
+  );
+}
+
 export type StatusStripProps = {
   items: StatusStripItem[];
   /** The open item's panel. It is given the close action, so its x closes the panel. */
@@ -97,23 +142,12 @@ export function StatusStrip({
   return (
     <div ref={anchor} className={cx("flex items-center gap-4", fullWidth && "w-full", className)}>
       {items.map((item) => (
-        <button
+        <StatusStripButton
           key={item.id}
-          type="button"
-          aria-expanded={item.onSelect ? undefined : open === item.id}
-          aria-label={item.display ? `${item.display}: ${item.label}` : `${item.count} ${item.label}`}
-          onClick={() => (item.onSelect ? item.onSelect() : setOpen(open === item.id ? null : item.id))}
-          className={cx(
-            "inline-flex h-29 items-center gap-4 rounded-pill px-8 transition-colors",
-            open === item.id
-              ? "bg-raised text-fg"
-              : "text-muted enabled:hover:bg-raised enabled:hover:text-fg",
-          )}
-        >
-          <Icon name={item.icon} size={15} />
-          <span className="type-mono-xs-medium">{item.display ?? item.count}</span>
-          {dotOf(item) && <span aria-hidden className={cx("size-6 rounded-pill", DOT_CLASS[dotOf(item)!])} />}
-        </button>
+          item={item}
+          pressed={open === item.id}
+          onPress={() => (item.onSelect ? item.onSelect() : setOpen(open === item.id ? null : item.id))}
+        />
       ))}
       {active && children && (
         <Floating

@@ -63,6 +63,8 @@ export type ComposerProps = {
   tokenText?: string;
   /** Replaces "Message {agentName} — type / for skills", e.g. in a Workspace topic. */
   placeholder?: string;
+  /** In a ComposerDeck: the box casts its shadow upward onto the back panel standing on it. */
+  lifted?: boolean;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onChange">;
 
 /**
@@ -94,6 +96,7 @@ export function Composer({
   context,
   tokenText,
   hint,
+  lifted,
   className,
   ...rest
 }: ComposerProps) {
@@ -193,7 +196,9 @@ export function Composer({
         <div
           className={cx(
             "flex flex-col gap-10 rounded-xl border px-14 pt-14 pb-12",
-            disabled ? "border-border bg-surface/70 backdrop-blur-md" : "border-border-strong bg-surface/70 backdrop-blur-md focus-within:border-live",
+            "bg-surface/70 backdrop-blur-md",
+            lifted && "shadow-lift",
+            disabled ? "border-border" : "border-border-strong focus-within:border-live",
           )}
         >
           {attachments && <div className="flex flex-wrap gap-6">{attachments}</div>}

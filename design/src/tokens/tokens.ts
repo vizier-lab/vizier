@@ -140,6 +140,7 @@ export const typeStyles: TypeStyle[] = [
 export const elevations = [
   { name: "Elevation/popover", utility: "shadow-popover", description: "Menus, pickers, toasts" },
   { name: "Elevation/dialog", utility: "shadow-dialog", description: "Dialogs and confirmations" },
+  { name: "Elevation/lift", utility: "shadow-lift", description: "The composer in front of its back panel" },
 ] as const;
 
 /**
