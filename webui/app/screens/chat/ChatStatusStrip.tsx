@@ -1,17 +1,18 @@
 import {
   BackgroundWork,
+  ComposerDeck,
   EmptyState,
   FileRow,
   FileTypeTag,
   FilterTabs,
   SearchField,
   StatusPanel,
-  StatusStrip,
   TextLink,
+  type ComposerDeckAside,
   type StatusStripItem,
   type StatusStripItemId,
 } from '@vizier/design'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 import { detachedScript } from '../../api/endpoints/chat'
 import { detachedReport, scriptElapsed } from '../../lib/detached'
@@ -54,10 +55,12 @@ type Props = {
   changes?: { count: number; open: () => void }
   /** A project chat's language servers (spec 054): the item opens the panel. Other chats have none. */
   lsp?: { projectId: string; enabled: boolean }
-  /** How far above the strip the panel sits: the composer's height, so it clears the composer. */
-  panelGap?: number
-  /** The panel's width in px: the composer's, since the strip itself is only as wide as its counts. */
-  panelWidth?: number
+  /** At the right end of the deck's header: the model picker. */
+  trailing?: ReactNode
+  /** A `/btw` aside: it takes the deck's pressed slot and sheet. */
+  aside?: ComposerDeckAside | null
+  /** The composer, drawn in front of the strip's back panel. */
+  children: ReactNode
   className?: string
 }
 
@@ -111,9 +114,9 @@ function WorkEntry({
 }
 
 /**
- * The chat's status strip (D62): the counts of what the agent is still working on and
- * what it left in the conversation. Each count opens a panel
- * that hovers above the composer; a project's changes open their own dialog.
+ * The chat's status strip (D62) on the composer's back panel: the counts of what the agent is
+ * still working on and what it left in the conversation. Each count grows the back panel into
+ * its sheet, with the strip as the sheet's header; a project's changes open their own dialog.
  */
 export function ChatStatusStrip({
   agentId,
@@ -127,8 +130,9 @@ export function ChatStatusStrip({
   onFilesCleared,
   changes,
   lsp,
-  panelGap,
-  panelWidth,
+  aside,
+  trailing,
+  children,
   className,
 }: Props) {
   const [now, setNow] = useState(() => Date.now())
@@ -381,19 +385,16 @@ export function ChatStatusStrip({
     )
 
   return (
-    <StatusStrip
+    <ComposerDeck
       items={items}
       className={className}
-      fullWidth={false}
       open={open}
       onOpenChange={setOpen}
-      panelGap={panelGap}
-      panelWidth={panelWidth}
-      // The language-server and subagents items are left out of the key: their status changes under
-      // an open panel, and remounting would drop an override form's text or close an expanded worker.
-      key={`${items.filter((i) => i.id !== 'lsp' && i.id !== 'subagents').map((i) => i.count).join('-')}`}
+      aside={aside}
+      trailing={trailing}
+      sheet={(item, close) => panelFor(item.id, close)}
     >
-      {(item, close) => panelFor(item.id, close)}
-    </StatusStrip>
+      {children}
+    </ComposerDeck>
   )
 }

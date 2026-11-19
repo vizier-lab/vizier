@@ -53,7 +53,9 @@ const draw = (
         files={files}
         canPromote={false}
         onFilesCleared={() => {}}
-      />
+      >
+        <div />
+      </ChatStatusStrip>
     </MemoryRouter>
   )
 
@@ -146,7 +148,9 @@ describe('the language-server item', () => {
           canPromote={false}
           onFilesCleared={() => {}}
           lsp={lsp}
-        />
+        >
+          <div />
+        </ChatStatusStrip>
       </MemoryRouter>
     )
   }

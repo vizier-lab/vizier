@@ -75,6 +75,8 @@ type Props = {
     project?: { id: string; mode: ProjectMode; shell?: boolean }
     onModeChange?: (mode: ProjectMode) => void
     topicId?: string
+    /** In front of the status strip's back panel: the box casts its shadow up onto it. */
+    lifted?: boolean
 }
 
 let pendingId = 1
@@ -104,6 +106,7 @@ export function Composer({
     project,
     onModeChange,
     topicId,
+    lifted,
 }: Props) {
     const mobile = useMobile()
     const [value, setValue] = useState('')
@@ -389,6 +392,7 @@ export function Composer({
             }}
         >
             <LibraryComposer
+                lifted={lifted}
                 agentName={agentName}
                 suggest={
                     project && suggestions && dismissedAt !== value
