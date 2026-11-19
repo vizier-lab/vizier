@@ -1,7 +1,7 @@
 {
-  "etag": "\"9fabd07856d8107b1a4df7eec63ea4fe\"",
-  "fetched_at": "2026-11-15T17:41:06Z",
-  "models": 9878,
+  "etag": "\"591c701e365d7a47d9939cee0d1fe6ce\"",
+  "fetched_at": "2026-11-19T03:27:28Z",
+  "models": 9996,
   "no_logo": [
     "aion-labs",
     "aisingapore",
@@ -45,6 +45,7 @@
     "openbmb",
     "opendatalab",
     "paddlepaddle",
+    "particle-ai",
     "perceptron",
     "quiverai",
     "recursive",
