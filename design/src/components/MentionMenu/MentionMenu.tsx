@@ -4,6 +4,7 @@ import { Sigil } from "../../brand/Sigil/Sigil";
 import { cx } from "../../lib/cx";
 import { Avatar } from "../Avatar/Avatar";
 import { HighlightMatch } from "../Picker/Picker";
+import { DeckFrame } from "../ComposerDeck/DeckFrame";
 
 /** A file or folder of a project, or (in a Workspace) an agent or person to mention. */
 export type MentionMenuItem = { path: string; kind: "file" | "dir" } | MentionMenuMember;
@@ -56,8 +57,7 @@ function split(path: string) {
  */
 export function MentionMenu({ label, items, query, active, onPick, id, emptyText, className, ...rest }: MentionMenuProps) {
   return (
-    <div className={cx("flex flex-col rounded-lg border border-border-strong surface-float p-6 shadow-popover", className)} {...rest}>
-      <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">{label}</span>
+    <DeckFrame label={label} footer="↑↓ to move · Tab or Enter to mention · Esc to close" className={className} {...rest}>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">
           {emptyText ?? `No file matches “@${query}”.`} Enter sends it as text.
@@ -74,15 +74,14 @@ export function MentionMenu({ label, items, query, active, onPick, id, emptyText
                 e.preventDefault();
                 onPick(item);
               }}
-              className={cx("flex cursor-pointer items-center gap-8 rounded-sm px-8 py-6", i === active && "bg-raised")}
+              className={cx("flex cursor-pointer items-center gap-8 rounded-sm px-8 py-6", i === active && "bg-live text-on-live [&_*]:text-on-live!")}
             >
               {isMember(item) ? <MemberRow item={item} query={query} /> : <FileRow item={item} query={query} />}
             </div>
           ))}
         </div>
       )}
-      <p className="px-8 pt-4 pb-2 type-mono-xs text-faint">↑↓ to move · Tab or Enter to mention · Esc to close</p>
-    </div>
+    </DeckFrame>
   );
 }
 

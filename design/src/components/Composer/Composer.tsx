@@ -5,6 +5,7 @@ import { ContextRing } from "../ContextRing/ContextRing";
 import { useDismiss } from "../../lib/dismiss";
 import { SkillMenu, type SkillMenuItem } from "../SkillMenu/SkillMenu";
 import { MentionMenu, type MentionMenuItem } from "../MentionMenu/MentionMenu";
+import { Presence } from "../../lib/Motion";
 
 /** A trigger menu the host drives while the person types after "@" (files of a project chat). */
 export type ComposerSuggest = {
@@ -171,8 +172,11 @@ export function Composer({
   return (
     <div className={cx("flex flex-col gap-10", className)} {...rest}>
       <div ref={menuRoot} className="relative">
+        {/* Presence, so a menu is seen folding back into the composer as it closes. */}
+        <Presence>
         {suggestOpen && suggest && (
           <MentionMenu
+            key="mentions"
             id={`${id}-mentions`}
             label={suggest.label}
             items={suggest.items}
@@ -180,19 +184,22 @@ export function Composer({
             emptyText={suggest.emptyText}
             active={suggestIndex}
             onPick={suggest.onPick}
-            className="absolute inset-x-0 bottom-full mb-8"
+            // Where the composer deck stands: inset, on the composer's top edge, over its lip.
+            className="absolute inset-x-24 bottom-full z-20 max-lg:inset-x-12"
           />
         )}
         {menuOpen && !suggestOpen && (
           <SkillMenu
+            key="skills"
             id={`${id}-skills`}
             items={matches}
             query={slash?.[1] ?? ""}
             active={Math.min(active, Math.max(0, matches.length - 1))}
             onPick={(s) => onValueChange(`/${s.name} `)}
-            className="absolute inset-x-0 bottom-full mb-8"
+            className="absolute inset-x-24 bottom-full z-20 max-lg:inset-x-12"
           />
         )}
+        </Presence>
         <div
           className={cx(
             "flex flex-col gap-10 rounded-xl border px-14 pt-14 pb-12",
@@ -224,7 +231,8 @@ export function Composer({
             />
           )}
           {recording && !voice && <p className="type-body text-fg">Recording · press the mic again to stop</p>}
-          <div className="flex items-center gap-8">
+          {/* Every tool is a 28px box, 4px apart, so the icons sit on an even 32px rhythm. */}
+          <div className="flex items-center gap-4">
             {/* A host that takes no files passes no handler, so there is no button. */}
             {onAttach && (
               <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
@@ -252,7 +260,12 @@ export function Composer({
             {tokenText ? (
               <span className="type-mono-xs text-faint">{tokenText}</span>
             ) : (
-              context && <ContextRing used={context.used} window={context.window} detail={context.detail} />
+              context && (
+                // A 28px box like the tool buttons, so the ring keeps their 36px rhythm.
+                <span className="flex size-28 shrink-0 items-center justify-center">
+                  <ContextRing used={context.used} window={context.window} detail={context.detail} />
+                </span>
+              )
             )}
             <span className="flex-1" />
             {beforeSend}

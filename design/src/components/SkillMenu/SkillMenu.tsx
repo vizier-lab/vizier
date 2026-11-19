@@ -1,6 +1,7 @@
 import type { HTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
 import { HighlightMatch } from "../Picker/Picker";
+import { DeckFrame } from "../ComposerDeck/DeckFrame";
 
 export type SkillMenuItem = {
   name: string;
@@ -22,12 +23,12 @@ export type SkillMenuProps = {
 
 /**
  * The slash menu above the composer (X33): built-in commands and the agent's
- * skills, filtered as you type. The composer owns the keys (↑ ↓ Tab Enter).
+ * skills, filtered as you type, in the composer deck's frame. The composer owns the keys
+ * (↑ ↓ Tab Enter).
  */
 export function SkillMenu({ items, query, active, onPick, id, className, ...rest }: SkillMenuProps) {
   return (
-    <div className={cx("flex flex-col rounded-lg border border-border-strong surface-float p-6 shadow-popover", className)} {...rest}>
-      <span className="px-8 pt-4 pb-4 type-label uppercase text-faint">Commands and skills</span>
+    <DeckFrame label="Commands and skills" footer="↑↓ to move · Tab to complete · Enter to run" className={className} {...rest}>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">
           No skill matches “/{query}”. Enter sends it as a message.
@@ -53,7 +54,8 @@ export function SkillMenu({ items, query, active, onPick, id, className, ...rest
               }}
               className={cx(
                 "col-span-2 grid cursor-pointer grid-cols-subgrid items-center rounded-sm px-8 py-6",
-                i === active && "bg-raised",
+                // The highlighted row is live, like the deck's open pill; everything in it reads white.
+                i === active && "bg-live text-on-live [&_*]:text-on-live!",
               )}
             >
               <span className="whitespace-nowrap type-code-medium text-fg">
@@ -70,7 +72,6 @@ export function SkillMenu({ items, query, active, onPick, id, className, ...rest
           ))}
         </div>
       )}
-      <p className="px-8 pt-4 pb-2 type-mono-xs text-faint">↑↓ to move · Tab to complete · Enter to run</p>
-    </div>
+    </DeckFrame>
   );
 }
