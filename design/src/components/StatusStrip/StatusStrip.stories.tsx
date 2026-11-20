@@ -9,6 +9,7 @@ const items = [
   { id: "memory" as const, icon: "memory" as const, label: "recalled passages", count: 3 },
   { id: "work" as const, icon: "briefcase" as const, label: "background work running", count: 2, busy: true },
   { id: "subagents" as const, icon: "agent" as const, label: "subagents at work", count: 2, dot: "warn" as const },
+  { id: "consultations" as const, icon: "arrow-left-right" as const, label: "consultations open, one is asking", count: 2, dot: "warn" as const },
   { id: "files" as const, icon: "attach" as const, label: "session files", count: 4 },
   { id: "changes" as const, icon: "git-branch" as const, label: "changed files", count: 5 },
 ];
@@ -44,7 +45,7 @@ export const Interactive: Story = {
         <StatusStrip items={items} panelGap={100}>
           {(item, close) => (
             <StatusPanel
-              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : "Session files"}
+              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : item.id === "consultations" ? "Consultations" : "Session files"}
               meta={item.count}
               onClose={close}
             >
@@ -72,7 +73,7 @@ export const WithPanel: Story = {
         <StatusStrip items={items} open="memory" panelGap={100}>
           {(item, close) => (
             <StatusPanel
-              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : "Session files"}
+              title={item.id === "memory" ? "Recalled memory" : item.id === "work" ? "Background work" : item.id === "subagents" ? "Subagents" : item.id === "consultations" ? "Consultations" : "Session files"}
               meta={item.id === "work" ? "2 running" : item.count}
               onClose={close}
               search={<div className="h-34 rounded-md border border-border-strong bg-surface" />}

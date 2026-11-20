@@ -8,7 +8,7 @@ import { cx } from "../../lib/cx";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 
 /** What a strip item counts. */
-export type StatusStripItemId = "memory" | "work" | "subagents" | "files" | "changes" | "lsp";
+export type StatusStripItemId = "memory" | "work" | "subagents" | "consultations" | "files" | "changes" | "lsp";
 
 /** The dot beside a count: running (steady), starting (pulsing), needs attention, or failed. */
 export type StatusStripDot = "live" | "pulse" | "warn" | "fail";

@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
@@ -178,6 +179,7 @@ export const icons = {
   "usage": TrendingUp,
   "user": User,
   "users": Users,
+  "arrow-left-right": ArrowLeftRight,
   // Glyphs drawn only on screens (I2)
   "globe": Globe,
   "square-terminal": SquareTerminal,
@@ -299,6 +301,7 @@ export const lucideNames: Record<IconName, string> = {
   "usage": "trending-up",
   "user": "user",
   "users": "users",
+  "arrow-left-right": "arrow-left-right",
   "globe": "globe",
   "square-terminal": "square-terminal",
   "folder": "folder",
