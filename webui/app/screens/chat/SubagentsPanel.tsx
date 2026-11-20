@@ -206,7 +206,7 @@ export function SubagentsPanel({
             {groups.length === 0 ? (
                 <EmptyState
                     kind="empty"
-                    icon={kind === 'consultations' ? 'arrow-left-right' : 'agent'}
+                    icon={kind === 'consultations' ? 'consult' : 'agent'}
                     title={workers.length === 0 ? words.empty : 'Nothing here'}
                     message={words.message(agentName)}
                 />

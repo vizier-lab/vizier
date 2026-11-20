@@ -176,7 +176,7 @@ export function ChatStatusStrip({
     },
     {
       id: 'consultations',
-      icon: 'arrow-left-right',
+      icon: 'consult',
       label: consulting.dot === 'warn' ? 'consultations open, one is asking' : 'consultations open',
       count: consulting.count,
       dot: consulting.dot,
