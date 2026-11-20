@@ -1146,6 +1146,8 @@ get_secret(name='TOKEN')", true, None);
     runtime.shutdown().await.unwrap();
 }
 
+// The Office addon is behind `addon-documents`.
+#[cfg(feature = "addon-documents")]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_a_detached_script_writes_is_a_session_file() {
     use vizier_core::storage::session_file::SessionFileStorage;

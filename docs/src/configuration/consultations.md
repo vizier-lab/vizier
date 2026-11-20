@@ -45,14 +45,9 @@ about, so it follows the **person the asking agent is working for**:
 
 ## Limits
 
-```yaml
-vizier:
-  consultations:
-    max_depth: 1   # default: a consulted agent cannot consult further
-```
-
-With the default, a consulted agent is offered only `ask_consulting_agent`. Raising `max_depth`
-lets consultations chain; an agent already in the chain is still refused, so a loop cannot form.
+Consultations do not chain: a consulted agent is offered only `ask_consulting_agent`, so it
+cannot consult a third agent. This is fixed, not a setting. Even if it is raised in a later
+release, an agent already in the chain stays refused, so a loop cannot form.
 Subagent workers cannot consult, and dreams never do. A consulted agent may hire its own workers.
 
 ## What the consulted agent sees

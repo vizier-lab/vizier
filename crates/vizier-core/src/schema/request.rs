@@ -349,7 +349,7 @@ pub struct VizierRequest {
     /// The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):
     /// empty for anything a person or the scheduler started, the consulting turn's chain plus
     /// the consulting agent for a consultation. Its length is the consultation depth, which
-    /// offers the consultation tools only below `consultations.max_depth`; a target already in
+    /// offers the consultation tools only below `MAX_CONSULTATION_DEPTH`; a target already in
     /// it is refused. Serialised with the durable turn row; never taken from a client.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consultation_chain: Vec<crate::schema::AgentId>,

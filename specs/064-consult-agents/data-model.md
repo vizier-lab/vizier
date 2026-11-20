@@ -69,13 +69,10 @@ This holds the consulting agent's id, with the topic UUID in `session.2`.
 
 `ToolContext` gets `consultation_chain`, copied from the request.
 
-## Seed config
+## Depth
 
-```yaml
-vizier:
-  consultations:
-    max_depth: 1   # a consulted agent cannot consult further
-```
+`consultations::access::MAX_CONSULTATION_DEPTH = 1`: a constant, not a seed setting (dropped in
+review: nothing needs a longer chain). A consulted agent cannot consult further.
 
 ## Snapshot (`SessionFrame::Subagent`, HTTP DTO)
 

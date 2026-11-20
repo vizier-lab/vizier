@@ -37,8 +37,8 @@ fn invalid(message: impl Into<String>) -> serde_json::Value {
 }
 
 /// Offered to every tool but `ask_consulting_agent` (FR-011, FR-011a, FR-015, FR-016).
-fn offered_to_consulter(deps: &VizierDependencies, ctx: &ToolContext) -> bool {
-    access::may_consult(ctx, deps.config.consultations.max_depth)
+fn offered_to_consulter(_deps: &VizierDependencies, ctx: &ToolContext) -> bool {
+    access::may_consult(ctx)
 }
 
 /// Whose access decides, or the refusal to return.

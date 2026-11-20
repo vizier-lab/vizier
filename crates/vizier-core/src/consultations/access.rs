@@ -19,12 +19,23 @@ use crate::{
     storage::VizierStorage,
 };
 
+/// How deep consultations may chain (FR-015): `1`, so an agent a person or a scheduled run is
+/// using may consult, and a consulted agent is offered only `ask_consulting_agent`. A constant,
+/// not a setting: nothing needs a longer chain yet. Raising it lets consulted agents consult
+/// further; the chain rule (`in_chain`) still refuses a loop.
+pub const MAX_CONSULTATION_DEPTH: usize = 1;
+
 /// Whether the consultation tools are offered in this turn (FR-011, FR-011a, FR-015, FR-016):
-/// below the configured depth, not inside a subagent worker, not in a dream, and not in a
+/// below [`MAX_CONSULTATION_DEPTH`], not inside a subagent worker, not in a dream, and not in a
 /// Discord or Telegram conversation or anything started from one (a detached script runs in its
 /// conversation's session, so the same test covers it).
-pub fn may_consult(ctx: &ToolContext, max_depth: u8) -> bool {
-    ctx.consultation_chain.len() < max_depth as usize
+pub fn may_consult(ctx: &ToolContext) -> bool {
+    may_consult_up_to(ctx, MAX_CONSULTATION_DEPTH)
+}
+
+/// [`may_consult`] with the depth given, so the chain rule is testable beyond the constant.
+fn may_consult_up_to(ctx: &ToolContext, max_depth: usize) -> bool {
+    ctx.consultation_chain.len() < max_depth
         && ctx.subagent_depth == 0
         && !matches!(
             ctx.session.1,
@@ -212,30 +223,30 @@ mod tests {
 
     #[test]
     fn offered_in_a_person_s_chat_and_a_scheduled_run() {
-        assert!(may_consult(&ctx(web(), vec![], 0), 1));
-        assert!(may_consult(&ctx(VizierChannelId::Project("dani".into(), "p".into()), vec![], 0), 1));
-        assert!(may_consult(&ctx(VizierChannelId::Task("brief".into(), crate::time::now()), vec![], 0), 1));
+        assert!(may_consult(&ctx(web(), vec![], 0)));
+        assert!(may_consult(&ctx(VizierChannelId::Project("dani".into(), "p".into()), vec![], 0)));
+        assert!(may_consult(&ctx(VizierChannelId::Task("brief".into(), crate::time::now()), vec![], 0)));
     }
 
     #[test]
     fn not_offered_deeper_than_the_setting_or_in_a_worker_or_a_dream() {
         let consultee = VizierChannelId::Consultation("beta".into());
-        assert!(!may_consult(&ctx(consultee.clone(), vec!["beta"], 0), 1), "a consultee, by default");
-        assert!(may_consult(&ctx(consultee, vec!["beta"], 0), 2), "a raised setting");
-        assert!(!may_consult(&ctx(VizierChannelId::Subagent, vec![], 1), 1));
-        assert!(!may_consult(&ctx(web(), vec![], 1), 1), "a worker's detached script");
+        assert!(!may_consult(&ctx(consultee.clone(), vec!["beta"], 0)), "a consultee, by default");
+        assert!(may_consult_up_to(&ctx(consultee, vec!["beta"], 0), 2), "a deeper chain, if the constant is raised");
+        assert!(!may_consult(&ctx(VizierChannelId::Subagent, vec![], 1)));
+        assert!(!may_consult(&ctx(web(), vec![], 1)), "a worker's detached script");
         let dream = VizierChannelId::Dream(
             Box::new(VizierSession("alpha".into(), web(), None)),
             DreamStage::Extraction,
         );
-        assert!(!may_consult(&ctx(dream, vec![], 0), 1));
+        assert!(!may_consult(&ctx(dream, vec![], 0)));
     }
 
     /// FR-011a: deferred until verified channel identities (vizier-lab/vizier#116).
     #[test]
     fn not_offered_on_discord_or_telegram() {
-        assert!(!may_consult(&ctx(VizierChannelId::DiscordChanel(1), vec![], 0), 1));
-        assert!(!may_consult(&ctx(VizierChannelId::TelegramChannel(-1), vec![], 0), 1));
+        assert!(!may_consult(&ctx(VizierChannelId::DiscordChanel(1), vec![], 0)));
+        assert!(!may_consult(&ctx(VizierChannelId::TelegramChannel(-1), vec![], 0)));
     }
 
     /// An agent `owner` owns (or nobody, with `None`), on the offline provider.

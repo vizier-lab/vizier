@@ -113,7 +113,6 @@ crates/vizier-core/src/
 ├── workspaces/, service/workspaces.rs, schema/workspace.rs, storage/workspace.rs      # DELETED
 ├── service/{subagents,conversations,topics,inbox,notifications}.rs  # kind filter; consultation rows; removals
 ├── notifications/, usage/, scheduler/dream/, storage/user.rs        # Workspace pieces removed
-└── config/mod.rs                 # ConsultationsConfig { max_depth }
 
 crates/vizier-http/src/
 ├── api/v1/agents/…/consultations.rs  # NEW: three routes (mirrors subagents)
