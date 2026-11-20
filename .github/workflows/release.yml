@@ -354,11 +354,17 @@ jobs:
             Add-MpPreference -ExclusionPath $dir -ErrorAction SilentlyContinue
           }
 
+      - name: Read the runner image version
+        shell: bash
+        run: echo "RUNNER_IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app -> target
-          key: app-${{ matrix.name }}
+          # Keyed by the runner image too: a cached CMakeCache.txt (whisper-rs-sys) holds the
+          # absolute MSVC path, which a newer image's toolset no longer has.
+          key: app-${{ matrix.name }}-${{ env.RUNNER_IMAGE_VERSION }}
           # A failed leg would otherwise throw its whole target directory away: the Windows leg
           # burned 33 minutes twice without ever saving a cache. The workspace crates are part of
           # it too, which the default leaves out.
