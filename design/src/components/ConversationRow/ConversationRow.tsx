@@ -19,7 +19,7 @@ export type ConversationRowProps = {
   time: ReactNode;
 } & Omit<ListItemProps, "title" | "subtitle" | "meta" | "leading" | "trailing">;
 
-const ICON = { webui: "chat", discord: "channels", telegram: "paper-plane", consultation: "arrow-left-right" } as const;
+const ICON = { webui: "chat", discord: "channels", telegram: "paper-plane", consultation: "consult" } as const;
 const KIND = { webui: "WebUI", discord: "Discord", telegram: "Telegram", consultation: "Consultation" } as const;
 
 /** A conversation in the conversation picker (X80): where it is, what it is called, and when it last moved. Built on ListItem. */

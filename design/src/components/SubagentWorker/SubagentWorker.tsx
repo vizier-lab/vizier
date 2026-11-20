@@ -11,8 +11,8 @@ export type SubagentWorkerProps = {
   /** Its place in the spawn that hired it: 2 for "2 · …". */
   position: number;
   /**
-   * A consultation's consulted agent (spec 064): its sigil and name, drawn before the task. Left
-   * out for a temporary worker.
+   * A consultation's consulted agent (spec 064): its sigil and name, which title the row in place
+   * of "position · task" (the request is under TASK when expanded). Left out for a worker.
    */
   agent?: ReactNode;
   /** A consultation's follow-ups after an answer: "· 2 follow-ups" beside the handle. */
@@ -122,10 +122,14 @@ export function SubagentWorker({
               state === "running" ? "bg-live" : asking ? "bg-retrying" : failed ? "bg-failed" : "bg-faint",
             )}
           />
-          {agent && <span className="flex shrink-0 items-center gap-6 type-ui-medium text-fg">{agent}</span>}
-          <span className="min-w-0 flex-1 truncate type-ui text-fg">
-            {position} · {task}
-          </span>
+          {agent ? (
+            // A consultation is titled by the agent consulted; its request is under TASK.
+            <span className="flex min-w-0 flex-1 items-center gap-6 truncate type-ui-medium text-fg">{agent}</span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate type-ui text-fg">
+              {position} · {task}
+            </span>
+          )}
           <span className="shrink-0 type-mono-sm text-faint">
             {handle}
             {followUps ? <> · {followUps} follow-up{followUps === 1 ? "" : "s"}</> : null}
