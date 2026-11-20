@@ -2,27 +2,31 @@
 
 ## Consulting side (the person in A's chat)
 
-These routes mirror spec 059's subagent routes. A topic that is not the caller's, or an unknown
-id, answers `404`.
+**No new routes.** The spec 059 routes already serve consultations, because a consultation is a
+`subagent` row of the same asking conversation:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/api/v1/agents/{id}/channel/{channel}/topic/{topic}/consultations` | snapshots: open ones first, then the last 50 final ones |
-| GET | `…/consultations/{cid}` | snapshot + `task` (the first request in full) + `result` in full |
-| GET | `…/consultations/{cid}/history` | the consultee's consultation conversation, as history entries |
+| GET | `/api/v1/agents/{id}/channel/{channel}/topic/{topic}/subagents` | the topic's workers **and** consultations: open ones first, then the last 50 final ones |
+| GET | `…/subagents/{sid}` | one row, uncut |
+| GET | `…/subagents/{sid}/history` | its own conversation; for a consultation, the consultee's consultation conversation |
 
-The existing `…/subagents` routes filter to `consultee == null`.
+A topic that is not the caller's, or an unknown id, answers `404`. The snapshot carries
+`consultee` (the consulted agent's id; absent for a worker) and `follow_ups` (absent when 0).
 
-Frame: `subagent` (the existing `SessionFrame::Subagent`) on the consulting topic socket, now
-carrying `consultee`. The WebUI routes frames with `consultee != null` to the Consultations store.
+Frame: `subagent` (the existing `SessionFrame::Subagent`). The WebUI splits rows and frames by
+`consultee`: the Subagents item counts workers, the Consultations item counts consultations.
 
 ## Consulted side (B's people)
 
-- B's conversation list includes `kind: "consultation"` rows, each with `from_agent: {id, name}`.
-  Only `can_edit_agent(B)` callers see them, and other callers get a list without them.
-- History reads go through the existing topic routes with `channel_id = consultation__{A}`.
-- The topic socket refuses `chat`, `client_event` and `ui_page_state` frames on that channel with
-  `{"type": "error", "code": "read_only_conversation"}`.
+- B's conversation list includes `kind: "consultation"` items, one per consulting agent
+  (`channel: consultation__{A}`, title "Asked by <A name>", place "N consultations", the newest
+  consultation as `latest_topic`), shown only to `can_edit_agent(B)` callers; `counts.consultation`.
+- The read routes (history, files) take `channel_id = consultation__{A}` and a topic, through
+  `readable_channel`; `authorize_topic` refuses anyone who may not edit B.
+- **Read-only by construction**: the topic socket builds only the caller's own web channel
+  (`VizierChannelId::from_web`), so nothing a person sends can reach a `Consultation` session.
+- The WebUI opens it in the read-only chat page (`/{B}/chat/read?channel=…&topic=…`).
 
 ## Removed
 

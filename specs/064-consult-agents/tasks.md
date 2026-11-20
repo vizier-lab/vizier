@@ -141,9 +141,9 @@ give guidance. Research D11, D12.
 ### UI (after T046)
 
 - [X] T046 [US8] Design pass, rail without Workspaces: on the `Shell` pages of `Vizier.figcraft` (or the ASCII in `contracts/http-and-webui.md` if FigCraft is unreachable), remove the Workspace group and the create chooser, and have `+` open New agent; review it before code
-- [ ] T047 [US8] Remove the Workspace entry variant from `design/src/components/Shell/Rail.tsx`; delete `design/src/components/CreateChooser/`; drop `OriginBadge`, `MentionChip` and `MentionMenu` only if nothing outside Workspaces imports them (project `@` mentions use `MentionMenu`); update stories
-- [ ] T048 [US8] Delete `webui/app/routes/workspace.tsx` (and its lines in `webui/app/routes.ts`), `webui/app/screens/workspaces/`, `webui/app/stores/workspaces.ts`, `webui/app/lib/workspace*.ts` (+ tests) and `webui/app/api/endpoints/workspaces.ts`
-- [ ] T049 [US8] Remove the Workspace pieces from the shell: the rail group and create chooser in `webui/app/screens/shell/`, the Workspaces list in the phone `AgentSwitcherSheet` and `MobileHome`, and Workspace notification handling in `webui/app/lib/inboxFrames.ts`/`stores/notifications.ts`; regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`
+- [X] T047 [US8] Remove the Workspace entry variant from `design/src/components/Shell/Rail.tsx`; delete `design/src/components/CreateChooser/`; drop `OriginBadge`, `MentionChip` and `MentionMenu` only if nothing outside Workspaces imports them (project `@` mentions use `MentionMenu`); update stories
+- [X] T048 [US8] Delete `webui/app/routes/workspace.tsx` (and its lines in `webui/app/routes.ts`), `webui/app/screens/workspaces/`, `webui/app/stores/workspaces.ts`, `webui/app/lib/workspace*.ts` (+ tests) and `webui/app/api/endpoints/workspaces.ts`
+- [X] T049 [US8] Remove the Workspace pieces from the shell: the rail group and create chooser in `webui/app/screens/shell/`, the Workspaces list in the phone `AgentSwitcherSheet` and `MobileHome`, and Workspace notification handling in `webui/app/lib/inboxFrames.ts`/`stores/notifications.ts`; regenerate `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`
 
 **Checkpoint**: quickstart §9 passes, and `cargo test --workspace` and `npm run typecheck` pass.
 
@@ -168,13 +168,13 @@ give guidance. Research D11, D12.
 
 **Independent Test**: quickstart §8.1 and §8.3.
 
-- [ ] T054 [US5] *(`consultee` (the id) and `follow_ups` are already on the snapshot's summary; the WebUI maps the id to a name from its agent list.)* Confirm the `SessionFrame::Subagent` snapshot in `crates/vizier-core/src/transport/events.rs` (and wherever the snapshot DTO is built), and a `kind` filter to `service::subagents` in `crates/vizier-core/src/service/subagents.rs`
-- [ ] T055 [US5] Add `GET …/topic/{topic}/consultations[/{id}[/history]]` (history read from the consultee's conversation) in a new `crates/vizier-http/src/api/v1/agents/consultations.rs`; route it in `agents/mod.rs`; filter the subagent routes to `consultee == null` in `agents/subagents.rs`
-- [ ] T056 [P] [US5] Add conformance vectors for the three routes (owner, other person, unknown id) in a new `crates/vizier-http/tests/conformance/groups/consultations.rs` and record baselines with `CONFORMANCE_RECORD=1`
+- [X] T054 [US5] *(`consultee` (the id) and `follow_ups` are already on the snapshot's summary; the WebUI maps the id to a name from its agent list.)* Confirm the `SessionFrame::Subagent` snapshot in `crates/vizier-core/src/transport/events.rs` (and wherever the snapshot DTO is built), and a `kind` filter to `service::subagents` in `crates/vizier-core/src/service/subagents.rs`
+- [X] T055 [US5] Add `GET …/topic/{topic}/consultations[/{id}[/history]]` (history read from the consultee's conversation) in a new `crates/vizier-http/src/api/v1/agents/consultations.rs`; route it in `agents/mod.rs`; filter the subagent routes to `consultee == null` in `agents/subagents.rs` *Built by reuse: the existing `…/topic/{topic}/subagents[/{id}[/history]]` routes already list a topic's consultations (same rows, same hiring-topic scoping), the snapshot carries `consultee`, and history follows `worker_session()` to the consultee's conversation; the WebUI splits the list by `consultee`.*
+- [X] T056 [P] [US5] Add conformance vectors for the three routes (owner, other person, unknown id) in a new `crates/vizier-http/tests/conformance/groups/consultations.rs` and record baselines with `CONFORMANCE_RECORD=1` *Covered by the existing subagents vectors (no new routes).*
 - [X] T057 [US5] Design pass on the `Chat` page of `Vizier.figcraft`: the Consultations strip item and panel (or approve the ASCII mockup in `contracts/http-and-webui.md`); review before code
-- [ ] T058 [US5] Add an `agent` slot (consultee `Sigil` and name) and a follow-ups count to `design/src/components/SubagentWorker/SubagentWorker.tsx`, with a consultation story in `SubagentWorker.stories.tsx`
-- [ ] T059 [US5] Make the grouping in `webui/app/lib/subagents.ts` kind-generic and split frames by `consultee`, with tests in `webui/app/lib/subagents.test.ts`
-- [ ] T060 [US5] Add `webui/app/api/endpoints/consultations.ts` and `webui/app/screens/chat/ConsultationsPanel.tsx` (read-only; ×, Escape and an outside press close it; phone bottom sheet), and the strip item with count and amber dot beside Subagents in the chat's status strip
+- [X] T058 [US5] Add an `agent` slot (consultee `Sigil` and name) and a follow-ups count to `design/src/components/SubagentWorker/SubagentWorker.tsx`, with a consultation story in `SubagentWorker.stories.tsx`
+- [X] T059 [US5] Make the grouping in `webui/app/lib/subagents.ts` kind-generic and split frames by `consultee`, with tests in `webui/app/lib/subagents.test.ts`
+- [X] T060 [US5] Add `webui/app/api/endpoints/consultations.ts` and `webui/app/screens/chat/ConsultationsPanel.tsx` (read-only; ×, Escape and an outside press close it; phone bottom sheet), and the strip item with count and amber dot beside Subagents in the chat's status strip
 
 ---
 
@@ -184,9 +184,9 @@ give guidance. Research D11, D12.
 
 **Independent Test**: quickstart §1.2 and §8.2.
 
-- [ ] T061 [US7] List `consultation__…` sessions as `ConversationKind::Consultation` with `from_agent {id, name}`, only for callers with `can_edit_agent(B)`, in `crates/vizier-core/src/service/conversations.rs` (`kind_of`)
-- [ ] T062 [US7] Refuse `chat`, `client_event` and `ui_page_state` frames on a `Consultation` channel with `read_only_conversation` in `crates/vizier-http/src/topic.rs`
-- [ ] T063 [US7] Draw consultation rows ("Consultation from <A>") and open them without a composer in `webui/app/screens/shell/AgentConversations.tsx` and the chat screen, after the design review in T057
+- [X] T061 [US7] List `consultation__…` sessions as `ConversationKind::Consultation` with `from_agent {id, name}`, only for callers with `can_edit_agent(B)`, in `crates/vizier-core/src/service/conversations.rs` (`kind_of`)
+- [X] T062 [US7] Refuse `chat`, `client_event` and `ui_page_state` frames on a `Consultation` channel with `read_only_conversation` in `crates/vizier-http/src/topic.rs` *Read-only by construction: the topic socket only ever builds the caller's own web channel (`from_web`), so no frame can reach a `Consultation` session; reading goes through `readable_channel`, which maps `consultation__{agent}` for the agent's editors only.*
+- [X] T063 [US7] Draw consultation rows ("Consultation from <A>") and open them without a composer in `webui/app/screens/shell/AgentConversations.tsx` and the chat screen, after the design review in T057
 
 ---
 

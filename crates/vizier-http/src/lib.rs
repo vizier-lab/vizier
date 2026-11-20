@@ -530,3 +530,19 @@ where
     )
 )]
 struct ApiDoc;
+
+/// Writes the OpenAPI document the server serves at `/openapi.json` to `$VIZIER_OPENAPI_OUT`, so
+/// the WebUI's `openapi.json` (and `npm run gen:api`) can be refreshed without running a server:
+/// `VIZIER_OPENAPI_OUT=../../webui/openapi.json cargo test -p vizier-http write_openapi -- --ignored`.
+#[cfg(test)]
+mod openapi_out {
+    use utoipa::OpenApi;
+
+    #[test]
+    #[ignore = "writes a file; run on demand"]
+    fn write_openapi() {
+        let path = std::env::var("VIZIER_OPENAPI_OUT").expect("set VIZIER_OPENAPI_OUT");
+        let json = super::ApiDoc::openapi().to_pretty_json().unwrap();
+        std::fs::write(path, json).unwrap();
+    }
+}
