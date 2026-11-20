@@ -108,6 +108,18 @@ pub struct ClientEvent {
     pub data: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_call_id: Option<String>,
+    /// The agent page it came from (spec 063 FR-028): the person acted on a page, so the agent
+    /// knows which one and which version. Exclusive with `source_call_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<PageSource>,
+}
+
+/// An agent page and the version a client event came from.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct PageSource {
+    pub page_id: String,
+    pub version: u32,
 }
 
 impl Display for ClientEvent {
@@ -341,6 +353,13 @@ pub struct VizierRequest {
     /// `subagents.max_depth`. Independent of `background_depth`.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub subagent_depth: u8,
+    /// The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):
+    /// empty for anything a person or the scheduler started, the consulting turn's chain plus
+    /// the consulting agent for a consultation. Its length is the consultation depth, which
+    /// offers the consultation tools only below `MAX_CONSULTATION_DEPTH`; a target already in
+    /// it is refused. Serialised with the durable turn row; never taken from a client.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consultation_chain: Vec<crate::schema::AgentId>,
     /// The project a subagent piece works in (`specs/041-project-coding-workspace` R11),
     /// copied from the launching turn by `BackgroundJobs::dispatch_piece`. It is serialised
     /// with the durable turn row, so a resumed piece keeps the folder and mode it started
@@ -538,6 +557,33 @@ impl VizierRequest {
         // A worker's task and the main agent's reply to it (spec 059): sent by the main agent,
         // so `sender` is its id, and `via` says the reader is a worker, not a conversation.
         match &self.content {
+            // A consultation (spec 064): sent by the consulting agent, read by a real agent
+            // that answers as itself.
+            VizierRequestContent::SubagentTask(brief) if brief.consultation.is_some() => {
+                let frame = brief.consultation.as_ref();
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": "consultation",
+                    "consultation": format!("{} of {}", brief.position, brief.group_size),
+                    "consultation_id": brief.subagent_id,
+                    "on_behalf_of": frame.and_then(|f| f.on_behalf_of.clone()).unwrap_or_else(|| "none".into()),
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
+            VizierRequestContent::SubagentReply(reply) if reply.consultation.is_some() => {
+                let via = match reply.consultation {
+                    Some(crate::schema::ConsultationReplyKind::FollowUp) => "consultation_followup",
+                    _ => "consultation_reply",
+                };
+                return Ok(serde_yaml::to_string(&json!({
+                    "sender": self.user,
+                    "via": via,
+                    "consultation_id": reply.subagent_id,
+                    "sent_at": self.sent_at(),
+                    "metadata": self.shown_metadata(),
+                }))?);
+            }
             VizierRequestContent::SubagentTask(brief) => {
                 return Ok(serde_yaml::to_string(&json!({
                     "sender": self.user,
@@ -568,6 +614,9 @@ impl VizierRequest {
             frontmatter.insert("via".into(), json!("client_event"));
             if let Some(source) = &event.source_call_id {
                 frontmatter.insert("source_call".into(), json!(source));
+            }
+            if let Some(page) = &event.page {
+                frontmatter.insert("page".into(), json!(format!("{} v{}", page.page_id, page.version)));
             }
             frontmatter.insert("sent_at".into(), json!(self.sent_at()));
             frontmatter.insert("metadata".into(), self.shown_metadata());
@@ -757,6 +806,7 @@ mod tests {
                 text: "x".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
             VizierRequestContent::Btw(SideChat {
                 question: "q".into(),
@@ -864,6 +914,7 @@ mod tests {
                 position: 2,
                 group_size: 4,
                 text: "compare prices".into(),
+                consultation: None,
             }),
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -878,6 +929,7 @@ mod tests {
             content: VizierRequestContent::SubagentReply(crate::schema::SubagentReplyText {
                 subagent_id: "s_1".into(),
                 text: "EU retail".into(),
+                consultation: None,
             }),
             ..task
         };
@@ -887,6 +939,66 @@ mod tests {
         }
         assert!(!frontmatter.contains("task:"));
         assert_eq!(reply.content.to_string(), "EU retail");
+    }
+
+    /// Spec 064 FR-003: a consultation says who sent it, that it is a consultation, which one of
+    /// how many, and on whose behalf; its replies say whether they answer a question or follow up.
+    #[test]
+    fn a_consultation_says_who_asks_and_for_whom() {
+        let task = VizierRequest {
+            timestamp: crate::time::now(),
+            user: "support".into(),
+            content: VizierRequestContent::SubagentTask(crate::schema::SubagentBrief {
+                subagent_id: "c_1".into(),
+                position: 1,
+                group_size: 2,
+                text: "what did we invoice Acme?".into(),
+                consultation: Some(crate::schema::ConsultationFrame {
+                    on_behalf_of: Some("Dani".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        let frontmatter = task.generate_frontmatter().unwrap();
+        for line in [
+            "sender: support",
+            "via: consultation",
+            "consultation: 1 of 2",
+            "consultation_id: c_1",
+            "on_behalf_of: Dani",
+        ] {
+            assert!(frontmatter.contains(line), "{line} in {frontmatter}");
+        }
+        assert!(!frontmatter.contains("via: subagent"));
+
+        for (kind, via) in [
+            (crate::schema::ConsultationReplyKind::Reply, "via: consultation_reply"),
+            (crate::schema::ConsultationReplyKind::FollowUp, "via: consultation_followup"),
+        ] {
+            let reply = VizierRequest {
+                user: "support".into(),
+                content: VizierRequestContent::SubagentReply(crate::schema::SubagentReplyText {
+                    subagent_id: "c_1".into(),
+                    text: "eu".into(),
+                    consultation: Some(kind),
+                }),
+                ..Default::default()
+            };
+            let frontmatter = reply.generate_frontmatter().unwrap();
+            assert!(frontmatter.contains(via), "{via} in {frontmatter}");
+        }
+
+        let unattended = VizierRequest {
+            content: VizierRequestContent::SubagentTask(crate::schema::SubagentBrief {
+                subagent_id: "c_2".into(),
+                position: 1,
+                group_size: 1,
+                text: "x".into(),
+                consultation: Some(crate::schema::ConsultationFrame { on_behalf_of: None }),
+            }),
+            ..Default::default()
+        };
+        assert!(unattended.generate_frontmatter().unwrap().contains("on_behalf_of: none"));
     }
 
     fn at_known_time(content: VizierRequestContent) -> VizierRequest {
@@ -1034,6 +1146,7 @@ mod tests {
                 text: "Submitted filters".into(),
                 data,
                 source_call_id: source.map(str::to_string),
+                page: None,
             }),
             metadata: serde_json::json!({}),
             ..Default::default()
@@ -1053,6 +1166,15 @@ mod tests {
 
         let frontmatter = client_event(None, None).generate_frontmatter().unwrap();
         assert!(!frontmatter.contains("source_call"), "{frontmatter}");
+        assert!(!frontmatter.contains("page:"), "{frontmatter}");
+
+        // Spec 063: an event from a page names the page and its version.
+        let mut from_page = client_event(None, None);
+        if let VizierRequestContent::ClientEvent(event) = &mut from_page.content {
+            event.page = Some(PageSource { page_id: "pg_1".into(), version: 3 });
+        }
+        let frontmatter = from_page.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("page: pg_1 v3"), "{frontmatter}");
     }
 
     #[test]

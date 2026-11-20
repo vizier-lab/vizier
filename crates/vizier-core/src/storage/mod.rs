@@ -42,7 +42,6 @@ use crate::{
         turn::TurnStorage,
         usage::UsageStorage,
         user::UserStorage,
-        workspace::WorkspaceStorage,
     },
 };
 
@@ -74,6 +73,7 @@ pub mod rerank;
 pub mod scratch;
 pub mod secret;
 pub mod custom_tool;
+pub mod ui_page;
 pub mod session;
 pub mod session_file;
 pub mod migrate;
@@ -85,7 +85,6 @@ pub mod task_run;
 pub mod turn;
 pub mod usage;
 pub mod user;
-pub mod workspace;
 
 pub mod fs;
 pub mod sqlite;
@@ -152,9 +151,9 @@ where
         + TurnStorage
         + SecretStorage
         + CustomToolStorage
+        + ui_page::UiPageStorage
         + NotificationStorage
         + ProjectStorage
-        + WorkspaceStorage
         + QuestionStorage
         + SensitiveAskStorage
         + FenceStorage,
@@ -531,6 +530,19 @@ impl SessionFileStorage for VizierStorage {
     ) -> Result<SessionFileRecord> {
         self.0
             .save_session_file(session, filename, mime_type, size, file_id)
+            .await
+    }
+
+    async fn add_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        mime_type: &str,
+        size: u64,
+        file_id: &str,
+    ) -> Result<SessionFileRecord> {
+        self.0
+            .add_session_file(session, filename, mime_type, size, file_id)
             .await
     }
 

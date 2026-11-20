@@ -103,15 +103,6 @@ pub(super) fn write_history_entry(
                 ],
             )?;
     }
-    // An agent's shown messages in a Workspace also go into the shared timeline, in this same
-    // transaction, so the two cannot drift (spec 053 R3).
-    super::workspace::index_history_entry(
-        tx,
-        session,
-        &uid,
-        &entry.content,
-        entry.timestamp.timestamp_millis(),
-    )?;
     Ok(uid)
 }
 
@@ -350,6 +341,42 @@ pub(super) fn fill_question_sets(
     Ok(())
 }
 
+/// Fill each `UiPage` entry's verification from `ui_page_version` (`specs/063-html-generative-ui`
+/// R5). A version whose row is gone (its conversation was deleted mid-read) reads as `null`.
+pub(super) fn fill_ui_pages(conn: &sql::Connection, entries: &mut [SessionHistory]) -> sql::Result<()> {
+    let wanted: Vec<(String, i64)> = entries
+        .iter()
+        .filter_map(|entry| match &entry.content {
+            SessionHistoryContent::UiPage { page_id, version, .. } => {
+                Some((page_id.clone(), *version as i64))
+            }
+            _ => None,
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut by_key: HashMap<(String, i64), serde_json::Value> = HashMap::new();
+    for (page_id, version) in &wanted {
+        let rows = conn.query_all(
+            "SELECT verification FROM ui_page_version WHERE page_id = ?1 AND version = ?2",
+            sql::params![page_id, version],
+        )?;
+        if let Some(row) = rows.first() {
+            let text: String = row.get(0)?;
+            if let Ok(value) = serde_json::from_str(&text) {
+                by_key.insert((page_id.clone(), *version), value);
+            }
+        }
+    }
+    for entry in entries.iter_mut() {
+        if let SessionHistoryContent::UiPage { page_id, version, verification, .. } = &mut entry.content {
+            *verification = by_key.get(&(page_id.clone(), *version as i64)).cloned();
+        }
+    }
+    Ok(())
+}
+
 /// The sort key every in-Rust re-sort of history uses.
 ///
 /// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
@@ -373,6 +400,87 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::Recall { .. } => "Recall",
         SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
         SessionHistoryContent::SensitiveAsk { .. } => "SensitiveAsk",
+        SessionHistoryContent::UiPage { .. } => "UiPage",
+    }
+}
+
+impl SqlStorage {
+    /// One session's history between two cursors, oldest first and filled for reading:
+    /// from `from` (inclusive) up to `before` (exclusive), each an exact entry when its `seq`
+    /// is given. With `limit`, the newest `limit` entries in that range.
+    fn list_history_between(
+        &self,
+        session: VizierSession,
+        from: Option<(Timestamp, Option<i64>)>,
+        before: Option<Timestamp>,
+        before_seq: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<Vec<SessionHistory>> {
+        let conn = self.conn.lock()?;
+        let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
+            .to_string();
+        let mut params: Vec<Box<dyn sql::ToSql>> =
+            vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
+
+        if let Some(ref topic) = session.2 {
+            params.push(Box::new(topic.clone()));
+            sql.push_str(&format!(" AND topic = ?{}", params.len()));
+        } else {
+            sql.push_str(" AND topic IS NULL");
+        }
+
+        // `before` alone can split a tie group across a page boundary; with `before_seq` the
+        // cursor addresses one exact entry. Passing only `before` keeps today's behaviour.
+        if let Some(before_dt) = before {
+            params.push(Box::new(before_dt.timestamp_millis()));
+            let at = params.len();
+            match before_seq {
+                Some(seq) => {
+                    params.push(Box::new(seq));
+                    sql.push_str(&format!(
+                        " AND (timestamp < ?{at} OR (timestamp = ?{at} AND seq < ?{}))",
+                        params.len()
+                    ));
+                }
+                None => sql.push_str(&format!(" AND timestamp < ?{at}")),
+            }
+        }
+        // The lower bound is inclusive, and an entry saved before `seq` existed (NULL) at the
+        // bound's millisecond is kept rather than lost between two reads.
+        if let Some((from_dt, from_seq)) = from {
+            params.push(Box::new(from_dt.timestamp_millis()));
+            let at = params.len();
+            match from_seq {
+                Some(seq) => {
+                    params.push(Box::new(seq));
+                    sql.push_str(&format!(
+                        " AND (timestamp > ?{at} OR (timestamp = ?{at} AND (seq IS NULL OR seq >= ?{})))",
+                        params.len()
+                    ));
+                }
+                None => sql.push_str(&format!(" AND timestamp >= ?{at}")),
+            }
+        }
+        sql.push_str(" ORDER BY timestamp DESC, seq DESC");
+        if let Some(limit_val) = limit {
+            params.push(Box::new(limit_val as i64));
+            sql.push_str(&format!(" LIMIT ?{}", params.len()));
+        }
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut list: Vec<SessionHistory> = stmt
+            .query_map(sql::params_from_iter(params.iter()), history_row)?
+            .filter_map(|r| r.ok())
+            .filter_map(parse_history_row)
+            .collect();
+
+        list.sort_by_key(history_order_key);
+        fill_reactions(&conn, &mut list)?;
+        fill_artifact_availability(&conn, &mut list)?;
+        fill_client_calls(&conn, &mut list)?;
+        fill_question_sets(&conn, &mut list)?;
+        fill_ui_pages(&conn, &mut list)?;
+        Ok(list)
     }
 }
 
@@ -433,68 +541,40 @@ impl HistoryStorage for SqlStorage {
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
+        self.list_history_between(session, None, before, before_seq, limit)
+    }
+
+    async fn list_session_history_from(
+        &self,
+        session: VizierSession,
+        from: Timestamp,
+        from_seq: Option<i64>,
+        before: Option<Timestamp>,
+        before_seq: Option<i64>,
+    ) -> Result<Vec<SessionHistory>> {
+        self.list_history_between(session, Some((from, from_seq)), before, before_seq, None)
+    }
+
+    async fn list_session_requests(&self, session: VizierSession) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock()?;
-        let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2"
+        let mut sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND content_type = 'Request'"
             .to_string();
-        let mut param_idx = 3;
-
-        if session.2.is_some() {
-            sql.push_str(&format!(" AND topic = ?{}", param_idx));
-            param_idx += 1;
-        } else {
-            sql.push_str(" AND topic IS NULL");
-        }
-
-        // `before` alone can split a tie group across a page boundary; with `before_seq` the
-        // cursor addresses one exact entry. Passing only `before` keeps today's behaviour.
-        let seq_cursor = before.is_some().then_some(before_seq).flatten();
-        if before.is_some() {
-            let before_param = param_idx;
-            param_idx += 1;
-            match seq_cursor {
-                Some(_) => {
-                    sql.push_str(&format!(
-                        " AND (timestamp < ?{before_param} OR (timestamp = ?{before_param} AND seq < ?{}))",
-                        param_idx
-                    ));
-                    param_idx += 1;
-                }
-                None => sql.push_str(&format!(" AND timestamp < ?{before_param}")),
-            }
-        }
-        sql.push_str(" ORDER BY timestamp DESC, seq DESC");
-        if limit.is_some() {
-            sql.push_str(&format!(" LIMIT ?{}", param_idx));
-        }
-
-        let mut stmt = conn.prepare(&sql)?;
-
         let mut params: Vec<Box<dyn sql::ToSql>> =
             vec![Box::new(session.0.clone()), Box::new(session.1.to_slug())];
-        if let Some(ref topic) = session.2 {
-            params.push(Box::new(topic.clone()));
+        match session.2 {
+            Some(ref topic) => {
+                sql.push_str(" AND topic = ?3");
+                params.push(Box::new(topic.clone()));
+            }
+            None => sql.push_str(" AND topic IS NULL"),
         }
-        if let Some(before_dt) = before {
-            params.push(Box::new(before_dt.timestamp_millis()));
-        }
-        if let Some(seq) = seq_cursor {
-            params.push(Box::new(seq));
-        }
-        if let Some(limit_val) = limit {
-            params.push(Box::new(limit_val as i64));
-        }
-
+        let mut stmt = conn.prepare(&sql)?;
         let mut list: Vec<SessionHistory> = stmt
             .query_map(sql::params_from_iter(params.iter()), history_row)?
             .filter_map(|r| r.ok())
             .filter_map(parse_history_row)
             .collect();
-
         list.sort_by_key(history_order_key);
-        fill_reactions(&conn, &mut list)?;
-        fill_artifact_availability(&conn, &mut list)?;
-        fill_client_calls(&conn, &mut list)?;
-        fill_question_sets(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -542,6 +622,7 @@ impl HistoryStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut list)?;
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
+        fill_ui_pages(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -667,6 +748,7 @@ impl HistoryStorage for SqlStorage {
         fill_artifact_availability(&conn, &mut history)?;
         fill_client_calls(&conn, &mut history)?;
         fill_question_sets(&conn, &mut history)?;
+        fill_ui_pages(&conn, &mut history)?;
 
         Ok((history, handover))
     }
@@ -852,6 +934,36 @@ mod tests {
                 .unwrap();
             assert_eq!(prompts(&list), expected);
         }
+    }
+
+    /// The prompt ruler's two reads: the requests alone, and a jump back to an older entry
+    /// that returns everything between it and the oldest page held, with no gap.
+    #[tokio::test]
+    async fn requests_alone_and_a_range_back_to_one_entry() {
+        let (storage, _dir) = setup();
+        for i in 0..8 {
+            storage.save_session_history(session(), request(&format!("p{i}"))).await.unwrap();
+            storage
+                .save_session_history(session(), SessionHistoryContent::Command("checkpoint".into()))
+                .await
+                .unwrap();
+        }
+        // One millisecond for all of them: only `seq` tells them apart.
+        collapse_timestamps(&storage);
+
+        let requests = storage.list_session_requests(session()).await.unwrap();
+        assert_eq!(prompts(&requests), (0..8).map(|i| format!("p{i}")).collect::<Vec<_>>());
+        assert!(requests.iter().all(|e| matches!(e.content, SessionHistoryContent::Request(_))));
+
+        let (from, before) = (&requests[2], &requests[6]);
+        let range = storage
+            .list_session_history_from(session(), from.timestamp, from.seq, Some(before.timestamp), before.seq)
+            .await
+            .unwrap();
+        assert_eq!(prompts(&range), vec!["p2", "p3", "p4", "p5"]);
+        // The commands after p2..p5 come with them; the one after p6's predecessor is the last.
+        assert_eq!(range.len(), 8);
+        assert_eq!(range.first().map(|e| &e.uid), Some(&from.uid));
     }
 
     /// H7, H8, FR-007, FR-008, SC-004.

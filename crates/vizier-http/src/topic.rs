@@ -24,7 +24,7 @@ use vizier_core::{
 use crate::{
     api::v1::agents::channel::{
         ClientLimits, WebSocketReactionMessage, answer_turn, bind_client_tools, check_client_context, check_client_event,
-        client_call_state, client_error, client_tool_result, question_error, spawn_delivery, webui_reaction,
+        client_call_state, client_error, client_tool_result, question_error, spawn_delivery, ui_page_state, webui_reaction,
     },
     state::HTTPState,
 };
@@ -40,6 +40,8 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.timestamp = vizier_core::time::now();
     // Only a running turn's round boundary marks a message as read mid-turn (spec 062 R5).
     request.mid_turn = false;
+    // Only a consultation request carries a chain of consulting agents (spec 064 D8).
+    request.consultation_chain.clear();
 }
 
 /// Whether this caller may open a live voice session (T109, FR-062).
@@ -791,6 +793,9 @@ pub struct TopicConnection {
     client_rx: Option<mpsc::Receiver<serde_json::Value>>,
     events: Option<broadcast::Receiver<SessionEvent>>,
     out: flume::Sender<serde_json::Value>,
+    /// This socket's answer to the conversation's page checks (spec 063, contracts/
+    /// verify-protocol.md): subscribed while the socket is open, on WebUI and project chats.
+    verifier: Option<vizier_core::ui_pages::verify::VerifyResponder>,
 }
 
 /// The engine-to-client half of a [`TopicConnection`]; `run` ends when `out` is dropped.
@@ -880,6 +885,15 @@ impl TopicConnection {
         // this one included. A turn's frames are published only there, so nothing arrives twice.
         let events = state.transport.subscribe_session_events();
 
+        // A check is sent to this socket only (the bus request reached it), never published.
+        let verifier = {
+            let out = out.clone();
+            vizier_core::ui_pages::verify::VerifyResponder::start(&state.transport, &session, move |frame| {
+                out.try_send(frame).is_ok()
+            })
+            .await
+        };
+
         Ok(Self {
             session,
             principal: principal.clone(),
@@ -893,6 +907,7 @@ impl TopicConnection {
             client_rx: Some(client_rx),
             events: Some(events),
             out,
+            verifier,
         })
     }
 
@@ -913,6 +928,9 @@ impl TopicConnection {
     pub fn close(&self) {
         self.connection.close();
         self.connections.remove(&self.connection.id);
+        if let Some(verifier) = &self.verifier {
+            verifier.close();
+        }
     }
 
     /// One live voice action (`specs/055-live-voice`).
@@ -1370,6 +1388,15 @@ impl TopicConnection {
                                 ))
                                 .await;
                             }
+                        } else if let Some(payload) = client_frame("ui_verify_report") {
+                            // A report for no check waiting on this socket is ignored (contract).
+                            if let Some(verifier) = &self.verifier {
+                                verifier.report(payload);
+                            }
+                        } else if let Some(payload) = client_frame("ui_page_state") {
+                            if let Err(error) = ui_page_state(&self.storage, &self.transport, &self.session, &self.limits, payload).await {
+                                send_frame(error).await;
+                            }
                         } else if let Some(payload) = client_frame("client_tool_result") {
                             if let Err(error) = client_tool_result(&self.connection, payload) {
                                 send_frame(error).await;
@@ -1748,6 +1775,24 @@ impl TopicOutbound {
                             SessionFrame::LiveVoice(control) => serde_json::to_value(&control)
                                 .ok()
                                 .map(|control| serde_json::json!({ "live_voice": control })),
+                            SessionFrame::UiPageVerified { page_id, version, verification } => {
+                                Some(serde_json::json!({
+                                    "ui_page_verified": {
+                                        "page_id": page_id,
+                                        "version": version,
+                                        "verification": verification,
+                                    }
+                                }))
+                            }
+                            SessionFrame::UiPageState { page_id, state, state_seq } => {
+                                Some(serde_json::json!({
+                                    "ui_page_state": {
+                                        "page_id": page_id,
+                                        "state": state,
+                                        "state_seq": state_seq,
+                                    }
+                                }))
+                            }
                         };
                         if let Some(json) = json {
                             if self.out.send_async(json).await.is_err() { return; }

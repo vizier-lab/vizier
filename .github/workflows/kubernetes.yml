@@ -86,6 +86,10 @@ jobs:
         run: |
           kind load docker-image vizier:kubernetes-smoke --name vizier-kubernetes
           kind load docker-image dummyplug:kubernetes-smoke --name vizier-kubernetes
+          # A hostPath volume ignores fsGroup, so a folder the PV created would be root-owned and
+          # the non-root pod (10001, charts/vizier/values.yaml) could not write /data. Create it
+          # on the node, owned by that user, before the volume binds.
+          docker exec vizier-kubernetes-control-plane sh -c 'mkdir -p /tmp/vizier-smoke && chown 10001:10001 /tmp/vizier-smoke'
           kubectl apply -f - <<'YAML'
           apiVersion: storage.k8s.io/v1
           kind: StorageClass
@@ -106,7 +110,7 @@ jobs:
             storageClassName: vizier-smoke
             hostPath:
               path: /tmp/vizier-smoke
-              type: DirectoryOrCreate
+              type: Directory
           YAML
 
       - name: Install, exercise WebSocket, replace pod, and verify persistence

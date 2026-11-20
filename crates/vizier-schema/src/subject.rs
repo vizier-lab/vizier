@@ -124,6 +124,12 @@ impl Subject {
         Self::with_id("session", id, Some("events"))
     }
 
+    /// `ui.{session}.verify`: a page version checked by a tab open on that conversation
+    /// (`specs/063-html-generative-ui` research R6). A request; `NoResponders` means no tab.
+    pub fn ui_verify(session: &str) -> Self {
+        Self::with_id("ui", session, Some("verify"))
+    }
+
     /// `reply.{uuid}` — the uuid in simple (no-dash) form.
     pub fn reply(id: uuid::Uuid) -> Self {
         Self(format!("reply.{}", id.simple()))
@@ -152,11 +158,6 @@ impl Subject {
 
     pub fn integration_changed() -> Self {
         Self(INTEGRATION_CHANGED.into())
-    }
-
-    /// `workspace.{id}.events`
-    pub fn workspace_events(id: &str) -> Self {
-        Self::with_id("workspace", id, Some("events"))
     }
 
     /// `inbox.events`

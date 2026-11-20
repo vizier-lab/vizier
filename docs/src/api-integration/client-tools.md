@@ -2,7 +2,7 @@
 
 A WebSocket client can give the agent tools of its own: drawing something on the person's screen, asking them to pick a file, reading the browser's location. The client declares each tool on the request it sends; the agent can call it from its scripts during that turn; the call comes back over the same socket, and the client answers it. vizier only checks the declarations' shape, names them, and carries calls and answers.
 
-This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI uses it for its own generated interfaces (`ui_render`, see [Generative UI](./generative-ui.md)), registered through the same mechanism a WebUI extension uses (`registerClientTool` in `webui/app/lib/clientTools.ts`).
+This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI declares no client tools of its own: its generated pages are the built-in tool `ui_render` (see [Generative UI](./generative-ui.md)). An extension registers its tools with `registerClientTool` in `webui/app/lib/clientTools.ts`. A declaration in category `ui` named `components` or `render` (the WebUI's tools before spec 063) is dropped with a warning instead of being offered.
 
 ```
 ws://<host>/api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat?token=<jwt>

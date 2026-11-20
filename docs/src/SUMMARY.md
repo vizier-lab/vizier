@@ -32,7 +32,7 @@
 - [2.19 Build Flavours](./configuration/build-flavours.md)
 - [2.20 Color Themes](./configuration/themes.md)
 - [2.21 Time](./configuration/time.md)
-- [2.22 Workspaces](./configuration/workspaces.md)
+- [2.22 Consultations](./configuration/consultations.md)
 - [2.23 Live Voice](./configuration/live-voice.md)
 - [2.24 Custom Tools](./configuration/custom-tools.md)
 

@@ -11,6 +11,7 @@ use crate::utils::build_path;
 mod agent;
 pub mod artifact;
 mod detached_script;
+mod ui_page;
 mod subagent;
 mod catalogue;
 mod client_call;
@@ -27,7 +28,6 @@ mod memory;
 pub(crate) mod memory_revision;
 mod notification;
 mod project;
-pub(crate) mod workspace;
 mod provider;
 mod question;
 mod reaction;
@@ -479,12 +479,8 @@ impl SqlStorage {
         init_detached_script_schema(conn)?;
         init_subagent_schema(conn)?;
         init_custom_tool_schema(conn)?;
+        init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
-        workspace::init_workspace_schema(conn)?;
-        // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
-        // rows stay for the timeline's order. Every existing entry was a message, so the default
-        // keeps them as they were read.
-        add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
         init_ownership_schema(conn)?;
 
         Ok(())
@@ -567,6 +563,15 @@ pub fn init_subagent_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_subagent_agent_state ON subagent(agent_id, state);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_worker ON subagent(worker_topic);
         ",
+    )?;
+    // Consultations (`specs/064-consult-agents/data-model.md`): a row with a consultee is a
+    // consultation of another agent. New columns, not compatibility code.
+    add_column_if_missing(conn, "subagent", "consultee_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "principal_user_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "follow_ups", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_subagent_consultee ON subagent(consultee_id) \
+         WHERE consultee_id IS NOT NULL;",
     )?;
     Ok(())
 }
@@ -757,6 +762,51 @@ pub fn init_notification_schema(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM notification WHERE category = 'channel_replies'", [])?;
     Ok(())
 }
+
+/// The interactive page tables (`specs/063-html-generative-ui/data-model.md`): pages and their
+/// versions. The HTML is in the blob store. New tables, so no migration is needed. Split out so
+/// the storage tests can stand them up in memory.
+pub fn init_ui_page_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(UI_PAGE_SCHEMA)?;
+    Ok(())
+}
+
+/// Shared by SQLite init and the PostgreSQL migration `0011_ui_pages.sql`, which spells the same
+/// tables. Times are epoch milliseconds; JSON is kept as text.
+const UI_PAGE_SCHEMA: &str = "
+        CREATE TABLE IF NOT EXISTS ui_page (
+            id              TEXT PRIMARY KEY,
+            agent_id        TEXT NOT NULL,
+            session_channel TEXT NOT NULL,
+            session_topic   TEXT,
+            title           TEXT NOT NULL,
+            latest_version  INTEGER NOT NULL,
+            state           TEXT,
+            state_seq       INTEGER NOT NULL DEFAULT 0,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            owner_node      TEXT,
+            owner_token     INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_ui_page_session
+            ON ui_page(agent_id, session_channel, session_topic);
+
+        CREATE TABLE IF NOT EXISTS ui_page_version (
+            page_id      TEXT NOT NULL,
+            version      INTEGER NOT NULL,
+            size         INTEGER NOT NULL,
+            sha256       TEXT NOT NULL,
+            origin       TEXT NOT NULL,
+            base_version INTEGER,
+            edit_count   INTEGER,
+            verification TEXT NOT NULL,
+            history_uid  TEXT,
+            created_at   INTEGER NOT NULL,
+            owner_node   TEXT,
+            owner_token  INTEGER,
+            PRIMARY KEY (page_id, version)
+        );
+";
 
 /// The custom tool tables (`specs/061-agent-custom-tools/data-model.md`): tools, their
 /// immutable versions, agent-owned categories and the lifecycle event log. New tables, so no

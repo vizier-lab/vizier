@@ -498,3 +498,80 @@ async fn single_node_never_refused() {
     deps.storage.finish_turn(id).await.unwrap();
     assert!(!*deps.storage.ownership_lost(&Scope::Agent("x".into())).borrow());
 }
+
+/// Spec 063: a page check still pending when its owner stopped reads `unverified(closed)` after
+/// the takeover; a finished one and another agent's are untouched.
+#[tokio::test]
+async fn agent_takeover_closes_pending_page_checks() {
+    use crate::storage::ui_page::UiPageStorage;
+    let (deps, _dir) = setup().await;
+    let scope = Scope::Agent("x".into());
+    claim(&deps, &scope).await;
+    claim(&deps, &Scope::Agent("y".into())).await;
+    let pending = deps.ui_pages.create(&session("x", "t"), "Chess", "<p>1</p>").await.unwrap();
+    let done = deps.ui_pages.create(&session("x", "t"), "Clock", "<p>2</p>").await.unwrap();
+    let clean = serde_json::json!({ "state": "clean", "observed_ms": 2000 });
+    deps.storage.set_ui_page_verification(&done.id, 1, &clean).await.unwrap();
+    let other = deps.ui_pages.create(&session("y", "t"), "Other", "<p>3</p>").await.unwrap();
+
+    let fence = claim(&deps, &scope).await;
+    assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
+
+    let read = |id: String| {
+        let storage = deps.storage.clone();
+        async move { storage.get_ui_page_version(&id, 1).await.unwrap().unwrap().verification }
+    };
+    assert_eq!(read(pending.id).await, serde_json::json!({ "state": "unverified", "reason": "closed" }));
+    assert_eq!(read(done.id).await, clean);
+    assert_eq!(read(other.id).await, crate::storage::ui_page::pending_verification());
+}
+
+/// A consultation of `y` by `x` (spec 064), in `x`'s conversation `topic`.
+fn consultation(id: &str, topic: &str, state: crate::schema::SubagentState) -> crate::schema::Subagent {
+    let mut row = crate::schema::subagent::tests_support::row(state);
+    row.id = id.into();
+    row.agent_id = "x".into();
+    row.hiring_session = session("x", topic);
+    row.consultee_id = Some("y".into());
+    row.principal_user_id = Some("u".into());
+    row.worker_topic = format!("topic-{id}");
+    row.deadline_at = Some(crate::time::now() + chrono::Duration::seconds(600));
+    row
+}
+
+/// Spec 064 US6: when the consulting agent's scope is claimed again, its running consultations
+/// are re-owned and their time limits re-armed, and an outcome it never saw is delivered once.
+#[tokio::test]
+async fn agent_takeover_rearms_consultations_and_delivers_their_outcome_once() {
+    use crate::schema::SubagentState;
+    use crate::storage::subagent::{Settled, SubagentStorage};
+    let (deps, _dir) = setup().await;
+    let scope = Scope::Agent("x".into());
+    claim(&deps, &scope).await;
+    claim(&deps, &Scope::Agent("y".into())).await;
+    deps.storage
+        .open_subagents(vec![
+            consultation("c_run", "a", SubagentState::Running),
+            consultation("c_done", "b", SubagentState::Running),
+        ])
+        .await
+        .unwrap();
+    // The consultee answered while nobody was there to deliver it.
+    deps.storage
+        .settle_subagent("c_done", Settled::Answered { result: "pong".into(), truncated: false }, crate::time::now())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(deps.subagents.timer_count(), 0);
+
+    let fence = claim(&deps, &scope).await;
+    let inbox = deps.transport.register_agent("x".into()).await;
+    assert!(recover_agent(&deps, &"x".to_string(), &fence).await.complete);
+
+    assert_eq!(deps.subagents.timer_count(), 1, "the running consultation's time limit is armed again");
+    assert_eq!(pokes(&inbox, 1).await, vec![session("x", "b")]);
+    let delivered = deps.deliveries.claim(&session("x", "b")).await.expect("the answer is delivered");
+    assert!(delivered.contains("[Consultation update] c_done") && delivered.contains("pong"), "{delivered}");
+    assert!(deps.deliveries.claim(&session("x", "b")).await.is_none(), "once");
+    assert!(deps.deliveries.claim(&session("x", "a")).await.is_none(), "a running one has nothing to hand over");
+}

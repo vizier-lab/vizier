@@ -79,6 +79,13 @@ pub trait TurnStorage {
     /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`
     /// (specs/057 contracts/ownership.md).
     async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool>;
+    /// The owner hands a row it already took to its own next instance (an agent update or
+    /// restart, `hand_on_queued`): the claim is released so that instance takes it on receipt.
+    /// Without this the hand-on reads as a duplicate delivery and is dropped, because the row's
+    /// owner token already equals the held fence. Only a row this owner holds is released.
+    ///
+    /// Fenced: refused with `OwnershipLost` when a newer owner holds `agent:{agent_id}`.
+    async fn release_turn_claim(&self, id: i64) -> Result<()>;
     /// Messages a running turn read at a round boundary (`specs/062-steer-busy-turn` R2): in
     /// **one** transaction, each item's journal row is deleted if it is still `queued`, and only
     /// then is the request saved to the session's history with `mid_turn` set. An item whose row
@@ -146,6 +153,10 @@ impl TurnStorage for VizierStorage {
 
     async fn claim_turn_on_receipt(&self, id: i64) -> Result<bool> {
         self.0.claim_turn_on_receipt(id).await
+    }
+
+    async fn release_turn_claim(&self, id: i64) -> Result<()> {
+        self.0.release_turn_claim(id).await
     }
 
     async fn steer_turns(

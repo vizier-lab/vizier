@@ -27,7 +27,7 @@ mod state;
 #[cfg(test)]
 mod test_support;
 pub mod topic;
-pub mod workspace_topic;
+mod ui_frame;
 mod webui;
 
 /// The whole HTTP surface (REST API, WebSocket, OpenAPI and Swagger UI, the embedded WebUI)
@@ -196,6 +196,7 @@ fn start_live_voice_sweeper() {
         api::v1::agents::agent_usage_conversation,
         api::v1::agents::channel::list_topics,
         api::v1::agents::channel::get_topic_history,
+        api::v1::agents::channel::get_topic_prompts,
         api::v1::agents::channel::list_topic_files,
         api::v1::agents::channel::promote_topic_file,
         api::v1::agents::channel::delete_topic,
@@ -208,6 +209,10 @@ fn start_live_voice_sweeper() {
         api::v1::agents::channel::chat,
         api::v1::agents::detached::list_detached_scripts,
         api::v1::agents::detached::get_detached_script,
+        api::v1::agents::ui_pages::get_ui_page,
+        api::v1::agents::ui_pages::get_ui_page_version,
+        api::v1::agents::ui_pages::get_ui_frame_ticket,
+        api::v1::agents::ui_pages::ui_frame,
         api::v1::agents::subagents::list_subagents,
         api::v1::agents::subagents::get_subagent,
         api::v1::agents::subagents::subagent_history,
@@ -276,26 +281,6 @@ fn start_live_voice_sweeper() {
         api::v1::agents::projects::lsp_set_override,
         api::v1::agents::projects::lsp_delete_override,
         api::v1::agents::projects::lsp_restart,
-        api::v1::workspaces::list,
-        api::v1::workspaces::create,
-        api::v1::workspaces::detail,
-        api::v1::workspaces::create_topic,
-        api::v1::workspaces::rename,
-        api::v1::workspaces::delete_workspace,
-        api::v1::workspaces::rename_topic,
-        api::v1::workspaces::delete_topic,
-        api::v1::workspaces::set_role,
-        api::v1::workspaces::candidates,
-        api::v1::workspaces::add_member,
-        api::v1::workspaces::remove_member,
-        api::v1::workspaces::timeline,
-        api::v1::workspaces::post_entry,
-        api::v1::workspaces::commands,
-        api::v1::workspaces::stop_all,
-        api::v1::workspaces::stop_agent,
-        api::v1::workspaces::stream,
-        api::v1::workspaces::mark_read,
-        api::v1::workspaces::react,
         api::v1::agents::task::get_tasks,
         api::v1::agents::task::get_task,
         api::v1::agents::task::create_task,
@@ -384,6 +369,7 @@ fn start_live_voice_sweeper() {
             api::v1::providers::custom::CustomProviderBody,
             api::v1::agents::channel::HistoryQuery,
             api::v1::agents::channel::TopicEntry,
+            api::v1::agents::channel::PromptMark,
             api::v1::agents::channel::RenameTopicRequest,
             api::v1::agents::ChatRequest,
             api::v1::agents::ChatResponse,
@@ -441,43 +427,6 @@ fn start_live_voice_sweeper() {
             api::v1::agents::custom_tools::RollbackCustomToolRequest,
             api::v1::agents::custom_tools::UpdateCustomToolCategoryRequest,
             api::v1::agents::projects::ProjectSummary,
-            api::v1::workspaces::WorkspaceSummary,
-            api::v1::workspaces::WorkspaceDetail,
-            api::v1::workspaces::TopicSummary,
-            api::v1::workspaces::MemberView,
-            api::v1::workspaces::CreateWorkspaceRequest,
-            api::v1::workspaces::CreateTopicRequest,
-            api::v1::workspaces::RenameRequest,
-            api::v1::workspaces::ReactRequest,
-            api::v1::workspaces::SetRoleRequest,
-            api::v1::workspaces::Candidates,
-            api::v1::workspaces::AgentCandidate,
-            api::v1::workspaces::PersonCandidate,
-            api::v1::workspaces::CandidateGroup<api::v1::workspaces::AgentCandidate>,
-            api::v1::workspaces::CandidateGroup<api::v1::workspaces::PersonCandidate>,
-            api::v1::workspaces::AddMemberRequest,
-            api::v1::workspaces::AuthorView,
-            api::v1::workspaces::MentionView,
-            api::v1::workspaces::EntryView,
-            api::v1::workspaces::StepView,
-            api::v1::workspaces::Timeline,
-            api::v1::workspaces::PostRequest,
-            api::v1::workspaces::PostResponse,
-            api::v1::workspaces::StopResponse,
-            api::v1::workspaces::CommandView,
-            api::v1::workspaces::SkillView,
-            api::v1::workspaces::CommandsView,
-            api::v1::workspaces::ReadMarked,
-            crate::models::response::APIResponse<api::v1::workspaces::ReadMarked>,
-            crate::models::response::APIResponse<api::v1::workspaces::Timeline>,
-            crate::models::response::APIResponse<api::v1::workspaces::PostResponse>,
-            crate::models::response::APIResponse<api::v1::workspaces::StopResponse>,
-            crate::models::response::APIResponse<api::v1::workspaces::CommandsView>,
-            crate::models::response::APIResponse<Vec<api::v1::workspaces::WorkspaceSummary>>,
-            crate::models::response::APIResponse<api::v1::workspaces::WorkspaceDetail>,
-            crate::models::response::APIResponse<api::v1::workspaces::TopicSummary>,
-            crate::models::response::APIResponse<api::v1::workspaces::MemberView>,
-            crate::models::response::APIResponse<api::v1::workspaces::Candidates>,
             api::v1::agents::projects::ProjectDetail,
             api::v1::agents::projects::OpenProjectRequest,
             api::v1::agents::projects::UpdateProjectRequest,
@@ -541,6 +490,7 @@ fn start_live_voice_sweeper() {
             crate::models::response::APIResponse<vizier_core::schema::AgentSummary>,
             crate::models::response::APIResponse<api::v1::agents::AgentDetail>,
             crate::models::response::APIResponse<Vec<api::v1::agents::channel::TopicEntry>>,
+            crate::models::response::APIResponse<Vec<api::v1::agents::channel::PromptMark>>,
             crate::models::response::APIResponse<api::v1::agents::ChatResponse>,
             crate::models::response::APIResponse<api::v1::agents::core::CoreContentResponse>,
             crate::models::response::APIResponse<api::v1::agents::core::CoreUpdateResponse>,
@@ -601,3 +551,19 @@ fn start_live_voice_sweeper() {
     )
 )]
 struct ApiDoc;
+
+/// Writes the OpenAPI document the server serves at `/openapi.json` to `$VIZIER_OPENAPI_OUT`, so
+/// the WebUI's `openapi.json` (and `npm run gen:api`) can be refreshed without running a server:
+/// `VIZIER_OPENAPI_OUT=../../webui/openapi.json cargo test -p vizier-http write_openapi -- --ignored`.
+#[cfg(test)]
+mod openapi_out {
+    use utoipa::OpenApi;
+
+    #[test]
+    #[ignore = "writes a file; run on demand"]
+    fn write_openapi() {
+        let path = std::env::var("VIZIER_OPENAPI_OUT").expect("set VIZIER_OPENAPI_OUT");
+        let json = super::ApiDoc::openapi().to_pretty_json().unwrap();
+        std::fs::write(path, json).unwrap();
+    }
+}

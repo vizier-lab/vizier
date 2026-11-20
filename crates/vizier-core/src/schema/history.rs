@@ -89,6 +89,17 @@ pub enum SessionHistoryContent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         answerer: Option<String>,
     },
+    /// A version of an interactive page the agent drew (`specs/063-html-generative-ui`), saved
+    /// when the version is created; the WebUI draws the page from it. `verification` changes
+    /// after the insert, so it lives in `ui_page_version` and is filled in on every read, as
+    /// `ClientToolCall`'s outcome is. Never part of the model's input: the tool's result is.
+    UiPage {
+        page_id: String,
+        version: u32,
+        title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verification: Option<serde_json::Value>,
+    },
     /// An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was
     /// requested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is
     /// filled at read time from `sensitive_ask`.
@@ -436,6 +447,10 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             SessionHistoryContent::SensitiveAsk { .. } => {
                 // Display only, and deliberately so: the record exists to tell a person that a
                 // value was requested. Replaying it would tell the agent nothing new.
+            }
+            SessionHistoryContent::UiPage { .. } => {
+                // Display only: the `ui_render` call's result already told the model what it
+                // drew, and the page's HTML must not be re-read on every later turn.
             }
         }
     }
@@ -955,6 +970,7 @@ mod tests {
                 SessionHistoryContent::Recall { .. } => "Recall",
                 SessionHistoryContent::QuestionSet { .. } => "QuestionSet",
                 SessionHistoryContent::SensitiveAsk { .. } => "SensitiveAsk",
+                SessionHistoryContent::UiPage { .. } => "UiPage",
             })
             .collect()
     }

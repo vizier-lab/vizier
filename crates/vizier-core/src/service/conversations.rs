@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{ServiceError, Services};
 use crate::{
-    access::{can_show_platform_chats, can_view_agent},
+    access::{can_edit_agent, can_show_platform_chats, can_view_agent},
     auth::Principal,
     storage::{
         agent::AgentStorage,
@@ -26,6 +26,9 @@ pub enum ConversationKind {
     Webui,
     Discord,
     Telegram,
+    /// Consultations another agent sent this one (spec 064 US7): read-only, listed to people
+    /// who may edit this agent. One item per consulting agent; each consultation is a topic.
+    Consultation,
 }
 
 /// Which kind of conversation a channel slug is, and whether the person may open it: a WebUI
@@ -35,12 +38,13 @@ fn kind_of(channel: &str, username: &str) -> Option<ConversationKind> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         return None;
     }
-    // Workspace topics are reached through membership, never an agent's conversation pages
-    // (spec 053 R8).
-    if channel.starts_with(crate::workspaces::PREFIX) {
+    // A removed Workspace's leftovers are never listed (spec 064).
+    if channel.starts_with("workspace__") {
         return None;
     }
-    if channel.starts_with("discord__") {
+    if channel.starts_with("consultation__") {
+        Some(ConversationKind::Consultation)
+    } else if channel.starts_with("discord__") {
         Some(ConversationKind::Discord)
     } else if channel.starts_with("telegram__") {
         Some(ConversationKind::Telegram)
@@ -73,6 +77,8 @@ pub struct ConversationCounts {
     pub webui: usize,
     pub discord: usize,
     pub telegram: usize,
+    #[serde(default)]
+    pub consultation: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,6 +154,7 @@ pub async fn list(
         .map_err(|e| ServiceError::Internal(e.to_string()))?;
     let show_discord = can_show_platform_chats(who, &config, "discord");
     let show_telegram = can_show_platform_chats(who, &config, "telegram");
+    let show_consultations = can_edit_agent(who, &config);
     let rows: Vec<(ConversationKind, ConversationRow)> = rows
         .into_iter()
         .filter_map(|r| Some((kind_of(&r.channel, &who.username)?, r)))
@@ -155,6 +162,7 @@ pub async fn list(
             ConversationKind::Webui => true,
             ConversationKind::Discord => show_discord,
             ConversationKind::Telegram => show_telegram,
+            ConversationKind::Consultation => show_consultations,
         })
         .collect();
 
@@ -164,6 +172,7 @@ pub async fn list(
             ConversationKind::Webui => counts.webui += 1,
             ConversationKind::Discord => counts.discord += 1,
             ConversationKind::Telegram => counts.telegram += 1,
+            ConversationKind::Consultation => counts.consultation += 1,
         }
     }
     let wanted: Vec<ConversationRow> = rows
@@ -183,6 +192,19 @@ pub async fn list(
         page.iter().filter_map(|r| slug_place(&r.channel)).collect::<Vec<_>>().iter().map(String::as_str),
     )
     .await;
+    // The consulting agents' names, for "Asked by <name>"; a deleted one keeps its id.
+    let mut consulting: std::collections::HashMap<String, String> = Default::default();
+    for r in &page {
+        if let Some(from) = r.channel.strip_prefix("consultation__")
+            && !consulting.contains_key(from)
+        {
+            let name = match storage.get_agent(from).await {
+                Ok(Some(config)) => config.name,
+                _ => from.to_string(),
+            };
+            consulting.insert(from.to_string(), name);
+        }
+    }
 
     let items = page
         .iter()
@@ -207,6 +229,16 @@ pub async fn list(
                         .unwrap_or_else(|| format!("{noun} {id}"));
                     let place = found.and_then(|n| n.space).unwrap_or_else(|| platform.to_string());
                     (title, place)
+                }
+                ConversationKind::Consultation => {
+                    let from = r.channel.strip_prefix("consultation__").unwrap_or("");
+                    let name = consulting.get(from).cloned().unwrap_or_else(|| from.to_string());
+                    let place = if r.topics == 1 {
+                        "1 consultation".into()
+                    } else {
+                        format!("{} consultations", r.topics)
+                    };
+                    (format!("Asked by {name}"), place)
                 }
             };
             Some(ConversationItem {
@@ -249,6 +281,8 @@ mod tests {
         assert_eq!(kind_of("discord__1", "ana"), Some(ConversationKind::Discord));
         assert_eq!(kind_of("telegram__-9", "ana"), Some(ConversationKind::Telegram));
         assert_eq!(kind_of("task__x__1", "ana"), None);
+        assert_eq!(kind_of("consultation__support", "ana"), Some(ConversationKind::Consultation));
+        assert_eq!(kind_of("workspace__w1", "ana"), None);
     }
 
     #[test]

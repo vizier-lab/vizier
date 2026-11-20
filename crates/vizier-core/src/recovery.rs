@@ -17,6 +17,7 @@ use crate::storage::session::SessionStorage;
 use crate::storage::task::TaskStorage;
 use crate::storage::task_run::TaskRunStorage;
 use crate::storage::turn::{TurnState, TurnStorage};
+use crate::storage::ui_page::UiPageStorage;
 
 /// The outcome of one recovery pass. `complete` is false when a step failed, and the caller
 /// should run the pass again later; a repeat does nothing twice.
@@ -65,6 +66,17 @@ pub async fn recover_agent(
             "abandoned {count} sensitive ask(s) left open by a previous owner"
         ),
         Err(e) => failed("sensitive asks", &scope, &e, &mut recovered),
+    }
+
+    // 2b. A page check is awaited by the tool call that drew the version (spec 063), so one still
+    //     pending died with its owner: it reads `unverified(closed)`.
+    match storage.sweep_pending_ui_verifications(&agent_id.to_string(), below).await {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(
+            agent_id = %agent_id,
+            "marked {count} page check(s) left pending by a previous owner as unverified"
+        ),
+        Err(e) => failed("page checks", &scope, &e, &mut recovered),
     }
 
     // 3. A session with a turn waiting to resume keeps its scratch files and its thinking mark;

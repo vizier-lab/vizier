@@ -131,7 +131,6 @@ To line up a separate task instead, so it waits for the current turn to finish a
 | WebUI (any size, including a phone) | `/queue <message>` |
 | Discord | `/queue message:<text>`, or type `/queue <text>` |
 | Telegram | `/queue <text>` |
-| Workspaces | `/queue @<agent-id> <message>` |
 
 `/queue` sent while the agent is idle simply starts a turn. `/queue` on its own is answered with how to use it. A skill named `queue` gets no `/queue` command of its own; run it with `/skill queue`.
 

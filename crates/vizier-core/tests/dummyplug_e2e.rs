@@ -386,187 +386,6 @@ async fn text_beside_a_tool_call_is_saved_as_a_mid_turn_message() {
     runtime.shutdown().await.unwrap();
 }
 
-/// Spec 053 US1 and US2 (quickstart §2 to §5): a Workspace with two dummyplug agents. Unmentioned
-/// messages cost nothing; a mention wakes only that agent, who has read what came before; a
-/// mention in an agent's mid-turn text wakes the next one.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_workspace_wakes_only_who_is_mentioned_and_they_have_read_the_rest() {
-    use vizier_core::{
-        auth::AuthMethod,
-        schema::{EntryKind, MentionState, VizierRequestContent},
-        service::{
-            Services,
-            workspaces::{self as ws, AddMemberRequest, CreateWorkspaceRequest, PostRequest},
-        },
-        storage::{turn::TurnStorage, workspace::WorkspaceStorage},
-    };
-
-    let Some(dummyplug) = Dummyplug::start() else {
-        return;
-    };
-    dummyplug.ready().await;
-
-    let dir = tempfile::tempdir().unwrap();
-    let runtime = VizierRuntime::start(RuntimeOptions {
-        config: VizierConfig::with_workspace(dir.path().to_path_buf()),
-        ..Default::default()
-    })
-    .await
-    .unwrap();
-    let storage = runtime.deps().storage.clone();
-    storage
-        .upsert_provider(&ProviderEntry {
-            id: ProviderId::DUMMYPLUG,
-            credentials: ProviderCredentials {
-                base_url: Some(dummyplug.base_url()),
-                ..Default::default()
-            },
-        })
-        .await
-        .unwrap();
-    let role = storage
-        .create_role("maker", vec!["workspaces:create".into(), "all_agents:edit".into(), "all_agents:view".into()], false)
-        .await
-        .unwrap();
-    let user = storage.create_user("rafi", "", &role.role_id).await.unwrap();
-    let s = Services::new(runtime.deps().clone());
-    let rafi = s.principal_for(&user.user_id, AuthMethod::Jwt).await.unwrap();
-
-    for id in ["alpha", "beta"] {
-        let (resp, created) = tokio::sync::oneshot::channel();
-        runtime
-            .transport()
-            .send_agent_command(AgentCommand::Create { agent_id: id.into(), config: agent_config(id), resp })
-            .await
-            .unwrap();
-        assert!(matches!(
-            tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap(),
-            AgentCommandResult::Ok(_)
-        ));
-    }
-
-    let made = ws::create(&s, &rafi, CreateWorkspaceRequest { name: "ops".into(), first_topic: None })
-        .await
-        .unwrap();
-    let (wid, tid) = (made.workspace.id.clone(), made.workspace.topics[0].id.clone());
-    for id in ["alpha", "beta"] {
-        ws::add_member(&s, &rafi, &wid, AddMemberRequest { kind: "agent".into(), handle: id.into(), role: None })
-            .await
-            .unwrap();
-    }
-    let say = |text: &str| PostRequest { text: text.into(), files: vec![] };
-    let history_of = |agent: &str| {
-        let storage = storage.clone();
-        let session = VizierSession(agent.into(), VizierChannelId::Workspace(wid.clone()), Some(tid.clone()));
-        async move { storage.list_session_history(session, None, None, None).await.unwrap() }
-    };
-    let wait_for = |what: &'static str, f: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> + Send>| async move {
-        let start = std::time::Instant::now();
-        while start.elapsed() < TURN_TIMEOUT {
-            if f().await {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        panic!("timed out waiting for {what}");
-    };
-
-    // §2: silent messages reach everyone and cost nothing.
-    for text in ["the billing lock is back", "it was the deploy", "rolling back now"] {
-        ws::post(&s, &rafi, &wid, &tid, say(text)).await.unwrap();
-    }
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(storage.sessions_with_pending_turns().await.unwrap().is_empty());
-    assert!(history_of("alpha").await.is_empty() && history_of("beta").await.is_empty());
-    assert_eq!(storage.list_entries(&tid, None, 50).await.unwrap().len(), 3);
-
-    // §3: a mention wakes one agent, who has read the rest.
-    ws::post(&s, &rafi, &wid, &tid, say("@alpha tools")).await.unwrap();
-    {
-        let storage = storage.clone();
-        let tid = tid.clone();
-        wait_for("alpha's reply", Box::new(move || {
-            let storage = storage.clone();
-            let tid = tid.clone();
-            Box::pin(async move {
-                storage.list_entries(&tid, None, 50).await.unwrap().iter().any(|e| e.kind == EntryKind::Agent && e.is_final)
-            })
-        }))
-        .await;
-    }
-    let alpha = history_of("alpha").await;
-    let reads: Vec<String> = alpha
-        .iter()
-        .filter_map(|h| match &h.content {
-            SessionHistoryContent::Request(r) => match &r.content {
-                VizierRequestContent::SilentRead(t) => Some(t.clone()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect();
-    assert_eq!(reads, ["the billing lock is back", "it was the deploy", "rolling back now"]);
-    assert!(history_of("beta").await.is_empty(), "beta was not mentioned, so its record is untouched");
-
-    // §5: mid-turn text that mentions another agent wakes it before the first one finishes.
-    let before = storage.list_entries(&tid, None, 100).await.unwrap().len();
-    ws::post(
-        &s,
-        &rafi,
-        &wid,
-        &tid,
-        say(r#"@alpha {"say":"asking @beta now","tool":"execute_python","arguments":{"intent":"x","code":"1"}}"#),
-    )
-    .await
-    .unwrap();
-    {
-        let storage = storage.clone();
-        let tid = tid.clone();
-        let wid = wid.clone();
-        wait_for("beta woken by alpha's mid-turn text", Box::new(move || {
-            let storage = storage.clone();
-            let tid = tid.clone();
-            let wid = wid.clone();
-            Box::pin(async move {
-                let entries = storage.list_entries(&tid, None, 100).await.unwrap();
-                if !entries.iter().any(|e| e.author == "beta" && e.is_final) {
-                    return false;
-                }
-                // Alpha's prose between tool rounds is saved but not shown, so the timeline above
-                // cannot carry it: the entry is found through alpha's own record instead.
-                let session =
-                    VizierSession("alpha".into(), VizierChannelId::Workspace(wid), Some(tid));
-                let said = storage
-                    .list_session_history(session, None, None, None)
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .find(|h| matches!(&h.content,
-                        SessionHistoryContent::AssistantMessage(text) if text.contains("asking @beta")));
-                let Some(said) = said else { return false };
-                let Some(entry) = storage.entry_by_history_uid(&said.uid).await.unwrap() else {
-                    return false;
-                };
-                let m = storage.mentions_of(&[entry.seq]).await.unwrap();
-                m.iter().any(|m| m.target == "beta" && m.state == MentionState::Woken)
-            })
-        }))
-        .await;
-    }
-    let timeline = storage.list_entries(&tid, None, 100).await.unwrap();
-    assert!(timeline.len() > before);
-    // It is alpha thinking out loud, so it woke beta without anyone being shown it.
-    assert!(!timeline.iter().any(|e| e.author == "alpha" && e.body.contains("asking @beta")), "{timeline:#?}");
-    // Beta now has read alpha's shown messages (and none of its tool calls).
-    let beta = history_of("beta").await;
-    assert!(beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::Request(r)
-        if matches!(&r.content, VizierRequestContent::SilentRead(_)) && r.user == "alpha")));
-    assert!(!beta.iter().any(|h| matches!(&h.content, SessionHistoryContent::ToolCall { .. })
-        && h.vizier_session.0 == "alpha"));
-
-    runtime.shutdown().await.unwrap();
-}
-
 /// Spec 040: the workspace shell is offered in a project session, runs a command in the project
 /// folder, and is absent from an ordinary conversation.
 #[tokio::test(flavor = "multi_thread")]
@@ -1327,65 +1146,7 @@ get_secret(name='TOKEN')", true, None);
     runtime.shutdown().await.unwrap();
 }
 
-/// Quickstart step 10c: a script detached from a Workspace mention wakes the agent in its own
-/// session for that topic, and the woken reply reaches the timeline like a reply to a mention.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_detached_script_from_a_workspace_mention_replies_on_the_timeline() {
-    use vizier_core::{
-        auth::AuthMethod,
-        schema::EntryKind,
-        service::{
-            Services,
-            workspaces::{self as ws, AddMemberRequest, CreateWorkspaceRequest, PostRequest},
-        },
-        storage::workspace::WorkspaceStorage,
-    };
-    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
-    let storage = runtime.deps().storage.clone();
-    let role = storage
-        .create_role("maker", vec!["workspaces:create".into(), "all_agents:edit".into(), "all_agents:view".into()], false)
-        .await
-        .unwrap();
-    let user = storage.create_user("rafi", "", &role.role_id).await.unwrap();
-    let s = Services::new(runtime.deps().clone());
-    let rafi = s.principal_for(&user.user_id, AuthMethod::Jwt).await.unwrap();
-    let made = ws::create(&s, &rafi, CreateWorkspaceRequest { name: "ops".into(), first_topic: None })
-        .await
-        .unwrap();
-    let (wid, tid) = (made.workspace.id.clone(), made.workspace.topics[0].id.clone());
-    ws::add_member(&s, &rafi, &wid, AddMemberRequest { kind: "agent".into(), handle: "plug".into(), role: None })
-        .await
-        .unwrap();
-
-    let request = run_python("shell_exec(commands='sleep 2')
-'checked'", true, None);
-    ws::post(&s, &rafi, &wid, &tid, PostRequest { text: format!("@plug {request}"), files: vec![] })
-        .await
-        .unwrap();
-
-    let session = VizierSession("plug".into(), VizierChannelId::Workspace(wid.clone()), Some(tid.clone()));
-    // The mention's reply, then the woken delivery's reply: two agent messages on the timeline.
-    eventually(60, || async {
-        storage
-            .list_entries(&tid, None, 50)
-            .await
-            .unwrap()
-            .iter()
-            .filter(|e| e.kind == EntryKind::Agent && e.is_final)
-            .count()
-            >= 2
-    })
-    .await;
-    let history = history_of(&runtime, &session).await;
-    let delivery = deliveries(&history);
-    assert_eq!(delivery.len(), 1, "{history:#?}");
-    assert!(delivery[0].contains("result: checked"), "{}", delivery[0]);
-
-    runtime.shutdown().await.unwrap();
-}
-
-/// Quickstart step 12: a file a detached script writes is a session file of its conversation,
-/// and the delivery names it.
+// The Office addon is behind `addon-documents`.
 #[cfg(feature = "addon-documents")]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_a_detached_script_writes_is_a_session_file() {
@@ -2145,5 +1906,375 @@ async fn a_restart_mid_turn_reads_the_message_exactly_once() {
     assert_eq!(read_mid_turn(&history), ["after restart"]);
     assert_eq!(journal_rows(&runtime).await, 0);
 
+    runtime.shutdown().await.unwrap();
+}
+
+/// Spec 063 quickstart §0–§2: `ui_render` through the real loop. A new page with no tab open is
+/// saved, drawn from a history entry, reported unchecked and ends the turn; an edit makes the next
+/// version; a stale base, another conversation and an ambiguous edit are refused and the turn goes
+/// on; the guide is read through `describe_tool_function`.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_pages_are_drawn_versioned_and_refused_through_the_loop() {
+    use vizier_core::storage::ui_page::UiPageStorage;
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let session = web_session("pages");
+    let call = |code: &str| run_python(code, false, None);
+
+    // §0: the guide.
+    let guide = chat(
+        runtime.transport(),
+        &session,
+        &serde_json::json!({ "tool": "describe_tool_function", "arguments": { "name": "ui_render" } }).to_string(),
+    )
+    .await;
+    assert!(guide.contains("guide") && guide.contains("base_version"), "{guide}");
+
+    // §1: a new page, no tab open.
+    chat(runtime.transport(), &session, &call("ui_render(title='Hello', html='<h1>Hi</h1><p>one</p>')")).await;
+    let history = history_of(&runtime, &session).await;
+    let (page_id, version) = history
+        .iter()
+        .find_map(|h| match &h.content {
+            SessionHistoryContent::UiPage { page_id, version, .. } => Some((page_id.clone(), *version)),
+            _ => None,
+        })
+        .expect("a UiPage entry");
+    assert_eq!(version, 1);
+    let stored = runtime.deps().storage.get_ui_page_version(&page_id, 1).await.unwrap().unwrap();
+    assert_eq!(stored.verification, serde_json::json!({ "state": "unverified", "reason": "no_tab" }));
+    assert!(matches!(history.last().map(|h| &h.content), Some(SessionHistoryContent::Response(_))));
+
+    // §2: an edit makes version 2 from version 1.
+    let edit = format!("ui_render(page='{page_id}', base_version=1, edits=[{{'find': 'Hi', 'replace': 'Hello there'}}])");
+    chat(runtime.transport(), &session, &call(&edit)).await;
+    let page = runtime.deps().storage.get_ui_page(&page_id).await.unwrap().unwrap();
+    assert_eq!(page.latest_version, 2);
+    let html = runtime.deps().ui_pages.html(&page, 2).await.unwrap().unwrap();
+    assert_eq!(html, "<h1>Hello there</h1><p>one</p>");
+
+    // The same edit again is stale; the refusal reaches the model and the turn goes on.
+    let stale = chat(runtime.transport(), &session, &call(&edit)).await;
+    assert!(stale.contains("stale_base") && stale.contains("\\\"latest\\\":2") || stale.contains("\"latest\":2"), "{stale}");
+    assert_eq!(runtime.deps().storage.get_ui_page(&page_id).await.unwrap().unwrap().latest_version, 2);
+
+    // An ambiguous find names the edit and the count.
+    let ambiguous = format!("ui_render(page='{page_id}', base_version=2, edits=[{{'find': '<', 'replace': '['}}])");
+    let refused = chat(runtime.transport(), &session, &call(&ambiguous)).await;
+    assert!(refused.contains("edit_ambiguous"), "{refused}");
+
+    // Another conversation cannot change it.
+    let other = web_session("elsewhere");
+    let foreign = chat(runtime.transport(), &other, &call(&format!("ui_render(page='{page_id}', base_version=2, html='<p>x</p>')"))).await;
+    assert!(foreign.contains("other_conversation"), "{foreign}");
+
+    runtime.shutdown().await.unwrap();
+}
+
+// --- Consultations (spec 064) ------------------------------------------------------------------
+
+/// Create `id`, owned by `owner` (a user id) or by nobody, on the dummyplug provider.
+async fn create_agent(runtime: &VizierRuntime, id: &str, owner: Option<&str>) {
+    let mut config = agent_config(id);
+    config.owner_id = owner.map(str::to_string);
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create { agent_id: id.into(), config, resp })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create {id} failed: {e}"),
+    }
+}
+
+/// The harness plus `beta`, owned by the person `e2e` who talks to `plug`, and `gamma`, owned by
+/// nobody, so `e2e` may consult `beta` and not `gamma` (spec 064 FR-010).
+async fn consultation_harness() -> Option<(Dummyplug, VizierRuntime, tempfile::TempDir)> {
+    let (dummyplug, runtime, dir) = detached_harness().await?;
+    let storage = &runtime.deps().storage;
+    let role = storage.create_role("chatter", vec![], false).await.unwrap();
+    let person = storage.create_user("e2e", "", &role.role_id).await.unwrap();
+    create_agent(&runtime, "beta", Some(&person.user_id)).await;
+    create_agent(&runtime, "gamma", None).await;
+    Some((dummyplug, runtime, dir))
+}
+
+/// A request the consultee's dummyplug answers with `say`, after `delay_ms`.
+fn answer_with(say: &str, delay_ms: u64) -> String {
+    serde_json::json!({ "say": say, "delay_ms": delay_ms }).to_string()
+}
+
+fn consultation_id(reply: &str) -> String {
+    let start = reply
+        .find("\"c_")
+        .unwrap_or_else(|| panic!("a consultation id in the reply: {reply}"))
+        + 1;
+    reply[start..start + 10].to_string()
+}
+
+fn consultation_deliveries(history: &[vizier_core::schema::SessionHistory]) -> Vec<String> {
+    deliveries(history)
+        .into_iter()
+        .filter(|text| text.contains("[Consultation update]"))
+        .collect()
+}
+
+/// Quickstart §1 and §5: a consultation runs as the consulted agent in its own conversation,
+/// and the wait hands its answer back in the same step; an agent the person may not use, and
+/// the caller itself, are refused before anything starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_consults_another_and_gets_its_answer_back() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("consult");
+    let code = format!(
+        "r = consult_agent(consultations=[{{'agent': 'beta', 'request': {request:?}}}])
+w = wait_consultations(ids=[x['id'] for x in r['consultations']])
+[(x['state'], x['result'], x['consultee']) for x in w['consultations']]",
+        request = answer_with("pong", 0)
+    );
+    let reply = chat(runtime.transport(), &session, &run_python(&code, false, None)).await;
+    assert!(reply.contains("answered") && reply.contains("pong") && reply.contains("beta"), "{reply}");
+
+    // The work happened in beta's own consultation conversation, framed as a consultation.
+    use vizier_core::storage::subagent::SubagentStorage;
+    let rows = runtime.deps().storage.list_subagents(&session, 50).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert!(row.id.starts_with("c_") && row.consultee_id.as_deref() == Some("beta"));
+    let consulted = row.worker_session();
+    assert_eq!(consulted.0, "beta");
+    assert_eq!(consulted.1, VizierChannelId::Consultation("plug".into()));
+    let theirs = history_of(&runtime, &consulted).await;
+    let first = theirs
+        .iter()
+        .find_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => Some(r.generate_frontmatter().unwrap()),
+            _ => None,
+        })
+        .expect("beta received the request");
+    for line in ["sender: plug", "via: consultation", "consultation: 1 of 1", "on_behalf_of: e2e"] {
+        assert!(first.contains(line), "{line} in {first}");
+    }
+    // Nothing of it reached the person's own conversation with beta.
+    assert!(history_of(&runtime, &VizierSession("beta".into(), VizierChannelId::HTTP("e2e".into(), "harness".into()), Some("consult".into()))).await.is_empty());
+
+    let refused = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "gamma", "request": "hi" }]
+    })).await;
+    assert!(refused.contains("unknown_agent"), "{refused}");
+    let nope = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "nope", "request": "hi" }]
+    })).await;
+    assert!(nope.contains("unknown_agent"), "the same answer as for a stranger: {nope}");
+    let me = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "plug", "request": "hi" }]
+    })).await;
+    assert!(me.contains("\"self\""), "{me}");
+    let listed = call_tool(&runtime, &session, "list_consultable_agents", serde_json::json!({})).await;
+    assert!(listed.contains("beta") && !listed.contains("gamma"), "{listed}");
+    assert_eq!(runtime.deps().storage.list_subagents(&session, 50).await.unwrap().len(), 1, "no refused one started");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart §2.1: a consultation nobody waits for is delivered once, after the turn that
+/// started it has ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unwaited_consultation_is_delivered_once() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("later");
+    let started = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("late", 2_000) }]
+    })).await;
+    let id = consultation_id(&started);
+    eventually(30, || async { !consultation_deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let delivered = consultation_deliveries(&history_of(&runtime, &session).await);
+    assert!(delivered[0].contains(&id) && delivered[0].contains("beta") && delivered[0].contains("late"), "{delivered:?}");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(consultation_deliveries(&history_of(&runtime, &session).await).len(), 1);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// A request that makes the consultee ask the agent consulting it one question.
+fn ask_back(question: &str) -> String {
+    serde_json::json!({ "tool": "execute_python", "arguments": {
+        "intent": "ask the consulting agent",
+        "code": format!("ask_consulting_agent(question={question:?})"),
+    }})
+    .to_string()
+}
+
+/// Quickstart §3, §4 and §7.2: the consultee asks back and is answered in the same
+/// conversation, a follow-up continues it once it has answered, a stop ends one, and a deleted
+/// consultee's open consultation is delivered as stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consultation_asks_back_follows_up_stops_and_outlives_its_consultee_once() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("talk");
+    let started = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": ask_back("eu or us?") }]
+    })).await;
+    let id = consultation_id(&started);
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("asking") && waited.contains("eu or us?"), "{waited}");
+
+    let replied = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({
+        "id": id, "text": answer_with("eu it is", 0)
+    })).await;
+    assert!(replied.contains("running"), "{replied}");
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("answered") && waited.contains("eu it is"), "{waited}");
+
+    let followed = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({
+        "id": id, "text": answer_with("and again", 0)
+    })).await;
+    assert!(followed.contains("running") && followed.contains("\"follow_ups\":1"), "{followed}");
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("answered") && waited.contains("and again"), "{waited}");
+    // One conversation on beta's side holds all of it.
+    use vizier_core::storage::subagent::SubagentStorage;
+    let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+    let theirs = history_of(&runtime, &row.worker_session()).await;
+    let vias: Vec<String> = theirs
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => r
+                .generate_frontmatter()
+                .ok()
+                .and_then(|f| f.lines().find(|l| l.starts_with("via:")).map(str::to_string)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(vias, ["via: consultation", "via: consultation_reply", "via: consultation_followup"]);
+
+    // A stop ends one consultation; a reply to it is refused.
+    let slow = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("too late", 8_000) }]
+    })).await);
+    let stopped = call_tool(&runtime, &session, "stop_consultation", serde_json::json!({ "id": slow })).await;
+    assert!(stopped.contains("stopped"), "{stopped}");
+    let refused = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({ "id": slow, "text": "x" })).await;
+    assert!(refused.contains("not_waiting"), "{refused}");
+    // The workers' tools do not manage consultations.
+    let foreign = call_tool(&runtime, &session, "get_subagent", serde_json::json!({ "id": slow })).await;
+    assert!(foreign.contains("unknown_subagent"), "{foreign}");
+
+    // Deleting the consultee stops its open consultation and tells the agent that asked.
+    let open = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("never", 8_000) }]
+    })).await);
+    let (resp, deleted) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Delete { agent_id: "beta".into(), delete_workspace: false, resp })
+        .await
+        .unwrap();
+    tokio::time::timeout(TURN_TIMEOUT, deleted).await.unwrap().unwrap();
+    eventually(30, || async {
+        consultation_deliveries(&history_of(&runtime, &session).await)
+            .iter()
+            .any(|d| d.contains(&open) && d.contains("the consulted agent was deleted"))
+    })
+    .await;
+    let row = runtime.deps().storage.get_subagent(&open).await.unwrap().unwrap();
+    assert_eq!(row.stop_reason, Some(vizier_core::schema::SubagentStopReason::ConsulteeDeleted));
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart §2.2 and §2.3 (spec 064 US6): aborting the asking turn does not stop its
+/// consultation, and a consulted agent restarted mid-work resumes it; the answer arrives once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consultation_outlives_an_abort_and_a_consultee_restart() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("survive");
+    let id = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("survived", 3_000) }]
+    })).await);
+    // The person aborts the conversation's turn: only the asking agent's turn stops.
+    let abort = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        user: "e2e".into(),
+        content: VizierRequestContent::Command("abort".into()),
+        metadata: serde_json::json!({}),
+        ..Default::default()
+    };
+    runtime.transport().send_request(session.clone(), abort, None).await.unwrap();
+    // And the consulted agent is restarted while it works.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut config = agent_config("beta");
+    config.owner_id = runtime.deps().storage.get_user("e2e").await.unwrap().map(|u| u.user_id);
+    config.description = Some("restarted".into());
+    let (resp, updated) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Update { agent_id: "beta".into(), config, resp })
+        .await
+        .unwrap();
+    assert!(matches!(tokio::time::timeout(TURN_TIMEOUT, updated).await.unwrap().unwrap(), AgentCommandResult::Ok(_)));
+
+    eventually(45, || async { !consultation_deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let delivered = consultation_deliveries(&history_of(&runtime, &session).await);
+    assert!(delivered[0].contains(&id) && delivered[0].contains("survived"), "{delivered:?}");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(consultation_deliveries(&history_of(&runtime, &session).await).len(), 1, "once");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart §7.1 (spec 064 FR-022): deleting the asking conversation removes its
+/// consultations and the consulted agent's copy of each.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_the_asking_conversation_removes_the_consultees_copy() {
+    use vizier_core::storage::subagent::SubagentStorage;
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("gone");
+    let code = format!(
+        "r = consult_agent(consultations=[{{'agent': 'beta', 'request': {request:?}}}])
+wait_consultations(ids=[x['id'] for x in r['consultations']])",
+        request = answer_with("kept?", 0)
+    );
+    chat(runtime.transport(), &session, &run_python(&code, false, None)).await;
+    let row = runtime.deps().storage.list_subagents(&session, 50).await.unwrap().remove(0);
+    let theirs = row.worker_session();
+    assert!(!history_of(&runtime, &theirs).await.is_empty());
+
+    let workers = runtime.deps().subagents.delete_session(&session).await;
+    vizier_core::agents::subagents::delete_worker_conversations(&runtime.deps().session_files, workers).await;
+
+    assert!(runtime.deps().storage.get_subagent(&row.id).await.unwrap().is_none());
+    assert!(history_of(&runtime, &theirs).await.is_empty(), "the consultee's copy goes too");
+    runtime.shutdown().await.unwrap();
+}
+
+/// A worker's turn survives its agent being updated (spec 059 FR-017a). Found by spec 064: the
+/// next instance took the handed-on turn for a duplicate delivery and dropped it, because the row
+/// already carried the process's fence; `hand_on_queued` now releases the claim first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_turn_survives_its_agent_being_updated() {
+    use vizier_core::storage::subagent::SubagentStorage;
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("probe");
+    let out = call_tool(&runtime, &session, "spawn_subagents", serde_json::json!({
+        "tasks": [{ "task": answer_with("worker survived", 3_000) }]
+    })).await;
+    let start = out.find("\"s_").unwrap() + 1;
+    let id = out[start..start + 10].to_string();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut config = agent_config("plug");
+    config.description = Some("restarted".into());
+    let (resp, updated) = tokio::sync::oneshot::channel();
+    runtime.transport().send_agent_command(AgentCommand::Update { agent_id: "plug".into(), config, resp }).await.unwrap();
+    tokio::time::timeout(TURN_TIMEOUT, updated).await.unwrap().unwrap();
+    for _ in 0..20 {
+        let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+        if row.state != vizier_core::schema::SubagentState::Running { break }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+    assert_eq!(row.state, vizier_core::schema::SubagentState::Answered);
+    assert_eq!(row.result.as_deref(), Some("worker survived"));
     runtime.shutdown().await.unwrap();
 }

@@ -2,8 +2,23 @@ use anyhow::Result;
 
 use crate::schema::{VizierSession, session_file::SessionFileRecord};
 
+/// How many numbered names `add_session_file` tries before it gives up.
+pub const MAX_NUMBERED_NAMES: u32 = 1000;
+
+/// `report.pdf` → `report (2).pdf`; a name with no extension, or a dot file, gets the number
+/// at the end (`notes (2)`, `.env (2)`).
+pub fn numbered_name(name: &str, n: u32) -> String {
+    match name.rfind('.') {
+        Some(dot) if dot > 0 => format!("{} ({n}){}", &name[..dot], &name[dot..]),
+        _ => format!("{name} ({n})"),
+    }
+}
+
 #[async_trait::async_trait]
 pub trait SessionFileStorage {
+    /// Save a file under `filename`, **replacing** whatever the conversation had under that
+    /// name. For tools that write a file by a name the agent chose (their descriptions promise
+    /// the replace).
     async fn save_session_file(
         &self,
         session: &VizierSession,
@@ -12,6 +27,30 @@ pub trait SessionFileStorage {
         size: u64,
         file_id: &str,
     ) -> Result<SessionFileRecord>;
+
+    /// Save a file that arrived (a person's attachment, a file a tool or script returned)
+    /// **keeping** any other file of that name: when `filename` is taken by a different upload
+    /// it is saved as `name (2).ext`, `name (3).ext`, …. Saving the same upload again under its
+    /// name updates it in place. The returned record carries the name used.
+    ///
+    /// This default is not atomic; the SQL backend overrides it with one transaction.
+    async fn add_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        mime_type: &str,
+        size: u64,
+        file_id: &str,
+    ) -> Result<SessionFileRecord> {
+        let mut name = filename.to_string();
+        for n in 2..=MAX_NUMBERED_NAMES + 1 {
+            match self.get_session_file(session, &name).await? {
+                Some(existing) if existing.file_id != file_id => name = numbered_name(filename, n),
+                _ => return self.save_session_file(session, &name, mime_type, size, file_id).await,
+            }
+        }
+        anyhow::bail!("too many files named '{filename}' in this conversation")
+    }
 
     async fn list_session_files(&self, session: &VizierSession) -> Result<Vec<SessionFileRecord>>;
 
@@ -51,5 +90,18 @@ pub trait SessionFileStorage {
         &self,
     ) -> Option<tokio::sync::broadcast::Receiver<(VizierSession, SessionFileRecord)>> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::numbered_name;
+
+    #[test]
+    fn the_number_goes_before_the_extension() {
+        assert_eq!(numbered_name("report.pdf", 2), "report (2).pdf");
+        assert_eq!(numbered_name("archive.tar.gz", 3), "archive.tar (3).gz");
+        assert_eq!(numbered_name("notes", 2), "notes (2)");
+        assert_eq!(numbered_name(".env", 2), ".env (2)");
     }
 }

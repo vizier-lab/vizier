@@ -151,16 +151,12 @@ impl AgentStorage for SqlStorage {
         )?;
         // Secret values and their change log never outlive their agent (spec 027 FR-005).
         super::secret::delete_agent_secrets(&conn, agent_id)?;
+        // Its interactive pages and their versions (spec 063); the blobs go by prefix.
+        super::ui_page::delete_agent_pages(&conn, agent_id)?;
         // Its custom tools, versions, categories and their log (spec 061).
         super::delete_agent_custom_tools(&conn, agent_id)?;
         // Its notifications go with it; their read rows cascade (spec 029).
         super::notification::delete_agent_notifications(&conn, agent_id)?;
-        // It leaves every Workspace it was in; the messages it wrote stay under its name (spec 053).
-        conn.execute(
-            "DELETE FROM workspace_member WHERE kind = 'agent' AND handle = ?1",
-            params![agent_id],
-        )?;
-        conn.execute("DELETE FROM workspace_read WHERE agent_id = ?1", params![agent_id])?;
         // Its projects go with it, before the config row they belong to (spec 040).
         super::project::delete_agent_projects(&conn, agent_id)?;
         conn.execute(

@@ -11,7 +11,6 @@ pub mod integration;
 pub mod metrics;
 pub mod notification;
 pub mod project;
-pub mod workspace;
 pub mod provider;
 mod request;
 mod response;
@@ -47,7 +46,7 @@ pub use commands::{
     MemoryOpRequest, MemoryOpResponse,
 };
 pub use subagent::{
-    Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
+    ConsultationFrame, ConsultationReplyKind, Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
     SubagentSummary,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
@@ -64,17 +63,13 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use notification::{
-    ChatUnread, InsertedNotification, NotificationCategory, WORKSPACE_SCOPE_PREFIX, workspace_scope, NotificationCounts, NotificationDraft,
+    ChatUnread, InsertedNotification, NotificationCategory, NotificationCounts, NotificationDraft,
     NotificationFilter, NotificationItem, NotificationPage, NotificationTone,
 };
 pub use project::{
     DEFAULT_COMMAND_TIMEOUT, INSTRUCTIONS_CAP_BYTES, MAX_COMMAND_TIMEOUT, NEW_SESSION_TITLE,
     LspCapacity, LspServerStatus, LspStatusSnapshot, OUTPUT_CAP_BYTES, PROJECT_ID_LEN, Project,
     ProjectMode, ProjectScope, ProjectSessionRow, ServerOverride, Worktree, WorktreeRef,
-};
-pub use workspace::{
-    CatchUp, EntryFile, EntryKind, EntryMention, MemberKind, MentionState, NewEntry, Workspace,
-    WorkspaceEntry, WorkspaceMember, WorkspaceRole, WorkspaceTopic,
 };
 pub use provider::{
     CustomModel, CustomProtocol, CustomProvider, LimitsEdited, ProfileEntry, ProviderCredentials,

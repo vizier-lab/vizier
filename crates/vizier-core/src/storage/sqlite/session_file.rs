@@ -5,7 +5,10 @@ use crate::storage::sql::params;
 
 use crate::{
     schema::{VizierSession, session_file::SessionFileRecord},
-    storage::{session_file::SessionFileStorage, sqlite::SqlStorage},
+    storage::{
+        session_file::{MAX_NUMBERED_NAMES, SessionFileStorage, numbered_name},
+        sqlite::SqlStorage,
+    },
 };
 
 #[async_trait::async_trait]
@@ -44,6 +47,72 @@ impl SessionFileStorage for SqlStorage {
         )?;
 
         drop(conn);
+        let _ = self.session_files.send((session.clone(), record.clone()));
+        Ok(record)
+    }
+
+    async fn add_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        mime_type: &str,
+        size: u64,
+        file_id: &str,
+    ) -> Result<SessionFileRecord> {
+        let session_slug = session.to_slug();
+        let record = {
+            let conn = self.conn.lock()?;
+            let tx = conn.transaction()?;
+            // Choosing a free name is read-then-write: hold the conversation's key so two
+            // uploads of the same name cannot both take it.
+            tx.lock_key(&format!("session_file:{}:{}", session.0, session_slug))?;
+            let mut name = filename.to_string();
+            let mut n = 1;
+            loop {
+                let id = format!("{}/{}", session_slug, name);
+                let existing: Option<String> = {
+                    let mut stmt = tx.prepare("SELECT data FROM session_file WHERE id = ?1")?;
+                    let mut rows = stmt.query_map(params![id], |row| row.get::<_, String>(0))?;
+                    rows.next().transpose()?
+                };
+                let taken = match existing {
+                    Some(data) => serde_json::from_str::<SessionFileRecord>(&data)
+                        .map(|r| r.file_id != file_id)
+                        .unwrap_or(true),
+                    None => false,
+                };
+                if !taken {
+                    break;
+                }
+                n += 1;
+                if n > MAX_NUMBERED_NAMES + 1 {
+                    anyhow::bail!("too many files named '{filename}' in this conversation");
+                }
+                name = numbered_name(filename, n);
+            }
+            let id = format!("{}/{}", session_slug, name);
+            let record = SessionFileRecord {
+                id: id.clone(),
+                session_slug: session_slug.clone(),
+                agent_id: session.0.clone(),
+                filename: name,
+                mime_type: mime_type.to_string(),
+                size,
+                file_id: file_id.to_string(),
+                added_at: crate::time::now(),
+                sender: Some(session.0.clone()),
+                history_uid: None,
+            };
+            let data = serde_json::to_string(&record)?;
+            tx.execute(
+                "INSERT INTO session_file (id, session_slug, agent_id, data) VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT (id) DO UPDATE SET session_slug = excluded.session_slug, \
+                 agent_id = excluded.agent_id, data = excluded.data",
+                params![id, session_slug, session.0, data],
+            )?;
+            tx.commit()?;
+            record
+        };
         let _ = self.session_files.send((session.clone(), record.clone()));
         Ok(record)
     }

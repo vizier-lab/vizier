@@ -23,9 +23,10 @@ use crate::{
     schema::{
         AgentId, Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentState,
         SubagentStopReason, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
+        ConsultationFrame, ConsultationReplyKind,
         subagent::{
             DEFAULT_TIMEOUT_SECS, MAX_QUESTION_BYTES, MAX_RESULT_CHARS, MAX_TASK_BYTES,
-            MAX_TIMEOUT_SECS, cut, new_group_id, new_subagent_id,
+            MAX_TIMEOUT_SECS, cut, new_consultation_id, new_group_id, new_subagent_id,
         },
     },
     storage::{
@@ -95,11 +96,57 @@ pub fn is_worker(ctx: &ToolContext) -> bool {
     matches!(ctx.session.1, VizierChannelId::Subagent)
 }
 
+/// Whether this turn is a consulted agent's, in a consultation conversation (it is offered
+/// `ask_consulting_agent`, spec 064 FR-007).
+pub fn is_consultee(ctx: &ToolContext) -> bool {
+    matches!(ctx.session.1, VizierChannelId::Consultation(_))
+}
+
+/// Which rows a family of tools manages: the subagent tools see workers, the consultation tools
+/// consultations (spec 064 research D7). A handle of the other family reads as unknown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    Workers,
+    Consultations,
+}
+
+impl Family {
+    fn holds(self, row: &Subagent) -> bool {
+        row.is_consultation() == (self == Self::Consultations)
+    }
+
+    fn unknown(self, id: &str) -> Refusal {
+        match self {
+            Self::Workers => Refusal::UnknownSubagent(id.to_string()),
+            Self::Consultations => Refusal::UnknownConsultation(id.to_string()),
+        }
+    }
+}
+
+/// One thing a group opens: a temporary worker for a task, or a consultation of a real agent.
+#[derive(Debug, Clone)]
+pub enum Target {
+    Worker { task: String },
+    Agent { agent_id: AgentId, request: String },
+}
+
+/// Who a consultation is for (spec 064 research D5): the person whose view right admitted it,
+/// and the name the consultee is shown (`None` when no person is involved).
+#[derive(Debug, Clone)]
+pub struct OnBehalf {
+    pub user_id: String,
+    pub display: Option<String>,
+}
+
 /// What a refused tool call says, as data the agent can act on (FR-015).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Refusal {
     UnknownSubagent(String),
     NotAsking { id: String, state: SubagentState },
+    /// A consultation handle that does not exist in this conversation (spec 064).
+    UnknownConsultation(String),
+    /// A reply or follow-up to a consultation that is neither asking nor answered.
+    NotWaiting { id: String, state: SubagentState },
 }
 
 impl Refusal {
@@ -113,12 +160,30 @@ impl Refusal {
                 "status": "not_asking",
                 "message": format!("{id} is {}, not asking; reply only to a worker that asked", state.as_str()),
             }),
+            Self::UnknownConsultation(id) => serde_json::json!({
+                "status": "unknown_consultation",
+                "message": format!("no consultation {id} was started in this conversation"),
+            }),
+            Self::NotWaiting { id, state } => serde_json::json!({
+                "status": "not_waiting",
+                "message": format!(
+                    "{id} is {}; reply to a consultation that is asking, or follow up one that answered",
+                    state.as_str()
+                ),
+            }),
         }
     }
 }
 
 /// The tool whose call ends a worker's turn in `asking`.
 pub const ASK_TOOL: &str = "ask_main_agent";
+/// The tool whose call ends a consulted agent's turn in `asking` (spec 064).
+pub const CONSULTEE_ASK_TOOL: &str = "ask_consulting_agent";
+
+/// Whether a turn ended by asking, through either tool.
+pub fn ended_by_asking(tool: Option<&str>) -> bool {
+    matches!(tool, Some(ASK_TOOL) | Some(CONSULTEE_ASK_TOOL))
+}
 
 /// How a worker's turn ended, as `agent_process` saw it.
 #[derive(Debug, Clone)]
@@ -233,17 +298,60 @@ impl Subagents {
         if tasks.is_empty() {
             return Err(VizierError("tasks must not be empty".into()));
         }
-        for task in &tasks {
-            validate_text("a task", task, MAX_TASK_BYTES)?;
+        let targets = tasks.into_iter().map(|task| Target::Worker { task }).collect();
+        self.open_group(ctx, targets, timeout_secs, None).await
+    }
+
+    /// `consult_agent` (spec 064): record a group of consultations of real agents and send each
+    /// its first request; returns their rows in the order given, at once. Who may be consulted
+    /// was decided by the caller (`consultations::access`); `on_behalf` is that person.
+    pub async fn consult(
+        &self,
+        ctx: &ToolContext,
+        consultations: Vec<(AgentId, String)>,
+        timeout_secs: u64,
+        on_behalf: OnBehalf,
+    ) -> crate::Result<Vec<Subagent>> {
+        if consultations.is_empty() {
+            return Err(VizierError("consultations must not be empty".into()));
+        }
+        let targets = consultations
+            .into_iter()
+            .map(|(agent_id, request)| Target::Agent { agent_id, request })
+            .collect();
+        self.open_group(ctx, targets, timeout_secs, Some(on_behalf)).await
+    }
+
+    /// One group of workers or consultations: validated, recorded in one transaction, then each
+    /// started. A row whose first request cannot be sent fails at once.
+    async fn open_group(
+        &self,
+        ctx: &ToolContext,
+        targets: Vec<Target>,
+        timeout_secs: u64,
+        on_behalf: Option<OnBehalf>,
+    ) -> crate::Result<Vec<Subagent>> {
+        for target in &targets {
+            match target {
+                Target::Worker { task } => validate_text("a task", task, MAX_TASK_BYTES)?,
+                Target::Agent { request, .. } => validate_text("a request", request, MAX_TASK_BYTES)?,
+            }
         }
         let now = crate::time::now();
         let group_id = new_group_id();
-        let group_size = tasks.len() as u32;
-        let rows: Vec<Subagent> = tasks
+        let group_size = targets.len() as u32;
+        let rows: Vec<Subagent> = targets
             .into_iter()
             .enumerate()
-            .map(|(i, task)| Subagent {
-                id: new_subagent_id(),
+            .map(|(i, target)| {
+                let (id, task, consultee_id) = match target {
+                    Target::Worker { task } => (new_subagent_id(), task, None),
+                    Target::Agent { agent_id, request } => {
+                        (new_consultation_id(), request, Some(agent_id))
+                    }
+                };
+                Subagent {
+                id,
                 agent_id: ctx.session.0.clone(),
                 hiring_session: ctx.session.clone(),
                 parent_detached_id: ctx.parent_detached_id.clone(),
@@ -267,7 +375,12 @@ impl Subagents {
                 created_at: now,
                 updated_at: now,
                 ended_at: None,
-            })
+                principal_user_id: consultee_id
+                    .as_ref()
+                    .and(on_behalf.as_ref().map(|who| who.user_id.clone())),
+                consultee_id,
+                follow_ups: 0,
+            }})
             .collect();
         self.inner
             .storage
@@ -276,25 +389,20 @@ impl Subagents {
             .map_err(|e| VizierError(format!("could not record the workers: {e}")))?;
 
         let scope = project_scope(ctx);
+        let frame = on_behalf.as_ref().map(|who| ConsultationFrame {
+            on_behalf_of: who.display.clone(),
+        });
         for row in &rows {
             self.inner.publish(row);
             self.inner.arm(row);
-            let request = VizierRequest {
-                timestamp: crate::time::now(),
-                user: ctx.session.0.clone(),
-                content: VizierRequestContent::SubagentTask(SubagentBrief {
-                    subagent_id: row.id.clone(),
-                    position: row.position,
-                    group_size: row.group_size,
-                    text: row.task.clone(),
-                }),
-                metadata: serde_json::json!({}),
-                background_depth: ctx.background_depth.saturating_add(1),
-                subagent_depth: ctx.subagent_depth.saturating_add(1),
-                project_scope: scope.clone(),
-                parent_detached_id: ctx.parent_detached_id.clone(),
-                ..Default::default()
+            let brief = SubagentBrief {
+                subagent_id: row.id.clone(),
+                position: row.position,
+                group_size: row.group_size,
+                text: row.task.clone(),
+                consultation: row.is_consultation().then(|| frame.clone()).flatten(),
             };
+            let request = first_request(ctx, row, scope.clone(), VizierRequestContent::SubagentTask(brief));
             if let Err(e) = self
                 .inner
                 .transport
@@ -313,7 +421,7 @@ impl Subagents {
     /// A worker's turn ended (`agent_process`). A no-op for anything that is not a worker's
     /// conversation, or a worker that is no longer running (it asked, or was stopped).
     pub async fn turn_ended(&self, session: &VizierSession, end: TurnEnd) {
-        if !matches!(session.1, VizierChannelId::Subagent) {
+        if !matches!(session.1, VizierChannelId::Subagent | VizierChannelId::Consultation(_)) {
             return;
         }
         let Some(topic) = session.2.as_deref() else {
@@ -342,7 +450,7 @@ impl Subagents {
     pub async fn ask(&self, ctx: &ToolContext, question: &str) -> crate::Result<Subagent> {
         validate_text("the question", question, MAX_QUESTION_BYTES)?;
         let topic = match (&ctx.session.1, ctx.session.2.as_deref()) {
-            (VizierChannelId::Subagent, Some(topic)) => topic,
+            (VizierChannelId::Subagent | VizierChannelId::Consultation(_), Some(topic)) => topic,
             _ => return Err(VizierError("only a worker can ask its main agent".into())),
         };
         let row = self
@@ -382,51 +490,73 @@ impl Subagents {
         id: &str,
         text: &str,
     ) -> crate::Result<Result<Subagent, Refusal>> {
+        self.reply_in(ctx, id, text, Family::Workers).await
+    }
+
+    /// `reply_consultation` (spec 064 research D4): answer a consultation that asked, or follow
+    /// up one that answered; either way the consultee continues the same conversation. Access
+    /// was re-checked by the caller.
+    pub async fn reply_consultation(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+        text: &str,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
+        self.reply_in(ctx, id, text, Family::Consultations).await
+    }
+
+    async fn reply_in(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+        text: &str,
+        family: Family,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
         validate_text("the reply", text, MAX_TASK_BYTES)?;
-        let row = match self.owned(ctx, id).await? {
+        let row = match self.owned_in(ctx, id, family).await? {
             Ok(row) => row,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        if row.state != SubagentState::Asking {
-            return Ok(Err(Refusal::NotAsking {
-                id: row.id,
-                state: row.state,
-            }));
+        let refused = |id: String, state: SubagentState| match family {
+            Family::Workers => Refusal::NotAsking { id, state },
+            Family::Consultations => Refusal::NotWaiting { id, state },
+        };
+        let follow_up = family == Family::Consultations && row.state == SubagentState::Answered;
+        if row.state != SubagentState::Asking && !follow_up {
+            return Ok(Err(refused(row.id, row.state)));
         }
         let now = crate::time::now();
-        let deadline =
-            now + chrono::Duration::milliseconds(row.remaining_ms.unwrap_or(0).max(1_000));
-        let Some(replied) = self
-            .inner
-            .storage
-            .reply_subagent(&row.id, deadline, now)
-            .await
-            .map_err(|e| VizierError(format!("could not record the reply: {e}")))?
+        let moved = if follow_up {
+            let deadline = now + chrono::Duration::seconds(row.timeout_secs as i64);
+            self.inner.storage.follow_up_subagent(&row.id, deadline, now).await
+        } else {
+            let deadline =
+                now + chrono::Duration::milliseconds(row.remaining_ms.unwrap_or(0).max(1_000));
+            self.inner.storage.reply_subagent(&row.id, deadline, now).await
+        };
+        let Some(replied) =
+            moved.map_err(|e| VizierError(format!("could not record the reply: {e}")))?
         else {
-            // Stopped or answered in between.
+            // Stopped, answered or asked again in between.
             let state = self
                 .inner
                 .read(&row.id)
                 .await
                 .map_or(SubagentState::Stopped, |r| r.state);
-            return Ok(Err(Refusal::NotAsking { id: row.id, state }));
+            return Ok(Err(refused(row.id, state)));
         };
         self.inner.publish(&replied);
         self.inner.arm(&replied);
-        let request = VizierRequest {
-            timestamp: crate::time::now(),
-            user: ctx.session.0.clone(),
-            content: VizierRequestContent::SubagentReply(SubagentReplyText {
-                subagent_id: replied.id.clone(),
-                text: text.to_string(),
+        let content = VizierRequestContent::SubagentReply(SubagentReplyText {
+            subagent_id: replied.id.clone(),
+            text: text.to_string(),
+            consultation: replied.is_consultation().then_some(if follow_up {
+                ConsultationReplyKind::FollowUp
+            } else {
+                ConsultationReplyKind::Reply
             }),
-            metadata: serde_json::json!({}),
-            background_depth: ctx.background_depth.saturating_add(1),
-            subagent_depth: ctx.subagent_depth.saturating_add(1),
-            project_scope: project_scope(ctx),
-            parent_detached_id: ctx.parent_detached_id.clone(),
-            ..Default::default()
-        };
+        });
+        let request = first_request(ctx, &replied, project_scope(ctx), content);
         if let Err(e) = self
             .inner
             .transport
@@ -450,7 +580,25 @@ impl Subagents {
         ctx: &ToolContext,
         id: &str,
     ) -> crate::Result<Result<(Subagent, bool), Refusal>> {
-        if let Err(refusal) = self.owned(ctx, id).await? {
+        self.stop_in(ctx, id, Family::Workers).await
+    }
+
+    /// `stop_consultation` (spec 064).
+    pub async fn stop_consultation(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+    ) -> crate::Result<Result<(Subagent, bool), Refusal>> {
+        self.stop_in(ctx, id, Family::Consultations).await
+    }
+
+    async fn stop_in(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+        family: Family,
+    ) -> crate::Result<Result<(Subagent, bool), Refusal>> {
+        if let Err(refusal) = self.owned_in(ctx, id, family).await? {
             return Ok(Err(refusal));
         }
         let outcome = self
@@ -465,17 +613,28 @@ impl Subagents {
                 Ok((row, true))
             }
             StopOutcome::AlreadyFinished(row) => Ok((row, false)),
-            StopOutcome::NotFound => Err(Refusal::UnknownSubagent(id.to_string())),
+            StopOutcome::NotFound => Err(family.unknown(id)),
         })
     }
 
     /// `list_subagents`: this conversation's workers. Marks nothing seen.
     pub async fn list(&self, ctx: &ToolContext) -> crate::Result<Vec<Subagent>> {
-        self.inner
+        self.list_in(ctx, Family::Workers).await
+    }
+
+    /// `list_consultations` (spec 064).
+    pub async fn list_consultations(&self, ctx: &ToolContext) -> crate::Result<Vec<Subagent>> {
+        self.list_in(ctx, Family::Consultations).await
+    }
+
+    async fn list_in(&self, ctx: &ToolContext, family: Family) -> crate::Result<Vec<Subagent>> {
+        let rows = self
+            .inner
             .storage
             .list_subagents(&ctx.session, LIST_FINAL_LIMIT)
             .await
-            .map_err(|e| VizierError(format!("could not list the workers: {e}")))
+            .map_err(|e| VizierError(format!("could not list the workers: {e}")))?;
+        Ok(rows.into_iter().filter(|row| family.holds(row)).collect())
     }
 
     /// `get_subagent`: one worker; its settled or asking outcome counts as seen.
@@ -484,7 +643,35 @@ impl Subagents {
         ctx: &ToolContext,
         id: &str,
     ) -> crate::Result<Result<Subagent, Refusal>> {
-        let row = match self.owned(ctx, id).await? {
+        self.get_in(ctx, id, Family::Workers).await
+    }
+
+    /// A consultation of this conversation, read without counting as seen (the reply tool reads
+    /// it to re-check access before replying).
+    pub async fn get_consultation_quiet(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
+        self.owned_in(ctx, id, Family::Consultations).await
+    }
+
+    /// `get_consultation` (spec 064).
+    pub async fn get_consultation(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
+        self.get_in(ctx, id, Family::Consultations).await
+    }
+
+    async fn get_in(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+        family: Family,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
+        let row = match self.owned_in(ctx, id, family).await? {
             Ok(row) => row,
             Err(refusal) => return Ok(Err(refusal)),
         };
@@ -500,6 +687,26 @@ impl Subagents {
         ids: &[String],
         until: Until,
     ) -> crate::Result<Result<Waited, Refusal>> {
+        self.wait_in(ctx, ids, until, Family::Workers).await
+    }
+
+    /// `wait_consultations` (spec 064): `wait_subagents` for consultations.
+    pub async fn wait_consultations(
+        &self,
+        ctx: &ToolContext,
+        ids: &[String],
+        until: Until,
+    ) -> crate::Result<Result<Waited, Refusal>> {
+        self.wait_in(ctx, ids, until, Family::Consultations).await
+    }
+
+    async fn wait_in(
+        &self,
+        ctx: &ToolContext,
+        ids: &[String],
+        until: Until,
+        family: Family,
+    ) -> crate::Result<Result<Waited, Refusal>> {
         if ids.is_empty() {
             return Err(VizierError("ids must not be empty".into()));
         }
@@ -514,7 +721,7 @@ impl Subagents {
         loop {
             let mut workers = Vec::with_capacity(ids.len());
             for id in ids {
-                match self.owned(ctx, id).await? {
+                match self.owned_in(ctx, id, family).await? {
                     Ok(row) => workers.push(row),
                     Err(refusal) => return Ok(Err(refusal)),
                 }
@@ -605,15 +812,37 @@ impl Subagents {
     }
 
     /// An agent is being deleted: drop its rows. A timer of a deleted worker finds nothing to
-    /// settle when it fires.
-    pub async fn delete_agent(&self, agent_id: &str) {
-        if let Err(e) = self.inner.storage.delete_agent_subagents(agent_id).await {
-            tracing::warn!(agent_id, "could not delete an agent's workers: {e}");
+    /// settle when it fires. Returns the conversations its consultations opened on other agents
+    /// (spec 064 FR-022), whose running turns it has aborted, for the caller to delete; its own
+    /// workers' conversations go with the agent. Consultations *of* this agent stop with
+    /// `consultee_deleted` and are delivered to the agents that asked.
+    pub async fn delete_agent(&self, agent_id: &str) -> Vec<VizierSession> {
+        self.consultee_deleted(&agent_id.to_string()).await;
+        let rows = match self.inner.storage.delete_agent_subagents(agent_id).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(agent_id, "could not delete an agent's workers: {e}");
+                return vec![];
+            }
+        };
+        let mut elsewhere = vec![];
+        for row in rows.iter().filter(|row| row.is_consultation()) {
+            self.inner.disarm(&row.id);
+            if !row.state.is_final() {
+                self.inner.abort_worker(row).await;
+            }
+            elsewhere.push(row.worker_session());
         }
+        elsewhere
     }
 
-    /// The worker `id`, if it was spawned in this conversation.
-    async fn owned(&self, ctx: &ToolContext, id: &str) -> crate::Result<Result<Subagent, Refusal>> {
+    /// The row `id` of `family`, if it was opened in this conversation.
+    async fn owned_in(
+        &self,
+        ctx: &ToolContext,
+        id: &str,
+        family: Family,
+    ) -> crate::Result<Result<Subagent, Refusal>> {
         let row = self
             .inner
             .storage
@@ -621,9 +850,29 @@ impl Subagents {
             .await
             .map_err(|e| VizierError(format!("could not read worker {id}: {e}")))?;
         Ok(match row {
-            Some(row) if row.hiring_session == ctx.session => Ok(row),
-            _ => Err(Refusal::UnknownSubagent(id.to_string())),
+            Some(row) if row.hiring_session == ctx.session && family.holds(&row) => Ok(row),
+            _ => Err(family.unknown(id)),
         })
+    }
+
+    /// A consultee is being deleted on this host (spec 064 FR-022): its open consultations stop
+    /// with `consultee_deleted`, and each consulting conversation is told through a delivery.
+    pub async fn consultee_deleted(&self, consultee: &AgentId) {
+        match self
+            .inner
+            .storage
+            .stop_consultations_of(consultee, crate::time::now())
+            .await
+        {
+            Ok(rows) => {
+                for row in &rows {
+                    self.inner.disarm(&row.id);
+                    self.inner.publish(row);
+                    self.inner.poke(row);
+                }
+            }
+            Err(e) => tracing::warn!(consultee = %consultee, "could not stop consultations of a deleted agent: {e}"),
+        }
     }
 
     /// How many time limits this process is watching (tests).
@@ -755,6 +1004,38 @@ impl Inner {
     }
 }
 
+/// The request that carries a group's task or a reply to the row's own conversation. A worker
+/// is one subagent level deeper and keeps the launching turn's project; a consultation is a
+/// turn of another agent (spec 064 D8): one consultation level deeper, with the consulting agent
+/// added to the chain, at subagent depth 0 (it may hire its own workers), with no project and no
+/// parent script of the consulting agent's.
+fn first_request(
+    ctx: &ToolContext,
+    row: &Subagent,
+    scope: Option<crate::schema::ProjectScope>,
+    content: VizierRequestContent,
+) -> VizierRequest {
+    let mut request = VizierRequest {
+        timestamp: crate::time::now(),
+        user: ctx.session.0.clone(),
+        content,
+        metadata: serde_json::json!({}),
+        background_depth: ctx.background_depth.saturating_add(1),
+        subagent_depth: ctx.subagent_depth.saturating_add(1),
+        project_scope: scope,
+        parent_detached_id: ctx.parent_detached_id.clone(),
+        consultation_chain: ctx.consultation_chain.clone(),
+        ..Default::default()
+    };
+    if row.is_consultation() {
+        request.subagent_depth = 0;
+        request.project_scope = None;
+        request.parent_detached_id = None;
+        request.consultation_chain.push(ctx.session.0.clone());
+    }
+    request
+}
+
 /// Delete the conversations of a deleted conversation's workers (`Subagents::delete_session`).
 /// A worker whose turn was just aborted still reads as active for a moment, so each delete is
 /// retried for up to five seconds before it is given up with a warning.
@@ -826,23 +1107,44 @@ pub const UPDATE_HEADING: &str = "[Subagent update]";
 /// A delivered result is cut at this many characters (the full one stays on the row).
 const DELIVERED_RESULT_CHARS: usize = 4_000;
 
-/// One worker's section of a delivery (contracts/worker-turn.md).
+/// The heading every consultation section of a delivery starts with (spec 064).
+pub const CONSULTATION_HEADING: &str = "[Consultation update]";
+
+/// One worker's or consultation's section of a delivery (contracts/worker-turn.md).
 pub fn render_update(row: &Subagent) -> String {
     let (title, _) = cut(&row.task.replace('\n', " "), 120);
-    let mut out = format!(
-        "{UPDATE_HEADING} {} — task {} of {} \"{title}\"\nstate: {}",
-        row.id,
-        row.position,
-        row.group_size,
-        row.state.as_str()
-    );
+    let (heading, reply_tool, get_tool) = match &row.consultee_id {
+        Some(_) => (CONSULTATION_HEADING, "reply_consultation", "get_consultation"),
+        None => (UPDATE_HEADING, "reply_subagent", "get_subagent"),
+    };
+    let mut out = match &row.consultee_id {
+        Some(consultee) => format!(
+            "{heading} {} — {consultee}, consultation {} of {} \"{title}\"\nstate: {}",
+            row.id,
+            row.position,
+            row.group_size,
+            row.state.as_str()
+        ),
+        None => format!(
+            "{heading} {} — task {} of {} \"{title}\"\nstate: {}",
+            row.id,
+            row.position,
+            row.group_size,
+            row.state.as_str()
+        ),
+    };
     match row.state {
         SubagentState::Asking => {
             out.push_str(&format!(
-                "\nquestion: {}\nreply with reply_subagent(id=\"{}\", text=...)",
+                "\nquestion: {}\nreply with {reply_tool}(id=\"{}\", text=...)",
                 row.question.as_deref().unwrap_or(""),
                 row.id
             ));
+        }
+        SubagentState::Stopped => {
+            if let Some(reason) = row.stop_reason {
+                out.push_str(&format!("\nreason: {}", reason.describe(row.is_consultation())));
+            }
         }
         SubagentState::Answered => {
             let (result, cut_here) =
@@ -850,7 +1152,7 @@ pub fn render_update(row: &Subagent) -> String {
             out.push_str(&format!("\nresult: {result}"));
             if cut_here || row.result_truncated {
                 out.push_str(&format!(
-                    "\n(read the whole result with get_subagent(id=\"{}\"))",
+                    "\n(read the whole result with {get_tool}(id=\"{}\"))",
                     row.id
                 ));
             }

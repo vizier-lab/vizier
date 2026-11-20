@@ -10,6 +10,7 @@ mod auth;
 mod core;
 mod custom_tools;
 mod detached;
+mod ui_pages;
 mod memory;
 mod misc;
 mod projects;
@@ -17,7 +18,6 @@ mod providers;
 mod subagents;
 mod tasks;
 mod topics;
-mod workspaces;
 
 pub fn all() -> Vec<Vector> {
     let mut all = vec![
@@ -38,6 +38,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(core::vectors());
     all.extend(custom_tools::vectors());
     all.extend(detached::vectors());
+    all.extend(ui_pages::vectors());
     all.extend(memory::vectors());
     all.extend(misc::vectors());
     all.extend(projects::vectors());
@@ -45,6 +46,5 @@ pub fn all() -> Vec<Vector> {
     all.extend(subagents::vectors());
     all.extend(tasks::vectors());
     all.extend(topics::vectors());
-    all.extend(workspaces::vectors());
     all
 }

@@ -391,7 +391,7 @@ mod tests {
         #[cfg(feature = "channel-telegram")]
         assert_eq!(kinds.secret_paths("telegram").unwrap(), ["token"]);
         assert_eq!(kinds.secret_paths("brave_search").unwrap(), ["api_key"]);
-        assert_eq!(kinds.secret_paths("mcp").unwrap(), ["env.*"]);
+        assert_eq!(kinds.secret_paths("mcp").unwrap(), ["env.*", "headers.*"]);
         assert_eq!(kinds.secret_paths("retired_kind"), None);
 
         for kind in kinds.by_family(None) {

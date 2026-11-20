@@ -83,6 +83,21 @@ pub trait SubagentStorage {
         exclude: &[SubagentId],
     ) -> Result<Vec<Subagent>>;
 
+    /// `answered → running` for a consultation's follow-up (spec 064 research D4):
+    /// `follow_ups + 1`, a new deadline, `ended_at` cleared. `None` when the row was not an
+    /// answered consultation. Fenced on the consulting side.
+    async fn follow_up_subagent(
+        &self,
+        id: &str,
+        deadline_at: Timestamp,
+        at: Timestamp,
+    ) -> Result<Option<Subagent>>;
+
+    /// The consultee is being deleted: stop every unfinished consultation of it with
+    /// `consultee_deleted`; returns the rows it stopped. Fenced on the consultee's scope.
+    async fn stop_consultations_of(&self, consultee: &AgentId, at: Timestamp)
+    -> Result<Vec<Subagent>>;
+
     /// The worker whose own conversation has `worker_topic`.
     async fn subagent_by_worker(&self, worker_topic: &str) -> Result<Option<Subagent>>;
 
@@ -117,8 +132,9 @@ pub trait SubagentStorage {
     /// conversations go too, by the caller).
     async fn delete_session_subagents(&self, session: &VizierSession) -> Result<Vec<Subagent>>;
 
-    /// Delete every worker of an agent (the agent is being deleted).
-    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<()>;
+    /// Delete every worker of an agent (the agent is being deleted); returns the deleted rows,
+    /// so a consultation's conversation on its consultee can go too (spec 064).
+    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<Vec<Subagent>>;
 }
 
 #[async_trait::async_trait]
@@ -176,6 +192,23 @@ impl SubagentStorage for super::VizierStorage {
         self.0.claim_subagent_deliveries(session, exclude).await
     }
 
+    async fn follow_up_subagent(
+        &self,
+        id: &str,
+        deadline_at: Timestamp,
+        at: Timestamp,
+    ) -> Result<Option<Subagent>> {
+        self.0.follow_up_subagent(id, deadline_at, at).await
+    }
+
+    async fn stop_consultations_of(
+        &self,
+        consultee: &AgentId,
+        at: Timestamp,
+    ) -> Result<Vec<Subagent>> {
+        self.0.stop_consultations_of(consultee, at).await
+    }
+
     async fn subagent_by_worker(&self, worker_topic: &str) -> Result<Option<Subagent>> {
         self.0.subagent_by_worker(worker_topic).await
     }
@@ -217,7 +250,7 @@ impl SubagentStorage for super::VizierStorage {
         self.0.delete_session_subagents(session).await
     }
 
-    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<()> {
+    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<Vec<Subagent>> {
         self.0.delete_agent_subagents(agent_id).await
     }
 }

@@ -122,10 +122,11 @@ impl SessionStorage for SqlStorage {
         for (channel, topic, first, last) in spans {
             // Project chats are listed by their project, never by the regular session list
             // (FR-014): the new slug is `project__<user>__<id>`.
-            // A Workspace topic is listed by its Workspace, to its members only (spec 053).
+            // A removed Workspace's leftovers are no one's chats (spec 064); consultations are
+            // listed, and the service shows them only to the consulted agent's editors.
             if is_non_user_channel(&channel)
                 || channel.starts_with(crate::projects::channel::PREFIX)
-                || channel.starts_with(crate::workspaces::PREFIX)
+                || channel.starts_with("workspace__")
             {
                 continue;
             }
@@ -377,6 +378,12 @@ impl SessionStorage for SqlStorage {
             "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 \
              AND topic IS NOT DISTINCT FROM ?3",
             params![agent_id, channel.to_slug(), topic],
+        )?;
+        // Its interactive pages and their versions (spec 063). Their HTML blobs are removed by
+        // `UiPages::delete_session_blobs`, which the conversation's deletion calls first.
+        super::ui_page::delete_session_pages(
+            &conn,
+            &crate::schema::VizierSession(agent_id.clone(), channel.clone(), Some(topic.clone())),
         )?;
         // The questions it asked, and the values it asked for.
         super::question::delete_session(&conn, &agent_id, &channel.to_slug(), &topic)?;

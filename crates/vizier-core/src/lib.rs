@@ -93,6 +93,8 @@ pub mod catalogue;
 #[doc(hidden)]
 pub mod channels;
 #[doc(hidden)]
+pub mod consultations;
+#[doc(hidden)]
 pub mod custom_tools;
 #[doc(hidden)]
 pub mod dependencies;
@@ -106,7 +108,6 @@ pub mod live_voice;
 pub(crate) mod notifications;
 #[doc(hidden)]
 pub mod projects;
-pub mod workspaces;
 pub(crate) mod provider_keys;
 pub(crate) mod provider_migration;
 #[doc(hidden)]
@@ -123,6 +124,8 @@ pub mod skill;
 pub mod storage;
 #[doc(hidden)]
 pub mod telemetry;
+#[doc(hidden)]
+pub mod ui_pages;
 pub(crate) mod usage;
 #[doc(hidden)]
 pub mod utils;

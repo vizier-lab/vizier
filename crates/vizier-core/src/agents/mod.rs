@@ -187,12 +187,6 @@ impl AgentHost {
             agents.take(agent_id, config).await?;
         }
 
-        // A Workspace mention saved just before the last stop, and never sent, is sent now. Every
-        // held agent's request channel is registered by this point, so it queues like any other
-        // (spec 053 R4).
-        let hub = crate::workspaces::Hub::from(&agents.deps);
-        tokio::spawn(async move { crate::workspaces::redispatch_pending(&hub).await });
-
         Ok(agents)
     }
 
@@ -790,6 +784,7 @@ impl AgentHost {
         }
         self.deps.session_files.delete_blobs(&files).await;
         self.deps.artifacts.delete_agent_files(agent_id).await;
+        self.deps.ui_pages.delete_agent_blobs(agent_id).await;
         for integration in attached {
             self.deps
                 .transport
@@ -800,6 +795,12 @@ impl AgentHost {
                 });
         }
 
+        // Marked before the inbox closes: a closed inbox ends the request loop at once, and a
+        // loop that ended before the mark took the update/restart teardown (consultations of
+        // this agent never stopped, its detached scripts interrupted instead of forgotten).
+        if let Some(process) = self.processes.get(agent_id) {
+            process.deleting.store(true, Ordering::SeqCst);
+        }
         self.deps
             .transport
             .unregister_agent(&agent_id.to_string())
@@ -807,7 +808,6 @@ impl AgentHost {
         // The agent is gone, so nothing answers its command subject any more.
         self.release_scoped(&agent_id.to_string());
         if let Some(process) = self.processes.remove(agent_id) {
-            process.deleting.store(true, Ordering::SeqCst);
             process.stop(agent_id).await;
         }
 

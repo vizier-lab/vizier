@@ -277,7 +277,7 @@ pub async fn activity(
                 Chat | Project | Workspace => kinds.chat += n,
                 Scheduled => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
-                Background => kinds.background += n,
+                Background | Consultation => kinds.background += n,
                 Compaction | Vision | Other => {}
             }
         }

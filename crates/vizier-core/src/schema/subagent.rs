@@ -37,6 +37,17 @@ fn base36_id(prefix: &str) -> String {
     out
 }
 
+/// A consultation's handle (`specs/064-consult-agents`): `c_` plus 8 lowercase base36
+/// characters.
+pub fn new_consultation_id() -> SubagentId {
+    base36_id("c_")
+}
+
+/// Whether a handle names a consultation rather than a worker.
+pub fn is_consultation_id(id: &str) -> bool {
+    id.starts_with("c_")
+}
+
 /// `s_` plus 8 lowercase base36 characters, like a detached script's `d_` id.
 pub fn new_subagent_id() -> SubagentId {
     base36_id("s_")
@@ -112,6 +123,8 @@ pub enum SubagentStopReason {
     ByAgent,
     ConversationDeleted,
     AgentDeleted,
+    /// A consultation whose consulted agent was deleted (spec 064).
+    ConsulteeDeleted,
 }
 
 impl SubagentStopReason {
@@ -120,11 +133,24 @@ impl SubagentStopReason {
             Self::ByAgent => "by_agent",
             Self::ConversationDeleted => "conversation_deleted",
             Self::AgentDeleted => "agent_deleted",
+            Self::ConsulteeDeleted => "consultee_deleted",
+        }
+    }
+
+    /// How a person or an agent reads the reason, for a worker or a consultation.
+    pub fn describe(&self, consultation: bool) -> &'static str {
+        match (self, consultation) {
+            (Self::ByAgent, false) => "stopped by the main agent",
+            (Self::ByAgent, true) => "stopped by the consulting agent",
+            (Self::ConversationDeleted, _) => "the conversation was deleted",
+            (Self::AgentDeleted, false) => "the agent was deleted",
+            (Self::AgentDeleted, true) => "the consulting agent was deleted",
+            (Self::ConsulteeDeleted, _) => "the consulted agent was deleted",
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        [Self::ByAgent, Self::ConversationDeleted, Self::AgentDeleted]
+        [Self::ByAgent, Self::ConversationDeleted, Self::AgentDeleted, Self::ConsulteeDeleted]
             .into_iter()
             .find(|reason| reason.as_str() == value)
     }
@@ -168,17 +194,52 @@ pub struct Subagent {
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
     pub ended_at: Option<DateTime<Local>>,
+    /// Set for a consultation (spec 064): the real agent whose turns do the work. `None` for a
+    /// temporary worker, whose turns are the main agent's own.
+    #[serde(default)]
+    pub consultee_id: Option<AgentId>,
+    /// A consultation's person: whose right to use the consultee admitted it, re-checked on
+    /// every reply. `None` for a worker.
+    #[serde(default)]
+    pub principal_user_id: Option<String>,
+    /// How many follow-ups a consultation was sent after an answer.
+    #[serde(default)]
+    pub follow_ups: u32,
 }
 
 impl Subagent {
-    /// The worker's own conversation: a turn of the main agent on a `Subagent` channel.
+    /// Whether this row is a consultation of another agent rather than a temporary worker.
+    pub fn is_consultation(&self) -> bool {
+        self.consultee_id.is_some()
+    }
+
+    /// The agent whose turns do the work: the consultee, or the main agent for a worker.
+    pub fn worker_agent(&self) -> &AgentId {
+        self.consultee_id.as_ref().unwrap_or(&self.agent_id)
+    }
+
+    /// The worker's own conversation: a turn of the main agent on a `Subagent` channel, or for
+    /// a consultation the consultee's turn on a `Consultation` channel naming the consulting
+    /// agent.
     pub fn worker_session(&self) -> VizierSession {
-        worker_session(&self.agent_id, &self.worker_topic)
+        match &self.consultee_id {
+            Some(consultee) => consultation_session(consultee, &self.agent_id, &self.worker_topic),
+            None => worker_session(&self.agent_id, &self.worker_topic),
+        }
     }
 
     /// Whether the newest outcome still has to reach the main agent (data-model.md).
     pub fn is_deliverable(&self) -> bool {
-        self.state.carries_outcome() && self.seen_seq.max(self.delivered_seq) < self.outcome_seq
+        self.carries_outcome() && self.seen_seq.max(self.delivered_seq) < self.outcome_seq
+    }
+
+    /// Whether this row's state is something the main agent must hear about: its state's rule,
+    /// plus a consultation stopped because its consultee was deleted (spec 064 FR-022), which
+    /// the consulting agent did not cause and must be told.
+    pub fn carries_outcome(&self) -> bool {
+        self.state.carries_outcome()
+            || (self.state == SubagentState::Stopped
+                && self.stop_reason == Some(SubagentStopReason::ConsulteeDeleted))
     }
 
     /// Seconds from spawn to the end, or to `now` while unfinished.
@@ -210,6 +271,8 @@ impl Subagent {
             started_at: self.created_at,
             ended_at: self.ended_at,
             topic: self.worker_topic.clone(),
+            consultee: self.consultee_id.clone(),
+            follow_ups: self.follow_ups,
         }
     }
 
@@ -252,6 +315,15 @@ pub fn worker_session(agent: &AgentId, topic: &str) -> VizierSession {
     VizierSession(agent.clone(), VizierChannelId::Subagent, Some(topic.to_string()))
 }
 
+/// The consultation conversation of `topic`: `consultee`'s own, consulted by `consulting`.
+pub fn consultation_session(consultee: &AgentId, consulting: &AgentId, topic: &str) -> VizierSession {
+    VizierSession(
+        consultee.clone(),
+        VizierChannelId::Consultation(consulting.clone()),
+        Some(topic.to_string()),
+    )
+}
+
 /// Cut `text` to `limit` characters with a marker. Returns whether it cut.
 pub fn cut(text: &str, limit: usize) -> (String, bool) {
     match text.char_indices().nth(limit) {
@@ -279,6 +351,16 @@ pub struct SubagentSummary {
     pub ended_at: Option<DateTime<Local>>,
     /// The worker's conversation topic, where its full history stays.
     pub topic: String,
+    /// A consultation's consulted agent (spec 064); `None` for a worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consultee: Option<AgentId>,
+    /// Follow-ups sent to a consultation after an answer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub follow_ups: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// The `subagent` session frame, published on the hiring conversation after every change.
@@ -303,6 +385,30 @@ pub struct SubagentBrief {
     pub position: u32,
     pub group_size: u32,
     pub text: String,
+    /// Set when this is a consultation's first request (spec 064): the consultee reads it as
+    /// `via: consultation`, and who the consulting agent works for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consultation: Option<ConsultationFrame>,
+}
+
+/// What a consultee is told about the request beyond its text (spec 064 FR-003).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ConsultationFrame {
+    /// The display name of the person the consulting agent works for; `None` when no person is
+    /// involved (a scheduled run).
+    pub on_behalf_of: Option<String>,
+}
+
+/// Which consultation message a `SubagentReply` is (spec 064 research D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ConsultationReplyKind {
+    /// The answer to the consultee's question.
+    Reply,
+    /// A new request on an answered consultation.
+    FollowUp,
 }
 
 /// The main agent's answer to a worker's question (`VizierRequestContent::SubagentReply`).
@@ -311,6 +417,9 @@ pub struct SubagentBrief {
 pub struct SubagentReplyText {
     pub subagent_id: SubagentId,
     pub text: String,
+    /// Set for a consultation (spec 064): a reply to its question, or a follow-up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consultation: Option<ConsultationReplyKind>,
 }
 
 /// A worker row for tests elsewhere in the crate.
@@ -349,6 +458,9 @@ pub(crate) mod tests_support {
             created_at: now,
             updated_at: now,
             ended_at: None,
+            consultee_id: None,
+            principal_user_id: None,
+            follow_ups: 0,
         }
     }
 }

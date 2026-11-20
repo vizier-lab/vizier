@@ -657,7 +657,10 @@ enum SlugKind<'a> {
     /// A project chat; the id is the project the conversation belongs to.
     Project(&'a str),
     /// A Workspace topic: the Workspace id (`specs/053-workspace-channel`).
-    Workspace(&'a str),
+    /// A removed Workspace (spec 064).
+    Workspace,
+    /// A consultation, by the consulting agent (spec 064).
+    Consultation(&'a str),
     Discord(&'a str),
     Telegram(&'a str),
     Task(&'a str),
@@ -669,8 +672,10 @@ enum SlugKind<'a> {
 fn slug_kind(channel: &str) -> SlugKind<'_> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         SlugKind::Project(channel.rsplit_once("__").map_or("", |(_, id)| id))
-    } else if let Some(id) = channel.strip_prefix(crate::workspaces::PREFIX) {
-        SlugKind::Workspace(id)
+    } else if channel.starts_with("workspace__") {
+        SlugKind::Workspace
+    } else if let Some(from) = channel.strip_prefix("consultation__") {
+        SlugKind::Consultation(from)
     } else if channel.starts_with("http__") {
         SlugKind::Http
     } else if let Some(id) = channel.strip_prefix("discord__") {
@@ -861,20 +866,9 @@ async fn task_title(storage: &VizierStorage, agent_id: &str, slug: &str) -> Stri
 }
 
 /// Names come from storage only — no platform lookups on a person's read (R9).
-/// `ops / #general`, read from the Workspace tables; a deleted one falls back to `fallback`.
-async fn workspace_label(storage: &VizierStorage, id: &str, topic: Option<&str>, fallback: Option<String>) -> String {
-    use crate::storage::workspace::WorkspaceStorage;
-    let workspace = storage.get_workspace(id).await.ok().flatten();
-    let topic_name = match (&workspace, topic) {
-        (Some(w), Some(t)) => storage.get_topic(&w.id, t).await.ok().flatten().map(|t| t.name),
-        _ => None,
-    };
-    match (workspace, topic_name) {
-        (Some(w), Some(t)) => format!("{} / #{t}", w.name),
-        (Some(w), None) => w.name,
-        _ => fallback.unwrap_or_else(|| "Workspace topic".into()),
-    }
-}
+/// What a Workspace's usage reads as: Workspaces were removed by spec 064, with their names, and
+/// usage recorded in one stays (#82).
+const REMOVED_WORKSPACE: &str = "Workspace (removed)";
 
 async fn place_label(
     storage: &VizierStorage,
@@ -896,12 +890,10 @@ async fn place_label(
                 Some("WebUI topic".into()),
             )
         }
-        "workspace" => {
-            let (id, topic) = rest.split_once(':').unwrap_or((rest, ""));
-            (
-                workspace_label(storage, id, Some(topic).filter(|t| !t.is_empty()), None).await,
-                Some("Workspace".into()),
-            )
+        "workspace" => (REMOVED_WORKSPACE.into(), Some("Workspace".into())),
+        "consultation" => {
+            let (from, _) = rest.split_once(':').unwrap_or((rest, ""));
+            (format!("Consultation from {from}"), Some("Consultation".into()))
         }
         "project" => {
             let (channel, topic) = rest.rsplit_once(':').unwrap_or((rest, ""));
@@ -972,10 +964,10 @@ async fn conversation_label(
                 None => (title, Some("Project".into())),
             }
         }
-        SlugKind::Workspace(id) => (
-            workspace_label(storage, id, topic, title).await,
-            Some("Workspace".into()),
-        ),
+        SlugKind::Workspace => (REMOVED_WORKSPACE.into(), Some("Workspace".into())),
+        SlugKind::Consultation(from) => {
+            (format!("Consultation from {from}"), Some("Consultation".into()))
+        }
         // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
         SlugKind::Discord(id) => (
             with_topic(
@@ -1036,10 +1028,10 @@ async fn conversation_link(
             ),
             None => none(NoLinkReason::NoWebPage),
         },
-        SlugKind::Workspace(id) => match topic {
-            Some(t) => link(UsageLinkKind::Topic, format!("/workspaces/{id}/{t}")),
-            None => none(NoLinkReason::NoWebPage),
-        },
+        SlugKind::Workspace => none(NoLinkReason::Deleted),
+        // Opened from the consulted agent's conversation list, which needs edit rights on it;
+        // the usage report links nowhere yet (spec 064 US7).
+        SlugKind::Consultation(_) => none(NoLinkReason::NoWebPage),
         SlugKind::Task(slug) => link(
             UsageLinkKind::TaskRun,
             format!("/{agent_id}/tasks?task={slug}"),

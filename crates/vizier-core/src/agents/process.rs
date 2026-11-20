@@ -233,9 +233,7 @@ pub async fn agent_process(
                 // A side chat must leave no trace (FR-006): it never creates or titles the
                 // session's detail row, and never touches the conversation itself. The
                 // on-the-record decision lives in one testable predicate (research R2).
-                // A Workspace topic is titled by its name, so it never spends a model call on one.
                 if records_session_activity(&request.content)
-                    && !matches!(session.1, VizierChannelId::Workspace(_))
                     && !matches!(request.content, VizierRequestContent::DetachedDelivery(_))
                 {
                     detail_tasks.spawn(refresh_session_detail(
@@ -437,7 +435,12 @@ pub async fn agent_process(
         deps.detached.interrupt_agent(&agent_id).await;
     } else {
         deps.detached.delete_agent(&agent_id).await;
-        deps.subagents.delete_agent(&agent_id).await;
+        // Its consultations' conversations live on the agents it consulted (spec 064).
+        let elsewhere = deps.subagents.delete_agent(&agent_id).await;
+        let files = deps.session_files.clone();
+        tokio::spawn(async move {
+            crate::agents::subagents::delete_worker_conversations(&files, elsewhere).await;
+        });
     }
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
@@ -474,6 +477,17 @@ pub async fn agent_process(
     }
     hand_on_queued(session_queues, resumed_turns, &deps).await;
     Ok(())
+}
+
+/// A turn this instance took, handed on to the agent's next instance in this process: its claim
+/// is released first, or the next instance would take the re-send for a duplicate delivery (the
+/// row already carries the held fence) and drop it. Found by spec 064's restart test; the same
+/// held for every running or queued turn of an agent being updated or restarted.
+async fn release_for_hand_on(deps: &VizierDependencies, turn: Option<i64>) {
+    let Some(id) = turn else { return };
+    if let Err(e) = deps.storage.release_turn_claim(id).await {
+        tracing::debug!(turn = id, "could not release a turn for its next instance: {e}");
+    }
 }
 
 /// Queues a handover ahead of the queued messages and behind any handover already waiting.
@@ -557,6 +571,7 @@ async fn hand_on_queued(
             None => None,
         };
         let Some(request) = request else { continue };
+        release_for_hand_on(deps, turn.id).await;
         if let Err(e) = deps
             .transport
             .resend(VizierRequestEnvelope {
@@ -580,6 +595,7 @@ async fn hand_on_queued(
             ..
         } in items
         {
+            release_for_hand_on(deps, turn.id).await;
             if let Err(e) = deps
                 .transport
                 .resend(VizierRequestEnvelope {
@@ -730,6 +746,7 @@ async fn refresh_session_detail(
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1214,6 +1231,7 @@ async fn run_checkpoint(
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1603,10 +1621,7 @@ pub async fn handle_request(
             };
 
             let mut invoked = None;
-            // A plain Workspace mention is text, not a command: `@a /foo` wakes `a` with `/foo`
-            // as words, and no skill runs (spec 053 R19).
-            if reads_skill_commands(&request.metadata)
-                && let VizierRequestContent::Chat(text) = &request.content
+            if let VizierRequestContent::Chat(text) = &request.content
             {
                 match invocation::parse(text) {
                     Parsed::Plain => {}
@@ -1652,24 +1667,6 @@ pub async fn handle_request(
                             .await;
                         }
                     },
-                }
-            }
-
-            // An agent woken in a Workspace first reads what it missed since it last looked, so its
-            // record of the topic is what it would be had it read every message as it came (R2).
-            // A resumed turn already did.
-            if matches!(session.1, VizierChannelId::Workspace(_))
-                && !turn.resumed
-                && let Some(seq) = request.metadata.get("workspace_entry").and_then(|v| v.as_i64())
-            {
-                match crate::workspaces::catch_up::for_activation(&crate::workspaces::Hub::from(deps), &session, seq).await {
-                    Some(Ok(done)) if done.skipped > 0 => {
-                        set_metadata(&mut request.metadata, "workspace_skipped", done.skipped.into());
-                    }
-                    Some(Err(e)) => {
-                        tracing::warn!(agent_id = %session.0, "Workspace catch-up failed: {e}");
-                    }
-                    _ => {}
                 }
             }
 
@@ -1733,11 +1730,12 @@ pub async fn handle_request(
             }
             // A worker's turn ended with a reply (spec 059 research D5): its row records the
             // answer, unless the turn ended by asking (the row is `asking`, and stays so).
-            if matches!(session.1, VizierChannelId::Subagent) {
-                use crate::agents::subagents::{ASK_TOOL, TurnEnd};
+            // A consultation's turn (spec 064) settles its row the same way.
+            if matches!(session.1, VizierChannelId::Subagent | VizierChannelId::Consultation(_)) {
+                use crate::agents::subagents::{TurnEnd, ended_by_asking};
                 let end = match &res.content {
                     VizierResponseContent::Message { stats: Some(stats), .. }
-                        if stats.ended_by_tool.as_deref() == Some(ASK_TOOL) =>
+                        if ended_by_asking(stats.ended_by_tool.as_deref()) =>
                     {
                         TurnEnd::Asked
                     }
@@ -2009,12 +2007,6 @@ async fn answer_directly(
         let _ = tx.send_async(response).await;
     }
     Ok(())
-}
-
-/// Whether `/name` and `/skills` in a `Chat` are read as commands. A Workspace marks a plain
-/// mention so that text starting with `/` stays text.
-fn reads_skill_commands(metadata: &serde_json::Value) -> bool {
-    !metadata.get("workspace_plain").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 fn set_metadata(metadata: &mut serde_json::Value, key: &str, value: serde_json::Value) {
@@ -2908,6 +2900,7 @@ mod btw_tests {
                 text: "click".into(),
                 data: None,
                 source_call_id: None,
+                page: None,
             }),
         ];
         for content in &activity {
@@ -2940,7 +2933,7 @@ mod btw_tests {
         assert_eq!(chat_turn_prompt(&VizierRequestContent::Chat("hi".into()), None).as_deref(), Some("hi"));
         assert_eq!(
             chat_turn_prompt(
-                &VizierRequestContent::ClientEvent(ClientEvent { text: "click".into(), data: None, source_call_id: None }),
+                &VizierRequestContent::ClientEvent(ClientEvent { text: "click".into(), data: None, source_call_id: None, page: None }),
                 None
             )
             .as_deref(),
@@ -2957,19 +2950,3 @@ mod btw_tests {
     }
 }
 
-#[cfg(test)]
-mod workspace_tests {
-    use super::reads_skill_commands;
-
-    #[test]
-    fn a_plain_workspace_mention_reads_no_skill_commands() {
-        assert!(!reads_skill_commands(&serde_json::json!({ "workspace_plain": true })));
-    }
-
-    #[test]
-    fn every_other_request_still_does() {
-        assert!(reads_skill_commands(&serde_json::json!({})));
-        assert!(reads_skill_commands(&serde_json::json!({ "workspace_plain": false })));
-        assert!(reads_skill_commands(&serde_json::json!({ "workspace_entry": 4 })));
-    }
-}

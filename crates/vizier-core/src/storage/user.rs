@@ -25,8 +25,6 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "owned_agents:manage_functions",
     "all_agents:projects",
     "owned_agents:projects",
-    "workspaces:create",
-    "all_workspaces:manage",
     "all_agents:show_discord_chats",
     "owned_agents:show_discord_chats",
     "all_agents:show_telegram_chats",
@@ -195,10 +193,11 @@ mod tests {
         assert!(AVAILABLE_PERMISSIONS.contains(&"owned_agents:projects"));
     }
 
+    /// Spec 064: Workspaces were removed with their permissions.
     #[test]
-    fn the_workspace_permissions_are_pinned() {
-        assert!(AVAILABLE_PERMISSIONS.contains(&"workspaces:create"));
-        assert!(AVAILABLE_PERMISSIONS.contains(&"all_workspaces:manage"));
+    fn the_workspace_permissions_are_gone() {
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"workspaces:create"));
+        assert!(!AVAILABLE_PERMISSIONS.contains(&"all_workspaces:manage"));
     }
 
     #[test]

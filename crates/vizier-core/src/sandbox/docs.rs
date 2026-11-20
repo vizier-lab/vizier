@@ -27,6 +27,9 @@ pub struct ToolFunctionDoc {
     /// (`specs/061-agent-custom-tools` FR-010).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom: Option<serde_json::Value>,
+    /// A native tool's long reference (`VizierTool::guide`, `specs/063-html-generative-ui` R2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guide: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +101,7 @@ pub fn describe_as(
             |schema| render(schema, schema, 0),
         ),
         custom: None,
+        guide: None,
     }
 }
 
