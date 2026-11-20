@@ -479,6 +479,17 @@ pub async fn agent_process(
     Ok(())
 }
 
+/// A turn this instance took, handed on to the agent's next instance in this process: its claim
+/// is released first, or the next instance would take the re-send for a duplicate delivery (the
+/// row already carries the held fence) and drop it. Found by spec 064's restart test; the same
+/// held for every running or queued turn of an agent being updated or restarted.
+async fn release_for_hand_on(deps: &VizierDependencies, turn: Option<i64>) {
+    let Some(id) = turn else { return };
+    if let Err(e) = deps.storage.release_turn_claim(id).await {
+        tracing::debug!(turn = id, "could not release a turn for its next instance: {e}");
+    }
+}
+
 /// Queues a handover ahead of the queued messages and behind any handover already waiting.
 fn queue_handover(queue: &mut VecDeque<Queued>, item: Queued) {
     let position = queue
@@ -560,6 +571,7 @@ async fn hand_on_queued(
             None => None,
         };
         let Some(request) = request else { continue };
+        release_for_hand_on(deps, turn.id).await;
         if let Err(e) = deps
             .transport
             .resend(VizierRequestEnvelope {
@@ -583,6 +595,7 @@ async fn hand_on_queued(
             ..
         } in items
         {
+            release_for_hand_on(deps, turn.id).await;
             if let Err(e) = deps
                 .transport
                 .resend(VizierRequestEnvelope {

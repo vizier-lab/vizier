@@ -141,12 +141,19 @@ async fn stale_turn_transition_refused() {
     n.assert_refused(&scope, n.a.note_resume(id, 1).await);
     n.assert_refused(&scope, n.a.finish_turn(id).await);
     n.assert_refused(&scope, n.a.cancel_session_turns(&session("x")).await);
+    n.assert_refused(&scope, n.a.release_turn_claim(id).await);
     let rows = n.b.pending_turns("x").await.unwrap();
     assert_eq!(rows.len(), 1, "the row survived");
     assert_eq!(rows[0].state, TurnState::Queued);
     assert_eq!(rows[0].request_uid, None);
 
     n.b.start_turn(id).await.unwrap();
+    // Spec 064: the owner takes the row, hands it to its next instance (released), and the
+    // next instance takes it again; a second receipt is still a duplicate.
+    assert!(n.b.claim_turn_on_receipt(id).await.unwrap());
+    assert!(!n.b.claim_turn_on_receipt(id).await.unwrap(), "a duplicate delivery");
+    n.b.release_turn_claim(id).await.unwrap();
+    assert!(n.b.claim_turn_on_receipt(id).await.unwrap(), "the handed-on turn is taken");
     n.b.set_turn_request_uid(id, "uid").await.unwrap();
     assert_eq!(n.b.note_resume(id, 1).await.unwrap(), 1);
     n.b.finish_turn(id).await.unwrap();
