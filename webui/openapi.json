@@ -987,6 +987,133 @@
         }
       }
     },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
+      "get": {
+        "tags": [
+          "api::v1::agents::detached"
+        ],
+        "operationId": "list_detached_scripts",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The topic's detached scripts: the running ones, then the last 50 that ended, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_DetachedScriptSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::detached"
+        ],
+        "operationId": "get_detached_script",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "script_id",
+            "in": "path",
+            "description": "Script ID, e.g. d_k3x9a1b2",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One script with its code, the calls it made and, once final, its report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_DetachedScriptDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Script not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files": {
       "get": {
         "tags": [
@@ -1237,6 +1364,479 @@
           },
           "404": {
             "description": "Agent or topic not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/pages/{page_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::ui_pages"
+        ],
+        "operationId": "get_ui_page",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_id",
+            "in": "path",
+            "description": "Page ID, e.g. pg_3f9K…",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page, its versions oldest first and its saved state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_UiPageView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Page not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/pages/{page_id}/versions/{version}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::ui_pages"
+        ],
+        "operationId": "get_ui_page_version",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_id",
+            "in": "path",
+            "description": "Page ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Version number, from 1",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version's HTML source as text/plain (it runs only in its frame); a version never changes, so it may be cached for good"
+          },
+          "404": {
+            "description": "Page or version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/pages/{page_id}/versions/{version}/frame": {
+      "get": {
+        "tags": [
+          "api::v1::agents::ui_pages"
+        ],
+        "operationId": "get_ui_frame_ticket",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_id",
+            "in": "path",
+            "description": "Page ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Version number, from 1",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where to load a frame of this version from: a ticket path that carries no credential and lasts ten minutes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_UiFrameTicket"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Page or version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/prompts": {
+      "get": {
+        "tags": [
+          "api::v1::agents::channel"
+        ],
+        "operationId": "get_topic_prompts",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's messages in the topic, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_PromptMark"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or topic not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents": {
+      "get": {
+        "tags": [
+          "api::v1::agents::subagents"
+        ],
+        "operationId": "list_subagents",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The topic's workers: the running and asking ones, then the last 50 that ended, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_SubagentSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::subagents"
+        ],
+        "operationId": "get_subagent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subagent_id",
+            "in": "path",
+            "description": "Worker ID, e.g. s_k3x9a1b2",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One worker with its whole task and result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SubagentSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worker not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/subagents/{subagent_id}/history": {
+      "get": {
+        "tags": [
+          "api::v1::agents::subagents"
+        ],
+        "operationId": "subagent_history",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subagent_id",
+            "in": "path",
+            "description": "Worker ID, e.g. s_k3x9a1b2",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The worker's own conversation, in stored order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_SessionHistory"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worker not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1722,6 +2322,564 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tool-categories/{name}": {
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "update_category",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Category name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomToolCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed or redescribed; the agent sees it from its next turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or category not found"
+          },
+          "409": {
+            "description": "`name_taken`"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every custom tool, grouped by category (by name, `custom` last)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found or not visible"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/events": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "Exclusive bound: a version number for versions, epoch milliseconds for events.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Default 50, max 200.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Switches, deletions and category edits, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found or not visible"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "A past version; the current one when left out.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One version's definition, what it calls, who calls it and whether it needs attention",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "edit",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditCustomToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved as a new version authored by the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          },
+          "409": {
+            "description": "`out_of_date`: the tool changed since `expected_version`"
+          },
+          "422": {
+            "description": "`invalid`: every problem in `data.problems`"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted; the deletion stays in the events"
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/diff": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "diff",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "The current version when left out.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Line diffs of description, input schema and script",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent, tool or version not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/enabled": {
+      "put": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "set_enabled",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCustomToolEnabledRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Switched; a tool a person switched off stays off until a person switches it on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent or tool not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/rollback": {
+      "post": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "rollback",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackCustomToolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The old version saved as a new one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may view but not edit this agent"
+          },
+          "404": {
+            "description": "Agent, tool or version not found"
+          },
+          "409": {
+            "description": "`out_of_date`"
+          },
+          "422": {
+            "description": "`invalid`: the old version no longer passes the checks"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/custom-tools/{tool}/versions": {
+      "get": {
+        "tags": [
+          "api::v1::agents::custom_tools"
+        ],
+        "operationId": "versions",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tool",
+            "in": "path",
+            "description": "Tool id or name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "Exclusive bound: a version number for versions, epoch milliseconds for events.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Default 50, max 200.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versions, newest first, with `next` for the following page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Value"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or tool not found"
           }
         }
       }
@@ -7795,6 +8953,41 @@
         }
       }
     },
+    "/ui-frames/{ticket}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::ui_pages"
+        ],
+        "summary": "A page frame (`specs/063-html-generative-ui` research R7a): public, because the ticket is the\nproof. The document is built here with the kit inlined and served with its own policy.",
+        "operationId": "ui_frame",
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "path",
+            "description": "A ticket from the frame route",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page's frame document (text/html), sandboxed by its Content-Security-Policy header"
+          },
+          "404": {
+            "description": "Ticket forged, expired, or the version is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/utils/setup-state": {
       "get": {
         "tags": [
@@ -7833,1055 +9026,6 @@
             }
           }
         }
-      }
-    },
-    "/workspaces": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "list",
-        "responses": {
-          "200": {
-            "description": "The caller's Workspaces, with their topics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_WorkspaceSummary"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "create",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created, with a first topic and the caller as owner",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_WorkspaceDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Missing the `workspaces:create` permission"
-          },
-          "409": {
-            "description": "`name_in_use`"
-          },
-          "422": {
-            "description": "`invalid_name`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "detail",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The Workspace with its members",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_WorkspaceDetail"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "delete_workspace",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted, with turns stopped first"
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "rename",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenameRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Renamed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_WorkspaceSummary"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          },
-          "409": {
-            "description": "`name_in_use`"
-          },
-          "422": {
-            "description": "`invalid_name`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/candidates": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "candidates",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "q",
-            "in": "path",
-            "description": "Matches name, username or agent id, case-insensitively.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "path",
-            "description": "Per group; default 5, at most 20.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Agents and people to add, addable first",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Candidates"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/commands": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "commands",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "For the `/` menu: commands, and each member agent's skills with the agents that have them. Names only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_CommandsView"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/members": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "add_member",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddMemberRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Added",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_MemberView"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not an owner, or `cannot_edit_agent`"
-          },
-          "404": {
-            "description": "No such Workspace, person or agent"
-          },
-          "409": {
-            "description": "`handle_in_use`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/members/{kind}/{handle}": {
-      "delete": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "remove_member",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "kind",
-            "in": "path",
-            "description": "`person` or `agent`",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "handle",
-            "in": "path",
-            "description": "Username or agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed"
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace or member"
-          },
-          "409": {
-            "description": "`last_owner`"
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "set_role",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "kind",
-            "in": "path",
-            "description": "`person`",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "handle",
-            "in": "path",
-            "description": "Username",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetRoleRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Role changed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_MemberView"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace or member"
-          },
-          "409": {
-            "description": "`last_owner`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/stop": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "stop_all",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Every agent's turn in every topic aborted, and waiting mentions dropped",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_StopResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "create_topic",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTopicRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_TopicSummary"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace, or the caller has no standing in it"
-          },
-          "409": {
-            "description": "`name_in_use`"
-          },
-          "422": {
-            "description": "`invalid_name`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}": {
-      "delete": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "delete_topic",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted"
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace or topic"
-          },
-          "409": {
-            "description": "`last_topic`"
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "rename_topic",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenameRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Renamed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_TopicSummary"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not an owner"
-          },
-          "404": {
-            "description": "No such Workspace or topic"
-          },
-          "409": {
-            "description": "`name_in_use`"
-          },
-          "422": {
-            "description": "`invalid_name`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}/entries": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "timeline",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "before",
-            "in": "path",
-            "description": "The `next_before` of the previous page: entries older than this `seq`.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int64"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "path",
-            "description": "1 to 200; default 50.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "A page of messages, oldest first, with what the agents did in the same span",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Timeline"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace or topic, or the caller has no standing in it"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "post_entry",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PostRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Posted, or a command ran and left a note",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_PostResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "`cannot_lobotomy`"
-          },
-          "404": {
-            "description": "No such Workspace or topic, or the caller has no standing in it"
-          },
-          "422": {
-            "description": "`not_in_workspace` for /btw and /clear-files, or `too_long`"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}/reactions": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "react",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReactRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Saved; the new set goes to every socket on the topic"
-          },
-          "404": {
-            "description": "No such Workspace, topic or message"
-          },
-          "422": {
-            "description": "Not a reply that can take a reaction"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}/read": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "mark_read",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The topic's messages are read for the caller; its notifications too",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_ReadMarked"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace or topic, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}/stream": {
-      "get": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "stream",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "101": {
-            "description": "WebSocket established. The server pushes `hello`, `workspace_entry`, `history_entry`, `workspace_mentions`, `agent_state`, `member_changed`, `closed` and `resync` frames; the client sends `{ \"post\": { \"text\": \"...\" } }`"
-          },
-          "404": {
-            "description": "No such Workspace or topic, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/workspaces/{id}/topics/{tid}/turns/{agent}/stop": {
-      "post": {
-        "tags": [
-          "api::v1::workspaces"
-        ],
-        "operationId": "stop_agent",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Workspace ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "tid",
-            "in": "path",
-            "description": "Topic ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "agent",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "That agent's turn in that topic aborted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_StopResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such Workspace, topic or agent member, or the caller has no standing in it"
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts": {
-      "get": {
-        "operationId": "list_detached_scripts",
-        "parameters": [
-          {
-            "description": "Agent ID",
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Channel ID",
-            "in": "path",
-            "name": "channel_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Topic ID",
-            "in": "path",
-            "name": "topic_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_DetachedScriptSnapshot"
-                }
-              }
-            },
-            "description": "The topic's detached scripts: the running ones, then the last 50 that ended, oldest first"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            },
-            "description": "Conversation not found"
-          }
-        },
-        "tags": [
-          "api::v1::agents::detached"
-        ]
-      }
-    },
-    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detached-scripts/{script_id}": {
-      "get": {
-        "operationId": "get_detached_script",
-        "parameters": [
-          {
-            "description": "Agent ID",
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Channel ID",
-            "in": "path",
-            "name": "channel_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Topic ID",
-            "in": "path",
-            "name": "topic_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Script ID, e.g. d_k3x9a1b2",
-            "in": "path",
-            "name": "script_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_DetachedScriptDetail"
-                }
-              }
-            },
-            "description": "One script with its code, the calls it made and, once final, its report"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            },
-            "description": "Script not found"
-          }
-        },
-        "tags": [
-          "api::v1::agents::detached"
-        ]
       }
     }
   },
@@ -9742,40 +9886,6 @@
           }
         }
       },
-      "APIResponse_Candidates": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "agents",
-              "people"
-            ],
-            "properties": {
-              "agents": {
-                "$ref": "#/components/schemas/CandidateGroup_AgentCandidate"
-              },
-              "people": {
-                "$ref": "#/components/schemas/CandidateGroup_PersonCandidate"
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_CatalogueStatus": {
         "type": "object",
         "required": [
@@ -9864,46 +9974,6 @@
                     "type": "null"
                   }
                 ]
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_CommandsView": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "commands",
-              "skills"
-            ],
-            "properties": {
-              "commands": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/CommandView"
-                }
-              },
-              "skills": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/SkillView"
-                }
               }
             }
           },
@@ -10445,6 +10515,59 @@
                 "$ref": "#/components/schemas/UsedBy"
               }
             }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_DetachedScriptDetail": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DetachedScriptSnapshot"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "code",
+                  "tool_calls"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "report": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "description": "The `ExecutionReport` once final (or the failure message as a string)."
+                  },
+                  "tool_calls": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`."
+                  }
+                }
+              }
+            ],
+            "description": "One script as the panel draws it: the activity trail's run detail."
           },
           "message": {
             "type": [
@@ -11176,56 +11299,6 @@
           }
         }
       },
-      "APIResponse_MemberView": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "kind",
-              "handle",
-              "name",
-              "role",
-              "available"
-            ],
-            "properties": {
-              "available": {
-                "type": "boolean",
-                "description": "An agent that was deleted after being added reads `false`."
-              },
-              "handle": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "description": "`person` or `agent`."
-              },
-              "name": {
-                "type": "string",
-                "description": "The agent's name, or the person's username."
-              },
-              "role": {
-                "type": "string",
-                "description": "`owner` or `member`."
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_MemoryDetail": {
         "type": "object",
         "required": [
@@ -11733,52 +11806,6 @@
           }
         }
       },
-      "APIResponse_PostResponse": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "properties": {
-              "entry": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/EntryView",
-                    "description": "The message posted. None when the text was a command."
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "note": {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/EntryView",
-                    "description": "What a command did, shown as a centred line."
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_ProjectDetail": {
         "type": "object",
         "required": [
@@ -12122,38 +12149,6 @@
               "variant": {
                 "$ref": "#/components/schemas/ProviderId",
                 "description": "The same id, under the field name pre-015 clients read."
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_ReadMarked": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "marked"
-            ],
-            "properties": {
-              "marked": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
               }
             }
           },
@@ -12575,28 +12570,14 @@
           }
         }
       },
-      "APIResponse_StopResponse": {
+      "APIResponse_String": {
         "type": "object",
         "required": [
           "status"
         ],
         "properties": {
           "data": {
-            "type": "object",
-            "required": [
-              "stopped",
-              "dropped"
-            ],
-            "properties": {
-              "dropped": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "stopped": {
-                "type": "integer",
-                "minimum": 0
-              }
-            }
+            "type": "string"
           },
           "message": {
             "type": [
@@ -12611,14 +12592,45 @@
           }
         }
       },
-      "APIResponse_String": {
+      "APIResponse_SubagentSnapshot": {
         "type": "object",
         "required": [
           "status"
         ],
         "properties": {
           "data": {
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubagentSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "group",
+                  "updated_at"
+                ],
+                "properties": {
+                  "group": {
+                    "type": "string"
+                  },
+                  "handed_over": {
+                    "type": "boolean",
+                    "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+                  },
+                  "parent_detached_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            ],
+            "description": "The `subagent` session frame, published on the hiring conversation after every change."
           },
           "message": {
             "type": [
@@ -12818,56 +12830,6 @@
           }
         }
       },
-      "APIResponse_Timeline": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "entries",
-              "steps"
-            ],
-            "properties": {
-              "entries": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/EntryView"
-                },
-                "description": "Oldest first."
-              },
-              "next_before": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int64",
-                "description": "Pass as `before` for the page above; none when there is nothing older."
-              },
-              "steps": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/StepView"
-                },
-                "description": "What the member agents did in the same span, to merge with `entries` by time."
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_TopicEntry": {
         "type": "object",
         "required": [
@@ -12894,16 +12856,16 @@
               "is_thinking": {
                 "type": "boolean"
               },
+              "running_scripts": {
+                "type": "integer",
+                "description": "Detached scripts launched from this topic that are still running (spec 058).",
+                "minimum": 0
+              },
               "title": {
                 "type": "string"
               },
               "topic_id": {
                 "type": "string"
-              },
-              "running_scripts": {
-                "description": "Detached scripts launched from this topic that are still running (spec 058).",
-                "minimum": 0,
-                "type": "integer"
               }
             }
           },
@@ -12920,7 +12882,7 @@
           }
         }
       },
-      "APIResponse_TopicSummary": {
+      "APIResponse_UiFrameTicket": {
         "type": "object",
         "required": [
           "status"
@@ -12928,23 +12890,74 @@
         "properties": {
           "data": {
             "type": "object",
+            "description": "Where a frame of one version is loaded from, and until when (epoch ms).",
             "required": [
-              "id",
-              "name",
-              "unread"
+              "path",
+              "expires_at"
             ],
             "properties": {
-              "id": {
+              "expires_at": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "path": {
+                "type": "string",
+                "description": "Relative to `/api/v1`: `/ui-frames/{ticket}`. It carries no credential of the person."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_UiPageView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A page with its versions and saved state.",
+            "required": [
+              "page_id",
+              "title",
+              "latest_version",
+              "state_seq",
+              "versions"
+            ],
+            "properties": {
+              "latest_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "page_id": {
                 "type": "string"
               },
-              "name": {
-                "type": "string"
-              },
-              "unread": {
+              "state": {},
+              "state_seq": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Messages from others the person has not read in this topic.",
                 "minimum": 0
+              },
+              "title": {
+                "type": "string"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UiPageVersionView"
+                }
               }
             }
           },
@@ -13150,6 +13163,26 @@
               }
             }
           },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Value": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {},
           "message": {
             "type": [
               "string",
@@ -13499,6 +13532,86 @@
                 },
                 "used_by": {
                   "$ref": "#/components/schemas/UsedBy"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_DetachedScriptSnapshot": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+              "required": [
+                "id",
+                "intent",
+                "state",
+                "created_at",
+                "timeout_secs",
+                "delivered",
+                "tool_call_count"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "delivered": {
+                  "type": "boolean"
+                },
+                "finished_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "id": {
+                  "$ref": "#/components/schemas/String"
+                },
+                "intent": {
+                  "type": "string"
+                },
+                "parent_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/String"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "$ref": "#/components/schemas/DetachedScriptState"
+                },
+                "timeout_secs": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "tool_call_count": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
                 }
               }
             }
@@ -14377,6 +14490,57 @@
           }
         }
       },
+      "APIResponse_Vec_PromptMark": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One message a person sent in a conversation, for the WebUI's prompt ruler: where it is in\nthe history (`uid`, `seq`, `timestamp`, the history cursor) and the start of what it said.",
+              "required": [
+                "uid",
+                "timestamp",
+                "preview"
+              ],
+              "properties": {
+                "preview": {
+                  "type": "string",
+                  "description": "The first line of the message, at most [`PROMPT_PREVIEW_CHARS`] characters."
+                },
+                "seq": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_ProviderResponse": {
         "type": "object",
         "required": [
@@ -14765,6 +14929,62 @@
           }
         }
       },
+      "APIResponse_Vec_SubagentSnapshot": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SubagentSummary"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "group",
+                    "updated_at"
+                  ],
+                  "properties": {
+                    "group": {
+                      "type": "string"
+                    },
+                    "handed_over": {
+                      "type": "boolean",
+                      "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+                    },
+                    "parent_detached_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "updated_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              ],
+              "description": "The `subagent` session frame, published on the hiring conversation after every change."
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_TaskResponse": {
         "type": "object",
         "required": [
@@ -14877,76 +15097,16 @@
                 "is_thinking": {
                   "type": "boolean"
                 },
+                "running_scripts": {
+                  "type": "integer",
+                  "description": "Detached scripts launched from this topic that are still running (spec 058).",
+                  "minimum": 0
+                },
                 "title": {
                   "type": "string"
                 },
                 "topic_id": {
                   "type": "string"
-                },
-                "running_scripts": {
-                  "description": "Detached scripts launched from this topic that are still running (spec 058).",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_Vec_WorkspaceSummary": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "name",
-                "role",
-                "unread",
-                "working",
-                "topics"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "role": {
-                  "type": "string",
-                  "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
-                },
-                "topics": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TopicSummary"
-                  }
-                },
-                "unread": {
-                  "type": "integer",
-                  "format": "int64",
-                  "minimum": 0
-                },
-                "working": {
-                  "type": "boolean",
-                  "description": "An agent is working in it."
                 }
               }
             }
@@ -14995,103 +15155,6 @@
                 "name": {
                   "type": "string"
                 }
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_WorkspaceDetail": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/WorkspaceSummary"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "members"
-                ],
-                "properties": {
-                  "members": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/MemberView"
-                    }
-                  }
-                }
-              }
-            ]
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "APIResponse_WorkspaceSummary": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "id",
-              "name",
-              "role",
-              "unread",
-              "working",
-              "topics"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "role": {
-                "type": "string",
-                "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
-              },
-              "topics": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/TopicSummary"
-                }
-              },
-              "unread": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
-              },
-              "working": {
-                "type": "boolean",
-                "description": "An agent is working in it."
               }
             }
           },
@@ -15365,30 +15428,6 @@
           }
         }
       },
-      "AddMemberRequest": {
-        "type": "object",
-        "required": [
-          "kind",
-          "handle"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string",
-            "description": "A username or an agent id."
-          },
-          "kind": {
-            "type": "string",
-            "description": "`person` or `agent`."
-          },
-          "role": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`owner` or `member`; agents are always `member`."
-          }
-        }
-      },
       "AffectedAgent": {
         "type": "object",
         "description": "An agent that would lose a provider, for the delete warning.",
@@ -15409,36 +15448,6 @@
           },
           "name": {
             "type": "string"
-          }
-        }
-      },
-      "AgentCandidate": {
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "member",
-          "addable"
-        ],
-        "properties": {
-          "addable": {
-            "type": "boolean"
-          },
-          "id": {
-            "type": "string"
-          },
-          "member": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": "string"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`cannot_edit` for an agent the caller may see but not add."
           }
         }
       },
@@ -16411,31 +16420,6 @@
           }
         }
       },
-      "AuthorView": {
-        "type": "object",
-        "required": [
-          "kind",
-          "id",
-          "name",
-          "available"
-        ],
-        "properties": {
-          "available": {
-            "type": "boolean",
-            "description": "An agent that was deleted since reads `false`; its messages stay."
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "description": "`person` or `agent`."
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
       "BranchHolder": {
         "type": "object",
         "required": [
@@ -16646,104 +16630,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "CandidateGroup_AgentCandidate": {
-        "type": "object",
-        "required": [
-          "items",
-          "more"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "name",
-                "member",
-                "addable"
-              ],
-              "properties": {
-                "addable": {
-                  "type": "boolean"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "member": {
-                  "type": "boolean"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "reason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "`cannot_edit` for an agent the caller may see but not add."
-                }
-              }
-            }
-          },
-          "more": {
-            "type": "integer",
-            "description": "How many more matched than were returned.",
-            "minimum": 0
-          }
-        }
-      },
-      "CandidateGroup_PersonCandidate": {
-        "type": "object",
-        "required": [
-          "items",
-          "more"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "username",
-                "name",
-                "member"
-              ],
-              "properties": {
-                "member": {
-                  "type": "boolean"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "username": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "more": {
-            "type": "integer",
-            "description": "How many more matched than were returned.",
-            "minimum": 0
-          }
-        }
-      },
-      "Candidates": {
-        "type": "object",
-        "required": [
-          "agents",
-          "people"
-        ],
-        "properties": {
-          "agents": {
-            "$ref": "#/components/schemas/CandidateGroup_AgentCandidate"
-          },
-          "people": {
-            "$ref": "#/components/schemas/CandidateGroup_PersonCandidate"
           }
         }
       },
@@ -17119,6 +17005,17 @@
         ],
         "properties": {
           "data": {},
+          "page": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PageSource",
+                "description": "The agent page it came from (spec 063 FR-028): the person acted on a page, so the agent\nknows which one and which version. Exclusive with `source_call_id`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "source_call_id": {
             "type": [
               "string",
@@ -17127,42 +17024,6 @@
           },
           "text": {
             "type": "string"
-          }
-        }
-      },
-      "CommandView": {
-        "type": "object",
-        "required": [
-          "name",
-          "description"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "CommandsView": {
-        "type": "object",
-        "required": [
-          "commands",
-          "skills"
-        ],
-        "properties": {
-          "commands": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CommandView"
-            }
-          },
-          "skills": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkillView"
-            }
           }
         }
       },
@@ -17185,6 +17046,27 @@
           }
         }
       },
+      "ConsultationFrame": {
+        "type": "object",
+        "description": "What a consultee is told about the request beyond its text (spec 064 FR-003).",
+        "properties": {
+          "on_behalf_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The display name of the person the consulting agent works for; `None` when no person is\ninvolved (a scheduled run)."
+          }
+        }
+      },
+      "ConsultationReplyKind": {
+        "type": "string",
+        "description": "Which consultation message a `SubagentReply` is (spec 064 research D4).",
+        "enum": [
+          "reply",
+          "follow_up"
+        ]
+      },
       "ContextSource": {
         "type": "string",
         "description": "Where an agent's effective context window came from (R8), shown in agent health.",
@@ -17206,6 +17088,10 @@
         ],
         "properties": {
           "all": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "consultation": {
             "type": "integer",
             "minimum": 0
           },
@@ -17269,7 +17155,8 @@
         "enum": [
           "webui",
           "discord",
-          "telegram"
+          "telegram",
+          "consultation"
         ]
       },
       "ConversationPage": {
@@ -18042,35 +17929,6 @@
           }
         }
       },
-      "CreateTopicRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "CreateWorkspaceRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "first_topic": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The first topic. Defaults to `general`."
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
       "CreateWorktreeRequest": {
         "type": "object",
         "required": [
@@ -18329,7 +18187,8 @@
                 "dreams",
                 "compaction",
                 "vision",
-                "other"
+                "other",
+                "consultation"
               ]
             }
           },
@@ -18371,6 +18230,110 @@
             "type": "boolean"
           }
         }
+      },
+      "DetachedScriptDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DetachedScriptSnapshot"
+          },
+          {
+            "type": "object",
+            "required": [
+              "code",
+              "tool_calls"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "report": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The `ExecutionReport` once final (or the failure message as a string)."
+              },
+              "tool_calls": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`."
+              }
+            }
+          }
+        ],
+        "description": "One script as the panel draws it: the activity trail's run detail."
+      },
+      "DetachedScriptSnapshot": {
+        "type": "object",
+        "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
+        "required": [
+          "id",
+          "intent",
+          "state",
+          "created_at",
+          "timeout_secs",
+          "delivered",
+          "tool_call_count"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "delivered": {
+            "type": "boolean"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/String"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/DetachedScriptState"
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tool_call_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DetachedScriptState": {
+        "type": "string",
+        "description": "Every transition out of `running` is one guarded update, so of two racing causes\n(a cancel and the script finishing, say) exactly one wins.",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "cancelled",
+          "interrupted"
+        ]
       },
       "DialectKind": {
         "type": "string",
@@ -18797,6 +18760,66 @@
           }
         }
       },
+      "EditCustomToolRequest": {
+        "type": "object",
+        "description": "A person's edit (`PUT /agents/{id}/custom-tools/{tool}`).",
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category_description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when `category` is new."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The version the person was editing; a newer one is `409 out_of_date`."
+          },
+          "input_schema": {
+            "type": "object"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "EmbeddingConfig": {
         "type": "object",
         "required": [
@@ -18827,32 +18850,6 @@
           "copilot",
           "bedrock"
         ]
-      },
-      "EntryFile": {
-        "type": "object",
-        "description": "A file shared with an entry.",
-        "required": [
-          "file_id",
-          "name",
-          "mime_type",
-          "size"
-        ],
-        "properties": {
-          "file_id": {
-            "type": "string"
-          },
-          "mime_type": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
       },
       "EntryPricingView": {
         "type": "object",
@@ -18903,71 +18900,6 @@
           "state": {
             "type": "string",
             "description": "`explicit`, `from_catalogue`, `not_resolved`, `not_set` or `no_catalogue`."
-          }
-        }
-      },
-      "EntryView": {
-        "type": "object",
-        "required": [
-          "seq",
-          "kind",
-          "author",
-          "body",
-          "at",
-          "mentions",
-          "is_final",
-          "files"
-        ],
-        "properties": {
-          "activated_by_seq": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "at": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Unix milliseconds."
-          },
-          "author": {
-            "$ref": "#/components/schemas/AuthorView"
-          },
-          "body": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntryFile"
-            }
-          },
-          "history_uid": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "is_final": {
-            "type": "boolean"
-          },
-          "kind": {
-            "type": "string",
-            "description": "`person`, `agent` or `note`."
-          },
-          "mentions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MentionView"
-            }
-          },
-          "origin": {
-            "description": "Where it was sent from when not from inside: `{kind, label}`."
-          },
-          "seq": {
-            "type": "integer",
-            "format": "int64"
           }
         }
       },
@@ -19349,6 +19281,22 @@
               "null"
             ],
             "minimum": 0
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Read back to this entry (inclusive) instead of a page of `limit`: everything from it up\nto the `before` cursor, so a reader jumping to an older entry leaves no gap."
+          },
+          "since_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The `seq` of the entry `since` names, making it exact. Ignored without `since`."
           }
         }
       },
@@ -20305,37 +20253,6 @@
           }
         }
       },
-      "MemberView": {
-        "type": "object",
-        "required": [
-          "kind",
-          "handle",
-          "name",
-          "role",
-          "available"
-        ],
-        "properties": {
-          "available": {
-            "type": "boolean",
-            "description": "An agent that was deleted after being added reads `false`."
-          },
-          "handle": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "description": "`person` or `agent`."
-          },
-          "name": {
-            "type": "string",
-            "description": "The agent's name, or the person's username."
-          },
-          "role": {
-            "type": "string",
-            "description": "`owner` or `member`."
-          }
-        }
-      },
       "MemoryAttachmentView": {
         "oneOf": [
           {
@@ -20696,26 +20613,6 @@
           }
         }
       },
-      "MentionView": {
-        "type": "object",
-        "required": [
-          "kind",
-          "handle",
-          "state"
-        ],
-        "properties": {
-          "handle": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "description": "`pending`, `woken`, `unavailable`, `dropped` or `resolved`. The client draws a note only\nfor `unavailable`."
-          }
-        }
-      },
       "ModelCaps": {
         "type": "object",
         "properties": {
@@ -20940,8 +20837,7 @@
           "dream_cycle",
           "background_work",
           "integration",
-          "chat_reply",
-          "workspace_message"
+          "chat_reply"
         ]
       },
       "NotificationCounts": {
@@ -21147,6 +21043,24 @@
           }
         }
       },
+      "PageSource": {
+        "type": "object",
+        "description": "An agent page and the version a client event came from.",
+        "required": [
+          "page_id",
+          "version"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "PaginatedCoreRevisions": {
         "type": "object",
         "required": [
@@ -21260,25 +21174,6 @@
           }
         }
       },
-      "PersonCandidate": {
-        "type": "object",
-        "required": [
-          "username",
-          "name",
-          "member"
-        ],
-        "properties": {
-          "member": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": "string"
-          },
-          "username": {
-            "type": "string"
-          }
-        }
-      },
       "PlatformMessageId": {
         "oneOf": [
           {
@@ -21307,51 +21202,6 @@
             }
           }
         ]
-      },
-      "PostRequest": {
-        "type": "object",
-        "required": [
-          "text"
-        ],
-        "properties": {
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Ids of files already uploaded to this topic."
-          },
-          "text": {
-            "type": "string"
-          }
-        }
-      },
-      "PostResponse": {
-        "type": "object",
-        "properties": {
-          "entry": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/EntryView",
-                "description": "The message posted. None when the text was a command."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "note": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/EntryView",
-                "description": "What a command did, shown as a centred line."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        }
       },
       "ProfileEntry": {
         "type": "object",
@@ -21754,6 +21604,35 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PromptMark": {
+        "type": "object",
+        "description": "One message a person sent in a conversation, for the WebUI's prompt ruler: where it is in\nthe history (`uid`, `seq`, `timestamp`, the history cursor) and the start of what it said.",
+        "required": [
+          "uid",
+          "timestamp",
+          "preview"
+        ],
+        "properties": {
+          "preview": {
+            "type": "string",
+            "description": "The first line of the message, at most [`PROMPT_PREVIEW_CHARS`] characters."
+          },
+          "seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uid": {
+            "type": "string"
           }
         }
       },
@@ -22283,27 +22162,6 @@
           "failed"
         ]
       },
-      "ReactRequest": {
-        "type": "object",
-        "required": [
-          "message_uid",
-          "emoji",
-          "action"
-        ],
-        "properties": {
-          "action": {
-            "type": "string",
-            "description": "`added` or `removed`."
-          },
-          "emoji": {
-            "type": "string"
-          },
-          "message_uid": {
-            "type": "string",
-            "description": "The history uid of an agent's reply in this topic."
-          }
-        }
-      },
       "ReactionEntry": {
         "type": "object",
         "required": [
@@ -22345,19 +22203,6 @@
               }
             ],
             "default": null
-          }
-        }
-      },
-      "ReadMarked": {
-        "type": "object",
-        "required": [
-          "marked"
-        ],
-        "properties": {
-          "marked": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
           }
         }
       },
@@ -22429,17 +22274,6 @@
             ]
           },
           "ttl": {
-            "type": "string"
-          }
-        }
-      },
-      "RenameRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
             "type": "string"
           }
         }
@@ -22786,6 +22620,29 @@
           },
           "role_name": {
             "type": "string"
+          }
+        }
+      },
+      "RollbackCustomToolRequest": {
+        "type": "object",
+        "required": [
+          "to_version",
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -23347,14 +23204,14 @@
           },
           {
             "type": "object",
-            "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.",
+            "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can\nstill be read (#82). Never part of the model's input.",
             "required": [
               "Recall"
             ],
             "properties": {
               "Recall": {
                 "type": "object",
-                "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.",
+                "description": "Memory passages the agent was given or went looking for during a turn\n(`specs/024-webui-rewrite`, FR-018e). No longer written: kept so rows saved before can\nstill be read (#82). Never part of the model's input.",
                 "required": [
                   "origin",
                   "passages"
@@ -23446,6 +23303,38 @@
           },
           {
             "type": "object",
+            "description": "A version of an interactive page the agent drew (`specs/063-html-generative-ui`), saved\nwhen the version is created; the WebUI draws the page from it. `verification` changes\nafter the insert, so it lives in `ui_page_version` and is filled in on every read, as\n`ClientToolCall`'s outcome is. Never part of the model's input: the tool's result is.",
+            "required": [
+              "UiPage"
+            ],
+            "properties": {
+              "UiPage": {
+                "type": "object",
+                "description": "A version of an interactive page the agent drew (`specs/063-html-generative-ui`), saved\nwhen the version is created; the WebUI draws the page from it. `verification` changes\nafter the insert, so it lives in `ui_page_version` and is filled in on every read, as\n`ClientToolCall`'s outcome is. Never part of the model's input: the tool's result is.",
+                "required": [
+                  "page_id",
+                  "version",
+                  "title"
+                ],
+                "properties": {
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "verification": {},
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "An ask for a sensitive value (`specs/042-agent-asking-question`). Says that one was\nrequested, why, and what came of it — **never the value** (FR-044, FR-054). Its `state` is\nfilled at read time from `sensitive_ask`.",
             "required": [
               "SensitiveAsk"
@@ -23480,6 +23369,17 @@
             }
           }
         ]
+      },
+      "SetCustomToolEnabledRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "SetGrants": {
         "type": "object",
@@ -23523,17 +23423,6 @@
         "properties": {
           "mode": {
             "$ref": "#/components/schemas/ProjectMode"
-          }
-        }
-      },
-      "SetRoleRequest": {
-        "type": "object",
-        "required": [
-          "role"
-        ],
-        "properties": {
-          "role": {
-            "type": "string"
           }
         }
       },
@@ -23826,29 +23715,6 @@
           }
         }
       },
-      "SkillView": {
-        "type": "object",
-        "required": [
-          "name",
-          "description",
-          "agents"
-        ],
-        "properties": {
-          "agents": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The member agents that have it."
-          },
-          "description": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
       "SortOrder": {
         "type": "string",
         "enum": [
@@ -23865,38 +23731,6 @@
           "expired",
           "unreadable"
         ]
-      },
-      "StepView": {
-        "type": "object",
-        "required": [
-          "agent_id",
-          "entry"
-        ],
-        "properties": {
-          "agent_id": {
-            "type": "string"
-          },
-          "entry": {
-            "description": "A history entry in the shape `GET …/history` returns."
-          }
-        }
-      },
-      "StopResponse": {
-        "type": "object",
-        "required": [
-          "stopped",
-          "dropped"
-        ],
-        "properties": {
-          "dropped": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "stopped": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
       },
       "String": {
         "type": "string"
@@ -23934,6 +23768,227 @@
           "provider": {
             "$ref": "#/components/schemas/SttProvider",
             "default": "whisper"
+          }
+        }
+      },
+      "SubagentBrief": {
+        "type": "object",
+        "description": "The first request a worker receives (`VizierRequestContent::SubagentTask`).",
+        "required": [
+          "subagent_id",
+          "position",
+          "group_size",
+          "text"
+        ],
+        "properties": {
+          "consultation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConsultationFrame",
+                "description": "Set when this is a consultation's first request (spec 064): the consultee reads it as\n`via: consultation`, and who the consulting agent works for."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "subagent_id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SubagentReplyText": {
+        "type": "object",
+        "description": "The main agent's answer to a worker's question (`VizierRequestContent::SubagentReply`).",
+        "required": [
+          "subagent_id",
+          "text"
+        ],
+        "properties": {
+          "consultation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConsultationReplyKind",
+                "description": "Set for a consultation (spec 064): a reply to its question, or a follow-up."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subagent_id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "SubagentSnapshot": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SubagentSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "group",
+              "updated_at"
+            ],
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "handed_over": {
+                "type": "boolean",
+                "description": "The main agent has the newest outcome (an answer, a failure or a question)."
+              },
+              "parent_detached_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ],
+        "description": "The `subagent` session frame, published on the hiring conversation after every change."
+      },
+      "SubagentState": {
+        "type": "string",
+        "description": "`answered`, `failed`, `timed_out` and `stopped` are final. `asking` returns to `running` only\nthrough a reply. Every transition is one guarded update, so of two racing causes exactly one\nwins.",
+        "enum": [
+          "running",
+          "asking",
+          "answered",
+          "failed",
+          "timed_out",
+          "stopped"
+        ]
+      },
+      "SubagentStopReason": {
+        "type": "string",
+        "description": "Why a worker is `stopped`.",
+        "enum": [
+          "by_agent",
+          "conversation_deleted",
+          "agent_deleted",
+          "consultee_deleted"
+        ]
+      },
+      "SubagentSummary": {
+        "type": "object",
+        "description": "One worker as the subagent tools return it (contracts/subagent-tools.md).",
+        "required": [
+          "id",
+          "position",
+          "group_size",
+          "task",
+          "state",
+          "truncated",
+          "started_at",
+          "topic"
+        ],
+        "properties": {
+          "consultee": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/String",
+                "description": "A consultation's consulted agent (spec 064); `None` for a worker."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "follow_ups": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Follow-ups sent to a consultation after an answer.",
+            "minimum": 0
+          },
+          "group_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "$ref": "#/components/schemas/String"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "question": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The open question, only while `asking`."
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SubagentState"
+          },
+          "stop_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SubagentStopReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string",
+            "description": "The worker's conversation topic, where its full history stays."
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       },
@@ -24167,37 +24222,6 @@
           }
         }
       },
-      "Timeline": {
-        "type": "object",
-        "required": [
-          "entries",
-          "steps"
-        ],
-        "properties": {
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EntryView"
-            },
-            "description": "Oldest first."
-          },
-          "next_before": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "Pass as `before` for the page above; none when there is nothing older."
-          },
-          "steps": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/StepView"
-            },
-            "description": "What the member agents did in the same span, to merge with `entries` by time."
-          }
-        }
-      },
       "TodayByKind": {
         "type": "object",
         "required": [
@@ -24249,38 +24273,16 @@
           "is_thinking": {
             "type": "boolean"
           },
+          "running_scripts": {
+            "type": "integer",
+            "description": "Detached scripts launched from this topic that are still running (spec 058).",
+            "minimum": 0
+          },
           "title": {
             "type": "string"
           },
           "topic_id": {
             "type": "string"
-          },
-          "running_scripts": {
-            "description": "Detached scripts launched from this topic that are still running (spec 058).",
-            "minimum": 0,
-            "type": "integer"
-          }
-        }
-      },
-      "TopicSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "unread"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "unread": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Messages from others the person has not read in this topic.",
-            "minimum": 0
           }
         }
       },
@@ -24326,6 +24328,103 @@
           }
         }
       },
+      "UiFrameTicket": {
+        "type": "object",
+        "description": "Where a frame of one version is loaded from, and until when (epoch ms).",
+        "required": [
+          "path",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative to `/api/v1`: `/ui-frames/{ticket}`. It carries no credential of the person."
+          }
+        }
+      },
+      "UiPageVersionView": {
+        "type": "object",
+        "description": "One version, as the page route lists it.",
+        "required": [
+          "version",
+          "size",
+          "origin",
+          "created_at",
+          "verification"
+        ],
+        "properties": {
+          "base_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Epoch milliseconds."
+          },
+          "origin": {
+            "type": "string",
+            "description": "`full` or `edits`."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "verification": {
+            "description": "`{\"state\": \"pending\" | \"unverified\" | \"clean\" | \"problems\", ...}`."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "UiPageView": {
+        "type": "object",
+        "description": "A page with its versions and saved state.",
+        "required": [
+          "page_id",
+          "title",
+          "latest_version",
+          "state_seq",
+          "versions"
+        ],
+        "properties": {
+          "latest_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "state": {},
+          "state_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UiPageVersionView"
+            }
+          }
+        }
+      },
       "UnpricedNote": {
         "type": "object",
         "required": [
@@ -24362,6 +24461,23 @@
           },
           "content": {
             "type": "string"
+          }
+        }
+      },
+      "UpdateCustomToolCategoryRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -24653,7 +24769,8 @@
           "dreams",
           "compaction",
           "vision",
-          "other"
+          "other",
+          "consultation"
         ]
       },
       "UsageLink": {
@@ -25009,6 +25126,13 @@
             },
             "description": "What the client that sent this request says about itself: what it renders, what it\noffers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.\n\nA note for the turn that sent it. It is rendered into the turn's context block\n(`system_prompt::context::client_context_note`) and deliberately left out of\n[`VizierRequest::to_prompt`]: the block rides the newest user message and is never\nstored, so a replayed request cannot restate a note from a client that may have gone,\nand no later turn inherits it in the person's voice. It stays on the stored request so\na resumed turn rebuilds the same block."
           },
+          "consultation_chain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/String"
+            },
+            "description": "The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):\nempty for anything a person or the scheduler started, the consulting turn's chain plus\nthe consulting agent for a consultation. Its length is the consultation depth, which\noffers the consultation tools only below `consultations.max_depth`; a target already in\nit is refused. Serialised with the durable turn row; never taken from a client."
+          },
           "content": {
             "$ref": "#/components/schemas/VizierRequestContent"
           },
@@ -25026,6 +25150,10 @@
             "description": "Files and folders a project chat's message mentions (FR-018). Their contents are\nresolved when the turn starts and never stored."
           },
           "metadata": {},
+          "mid_turn": {
+            "type": "boolean",
+            "description": "Engine-only: this request was read by a turn already running, at a round boundary\n(`specs/062-steer-busy-turn` R5). Set only by the boundary's save; cleared from client\ninput on receipt and before a request is queued. A `mid_turn` request never opens a turn."
+          },
           "model_override": {
             "oneOf": [
               {
@@ -25058,12 +25186,22 @@
               }
             ]
           },
+          "queue": {
+            "type": "boolean",
+            "description": "The person chose to run this message as a turn of its own after the running one rather\nthan steer the running turn (`specs/062-steer-busy-turn` R3): Ctrl/Cmd+Enter in the\nWebUI, or `/queue` on any channel (stripped on receipt). Rides the journal row, so the\nchoice survives a restart. Ignored while the agent is idle."
+          },
           "scheduled_task": {
             "type": [
               "string",
               "null"
             ],
             "description": "The slug of the task this request is a scheduled run of.\n\nSet by the scheduler and by nothing else, which is what makes it safe where the\nrequest content kind is not: the dream cycle sends `Unattended` too and must not be\nattributed to the scheduler. `Default` leaves it `None` for every other construction\nsite, so no interactive turn's frontmatter changes."
+          },
+          "subagent_depth": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring\ncontext's depth + 1 for a worker. The subagent management tools are offered only below\n`subagents.max_depth`. Independent of `background_depth`.",
+            "minimum": 0
           },
           "timestamp": {
             "type": "string",
@@ -25179,14 +25317,14 @@
           },
           {
             "type": "object",
-            "description": "Finished detached scripts of this conversation (spec 058). Sent empty by a script's\ntask as a poke; whoever handles it claims the deliverable rows and, only if it got\nsome, runs a turn whose request carries the rendered delivery (`[Background work\nfinished] …`). Never journaled: the rows are the durable part, and recovery pokes again.",
+            "description": "Background delivery for this conversation: finished detached scripts (spec 058) and\nsubagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles\nit claims from every source and, only if it got something, runs a turn whose request\ncarries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).\nNever journaled: the rows are the durable part, and recovery pokes again. The name is\nkept because it is stored in history and read by the WebUI.",
             "required": [
               "detached_delivery"
             ],
             "properties": {
               "detached_delivery": {
-                "description": "Finished detached scripts of this conversation (spec 058). Sent empty by a script's\ntask as a poke; whoever handles it claims the deliverable rows and, only if it got\nsome, runs a turn whose request carries the rendered delivery (`[Background work\nfinished] …`). Never journaled: the rows are the durable part, and recovery pokes again.",
-                "type": "string"
+                "type": "string",
+                "description": "Background delivery for this conversation: finished detached scripts (spec 058) and\nsubagent outcomes (spec 059, `agents::delivery`). Sent empty as a poke; whoever handles\nit claims from every source and, only if it got something, runs a turn whose request\ncarries the rendered sections (`[Background work finished] …`, `[Subagent update] …`).\nNever journaled: the rows are the durable part, and recovery pokes again. The name is\nkept because it is stored in history and read by the WebUI."
               }
             }
           },
@@ -25217,17 +25355,43 @@
             }
           },
           {
+            "type": "object",
             "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015).",
+            "required": [
+              "question_answer"
+            ],
             "properties": {
               "question_answer": {
                 "$ref": "#/components/schemas/QuestionAnswer",
                 "description": "A person's answer to a question set (`specs/042-agent-asking-question`). It starts a turn\nlike `Chat`: same history, same queue, same attribution, no bypass (FR-015)."
               }
-            },
+            }
+          },
+          {
+            "type": "object",
+            "description": "A worker's task from its main agent (spec 059): the first request of a `Subagent`\nconversation. It starts a turn like `Chat`, framed as a worker's.",
             "required": [
-              "question_answer"
+              "subagent_task"
             ],
-            "type": "object"
+            "properties": {
+              "subagent_task": {
+                "$ref": "#/components/schemas/SubagentBrief",
+                "description": "A worker's task from its main agent (spec 059): the first request of a `Subagent`\nconversation. It starts a turn like `Chat`, framed as a worker's."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues\nthe worker's conversation like `Chat`.",
+            "required": [
+              "subagent_reply"
+            ],
+            "properties": {
+              "subagent_reply": {
+                "$ref": "#/components/schemas/SubagentReplyText",
+                "description": "The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues\nthe worker's conversation like `Chat`."
+              }
+            }
           }
         ]
       },
@@ -25403,6 +25567,13 @@
             ]
           },
           {
+            "type": "string",
+            "description": "Sent once on a waiting message's own sender when a running turn read it at a round\nboundary (`specs/062-steer-busy-turn` R7): that message has no turn of its own, and the\nrunning turn's reply answers it. Renderers end quietly on it.",
+            "enum": [
+              "steered"
+            ]
+          },
+          {
             "type": "object",
             "required": [
               "checkpoint"
@@ -25530,65 +25701,6 @@
         "maxItems": 3,
         "minItems": 3
       },
-      "WorkspaceDetail": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/WorkspaceSummary"
-          },
-          {
-            "type": "object",
-            "required": [
-              "members"
-            ],
-            "properties": {
-              "members": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/MemberView"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "WorkspaceSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "role",
-          "unread",
-          "working",
-          "topics"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string",
-            "description": "`owner`, `member`, or `admin` for someone who manages every Workspace without being in it."
-          },
-          "topics": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TopicSummary"
-            }
-          },
-          "unread": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "working": {
-            "type": "boolean",
-            "description": "An agent is working in it."
-          }
-        }
-      },
       "WorktreeDeleted": {
         "type": "object",
         "required": [
@@ -25689,243 +25801,6 @@
             "description": "The current offset, such as `+07:00`. It changes with daylight saving, so it is computed\non every read."
           }
         }
-      },
-      "APIResponse_DetachedScriptDetail": {
-        "properties": {
-          "data": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DetachedScriptSnapshot"
-              },
-              {
-                "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "report": {
-                    "description": "The `ExecutionReport` once final (or the failure message as a string).",
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "tool_calls": {
-                    "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`.",
-                    "items": {
-                      "type": "object"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "code",
-                  "tool_calls"
-                ],
-                "type": "object"
-              }
-            ],
-            "description": "One script as the panel draws it: the activity trail's run detail."
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "APIResponse_Vec_DetachedScriptSnapshot": {
-        "properties": {
-          "data": {
-            "items": {
-              "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
-              "properties": {
-                "created_at": {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                "delivered": {
-                  "type": "boolean"
-                },
-                "finished_at": {
-                  "format": "date-time",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "id": {
-                  "$ref": "#/components/schemas/String"
-                },
-                "intent": {
-                  "type": "string"
-                },
-                "parent_id": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/String"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "state": {
-                  "$ref": "#/components/schemas/DetachedScriptState"
-                },
-                "timeout_secs": {
-                  "format": "int64",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "tool_call_count": {
-                  "format": "int32",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "id",
-                "intent",
-                "state",
-                "created_at",
-                "timeout_secs",
-                "delivered",
-                "tool_call_count"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "DetachedScriptDetail": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/DetachedScriptSnapshot"
-          },
-          {
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "report": {
-                "description": "The `ExecutionReport` once final (or the failure message as a string).",
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "tool_calls": {
-                "description": "`[{seq, name, arguments, ok, error?, duration_ms}]`.",
-                "items": {
-                  "type": "object"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "code",
-              "tool_calls"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "One script as the panel draws it: the activity trail's run detail."
-      },
-      "DetachedScriptSnapshot": {
-        "description": "The list route's rows and the `detached_script` session frame. Small enough to push on\nevery change.",
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "delivered": {
-            "type": "boolean"
-          },
-          "finished_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "$ref": "#/components/schemas/String"
-          },
-          "intent": {
-            "type": "string"
-          },
-          "parent_id": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/String"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "state": {
-            "$ref": "#/components/schemas/DetachedScriptState"
-          },
-          "timeout_secs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "tool_call_count": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "intent",
-          "state",
-          "created_at",
-          "timeout_secs",
-          "delivered",
-          "tool_call_count"
-        ],
-        "type": "object"
-      },
-      "DetachedScriptState": {
-        "description": "Every transition out of `running` is one guarded update, so of two racing causes\n(a cancel and the script finishing, say) exactly one wins.",
-        "enum": [
-          "running",
-          "succeeded",
-          "failed",
-          "timed_out",
-          "cancelled",
-          "interrupted"
-        ],
-        "type": "string"
       }
     }
   }

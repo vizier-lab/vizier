@@ -51,7 +51,8 @@ export function AgentConversations({ agentId }: { agentId: string }) {
                 label: g.label,
                 items: g.items.map((c) => ({
                     key: `${c.channel}#${c.latest_topic}`,
-                    title: conversationTitle(c.title, c.latest_topic),
+                    // A consultation another agent sent (spec 064): "⇄ Asked by Support".
+                    title: c.kind === 'consultation' ? `⇄  ${c.title}` : conversationTitle(c.title, c.latest_topic),
                     time: sidebarTime(c.last_activity),
                     live: c.kind === 'webui' && isLive(c.latest_topic),
                     unread: unreadAt(chats, conversationHref(agentId, c)),

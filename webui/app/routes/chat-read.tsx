@@ -10,21 +10,25 @@ import { useAgents } from '../stores/agents'
 
 const PAGE = 50
 
-/** "Discord conversation 123" until the picker has said more. */
-function labelOf(channel: string): { platform: 'Discord' | 'Telegram'; title: string } {
-    const platform = channel.startsWith('telegram__') ? 'Telegram' : 'Discord'
+/** "Discord conversation 123" until the picker has said more; a consultation by who asked. */
+function labelOf(channel: string): { platform: 'Discord' | 'Telegram' | 'Consultation'; title: string } {
     const id = channel.split('__')[1] ?? channel
+    if (channel.startsWith('consultation__')) return { platform: 'Consultation', title: `Asked by ${id}` }
+    const platform = channel.startsWith('telegram__') ? 'Telegram' : 'Discord'
     return { platform, title: `${platform === 'Telegram' ? 'Telegram chat' : 'Discord channel'} ${id}` }
 }
 
 /**
  * A Discord or Telegram conversation, opened from the picker: its history, with no composer.
- * The agent answers there, on the platform; this page only lets you read it.
+ * The agent answers there, on the platform; this page only lets you read it. A consultation
+ * another agent sent (spec 064) opens here too, by its topic: only that agent writes in it.
  */
 export default function ChatRead() {
     const { agentId = '' } = useParams()
     const [params] = useSearchParams()
     const channel = params.get('channel') ?? ''
+    // A consultation is one topic of its channel; a platform conversation has none.
+    const topic = params.get('topic') ?? 'DEFAULT'
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
     const agentName = agent?.name ?? agentId
     const { platform, title: fallbackTitle } = labelOf(channel)
@@ -38,7 +42,7 @@ export default function ChatRead() {
             try {
                 let cursor: string | undefined
                 for (let page = 0; page < 20 && live; page++) {
-                    const res = await listConversations(agentId, { channel: platform.toLowerCase() as 'discord' | 'telegram', cursor, limit: 100 })
+                    const res = await listConversations(agentId, { channel: platform.toLowerCase() as 'discord' | 'telegram' | 'consultation', cursor, limit: 100 })
                     const hit = res?.items.find((i) => i.channel === channel)
                     if (hit) return live && setFound(hit)
                     if (!res?.next) return
@@ -56,7 +60,12 @@ export default function ChatRead() {
     const id = channel.split('__')[1] ?? channel
     const named = found && found.title !== fallbackTitle
     const title = found?.title ?? fallbackTitle
-    const meta = [platform.toLowerCase(), named && found.place !== platform ? found.place : undefined, `${platform === 'Discord' ? 'channel' : 'chat'} ${id}`, 'read-only']
+    const consultation = platform === 'Consultation'
+    const meta = (
+        consultation
+            ? ['consultation', found?.place, 'read-only']
+            : [platform.toLowerCase(), named && found.place !== platform ? found.place : undefined, `${platform === 'Discord' ? 'channel' : 'chat'} ${id}`, 'read-only']
+    )
         .filter(Boolean)
         .join(' · ')
 
@@ -70,7 +79,7 @@ export default function ChatRead() {
         setState(emptyTopic())
         setExhausted(false)
         setError(undefined)
-        topicHistory(agentId, 'DEFAULT', { channel, limit: PAGE }).then(
+        topicHistory(agentId, topic, { channel, limit: PAGE }).then(
             (entries) => {
                 if (!live) return
                 setState((s) => reduce(s, { type: 'history', entries: entries ?? [] }))
@@ -81,27 +90,29 @@ export default function ChatRead() {
         return () => {
             live = false
         }
-    }, [agentId, channel])
+    }, [agentId, channel, topic])
 
     const loadOlder = useCallback(async () => {
         const oldest = state.entries[0]
         if (!oldest || loadingOlder) return
         setLoadingOlder(true)
         try {
-            const older = await topicHistory(agentId, 'DEFAULT', { channel, limit: PAGE, before: oldest.timestamp })
+            const older = await topicHistory(agentId, topic, { channel, limit: PAGE, before: oldest.timestamp })
             setState((s) => reduce(s, { type: 'history', entries: older ?? [], position: 'older' }))
             setExhausted((older?.length ?? 0) < PAGE)
         } finally {
             setLoadingOlder(false)
         }
-    }, [agentId, channel, state.entries, loadingOlder])
+    }, [agentId, channel, topic, state.entries, loadingOlder])
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ConversationHeader agentId={agentId} title={title} meta={meta} current={{ channel }} />
             <div className="px-24 pt-12">
                 <Notice tone="info">
-                    This conversation happens on {platform}. You can read it here; to reply, talk to {agentName} there.
+                    {consultation
+                        ? `Another agent consulted ${agentName} here. You can read it; only that agent writes in it.`
+                        : `This conversation happens on ${platform}. You can read it here; to reply, talk to ${agentName} there.`}
                 </Notice>
             </div>
             {error ? (
