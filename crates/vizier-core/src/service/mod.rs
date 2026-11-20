@@ -22,7 +22,6 @@ pub mod api_keys;
 pub mod profile;
 pub mod project_lsp;
 pub mod projects;
-pub mod workspaces;
 pub mod setup;
 pub mod providers;
 pub mod providers_sso;

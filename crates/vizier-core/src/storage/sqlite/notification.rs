@@ -67,8 +67,7 @@ impl NotificationStorage for SqlStorage {
                     |row| row.get(0),
                 )
                 .ok();
-            // A Workspace row belongs to the Workspace, not to an agent (spec 053).
-            if exists.is_none() && !draft.agent_id.starts_with(crate::schema::WORKSPACE_SCOPE_PREFIX) {
+            if exists.is_none() {
                 continue;
             }
             let source_session = draft
@@ -367,49 +366,6 @@ impl NotificationStorage for SqlStorage {
         Ok(deleted)
     }
 
-    async fn workspace_unread(&self, user_id: &str, workspace_ids: &[String]) -> Result<Vec<(String, String, u64)>> {
-        if workspace_ids.is_empty() {
-            return Ok(vec![]);
-        }
-        let sql = format!(
-            "SELECT n.workspace_id, n.href, COUNT(*) FROM notification n \
-             LEFT JOIN notification_read r ON r.notification_id = n.id AND r.user_id = ? \
-             WHERE n.workspace_id IN ({}) AND n.created_at >= ? AND r.notification_id IS NULL \
-               AND (n.author IS NULL OR n.author <> ?) \
-             GROUP BY n.workspace_id, n.href",
-            marks(workspace_ids),
-        );
-        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(user_id.to_string())];
-        params.extend(workspace_ids.iter().map(|w| Box::new(w.clone()) as Box<dyn ToSql>));
-        params.push(Box::new(cutoff()));
-        params.push(Box::new(user_id.to_string()));
-        let conn = self.conn.lock()?;
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
-            .query_map(params_from_iter(params.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-            })?
-            .collect::<sql::Result<Vec<_>>>()?;
-        // The topic is the last segment of the row's link: `/workspaces/{id}/{topic}`.
-        Ok(rows
-            .into_iter()
-            .map(|(workspace, href, n)| (workspace, href.rsplit('/').next().unwrap_or_default().to_string(), n.max(0) as u64))
-            .collect())
-    }
-
-    async fn mark_topic_read(&self, user_id: &str, workspace_id: &str, topic_id: &str, at: Timestamp) -> Result<u64> {
-        let conn = self.conn.lock()?;
-        let inserted = conn.execute(
-            "INSERT INTO notification_read (user_id, notification_id, read_at) \
-             SELECT CAST(?1 AS TEXT), n.id, CAST(?2 AS BIGINT) FROM notification n \
-             WHERE n.workspace_id = ?3 AND n.href = ?4 AND n.created_at >= ?5 \
-               AND (n.author IS NULL OR n.author <> ?1) \
-             ON CONFLICT DO NOTHING",
-            params![user_id, at.timestamp_millis(), workspace_id, format!("/workspaces/{workspace_id}/{topic_id}"), cutoff()],
-        )?;
-        Ok(inserted as u64)
-    }
-
     async fn chat_unread(&self, user_id: &str, agents: &[String]) -> Result<Vec<ChatUnread>> {
         if agents.is_empty() {
             return Ok(vec![]);
@@ -465,18 +421,6 @@ impl NotificationStorage for SqlStorage {
         let conn = self.conn.lock()?;
         let inserted = conn.execute(&sql, params_from_iter(params.iter()))?;
         Ok(inserted as u64)
-    }
-
-    async fn delete_workspace_notifications(&self, workspace_id: &str, topic_id: Option<&str>) -> Result<u64> {
-        let conn = self.conn.lock()?;
-        let deleted = match topic_id {
-            Some(topic) => conn.execute(
-                "DELETE FROM notification WHERE workspace_id = ?1 AND href = ?2",
-                params![workspace_id, format!("/workspaces/{workspace_id}/{topic}")],
-            )?,
-            None => conn.execute("DELETE FROM notification WHERE workspace_id = ?1", params![workspace_id])?,
-        };
-        Ok(deleted as u64)
     }
 
     async fn purge_orphaned_notifications(&self) -> Result<usize> {

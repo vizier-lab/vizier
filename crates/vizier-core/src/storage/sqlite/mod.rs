@@ -28,7 +28,6 @@ mod memory;
 pub(crate) mod memory_revision;
 mod notification;
 mod project;
-pub(crate) mod workspace;
 mod provider;
 mod question;
 mod reaction;
@@ -482,11 +481,6 @@ impl SqlStorage {
         init_custom_tool_schema(conn)?;
         init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
-        workspace::init_workspace_schema(conn)?;
-        // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
-        // rows stay for the timeline's order. Every existing entry was a message, so the default
-        // keeps them as they were read.
-        add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
         init_ownership_schema(conn)?;
 
         Ok(())
@@ -569,6 +563,15 @@ pub fn init_subagent_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_subagent_agent_state ON subagent(agent_id, state);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_worker ON subagent(worker_topic);
         ",
+    )?;
+    // Consultations (`specs/064-consult-agents/data-model.md`): a row with a consultee is a
+    // consultation of another agent. New columns, not compatibility code.
+    add_column_if_missing(conn, "subagent", "consultee_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "principal_user_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "follow_ups", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_subagent_consultee ON subagent(consultee_id) \
+         WHERE consultee_id IS NOT NULL;",
     )?;
     Ok(())
 }

@@ -26,6 +26,7 @@ use crate::{
                 reactions::reaction_digest,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
+                consultation::consultation_md,
                 user::owner_md,
                 worker::{employer_identity_md, served_owner_md, worker_md},
             },
@@ -490,11 +491,25 @@ impl VizierAgent {
             identity: self.identity_block().await,
             project: project.map(project_md),
             documents: self.config.documents.clone(),
+            consulting: self.consulting_agent(session).await,
         };
         system_prompt_layout(parts, session)
             .into_iter()
             .map(Message::system)
             .collect()
+    }
+
+    /// For a consultation (spec 064), the consulting agent's name and id, named by its own
+    /// section of the prompt. An agent deleted meanwhile is named by its id.
+    async fn consulting_agent(&self, session: &VizierSession) -> Option<(String, String)> {
+        let crate::schema::VizierChannelId::Consultation(from) = &session.1 else {
+            return None;
+        };
+        let name = match self.deps.storage.get_agent(from).await {
+            Ok(Some(config)) => config.name,
+            _ => from.clone(),
+        };
+        Some((name, from.clone()))
     }
 
     pub async fn chat(
@@ -603,6 +618,7 @@ impl VizierAgent {
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
         let subagent_depth = req.subagent_depth;
+        let consultation_chain = req.consultation_chain.clone();
         let mut req = req;
 
         // A turn that was running when vizier went down carries on from its last step: the
@@ -757,6 +773,7 @@ impl VizierAgent {
             hooks: hooks.clone(),
             background_depth,
             subagent_depth,
+            consultation_chain,
             deadline: None,
             client: None,
             questions: crate::questions::QuestionsHandle::new(self.deps.questions.clone()),
@@ -935,16 +952,6 @@ impl VizierAgent {
             crate::projects::mentions::section(&ctx, &req.mentions)
         } else {
             None
-        };
-        // The room an agent is woken in is volatile, like a project's state, so it goes in the
-        // per-message block and never the system prompt.
-        let project_state = match (
-            project_state,
-            crate::workspaces::context::section(&self.storage, &session, &req.metadata, &req.user)
-                .await,
-        ) {
-            (Some(project), Some(workspace)) => Some(format!("{project}\n\n{workspace}")),
-            (project, workspace) => project.or(workspace),
         };
         let prompt_result = self
             .prompt_with(
@@ -1939,38 +1946,8 @@ impl VizierAgent {
         session: &VizierSession,
         content: SessionHistoryContent,
     ) -> Option<String> {
-        // A message shown in a Workspace is written to the shared timeline by the save itself;
-        // it is announced, and the agents it names are woken, once it is saved (spec 053).
-        let shown = matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
-            && matches!(
-                content,
-                SessionHistoryContent::AssistantMessage(_) | SessionHistoryContent::Response(_)
-            );
-        let saved = shown.then(|| content.clone());
         match crate::storage::history::save_with_busy_retry(&self.storage, session, content).await {
-            Ok(uid) => {
-                if let Some(content) = saved {
-                    let hub = crate::workspaces::Hub::new(
-                        (*self.storage).clone(),
-                        self.transport.clone(),
-                    );
-                    crate::workspaces::after_save(&hub, &uid).await;
-                    // The saved step carries what the shared entry doesn't (stats, attachments),
-                    // so an open topic has it as a reload would.
-                    self.transport.publish_session_event(crate::transport::SessionEvent {
-                        session: session.clone(),
-                        frame: crate::transport::SessionFrame::HistoryEntry(SessionHistory {
-                            uid: uid.clone(),
-                            vizier_session: session.clone(),
-                            content,
-                            timestamp: crate::time::now(),
-                            reactions: vec![],
-                            seq: None,
-                        }),
-                    });
-                }
-                Some(uid)
-            }
+            Ok(uid) => Some(uid),
             Err(e) => {
                 tracing::error!(
                     agent_id = %session.0,
@@ -2126,6 +2103,7 @@ impl VizierAgent {
                     hooks: hooks.clone(),
                     background_depth: 0,
                     subagent_depth: 0,
+                    consultation_chain: vec![],
                     deadline: None,
                     dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -2842,6 +2820,10 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
             span.record("vizier.channel.id", id.as_str());
             "workspace"
         }
+        VizierChannelId::Consultation(from) => {
+            span.record("vizier.channel.id", from.as_str());
+            "consultation"
+        }
         VizierChannelId::Task(slug, _) => {
             span.record("vizier.task.slug", slug.as_str());
             "task"
@@ -3181,6 +3163,8 @@ struct PromptParts {
     identity: String,
     project: Option<String>,
     documents: Vec<String>,
+    /// A consultation's consulting agent, `(name, id)` (spec 064); `None` otherwise.
+    consulting: Option<(String, String)>,
 }
 
 /// The system messages of a turn, in order. Pure, so both layouts are pinned by tests.
@@ -3199,6 +3183,7 @@ fn system_prompt_layout(parts: PromptParts, session: &VizierSession) -> Vec<Stri
         identity,
         project,
         documents,
+        consulting,
     } = parts;
 
     if matches!(session.1, crate::schema::VizierChannelId::Subagent) {
@@ -3231,6 +3216,13 @@ fn system_prompt_layout(parts: PromptParts, session: &VizierSession) -> Vec<Stri
     if session.is_scheduled_task() {
         res.push(scheduled_run_md());
     }
+    // A consultation (spec 064 D6): the consulted agent keeps its own layout, told last who is
+    // asking, so its cacheable prefix matches its other turns.
+    if let (crate::schema::VizierChannelId::Consultation(_), Some((name, id))) =
+        (&session.1, consulting)
+    {
+        res.push(consultation_md(&name, &id));
+    }
     res
 }
 
@@ -3249,6 +3241,7 @@ mod system_prompt_layout_tests {
             identity: "IDENTITY".into(),
             project: Some("PROJECT".into()),
             documents: vec!["DOC".into()],
+            consulting: None,
         }
     }
 
@@ -3273,6 +3266,17 @@ mod system_prompt_layout_tests {
         assert!(got[3].starts_with("## The agent you work for") && got[3].ends_with("IDENTITY"));
         assert_eq!(&got[4..], &["PROJECT", "DOC"]);
         assert!(!got.iter().any(|m| m == "PERSONA" || m.contains("BOOT.md")), "no persona, no conversational doctrine");
+    }
+
+    #[test]
+    fn a_consulted_agent_keeps_its_own_layout_and_is_told_last_who_asks() {
+        let mut p = parts();
+        p.consulting = Some(("Support".into(), "support".into()));
+        let got = system_prompt_layout(p, &session(VizierChannelId::Consultation("support".into())));
+        assert!(got[0].starts_with("# BOOT.md"), "its own doctrine, not a worker's");
+        assert_eq!(&got[1..7], &["SANDBOX", "PERSONA", "OWNER", "IDENTITY", "PROJECT", "DOC"]);
+        assert_eq!(got.len(), 8);
+        assert!(got[7].starts_with("# CONSULTATION") && got[7].contains("Support (support)"));
     }
 
     #[test]

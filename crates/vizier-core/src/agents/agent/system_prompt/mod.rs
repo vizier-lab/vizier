@@ -1,4 +1,5 @@
 pub mod boot;
+pub mod consultation;
 pub mod context;
 pub mod identity;
 pub mod project;

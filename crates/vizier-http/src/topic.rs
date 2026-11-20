@@ -38,6 +38,8 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.timestamp = vizier_core::time::now();
     // Only a running turn's round boundary marks a message as read mid-turn (spec 062 R5).
     request.mid_turn = false;
+    // Only a consultation request carries a chain of consulting agents (spec 064 D8).
+    request.consultation_chain.clear();
 }
 
 #[cfg(test)]

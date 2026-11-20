@@ -93,6 +93,8 @@ pub mod catalogue;
 #[doc(hidden)]
 pub mod channels;
 #[doc(hidden)]
+pub mod consultations;
+#[doc(hidden)]
 pub mod custom_tools;
 #[doc(hidden)]
 pub mod dependencies;
@@ -103,7 +105,6 @@ pub mod llm;
 pub(crate) mod notifications;
 #[doc(hidden)]
 pub mod projects;
-pub mod workspaces;
 pub(crate) mod provider_keys;
 pub(crate) mod provider_migration;
 #[doc(hidden)]
