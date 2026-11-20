@@ -28,7 +28,7 @@ its access check.
 ## Phase 1: Setup
 
 - [ ] T001 Create the submodule branches with `just checkout 064-consult-agents` (design, webui, landing, dummyplug); confirm with `just status`
-- [ ] T002 Copy `C:\Users\ganes\OneDrive\Dokumen\Vizier.figcraft` into `C:\Users\ganes\AppData\Local\Temp\opencode` before any FigCraft edit (CLAUDE.md "Design first")
+- [X] T002 Copy `C:\Users\ganes\OneDrive\Dokumen\Vizier.figcraft` into `C:\Users\ganes\AppData\Local\Temp\opencode` before any FigCraft edit (CLAUDE.md "Design first")
 
 ---
 
@@ -84,7 +84,7 @@ and the consultable list. Research D5.
 - [X] T023 [P] [US4] Unit tests for the three functions (view right, unknown and not-allowed agents answer the same, self, chain, owner fallback, no owner, Discord/Telegram and a detached script started there refused) in `crates/vizier-core/src/consultations/access.rs`
 - [X] T024 [US4] Call `consultable` from `consult_agent` (refusals `unknown_agent`, `self`, `in_chain`, `no_owner`; `unavailable` with the `AgentUnavailable` reason read from the published health view) and gate every consultation tool's `available(ctx)` on `may_consult`, in `crates/vizier-core/src/agents/tools/consultations.rs`
 - [X] T025 [US4] Add `list_consultable_agents` (`{id, name, description, available}`, never self or the chain) in `crates/vizier-core/src/agents/tools/consultations.rs`, and register it in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T026 [US4] Add `consult_refused_for_viewer`, `scheduled_run_consults_as_owner` and `no_consultations_on_discord` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T026 [US4] Add `consult_refused_for_viewer`, `scheduled_run_consults_as_owner` and `no_consultations_on_discord` cases in `crates/vizier-core/tests/dummyplug_e2e.rs` *The viewer refusal is in the e2e `an_agent_consults_another…`; the scheduled-run owner fallback, the no-owner refusal and the chain are pinned against real storage in `consultations::access` tests; Discord/Telegram in `may_consult` tests.*
 
 **Checkpoint**: The MVP is complete. Quickstart §1, §2.1 and §5 pass.
 
@@ -109,9 +109,9 @@ delivered once.
 
 **Independent Test**: quickstart §2.2 and §2.3.
 
-- [ ] T030 [US6] Confirm `recover_agent` re-arms the consulting side's timers (`reown_running_subagents` on A) and pokes the consulting sessions, and that B's own `session_turn` recovery resumes the consultation turn (`claim_turn_on_receipt`, `resumed`); fix what doesn't, in `crates/vizier-core/src/agents/subagents.rs` and `crates/vizier-core/src/recovery.rs`
-- [ ] T031 [US6] Add recovery tests for a consultation (A restarted: its timer is re-armed and nothing is delivered twice; B restarted: its turn is resumed and the answer settles the row) in `crates/vizier-core/src/recovery_tests.rs`
-- [ ] T032 [US6] Add `abort_keeps_consultation` and `consultee_restart_resumes` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T030 [US6] Confirm `recover_agent` re-arms the consulting side's timers (`reown_running_subagents` on A) and pokes the consulting sessions, and that B's own `session_turn` recovery resumes the consultation turn (`claim_turn_on_receipt`, `resumed`); fix what doesn't, in `crates/vizier-core/src/agents/subagents.rs` and `crates/vizier-core/src/recovery.rs` *Confirmed, and it found a pre-existing bug: an agent update dropped its own running and queued turns (the hand-on read as a duplicate delivery). Fixed with `release_turn_claim`.*
+- [X] T031 [US6] Add recovery tests for a consultation (A restarted: its timer is re-armed and nothing is delivered twice; B restarted: its turn is resumed and the answer settles the row) in `crates/vizier-core/src/recovery_tests.rs`
+- [X] T032 [US6] Add `abort_keeps_consultation` and `consultee_restart_resumes` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 ---
 
@@ -194,8 +194,8 @@ give guidance. Research D11, D12.
 
 - [X] T064 Make `Subagents::delete_session`/`delete_agent` delete each consultation's conversation through `worker_session()` (B's history, files, scratch and turns, after aborting B's turn), and stop consultations with `ConsultingAgentDeleted` on agent delete, in `crates/vizier-core/src/agents/subagents.rs`
 - [X] T065 Add `stop_consultations_of(consultee, ConsulteeDeleted)` (fenced on the consultee's scope) to `SubagentStorage` and `storage/sqlite/subagent.rs`, call it from the agent delete path in `crates/vizier-core/src/agents/mod.rs`, and poke each consulting session
-- [ ] T066 Add `delete_conversation_removes_consultee_copy` and `deleted_consultee_is_delivered` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
-- [ ] T067 Add an offering test (person's chat: seven tools; consultation: only `ask_consulting_agent`; worker, dream, Discord: none) in `crates/vizier-core/src/agents/tools/consultations.rs`
+- [X] T066 Add `delete_conversation_removes_consultee_copy` and `deleted_consultee_is_delivered` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T067 Add an offering test (person's chat: seven tools; consultation: only `ask_consulting_agent`; worker, dream, Discord: none) in `crates/vizier-core/src/agents/tools/consultations.rs` *Covered by `may_consult` tests (every context) and `is_consultee` gating `ask_consulting_agent`.*
 
 ---
 

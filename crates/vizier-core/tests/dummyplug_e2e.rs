@@ -2181,3 +2181,98 @@ async fn a_consultation_asks_back_follows_up_stops_and_outlives_its_consultee_on
 
     runtime.shutdown().await.unwrap();
 }
+
+/// Quickstart §2.2 and §2.3 (spec 064 US6): aborting the asking turn does not stop its
+/// consultation, and a consulted agent restarted mid-work resumes it; the answer arrives once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consultation_outlives_an_abort_and_a_consultee_restart() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("survive");
+    let id = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("survived", 3_000) }]
+    })).await);
+    // The person aborts the conversation's turn: only the asking agent's turn stops.
+    let abort = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        user: "e2e".into(),
+        content: VizierRequestContent::Command("abort".into()),
+        metadata: serde_json::json!({}),
+        ..Default::default()
+    };
+    runtime.transport().send_request(session.clone(), abort, None).await.unwrap();
+    // And the consulted agent is restarted while it works.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut config = agent_config("beta");
+    config.owner_id = runtime.deps().storage.get_user("e2e").await.unwrap().map(|u| u.user_id);
+    config.description = Some("restarted".into());
+    let (resp, updated) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Update { agent_id: "beta".into(), config, resp })
+        .await
+        .unwrap();
+    assert!(matches!(tokio::time::timeout(TURN_TIMEOUT, updated).await.unwrap().unwrap(), AgentCommandResult::Ok(_)));
+
+    eventually(45, || async { !consultation_deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let delivered = consultation_deliveries(&history_of(&runtime, &session).await);
+    assert!(delivered[0].contains(&id) && delivered[0].contains("survived"), "{delivered:?}");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(consultation_deliveries(&history_of(&runtime, &session).await).len(), 1, "once");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart §7.1 (spec 064 FR-022): deleting the asking conversation removes its
+/// consultations and the consulted agent's copy of each.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_the_asking_conversation_removes_the_consultees_copy() {
+    use vizier_core::storage::subagent::SubagentStorage;
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("gone");
+    let code = format!(
+        "r = consult_agent(consultations=[{{'agent': 'beta', 'request': {request:?}}}])
+wait_consultations(ids=[x['id'] for x in r['consultations']])",
+        request = answer_with("kept?", 0)
+    );
+    chat(runtime.transport(), &session, &run_python(&code, false, None)).await;
+    let row = runtime.deps().storage.list_subagents(&session, 50).await.unwrap().remove(0);
+    let theirs = row.worker_session();
+    assert!(!history_of(&runtime, &theirs).await.is_empty());
+
+    let workers = runtime.deps().subagents.delete_session(&session).await;
+    vizier_core::agents::subagents::delete_worker_conversations(&runtime.deps().session_files, workers).await;
+
+    assert!(runtime.deps().storage.get_subagent(&row.id).await.unwrap().is_none());
+    assert!(history_of(&runtime, &theirs).await.is_empty(), "the consultee's copy goes too");
+    runtime.shutdown().await.unwrap();
+}
+
+/// A worker's turn survives its agent being updated (spec 059 FR-017a). Found by spec 064: the
+/// next instance took the handed-on turn for a duplicate delivery and dropped it, because the row
+/// already carried the process's fence; `hand_on_queued` now releases the claim first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_turn_survives_its_agent_being_updated() {
+    use vizier_core::storage::subagent::SubagentStorage;
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("probe");
+    let out = call_tool(&runtime, &session, "spawn_subagents", serde_json::json!({
+        "tasks": [{ "task": answer_with("worker survived", 3_000) }]
+    })).await;
+    let start = out.find("\"s_").unwrap() + 1;
+    let id = out[start..start + 10].to_string();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut config = agent_config("plug");
+    config.description = Some("restarted".into());
+    let (resp, updated) = tokio::sync::oneshot::channel();
+    runtime.transport().send_agent_command(AgentCommand::Update { agent_id: "plug".into(), config, resp }).await.unwrap();
+    tokio::time::timeout(TURN_TIMEOUT, updated).await.unwrap().unwrap();
+    for _ in 0..20 {
+        let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+        if row.state != vizier_core::schema::SubagentState::Running { break }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+    assert_eq!(row.state, vizier_core::schema::SubagentState::Answered);
+    assert_eq!(row.result.as_deref(), Some("worker survived"));
+    runtime.shutdown().await.unwrap();
+}

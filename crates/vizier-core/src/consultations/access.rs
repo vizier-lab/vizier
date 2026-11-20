@@ -238,6 +238,84 @@ mod tests {
         assert!(!may_consult(&ctx(VizierChannelId::TelegramChannel(-1), vec![], 0), 1));
     }
 
+    /// An agent `owner` owns (or nobody, with `None`), on the offline provider.
+    fn agent(name: &str, owner: Option<&str>) -> AgentConfig {
+        let mut config: AgentConfig = serde_json::from_value(serde_json::json!({
+            "name": name,
+            "provider": "dummyplug",
+            "model": "dummyplug",
+            "thinking_depth": 1,
+            "tools": { "timeout": "30s" },
+            "silent_read_initiative_chance": 0.0,
+            "prompt_timeout": "30s",
+            "heartbeat_interval": "60s",
+        }))
+        .unwrap();
+        config.owner_id = owner.map(str::to_string);
+        config
+    }
+
+    /// FR-010, FR-011, FR-013 against real storage: whose access decides in each kind of turn,
+    /// and which agents that person may consult.
+    #[tokio::test]
+    async fn the_person_decides_and_the_owner_stands_in_for_a_scheduled_run() {
+        use crate::storage::{agent::AgentStorage, subagent::SubagentStorage, user::UserStorage};
+        let dir = tempfile::tempdir().unwrap();
+        let deps = crate::dependencies::VizierDependencies::new(crate::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let storage = &deps.storage;
+        let plain = storage.create_role("plain", vec![], false).await.unwrap();
+        let owner = storage.create_user("owner", "", &plain.role_id).await.unwrap();
+        let viewer = storage.create_user("viewer", "", &plain.role_id).await.unwrap();
+        storage.create_agent("alpha", &agent("Alpha", Some(&owner.user_id))).await.unwrap();
+        storage.create_agent("beta", &agent("Beta", Some(&owner.user_id))).await.unwrap();
+        storage.create_agent("orphan", &agent("Orphan", None)).await.unwrap();
+        let mut shared = agent("Gamma", Some(&owner.user_id));
+        shared.shared_to = vec![viewer.user_id.clone()];
+        storage.create_agent("gamma", &shared).await.unwrap();
+
+        // A person's chat: that person's view right.
+        let chat = ctx(VizierChannelId::HTTP("viewer".into(), "c".into()), vec![], 0);
+        let who = consulter(storage, &chat).await.unwrap().unwrap();
+        assert_eq!(who.principal.user_id, viewer.user_id);
+        assert_eq!(who.on_behalf(&chat).display.as_deref(), Some("viewer"));
+        assert_eq!(consultable(storage, &chat, &who, "beta").await.unwrap().unwrap_err(), Refusal::UnknownAgent("beta".into()));
+        assert!(consultable(storage, &chat, &who, "gamma").await.unwrap().is_ok());
+        let listed: Vec<String> = consultable_agents(storage, &chat, &who).await.unwrap().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(listed, vec!["gamma".to_string()]);
+
+        // A scheduled run: the consulting agent's owner, and no person named to the consultee.
+        let run = ctx(VizierChannelId::Task("brief".into(), crate::time::now()), vec![], 0);
+        let who = consulter(storage, &run).await.unwrap().unwrap();
+        assert_eq!(who.principal.user_id, owner.user_id);
+        assert_eq!(who.on_behalf(&run).display, None);
+        assert!(consultable(storage, &run, &who, "beta").await.unwrap().is_ok());
+        assert_eq!(consultable(storage, &run, &who, "alpha").await.unwrap().unwrap_err(), Refusal::SelfConsult);
+
+        // An agent with no owner, outside a person's chat, has no one to consult for.
+        let mut orphan = run.clone();
+        orphan.session.0 = "orphan".into();
+        assert_eq!(consulter(storage, &orphan).await.unwrap().unwrap_err(), Refusal::NoOwner);
+
+        // A consultation consulting further (with a raised depth) keeps the first one's person.
+        let mut row = crate::schema::subagent::tests_support::row(crate::schema::SubagentState::Running);
+        row.id = "c_1".into();
+        row.agent_id = "alpha".into();
+        row.consultee_id = Some("beta".into());
+        row.principal_user_id = Some(viewer.user_id.clone());
+        row.worker_topic = "consulted".into();
+        storage.open_subagents(vec![row]).await.unwrap();
+        let mut inner = ctx(VizierChannelId::Consultation("alpha".into()), vec!["alpha"], 0);
+        inner.session = crate::schema::VizierSession("beta".into(), VizierChannelId::Consultation("alpha".into()), Some("consulted".into()));
+        let who = consulter(storage, &inner).await.unwrap().unwrap();
+        assert_eq!(who.principal.user_id, viewer.user_id);
+        assert_eq!(consultable(storage, &inner, &who, "alpha").await.unwrap().unwrap_err(), Refusal::InChain("alpha".into()));
+    }
+
     #[test]
     fn unknown_and_not_allowed_read_the_same() {
         let a = Refusal::UnknownAgent("beta".into()).to_json();
