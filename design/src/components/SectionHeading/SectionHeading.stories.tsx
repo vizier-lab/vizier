@@ -29,9 +29,6 @@ export const PhoneHome: Story = {
         <AgentRow agentId="Scout" name="Scout" state="live" href="#" className="rounded-lg" />
         <AgentRow agentId="Quill" name="Quill" state="stopped" href="#" className="rounded-lg" />
       </section>
-      <section className="flex flex-col gap-4">
-        <SectionHeading label="Workspaces" onAdd={() => {}} addLabel="New workspace" />
-      </section>
     </div>
   ),
 };

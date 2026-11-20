@@ -10,10 +10,17 @@ export type SubagentWorkerProps = {
   task: string;
   /** Its place in the spawn that hired it: 2 for "2 · …". */
   position: number;
+  /**
+   * A consultation's consulted agent (spec 064): its sigil and name, which title the row in place
+   * of "position · task" (the request is under TASK when expanded). Left out for a worker.
+   */
+  agent?: ReactNode;
+  /** A consultation's follow-ups after an answer: "· 2 follow-ups" beside the handle. */
+  followUps?: number;
   /** The handle, "s_k3x9a1b2". */
   handle: string;
   state: SubagentWorkerState;
-  /** The main agent's name, for "Waiting for Archivist". */
+  /** The main (consulting) agent's name, for "Waiting for Archivist". */
   agentName: string;
   /** "1:12". */
   elapsed?: ReactNode;
@@ -68,6 +75,8 @@ function defaultSummary(p: Pick<SubagentWorkerProps, "state" | "agentName" | "qu
 export function SubagentWorker({
   task,
   position,
+  agent,
+  followUps,
   handle,
   state,
   agentName,
@@ -113,11 +122,17 @@ export function SubagentWorker({
               state === "running" ? "bg-live" : asking ? "bg-retrying" : failed ? "bg-failed" : "bg-faint",
             )}
           />
-          <span className="min-w-0 flex-1 truncate type-ui text-fg">
-            {position} · {task}
-          </span>
+          {agent ? (
+            // A consultation is titled by the agent consulted; its request is under TASK.
+            <span className="flex min-w-0 flex-1 items-center gap-6 truncate type-ui-medium text-fg">{agent}</span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate type-ui text-fg">
+              {position} · {task}
+            </span>
+          )}
           <span className="shrink-0 type-mono-sm text-faint">
             {handle}
+            {followUps ? <> · {followUps} follow-up{followUps === 1 ? "" : "s"}</> : null}
             {elapsed != null && <> · {elapsed}</>}
           </span>
           <Icon name={expanded ? "chevron-down" : "chevron-right"} size={14} className="shrink-0 text-soft" />

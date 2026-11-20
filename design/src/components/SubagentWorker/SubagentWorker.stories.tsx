@@ -4,6 +4,7 @@ import { SubagentWorker, type SubagentWorkerState } from "./SubagentWorker";
 import { ActivityTrail } from "../ActivityTrail/ActivityTrail";
 import { TrailCall } from "../TrailCall/TrailCall";
 import { Eyebrow } from "../Eyebrow/Eyebrow";
+import { Sigil } from "../../brand/Sigil/Sigil";
 
 const meta = {
   title: "Components/Chat/SubagentWorker",
@@ -110,4 +111,46 @@ export const Group: Story = {
       ))}
     </div>
   ),
+};
+
+/**
+ * A consultation (spec 064, "Consultations · open" in Vizier Chat Panel): the consulted agent's
+ * sigil and name come before the request; asking reads as waiting for the consulting agent.
+ */
+export const Consultation: Story = {
+  args: {
+    agent: (
+      <>
+        <Sigil agentId="researcher" size="sm" />
+        researcher
+      </>
+    ),
+    task: "Find last week's incident reports",
+    position: 1,
+    handle: "c_8k2m1x0q",
+    state: "asking",
+    agentName: "talos",
+    elapsed: "1:12",
+    question: "Which region — eu-west or us-east?",
+  },
+};
+
+/** A consultation that answered after a follow-up. */
+export const ConsultationAnswered: Story = {
+  args: {
+    agent: (
+      <>
+        <Sigil agentId="billing" size="sm" />
+        billing
+      </>
+    ),
+    task: "What did we invoice Acme in October?",
+    position: 2,
+    handle: "c_4n9p2a7r",
+    state: "answered",
+    agentName: "talos",
+    elapsed: "0:38",
+    followUps: 1,
+    handedOver: true,
+  },
 };

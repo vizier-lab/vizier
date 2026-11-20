@@ -51,6 +51,7 @@ import {
   Maximize,
   Menu,
   MessageSquare,
+  MessagesSquare,
   MessageSquarePlus,
   Mic,
   Moon,
@@ -178,6 +179,7 @@ export const icons = {
   "usage": TrendingUp,
   "user": User,
   "users": Users,
+  "consult": MessagesSquare,
   // Glyphs drawn only on screens (I2)
   "globe": Globe,
   "square-terminal": SquareTerminal,
@@ -299,6 +301,7 @@ export const lucideNames: Record<IconName, string> = {
   "usage": "trending-up",
   "user": "user",
   "users": "users",
+  "consult": "messages-square",
   "globe": "globe",
   "square-terminal": "square-terminal",
   "folder": "folder",

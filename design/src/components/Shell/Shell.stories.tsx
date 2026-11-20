@@ -91,25 +91,15 @@ function ProjectsAboveSessions() {
   );
 }
 
-function Demo({ view, projects = false, startCollapsed = false, workspaces = false }: { view: "home" | "agent" | "settings"; projects?: boolean; startCollapsed?: boolean; workspaces?: boolean }) {
+function Demo({ view, projects = false, startCollapsed = false }: { view: "home" | "agent" | "settings"; projects?: boolean; startCollapsed?: boolean }) {
   const [collapsed, setCollapsed] = useState(startCollapsed);
   const rail = (
     <Rail
       homeHref="#home"
       homeActive={view === "home"}
-      workspaces={
-        workspaces
-          ? [
-              { id: "ops", name: "ops", initials: "OP", href: "#ops", unread: 3, working: true },
-              { id: "design-review", name: "design-review", initials: "DR", href: "#design-review" },
-              { id: "billing", name: "billing", initials: "BI", href: "#billing", unread: 120 },
-            ]
-          : undefined
-      }
-      activeWorkspaceId={workspaces ? "ops" : undefined}
       agents={[...AGENTS]}
       activeAgentId={view === "agent" ? "archivist" : undefined}
-      {...(workspaces ? { onCreate: () => {}, createLabel: "Create new" } : { addHref: "#new" })}
+      addHref="#new"
       settingsHref="#settings"
       settingsActive={view === "settings"}
       onToggleTheme={() => {}}
@@ -145,8 +135,6 @@ function Demo({ view, projects = false, startCollapsed = false, workspaces = fal
   );
 }
 
-/** Home, a tile for each Workspace with its own separator, the agents, and the one "+" that asks which to make. */
-export const WithWorkspaces: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" workspaces /> };
 export const Home: Story = { args: { rail: null, children: null }, render: () => <Demo view="home" /> };
 export const AgentPage: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" /> };
 export const AgentPageCollapsed: Story = { args: { rail: null, children: null }, render: () => <Demo view="agent" startCollapsed /> };

@@ -3,7 +3,8 @@ import { Icon } from "../../icons/Icon";
 import { ListItem, type ListItemProps } from "../ListItem/ListItem";
 import { HighlightMatch } from "../Picker/Picker";
 
-export type ConversationKind = "webui" | "discord" | "telegram";
+/** `consultation`: another agent consulted this one (vizier spec 064); read-only. */
+export type ConversationKind = "webui" | "discord" | "telegram" | "consultation";
 
 export type ConversationRowProps = {
   kind: ConversationKind;
@@ -18,8 +19,8 @@ export type ConversationRowProps = {
   time: ReactNode;
 } & Omit<ListItemProps, "title" | "subtitle" | "meta" | "leading" | "trailing">;
 
-const ICON = { webui: "chat", discord: "channels", telegram: "paper-plane" } as const;
-const KIND = { webui: "WebUI", discord: "Discord", telegram: "Telegram" } as const;
+const ICON = { webui: "chat", discord: "channels", telegram: "paper-plane", consultation: "consult" } as const;
+const KIND = { webui: "WebUI", discord: "Discord", telegram: "Telegram", consultation: "Consultation" } as const;
 
 /** A conversation in the conversation picker (X80): where it is, what it is called, and when it last moved. Built on ListItem. */
 export function ConversationRow({ kind, title, query = "", place, live, time, shape = "bare", className, ...rest }: ConversationRowProps) {
