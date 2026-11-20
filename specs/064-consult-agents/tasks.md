@@ -27,7 +27,7 @@ its access check.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the submodule branches with `just checkout 064-consult-agents` (design, webui, landing, dummyplug); confirm with `just status`
+- [X] T001 Create the submodule branches with `just checkout 064-consult-agents` (design, webui, landing, dummyplug); confirm with `just status` *(Done for design and webui only, with git directly: `just checkout` also runs `git submodule update --init`, which would have reset the locally modified dummyplug and landing checkouts. Neither needed changes.)*
 - [X] T002 Copy `C:\Users\ganes\OneDrive\Dokumen\Vizier.figcraft` into `C:\Users\ganes\AppData\Local\Temp\opencode` before any FigCraft edit (CLAUDE.md "Design first")
 
 ---
@@ -205,10 +205,10 @@ give guidance. Research D11, D12.
 - [X] T069 [P] Write `scripts/consultations-e2e.mjs` from quickstart §1–§9 (two dummyplug agents) and delete `scripts/workspace-e2e.mjs`
 - [X] T070 [P] Update the operating doctrine in BOOT (`templates/` or the boot module) to explain subagents and consultations, and when to choose each (FR-026)
 - [X] T071 Update `CLAUDE.md`: replace the Workspaces section with a Consultations one, note `Consultation` in the channel list, set the category count to 24, list the retired names, and mention `consultations.max_depth`
-- [ ] T072 Add #82 checklist entries on GitHub for `migration.drop_workspaces_v1` and its cleanup, the kept `VizierChannelId::Workspace` variant (and the `ToolCategory` legacy entry if kept), and the five retired names
-- [ ] T073 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and in `webui/` `npm run typecheck` and `npx vitest run` (no `cargo fmt`: the workspace isn't rustfmt-clean)
-- [ ] T074 Run the whole of `quickstart.md` against `just run` with dummyplug agents, then `node scripts/consultations-e2e.mjs`; record anything that differs
-- [ ] T075 Commit across repos with `just commit` in the order design → webui → vizier, with conventional messages (`feat!:` for the Workspace removal)
+- [X] T072 Add #82 checklist entries on GitHub for `migration.drop_workspaces_v1` and its cleanup, the kept `VizierChannelId::Workspace` variant (and the `ToolCategory` legacy entry if kept), and the five retired names
+- [X] T073 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and in `webui/` `npm run typecheck` and `npx vitest run` (no `cargo fmt`: the workspace isn't rustfmt-clean) *(Run per crate on Windows: vizier-core 2,065 pass with 2 Windows path-separator failures that predate this branch; all 30 dummyplug e2e pass; vizier-http, vizier-schema, vizier-fleet pass; the desktop app checks. Clippy finds nothing new in this branch's code. `--no-default-features` fails to compile `dummyplug_e2e` on `kinds::office`, also on master since #206. The `vizier` binary cannot build on Windows (`daemonize`). webui: typecheck clean, 1,173 tests pass.)*
+- [ ] T074 Run the whole of `quickstart.md` against `just run` with dummyplug agents, then `node scripts/consultations-e2e.mjs`; record anything that differs *(Not run: the server binary does not build on Windows. The scenarios are covered by `tests/dummyplug_e2e.rs`; the script is syntax-checked only. Run it on Linux/macOS or CI.)*
+- [X] T075 Commit across repos with `just commit` in the order design → webui → vizier, with conventional messages (`feat!:` for the Workspace removal) *(Committed per repo with git, design → webui → vizier pins, `feat!:` on both Workspace removals; nothing pushed.)*
 
 ---
 
