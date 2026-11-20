@@ -43,7 +43,7 @@ invoke_agent otel                         ← the turn
 
 A worker's turn carries `vizier.subagent.id` and `vizier.subagent.position`. Its turn after a reply (`reply_subagent`) continues the replying call's trace.
 
-An agent woken by a mention in a Workspace starts a new trace of its own, because it is a turn of its own; filter on the Workspace's conversation id to follow a chain.
+A consultation (spec 064) runs inside the asking agent's trace: its `invoke_agent` span is a child of the `execute_tool consult_agent` call that started it.
 
 A message from a person (WebUI, Discord, Telegram), a scheduled task run and a dream cycle each start a **new trace**. To see a whole conversation, filter on its `gen_ai.conversation.id` (below).
 

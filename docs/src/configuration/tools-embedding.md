@@ -11,8 +11,7 @@ Every agent gets these regardless of configuration:
 | `think` | Scratchpad for reasoning |
 | `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
 | `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
-| `mention_agent` | Inside a Workspace: wake other member agents by mentioning them. See [Workspaces](./workspaces.md) |
-| `send_message_to_workspace`, `list_workspaces`, `read_workspace_messages` | Reach a Workspace you are a member of from any conversation, including a scheduled task |
+| `consult_agent`, `wait_consultations`, `reply_consultation`, … | Consult another agent the person may use, and get its answer back. See [Consultations](./consultations.md) |
 | `spawn_subagents`, `wait_subagents`, `reply_subagent`, `stop_subagent`, `list_subagents`, `get_subagent` | Subagents — hire temporary workers, wait for them, answer their questions, stop them. Main agent only by default. See [Agents](./agents.md#subagents) |
 | `ask_main_agent` | Offered only to a worker: ask the agent it works for one question; ends the worker's step |
 | `list_detached_scripts`, `get_detached_script`, `cancel_detached_script` | The agent's background work: scripts run with `execute_python` `detached: true`. See [Agents](./agents.md#background-work) |
@@ -50,7 +49,7 @@ A long conversation keeps every tool output in what the model is sent, round aft
 - **Only the model's view changes.** History, the WebUI trail, notifications and usage keep every output whole.
 - **Never pruned:** outputs under 2 KB, failed scripts, the newest round's outputs, an output that ended the turn, images, and the tool calls themselves (so the script that produced an output stays visible).
 - **Rare, and one-way.** A pruned output stays pruned, and pruning happens in large steps, so the prompt the model's provider caches changes only when a prune happens.
-- **Everywhere the turn loop runs:** chats, project chats, channels, Workspaces, scheduled tasks, side chats and subagent workers. Compaction summarises the pruned view. The dream cycle is not pruned.
+- **Everywhere the turn loop runs:** chats, project chats, channels, consultations, scheduled tasks, side chats and subagent workers. Compaction summarises the pruned view. The dream cycle is not pruned.
 
 `recall_history(id)`, in the `history` category, reads an output back by the id in its placeholder: `{status: "found", id, output}`, with the output exactly as stored (a script report comes back as a dict), or `{status: "not_found", id}` for an id that is not one of this conversation's outputs. It has no size limit yet. A script can recall several outputs, keep only the part it needs and return that. The dream cycle does not get it.
 
