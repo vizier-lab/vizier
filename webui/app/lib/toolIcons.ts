@@ -57,7 +57,7 @@ const BUILTIN: Record<BuiltinCategory, Described> = {
     secrets: { label: 'Secrets', icon: 'key', phrase: 'used a secret' },
     questions: { label: 'Questions', icon: 'question', phrase: 'asked a question' },
     time: { label: 'Time', icon: 'clock', phrase: 'checked the time' },
-    workspaces: { label: 'Workspaces', icon: 'briefcase', phrase: 'used a workspace' },
+    consultations: { label: 'Consultations', icon: 'agent', phrase: 'consulted another agent' },
     subagents: { label: 'Subagents', icon: 'agent', phrase: 'worked with subagents' },
     history: { label: 'Earlier output', icon: 'history', phrase: 'recalled earlier output' },
     custom_tools: { label: 'Managing functions', icon: 'functions', phrase: 'managed its functions' },

@@ -28,11 +28,11 @@ export type BuiltinCategory =
     | 'secrets'
     | 'questions'
     | 'time'
-    | 'workspaces'
     | 'subagents'
     | 'history'
     | 'custom_tools'
     | 'ui'
+    | 'consultations'
     // Not a `ToolCategory`: the sandbox's own lookups and the dream journal.
     | 'lookup'
     | 'dreams'
@@ -55,10 +55,14 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     delete_task: 'scheduling',
     list_task_runs: 'scheduling',
     get_task_run_detail: 'scheduling',
-    mention_agent: 'workspaces',
-    send_message_to_workspace: 'workspaces',
-    list_workspaces: 'workspaces',
-    read_workspace_messages: 'workspaces',
+    consult_agent: 'consultations',
+    wait_consultations: 'consultations',
+    reply_consultation: 'consultations',
+    stop_consultation: 'consultations',
+    list_consultations: 'consultations',
+    get_consultation: 'consultations',
+    list_consultable_agents: 'consultations',
+    ask_consulting_agent: 'consultations',
     spawn_subagents: 'subagents',
     wait_subagents: 'subagents',
     reply_subagent: 'subagents',

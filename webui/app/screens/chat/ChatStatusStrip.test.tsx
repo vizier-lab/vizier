@@ -124,6 +124,23 @@ describe('the subagents item', () => {
   })
 })
 
+describe('the consultations item', () => {
+  const consultation = (id: string, state: SubagentSnapshot['state']): SubagentSnapshot => ({
+    ...worker(id, state),
+    consultee: 'researcher',
+  })
+
+  it('counts consultations apart from workers, and says when one is asking', () => {
+    const html = draw([], [], [worker('s_1', 'running'), consultation('c_1', 'asking'), consultation('c_2', 'answered')])
+    expect(html).toContain('aria-label="1 subagents at work"')
+    expect(html).toContain('aria-label="1 consultations open, one is asking"')
+  })
+
+  it('shows zero with no consultations', () => {
+    expect(draw([], [], [worker('s_1', 'running')])).toContain('aria-label="0 consultations open"')
+  })
+})
+
 describe('the language-server item', () => {
   const server = (state: 'ready' | 'starting' | 'missing' | 'failed', language = 'rust') => ({
     language,

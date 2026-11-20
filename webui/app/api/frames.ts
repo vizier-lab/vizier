@@ -67,7 +67,7 @@ export interface DetachedScriptDetail extends DetachedScriptSnapshot {
 
 export type SubagentState = 'running' | 'asking' | 'answered' | 'failed' | 'timed_out' | 'stopped'
 
-export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted'
+export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted' | 'consultee_deleted'
 
 /** The list route's rows and the `subagent` frame. The detail route sends the same shape, uncut. */
 export interface SubagentSnapshot {
@@ -92,6 +92,10 @@ export interface SubagentSnapshot {
   /** The main agent has the newest outcome. */
   handed_over: boolean
   updated_at: string
+  /** A consultation's consulted agent (spec 064); absent for a temporary worker. */
+  consultee?: string
+  /** Follow-ups sent to a consultation after an answer; absent when none. */
+  follow_ups?: number
 }
 
 /** A pre-058 background report, kept so old conversations still draw (#82). */

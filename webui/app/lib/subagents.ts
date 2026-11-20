@@ -82,26 +82,35 @@ export function workerElapsed(w: Pick<SubagentSnapshot, 'started_at' | 'ended_at
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** A group's heading: "3 workers · hired 1:12 ago", led by "from d_…" when a script hired them. */
-export function groupHeading(g: WorkerGroup, now: number): string {
-    const parts = [
-        g.script ? `from ${g.script}` : null,
-        `${g.size} worker${g.size === 1 ? '' : 's'}`,
-        `hired ${workerElapsed({ started_at: g.startedAt, ended_at: null }, now)} ago`,
-    ]
+/** A consultation of another agent (spec 064), not a temporary worker. */
+export const isConsultation = (w: Pick<SubagentSnapshot, 'consultee'>) => !!w.consultee
+
+/**
+ * A group's heading: "3 workers · hired 1:12 ago", led by "from d_…" when a script hired them;
+ * for consultations "2 consulted · asked 1:12 ago".
+ */
+export function groupHeading(g: WorkerGroup, now: number, kind: 'workers' | 'consultations' = 'workers'): string {
+    const ago = workerElapsed({ started_at: g.startedAt, ended_at: null }, now)
+    const parts =
+        kind === 'consultations'
+            ? [g.script ? `from ${g.script}` : null, `${g.size} consulted`, `asked ${ago} ago`]
+            : [g.script ? `from ${g.script}` : null, `${g.size} worker${g.size === 1 ? '' : 's'}`, `hired ${ago} ago`]
     return parts.filter(Boolean).join(' · ')
 }
 
-/** Why a stopped worker stopped, for its line. */
+/** Why a stopped worker or consultation stopped, for its line. */
 export function stopReasonText(reason: SubagentStopReason | null, agentName: string): string | undefined {
     if (!reason) return undefined
     if (reason === 'by_agent') return `by ${agentName}`
+    if (reason === 'consultee_deleted') return 'the consulted agent was deleted'
     return reason === 'conversation_deleted' ? 'the conversation was deleted' : 'the agent was deleted'
 }
 
-/** One worker outcome a `[Subagent update]` delivery carries (`render_update`'s format). */
+/** One worker or consultation outcome a delivery carries (`render_update`'s format). */
 export type WorkerUpdate = {
     handle: string
+    /** A consultation's consulted agent (spec 064). */
+    agent?: string
     position: number
     size: number
     title: string
@@ -111,6 +120,8 @@ export type WorkerUpdate = {
 }
 
 const UPDATE_HEAD = /^\[Subagent update\] (s_[0-9a-z]+) — task (\d+) of (\d+) "(.*)"$/
+/** A consultation's section (spec 064): `[Consultation update] c_… — <agent>, consultation N of M "…"`. */
+const CONSULT_HEAD = /^\[Consultation update\] (c_[0-9a-z]+) — (.+), consultation (\d+) of (\d+) "(.*)"$/
 
 /**
  * A delivery's parts (spec 059): the detached scripts' section, for `parseDelivery`, and the
@@ -127,9 +138,20 @@ export function splitDelivery(text: string): { scripts: string; workers: WorkerU
     }
     for (const line of text.split('\n')) {
         const head = UPDATE_HEAD.exec(line)
-        if (head) {
+        const consult = head ? null : CONSULT_HEAD.exec(line)
+        if (head || consult) {
             close()
-            current = { handle: head[1], position: Number(head[2]), size: Number(head[3]), title: head[4], state: '', body: '' }
+            current = head
+                ? { handle: head[1], position: Number(head[2]), size: Number(head[3]), title: head[4], state: '', body: '' }
+                : {
+                      handle: consult![1],
+                      agent: consult![2],
+                      position: Number(consult![3]),
+                      size: Number(consult![4]),
+                      title: consult![5],
+                      state: '',
+                      body: '',
+                  }
             workers.push(current)
             continue
         }
@@ -142,7 +164,11 @@ export function splitDelivery(text: string): { scripts: string; workers: WorkerU
             current.state = state[1]
             continue
         }
-        if (/^reply with reply_subagent\(/.test(line) || /^\(read the whole result with get_subagent\(/.test(line)) continue
+        if (
+            /^reply with reply_(subagent|consultation)\(/.test(line) ||
+            /^\(read the whole result with get_(subagent|consultation)\(/.test(line)
+        )
+            continue
         body.push(line)
     }
     close()

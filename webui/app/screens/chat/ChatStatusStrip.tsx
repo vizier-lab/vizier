@@ -33,7 +33,7 @@ import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
 import { LspPanel } from './LspPanel'
 import { SubagentsPanel } from './SubagentsPanel'
-import { workerStrip } from '../../lib/subagents'
+import { isConsultation, workerStrip } from '../../lib/subagents'
 import { FilePreviewDialog } from './FilePreviewDialog'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -146,14 +146,18 @@ export function ChatStatusStrip({
 
   const running = scripts.filter((s) => s.state === 'running')
   const counts = workCounts(scripts)
-  const atWork = workerStrip(workers)
+  // One list from the server: temporary workers and consultations of other agents (spec 064).
+  const hired = useMemo(() => workers.filter((w) => !isConsultation(w)), [workers])
+  const consulted = useMemo(() => workers.filter(isConsultation), [workers])
+  const atWork = workerStrip(hired)
+  const consulting = workerStrip(consulted)
 
   // The elapsed times tick while work runs, and stop when nothing does.
   useEffect(() => {
-    if (running.length === 0 && atWork.count === 0) return
+    if (running.length === 0 && atWork.count === 0 && consulting.count === 0) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [running.length, atWork.count])
+  }, [running.length, atWork.count, consulting.count])
 
   const items: StatusStripItem[] = [
     {
@@ -169,6 +173,13 @@ export function ChatStatusStrip({
       label: atWork.dot === 'warn' ? 'subagents at work, one is asking' : 'subagents at work',
       count: atWork.count,
       dot: atWork.dot,
+    },
+    {
+      id: 'consultations',
+      icon: 'consult',
+      label: consulting.dot === 'warn' ? 'consultations open, one is asking' : 'consultations open',
+      count: consulting.count,
+      dot: consulting.dot,
     },
     { id: 'files', icon: 'attach', label: 'session files', count: files.length },
   ]
@@ -374,7 +385,18 @@ export function ChatStatusStrip({
         topicId={topicId}
         channel={channel}
         agentName={agentName}
-        workers={workers}
+        workers={hired}
+        now={now}
+        onClose={close}
+      />
+    ) : id === 'consultations' ? (
+      <SubagentsPanel
+        kind="consultations"
+        agentId={agentId}
+        topicId={topicId}
+        channel={channel}
+        agentName={agentName}
+        workers={consulted}
         now={now}
         onClose={close}
       />

@@ -24,11 +24,14 @@ export function rowTime(at: string, now: Date = new Date()): string {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** Where a conversation opens: a WebUI topic in the chat, a Discord or Telegram one read-only. */
+/**
+ * Where a conversation opens: a WebUI topic in the chat; a Discord or Telegram one read-only; a
+ * consultation (spec 064) read-only too, at its newest consultation.
+ */
 export function conversationHref(agentId: string, c: ConversationItem): string {
-    return c.kind === 'webui'
-        ? `/${agentId}/chat/${encodeURIComponent(c.latest_topic)}`
-        : `/${agentId}/chat/read?channel=${encodeURIComponent(c.channel)}`
+    if (c.kind === 'webui') return `/${agentId}/chat/${encodeURIComponent(c.latest_topic)}`
+    const read = `/${agentId}/chat/read?channel=${encodeURIComponent(c.channel)}`
+    return c.kind === 'consultation' ? `${read}&topic=${encodeURIComponent(c.latest_topic)}` : read
 }
 
 export type SidebarGroup = 'Today' | 'Yesterday' | 'This week' | 'Earlier'

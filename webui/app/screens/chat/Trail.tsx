@@ -106,8 +106,8 @@ function workerUpdateState(state: string) {
 export function WorkerUpdateRow({ update }: { update: WorkerUpdate }) {
     return (
         <TrailCall
-            name="subagent"
-            intent={`${update.position} · ${update.title}`}
+            name={update.agent ? 'consultation' : 'subagent'}
+            intent={update.agent ? `${update.agent} · ${update.position} · ${update.title}` : `${update.position} · ${update.title}`}
             state={workerUpdateState(update.state)}
             duration={`${update.handle} · ${update.state.replace('_', ' ')}`}
         >

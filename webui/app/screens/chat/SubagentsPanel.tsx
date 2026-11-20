@@ -1,4 +1,4 @@
-import { EmptyState, Eyebrow, FilterTabs, SearchField, StatusPanel, SubagentWorker } from '@vizier/design'
+import { EmptyState, Eyebrow, FilterTabs, SearchField, Sigil, StatusPanel, SubagentWorker } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import type { ChatMessage, SubagentSnapshot } from '../../api/frames'
 import { CHANNEL, subagent, subagentHistory } from '../../api/endpoints/chat'
@@ -12,16 +12,51 @@ import {
     workerMeta,
     type WorkerTab,
 } from '../../lib/subagents'
+import { useAgents } from '../../stores/agents'
+import { assetSrc } from '../../lib/fileUrls'
 import { Trail } from './Trail'
 import { Markdown } from '../shared/Markdown'
 
 /** How often an expanded, unfinished worker's steps are read again: its turns stream elsewhere. */
 const POLL_MS = 2000
 
+/** Which rows a panel draws: temporary workers (spec 059) or consultations of other agents (spec 064). */
+export type PanelKind = 'workers' | 'consultations'
+
+const WORDS: Record<PanelKind, { title: string; search: string; empty: string; message: (agent: string) => string; footer: string; failed: string }> = {
+    workers: {
+        title: 'Subagents',
+        search: 'Search workers...',
+        empty: 'No subagents',
+        message: (agent) => `Workers ${agent} hires for a task appear here.`,
+        footer: 'Newest spawn first',
+        failed: "Couldn't load this worker.",
+    },
+    consultations: {
+        title: 'Consultations',
+        search: 'Search consultations...',
+        empty: 'No consultations',
+        message: (agent) => `Agents ${agent} consults appear here.`,
+        footer: 'Newest first',
+        failed: "Couldn't load this consultation.",
+    },
+}
+
+/** The consulted agent's sigil and name, for a consultation's row (frame "Consultations · open"). */
+function ConsultedAgent({ agentId }: { agentId: string }) {
+    const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
+    return (
+        <>
+            <Sigil agentId={agentId} size="sm" image={assetSrc(agent?.avatar_url)} />
+            {agent?.name ?? agentId}
+        </>
+    )
+}
+
 /**
- * One worker in the Subagents panel: collapsed to a line, expanded to its task, its steps drawn
- * with the chat's own activity trail (read from the worker's conversation) and its result. No stop
- * or reply control: only the main agent manages its workers (spec 059).
+ * One worker or consultation in its panel: collapsed to a line, expanded to its task, its steps
+ * drawn with the chat's own activity trail (read from its own conversation) and its result. No
+ * stop or reply control: only the agent manages them (specs 059, 064).
  */
 function WorkerEntry({
     agentId,
@@ -30,6 +65,7 @@ function WorkerEntry({
     agentName,
     worker,
     now,
+    failedText,
 }: {
     agentId: string
     topicId: string
@@ -37,6 +73,7 @@ function WorkerEntry({
     agentName: string
     worker: SubagentSnapshot
     now: number
+    failedText: string
 }) {
     const [expanded, setExpanded] = useState(false)
     const [detail, setDetail] = useState<SubagentSnapshot | null>(null)
@@ -75,6 +112,8 @@ function WorkerEntry({
         <SubagentWorker
             task={worker.task}
             position={worker.position}
+            agent={worker.consultee ? <ConsultedAgent agentId={worker.consultee} /> : undefined}
+            followUps={worker.follow_ups}
             handle={worker.id}
             state={worker.state}
             agentName={agentName}
@@ -94,7 +133,7 @@ function WorkerEntry({
                         <p className="type-small text-faint">No steps yet.</p>
                     )
                 ) : (
-                    <p className="type-small text-faint">{failed ? "Couldn't load this worker." : 'Loading...'}</p>
+                    <p className="type-small text-faint">{failed ? failedText : 'Loading...'}</p>
                 )
             }
             result={!unfinished && shown.result ? <Markdown>{shown.result}</Markdown> : undefined}
@@ -105,7 +144,9 @@ function WorkerEntry({
 
 /**
  * The Subagents panel (spec 059 Story 7, frame "059 · A"): the conversation's workers, grouped by
- * the spawn that hired them. Read-only, and separate from Background work (detached scripts).
+ * the spawn that hired them. Read-only, and separate from Background work (detached scripts). With
+ * `kind="consultations"` it is the Consultations panel (spec 064): the agents consulted, each row
+ * led by the consulted agent.
  */
 export function SubagentsPanel({
     agentId,
@@ -115,6 +156,7 @@ export function SubagentsPanel({
     workers,
     now,
     onClose,
+    kind = 'workers',
 }: {
     agentId: string
     topicId: string
@@ -123,7 +165,9 @@ export function SubagentsPanel({
     workers: SubagentSnapshot[]
     now: number
     onClose: () => void
+    kind?: PanelKind
 }) {
+    const words = WORDS[kind]
     const [query, setQuery] = useState('')
     const [tab, setTab] = useState<WorkerTab>('running')
     const counts = workerCounts(workers)
@@ -132,15 +176,15 @@ export function SubagentsPanel({
 
     return (
         <StatusPanel
-            title="Subagents"
+            title={words.title}
             meta={workerMeta(workers)}
             onClose={onClose}
             search={
                 <SearchField
                     value={query}
                     onValueChange={setQuery}
-                    aria-label="Search workers"
-                    placeholder="Search workers..."
+                    aria-label={words.search.replace('...', '')}
+                    placeholder={words.search}
                     count={shown}
                 />
             }
@@ -157,20 +201,20 @@ export function SubagentsPanel({
                     ]}
                 />
             }
-            footer={<span className="type-small text-faint">Newest spawn first</span>}
+            footer={<span className="type-small text-faint">{words.footer}</span>}
         >
             {groups.length === 0 ? (
                 <EmptyState
                     kind="empty"
-                    icon="agent"
-                    title={workers.length === 0 ? 'No subagents' : 'Nothing here'}
-                    message={`Workers ${agentName} hires for a task appear here.`}
+                    icon={kind === 'consultations' ? 'consult' : 'agent'}
+                    title={workers.length === 0 ? words.empty : 'Nothing here'}
+                    message={words.message(agentName)}
                 />
             ) : (
                 <div className="flex flex-col gap-12 py-6">
                     {groups.map((g) => (
                         <section key={g.id} className="flex flex-col gap-6">
-                            <Eyebrow as="h3">{groupHeading(g, now)}</Eyebrow>
+                            <Eyebrow as="h3">{groupHeading(g, now, kind)}</Eyebrow>
                             <ul className="flex flex-col gap-6">
                                 {g.workers.map((w) => (
                                     <li key={w.id}>
@@ -181,6 +225,7 @@ export function SubagentsPanel({
                                             agentName={agentName}
                                             worker={w}
                                             now={now}
+                                            failedText={words.failed}
                                         />
                                     </li>
                                 ))}
