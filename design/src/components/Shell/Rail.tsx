@@ -29,26 +29,9 @@ export type RailAgent = {
   disabledPages?: readonly RailAgentPage[];
 };
 
-export type RailWorkspace = {
-  id: string;
-  /** The tooltip and the accessible name. */
-  name: string;
-  /** One or two letters on the tile. */
-  initials: string;
-  href: string;
-  /** Messages from others not yet read; a count on the tile's corner. */
-  unread?: number;
-  /** An agent is working in it: a dot on the tile's corner. */
-  working?: boolean;
-};
-
 export type RailProps = {
   homeHref: string;
   homeActive?: boolean;
-  /** One tile per Workspace the person is in, between Home and the agents, each with its own separator. */
-  workspaces?: RailWorkspace[];
-  /** The Workspace whose topics are open; its tile carries the marker. */
-  activeWorkspaceId?: string;
   /** One tile per agent, in the order given. */
   agents: RailAgent[];
   /** The agent whose pages are open; its tile carries the marker. */
@@ -58,12 +41,9 @@ export type RailProps = {
   /** The dashed "+" after the agents; omit it for people who may not create one. */
   addHref?: string;
   addActive?: boolean;
-  /**
-   * The same "+" as a button: the host decides what it opens (a chooser between a Workspace and an
-   * agent, or straight to the one the person may create). Used in place of `addHref` when set.
-   */
+  /** The same "+" as a button, when the host decides what it opens. Used in place of `addHref` when set. */
   onCreate?: () => void;
-  /** The label of that "+": "New agent", "New workspace", or "Create". */
+  /** The label of that "+", e.g. "New agent". */
   createLabel?: string;
   settingsHref: string;
   settingsActive?: boolean;
@@ -215,8 +195,6 @@ function RailButton({ icon, label, tip, active, href, onSelect, expanded, contro
 export function Rail({
   homeHref,
   homeActive,
-  workspaces,
-  activeWorkspaceId,
   agents,
   activeAgentId,
   onReorder,
@@ -246,28 +224,6 @@ export function Rail({
   const [menuFor, setMenuFor] = useState<string>();
   const menuAnchor = useRef<HTMLElement | null>(null);
   const menuAgent = menuFor ? byId.get(menuFor) : undefined;
-  const workspaceTile = (w: RailWorkspace) => (
-    <RailLink
-      key={w.id}
-      label={w.unread ? `${w.name}, ${w.unread} unread` : w.name}
-      href={w.href}
-      active={w.id === activeWorkspaceId}
-      marker={marker}
-      className="rounded-md"
-    >
-      <span
-        aria-hidden
-        className={cx(
-          "grid size-42 place-items-center rounded-md type-body-strong tracking-tight transition-colors duration-[var(--vz-duration-base)]",
-          w.id === activeWorkspaceId ? "bg-ink text-ground" : "bg-raised text-soft hover:bg-pressed hover:text-fg",
-        )}
-      >
-        {w.initials}
-      </span>
-      {w.unread ? <UnreadBadge count={w.unread} /> : null}
-      {w.working && <span aria-hidden className="absolute -right-2 -bottom-2 size-10 rounded-pill bg-live ring-2 ring-shell" />}
-    </RailLink>
-  );
   const tile = (a: RailAgent) =>
     a.pending ? (
       // Not a link yet: there is nowhere to go until the agent exists. The scrim keeps its sigil
@@ -317,18 +273,6 @@ export function Rail({
       {/* The list clips where it scrolls: this room keeps a first tile's badge, which stands 6px
           above the tile with its ring, inside it without moving anything. */}
       <div className="-mt-6 flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip pt-6 [scrollbar-width:none]">
-        {workspaces && workspaces.length > 0 && (
-          <>
-            <ul className="m-0 flex list-none flex-col items-center gap-10 p-0" aria-label="Workspaces">
-              {workspaces.map((w) => (
-                <li key={w.id} className="relative">
-                  {workspaceTile(w)}
-                </li>
-              ))}
-            </ul>
-            <span aria-hidden className="h-px w-22 shrink-0 bg-border-hover" />
-          </>
-        )}
         {onReorder ? (
           <Reorder.Group axis="y" values={order} onReorder={setOrder} className="m-0 flex list-none flex-col items-center gap-10 p-0">
             {order.map((id) => {
