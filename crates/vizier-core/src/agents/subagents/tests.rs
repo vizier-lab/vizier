@@ -140,6 +140,7 @@ mod service {
             hooks: None,
             background_depth: 0,
             subagent_depth: 0,
+            consultation_chain: vec![],
             // The wait returns 2 s (its grace) before this.
             deadline: Some(tokio::time::Instant::now() + Duration::from_secs(2 + wait_secs)),
             dream_sources: vec![],
@@ -436,6 +437,7 @@ fn who_is_offered_which_subagent_tool() {
         hooks: None,
         background_depth: depth,
         subagent_depth: depth,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: std::sync::Arc::new(crate::secrets::SecretRedactor::default()),

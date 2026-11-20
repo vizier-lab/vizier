@@ -163,14 +163,14 @@ would mean fewer tools, but the names would be wrong for real agents, and a mode
 
 ## D8 - Depth and chains
 
-**Decision**: There is a new seed setting `consultations.max_depth` (default `1`) and a new
-`ToolContext.consultation_depth` / `VizierRequest.consultation_depth`, carried exactly like
-`subagent_depth`. A consultation request is sent with `consultation_depth + 1`. A worker's request
-copies its parent's `consultation_depth` and adds nothing, but a worker is offered no
-consultation tools while its `subagent_depth > 0` (FR-016). `VizierRequest.consultation_chain:
-Vec<AgentId>` (serde-skipped on the wire, journaled with the turn like `project_scope`) lists the
-agents above this one, and `consult_agent` refuses a target in the chain or equal to the caller
-(`{status: "in_chain"}` / `"self"`).
+**Decision**: There is a new seed setting `consultations.max_depth` (default `1`) and one new
+request field, `VizierRequest.consultation_chain: Vec<AgentId>` (journaled with the turn like
+`project_scope`, cleared from client input on receipt), copied onto `ToolContext`. Its length is
+the consultation depth, so no separate counter is kept. A consultation request carries the
+consulting turn's chain plus the consulting agent, at `subagent_depth` 0 (the consultee may hire
+its own workers) and with no project scope. A worker is offered no consultation tools while its
+`subagent_depth > 0` (FR-016). `consult_agent` refuses a target in the chain or equal to the
+caller (`{status: "in_chain"}` / `"self"`).
 
 **Rationale**: FR-015. The default makes A → B → A impossible without a counter. The chain makes
 it impossible at any depth.
@@ -215,7 +215,7 @@ consulting agent" for a consultation.
   `tests/conformance/groups/workspaces.rs`. Their routes leave `tests/conformance/pending.txt`
   too (the list may only shrink).
 - **Data**: SQLite init (`init_workspace_cleanup`) and PostgreSQL migration
-  `0012_drop_workspaces.sql` delete, in one transaction: every session whose channel is
+  `0013_drop_workspaces.sql` delete, in one transaction: every session whose channel is
   `Workspace` (history, `session_detail`, `session_turn`, `scratch_file`, `session_file` and their
   blobs by reference count, `message_reaction`, `platform_message_link`), the `notification` rows
   of category `workspace_message` (their reads cascade), the two permissions from every role, then

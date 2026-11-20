@@ -93,6 +93,8 @@ pub mod catalogue;
 #[doc(hidden)]
 pub mod channels;
 #[doc(hidden)]
+pub mod consultations;
+#[doc(hidden)]
 pub mod custom_tools;
 #[doc(hidden)]
 pub mod dependencies;

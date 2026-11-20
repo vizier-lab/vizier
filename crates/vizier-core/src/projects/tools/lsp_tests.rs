@@ -69,6 +69,7 @@ fn world(script: &str, extra: &[&str], mode: ProjectMode, lsp_enabled: bool) -> 
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         loaded_images: Default::default(),
         deadline: None,
         client: None,

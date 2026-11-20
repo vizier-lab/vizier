@@ -47,7 +47,7 @@ pub use commands::{
     MemoryOpRequest, MemoryOpResponse,
 };
 pub use subagent::{
-    Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
+    ConsultationFrame, ConsultationReplyKind, Subagent, SubagentBrief, SubagentId, SubagentReplyText, SubagentSnapshot, SubagentState, SubagentStopReason,
     SubagentSummary,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};

@@ -2208,3 +2208,217 @@ async fn ui_pages_are_drawn_versioned_and_refused_through_the_loop() {
 
     runtime.shutdown().await.unwrap();
 }
+
+// --- Consultations (spec 064) ------------------------------------------------------------------
+
+/// Create `id`, owned by `owner` (a user id) or by nobody, on the dummyplug provider.
+async fn create_agent(runtime: &VizierRuntime, id: &str, owner: Option<&str>) {
+    let mut config = agent_config(id);
+    config.owner_id = owner.map(str::to_string);
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create { agent_id: id.into(), config, resp })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create {id} failed: {e}"),
+    }
+}
+
+/// The harness plus `beta`, owned by the person `e2e` who talks to `plug`, and `gamma`, owned by
+/// nobody, so `e2e` may consult `beta` and not `gamma` (spec 064 FR-010).
+async fn consultation_harness() -> Option<(Dummyplug, VizierRuntime, tempfile::TempDir)> {
+    let (dummyplug, runtime, dir) = detached_harness().await?;
+    let storage = &runtime.deps().storage;
+    let role = storage.create_role("chatter", vec![], false).await.unwrap();
+    let person = storage.create_user("e2e", "", &role.role_id).await.unwrap();
+    create_agent(&runtime, "beta", Some(&person.user_id)).await;
+    create_agent(&runtime, "gamma", None).await;
+    Some((dummyplug, runtime, dir))
+}
+
+/// A request the consultee's dummyplug answers with `say`, after `delay_ms`.
+fn answer_with(say: &str, delay_ms: u64) -> String {
+    serde_json::json!({ "say": say, "delay_ms": delay_ms }).to_string()
+}
+
+fn consultation_id(reply: &str) -> String {
+    let start = reply
+        .find("\"c_")
+        .unwrap_or_else(|| panic!("a consultation id in the reply: {reply}"))
+        + 1;
+    reply[start..start + 10].to_string()
+}
+
+fn consultation_deliveries(history: &[vizier_core::schema::SessionHistory]) -> Vec<String> {
+    deliveries(history)
+        .into_iter()
+        .filter(|text| text.contains("[Consultation update]"))
+        .collect()
+}
+
+/// Quickstart §1 and §5: a consultation runs as the consulted agent in its own conversation,
+/// and the wait hands its answer back in the same step; an agent the person may not use, and
+/// the caller itself, are refused before anything starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_consults_another_and_gets_its_answer_back() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("consult");
+    let code = format!(
+        "r = consult_agent(consultations=[{{'agent': 'beta', 'request': {request:?}}}])
+w = wait_consultations(ids=[x['id'] for x in r['consultations']])
+[(x['state'], x['result'], x['consultee']) for x in w['consultations']]",
+        request = answer_with("pong", 0)
+    );
+    let reply = chat(runtime.transport(), &session, &run_python(&code, false, None)).await;
+    assert!(reply.contains("answered") && reply.contains("pong") && reply.contains("beta"), "{reply}");
+
+    // The work happened in beta's own consultation conversation, framed as a consultation.
+    use vizier_core::storage::subagent::SubagentStorage;
+    let rows = runtime.deps().storage.list_subagents(&session, 50).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert!(row.id.starts_with("c_") && row.consultee_id.as_deref() == Some("beta"));
+    let consulted = row.worker_session();
+    assert_eq!(consulted.0, "beta");
+    assert_eq!(consulted.1, VizierChannelId::Consultation("plug".into()));
+    let theirs = history_of(&runtime, &consulted).await;
+    let first = theirs
+        .iter()
+        .find_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => Some(r.generate_frontmatter().unwrap()),
+            _ => None,
+        })
+        .expect("beta received the request");
+    for line in ["sender: plug", "via: consultation", "consultation: 1 of 1", "on_behalf_of: e2e"] {
+        assert!(first.contains(line), "{line} in {first}");
+    }
+    // Nothing of it reached the person's own conversation with beta.
+    assert!(history_of(&runtime, &VizierSession("beta".into(), VizierChannelId::HTTP("e2e".into(), "harness".into()), Some("consult".into()))).await.is_empty());
+
+    let refused = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "gamma", "request": "hi" }]
+    })).await;
+    assert!(refused.contains("unknown_agent"), "{refused}");
+    let nope = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "nope", "request": "hi" }]
+    })).await;
+    assert!(nope.contains("unknown_agent"), "the same answer as for a stranger: {nope}");
+    let me = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "plug", "request": "hi" }]
+    })).await;
+    assert!(me.contains("\"self\""), "{me}");
+    let listed = call_tool(&runtime, &session, "list_consultable_agents", serde_json::json!({})).await;
+    assert!(listed.contains("beta") && !listed.contains("gamma"), "{listed}");
+    assert_eq!(runtime.deps().storage.list_subagents(&session, 50).await.unwrap().len(), 1, "no refused one started");
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// Quickstart §2.1: a consultation nobody waits for is delivered once, after the turn that
+/// started it has ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unwaited_consultation_is_delivered_once() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("later");
+    let started = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("late", 2_000) }]
+    })).await;
+    let id = consultation_id(&started);
+    eventually(30, || async { !consultation_deliveries(&history_of(&runtime, &session).await).is_empty() }).await;
+    let delivered = consultation_deliveries(&history_of(&runtime, &session).await);
+    assert!(delivered[0].contains(&id) && delivered[0].contains("beta") && delivered[0].contains("late"), "{delivered:?}");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(consultation_deliveries(&history_of(&runtime, &session).await).len(), 1);
+
+    runtime.shutdown().await.unwrap();
+}
+
+/// A request that makes the consultee ask the agent consulting it one question.
+fn ask_back(question: &str) -> String {
+    serde_json::json!({ "tool": "execute_python", "arguments": {
+        "intent": "ask the consulting agent",
+        "code": format!("ask_consulting_agent(question={question:?})"),
+    }})
+    .to_string()
+}
+
+/// Quickstart §3, §4 and §7.2: the consultee asks back and is answered in the same
+/// conversation, a follow-up continues it once it has answered, a stop ends one, and a deleted
+/// consultee's open consultation is delivered as stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_consultation_asks_back_follows_up_stops_and_outlives_its_consultee_once() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+    let session = web_session("talk");
+    let started = call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": ask_back("eu or us?") }]
+    })).await;
+    let id = consultation_id(&started);
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("asking") && waited.contains("eu or us?"), "{waited}");
+
+    let replied = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({
+        "id": id, "text": answer_with("eu it is", 0)
+    })).await;
+    assert!(replied.contains("running"), "{replied}");
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("answered") && waited.contains("eu it is"), "{waited}");
+
+    let followed = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({
+        "id": id, "text": answer_with("and again", 0)
+    })).await;
+    assert!(followed.contains("running") && followed.contains("\"follow_ups\":1"), "{followed}");
+    let waited = call_tool(&runtime, &session, "wait_consultations", serde_json::json!({ "ids": [id] })).await;
+    assert!(waited.contains("answered") && waited.contains("and again"), "{waited}");
+    // One conversation on beta's side holds all of it.
+    use vizier_core::storage::subagent::SubagentStorage;
+    let row = runtime.deps().storage.get_subagent(&id).await.unwrap().unwrap();
+    let theirs = history_of(&runtime, &row.worker_session()).await;
+    let vias: Vec<String> = theirs
+        .iter()
+        .filter_map(|h| match &h.content {
+            SessionHistoryContent::Request(r) => r
+                .generate_frontmatter()
+                .ok()
+                .and_then(|f| f.lines().find(|l| l.starts_with("via:")).map(str::to_string)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(vias, ["via: consultation", "via: consultation_reply", "via: consultation_followup"]);
+
+    // A stop ends one consultation; a reply to it is refused.
+    let slow = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("too late", 8_000) }]
+    })).await);
+    let stopped = call_tool(&runtime, &session, "stop_consultation", serde_json::json!({ "id": slow })).await;
+    assert!(stopped.contains("stopped"), "{stopped}");
+    let refused = call_tool(&runtime, &session, "reply_consultation", serde_json::json!({ "id": slow, "text": "x" })).await;
+    assert!(refused.contains("not_waiting"), "{refused}");
+    // The workers' tools do not manage consultations.
+    let foreign = call_tool(&runtime, &session, "get_subagent", serde_json::json!({ "id": slow })).await;
+    assert!(foreign.contains("unknown_subagent"), "{foreign}");
+
+    // Deleting the consultee stops its open consultation and tells the agent that asked.
+    let open = consultation_id(&call_tool(&runtime, &session, "consult_agent", serde_json::json!({
+        "consultations": [{ "agent": "beta", "request": answer_with("never", 8_000) }]
+    })).await);
+    let (resp, deleted) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Delete { agent_id: "beta".into(), delete_workspace: false, resp })
+        .await
+        .unwrap();
+    tokio::time::timeout(TURN_TIMEOUT, deleted).await.unwrap().unwrap();
+    eventually(30, || async {
+        consultation_deliveries(&history_of(&runtime, &session).await)
+            .iter()
+            .any(|d| d.contains(&open) && d.contains("the consulted agent was deleted"))
+    })
+    .await;
+    let row = runtime.deps().storage.get_subagent(&open).await.unwrap().unwrap();
+    assert_eq!(row.stop_reason, Some(vizier_core::schema::SubagentStopReason::ConsulteeDeleted));
+
+    runtime.shutdown().await.unwrap();
+}

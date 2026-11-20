@@ -437,7 +437,12 @@ pub async fn agent_process(
         deps.detached.interrupt_agent(&agent_id).await;
     } else {
         deps.detached.delete_agent(&agent_id).await;
-        deps.subagents.delete_agent(&agent_id).await;
+        // Its consultations' conversations live on the agents it consulted (spec 064).
+        let elsewhere = deps.subagents.delete_agent(&agent_id).await;
+        let files = deps.session_files.clone();
+        tokio::spawn(async move {
+            crate::agents::subagents::delete_worker_conversations(&files, elsewhere).await;
+        });
     }
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
@@ -730,6 +735,7 @@ async fn refresh_session_detail(
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1214,6 +1220,7 @@ async fn run_checkpoint(
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
@@ -1733,11 +1740,12 @@ pub async fn handle_request(
             }
             // A worker's turn ended with a reply (spec 059 research D5): its row records the
             // answer, unless the turn ended by asking (the row is `asking`, and stays so).
-            if matches!(session.1, VizierChannelId::Subagent) {
-                use crate::agents::subagents::{ASK_TOOL, TurnEnd};
+            // A consultation's turn (spec 064) settles its row the same way.
+            if matches!(session.1, VizierChannelId::Subagent | VizierChannelId::Consultation(_)) {
+                use crate::agents::subagents::{TurnEnd, ended_by_asking};
                 let end = match &res.content {
                     VizierResponseContent::Message { stats: Some(stats), .. }
-                        if stats.ended_by_tool.as_deref() == Some(ASK_TOOL) =>
+                        if ended_by_asking(stats.ended_by_tool.as_deref()) =>
                     {
                         TurnEnd::Asked
                     }

@@ -106,9 +106,9 @@ crates/vizier-core/src/
 │   ├── steer.rs, steps.rs        # Workspace arms removed
 │   └── mod.rs                    # AgentHost delete → stop_consultations_of(B)
 ├── consultations/                # NEW, small: access.rs (principal_for_turn, consultable)
-├── schema/{session,subagent,request}.rs  # Consultation channel; columns; consultation_depth/chain
+├── schema/{session,subagent,request}.rs  # Consultation channel; columns; consultation_chain
 ├── storage/{subagent.rs, sqlite/subagent.rs, sqlite/fence_tests.rs}  # columns, follow-up, two-sided fence
-├── storage/sql/postgres/migrations/0012_drop_workspaces.sql, 0013_consultations.sql   # NEW
+├── storage/sql/postgres/migrations/0012_consultations.sql, 0013_drop_workspaces.sql   # NEW
 ├── storage/sqlite/{mod,workspace}.rs     # cleanup once; workspace.rs DELETED
 ├── workspaces/, service/workspaces.rs, schema/workspace.rs, storage/workspace.rs      # DELETED
 ├── service/{subagents,conversations,topics,inbox,notifications}.rs  # kind filter; consultation rows; removals

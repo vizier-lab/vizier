@@ -175,6 +175,30 @@ pub struct VizierConfig {
     /// Subagents as temporary workers (spec 059).
     #[serde(default)]
     pub subagents: SubagentsConfig,
+    /// Consulting other agents (spec 064).
+    #[serde(default)]
+    pub consultations: ConsultationsConfig,
+}
+
+/// Consultations (`specs/064-consult-agents`).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct ConsultationsConfig {
+    /// How deep consultations may chain. `1`: an agent a person (or a scheduled run) is using may
+    /// consult, and a consulted agent is offered only the tool to ask back.
+    #[serde(default = "default_consultations_max_depth")]
+    pub max_depth: u8,
+}
+
+fn default_consultations_max_depth() -> u8 {
+    1
+}
+
+impl Default for ConsultationsConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: default_consultations_max_depth(),
+        }
+    }
 }
 
 /// Subagents (`specs/059-subagent-workers`).
@@ -389,6 +413,7 @@ impl Default for VizierConfig {
             catalogue: CatalogueConfig::default(),
             lsp: LspConfig::default(),
             subagents: SubagentsConfig::default(),
+            consultations: ConsultationsConfig::default(),
         }
     }
 }
@@ -461,6 +486,14 @@ mod lsp_config_tests {
         let config: SubagentsConfig = serde_yaml::from_str("{}").unwrap();
         assert_eq!(config.max_depth, 1);
         let set: SubagentsConfig = serde_yaml::from_str("max_depth: 2").unwrap();
+        assert_eq!(set.max_depth, 2);
+    }
+
+    #[test]
+    fn consultations_default_to_one_level() {
+        let config: ConsultationsConfig = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(config.max_depth, 1);
+        let set: ConsultationsConfig = serde_yaml::from_str("max_depth: 2").unwrap();
         assert_eq!(set.max_depth, 2);
     }
 }

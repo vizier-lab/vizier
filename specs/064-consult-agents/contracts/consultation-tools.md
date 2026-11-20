@@ -73,7 +73,7 @@ turn ends. It is offered only in a `Consultation` session.
 
 | Context | `consult_agent` … `list_consultable_agents` | `ask_consulting_agent` |
 |---|---|---|
-| a WebUI or project chat, a scheduled task, a detached script from one of them | yes, if `consultation_depth < max_depth` and `subagent_depth == 0` | no |
+| a WebUI or project chat, a scheduled task, a detached script from one of them | yes, if the chain is shorter than `max_depth` and `subagent_depth == 0` | no |
 | a Discord or Telegram conversation, or a detached script started there | no (deferred until #116) | no |
 | a consultation (depth 1, default max 1) | no | yes |
 | a subagent worker | no | no |

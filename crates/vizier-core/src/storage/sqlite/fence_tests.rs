@@ -303,6 +303,59 @@ async fn stale_detached_script_write_refused() {
     assert_eq!(n.b.interrupt_running_scripts("x", None, None).await.unwrap().len(), 1);
 }
 
+/// A consultation of `y` by `x` (spec 064).
+fn consultation(id: &str) -> crate::schema::Subagent {
+    let mut row = worker(id);
+    row.consultee_id = Some("y".into());
+    row.principal_user_id = Some("u".into());
+    row
+}
+
+/// Spec 064 research D3: a consultation's row has two sides. What the consulting agent causes
+/// is fenced on its scope, what the consultee's own turn causes on the consultee's. A node that
+/// lost the consultee may no longer settle or ask, while it still holds the consulting scope and
+/// may stop, reply and follow up; the consultee's new owner settles.
+#[tokio::test]
+async fn consultation_sides_are_fenced_on_their_own_agent() {
+    use crate::schema::{SubagentState, SubagentStopReason};
+    let n = nodes();
+    let consulting = Scope::Agent("x".into());
+    let consultee = Scope::Agent("y".into());
+    n.a_then_b(&consulting).await;
+    n.a_then_b(&consultee).await;
+    n.a.open_subagents(vec![consultation("c_1"), consultation("c_2"), consultation("c_3")])
+        .await
+        .unwrap();
+    n.b_takes_over(&consultee).await;
+    let now = crate::time::now();
+    let answered = || Settled::Answered { result: "done".into(), truncated: false };
+
+    // The consultee side, from the node that lost it, is refused.
+    n.assert_refused(&consultee, n.a.settle_subagent("c_1", answered(), now).await);
+    n.assert_refused(&consultee, n.a.ask_subagent("c_2", "which?", 0, now).await);
+    n.assert_refused(
+        &consultee,
+        n.a.stop_subagent("c_3", SubagentStopReason::ConsulteeDeleted, now).await,
+    );
+    n.assert_refused(&consultee, n.a.stop_consultations_of(&"y".to_string(), now).await);
+    assert_eq!(n.b.get_subagent("c_1").await.unwrap().unwrap().state, SubagentState::Running);
+
+    // The consultee's new owner settles and asks; the consulting side, still held by A, stops,
+    // follows up and replies.
+    n.b.settle_subagent("c_1", answered(), now).await.unwrap().unwrap();
+    n.b.ask_subagent("c_2", "which?", 0, now).await.unwrap().unwrap();
+    assert!(!*n.a.ownership_lost(&consulting).borrow());
+    n.a.follow_up_subagent("c_1", now, now).await.unwrap().unwrap();
+    n.a.reply_subagent("c_2", now, now).await.unwrap().unwrap();
+    assert!(matches!(
+        n.a.stop_subagent("c_3", SubagentStopReason::ByAgent, now).await.unwrap(),
+        StopOutcome::Stopped(_)
+    ));
+    // A time-out is the consulting side's timer.
+    n.a.settle_subagent("c_2", Settled::TimedOut("late".into()), now).await.unwrap().unwrap();
+    assert_eq!(n.b.stop_consultations_of(&"y".to_string(), now).await.unwrap().len(), 1, "c_1 again running");
+}
+
 fn worker(id: &str) -> crate::schema::Subagent {
     let mut row = crate::storage::sqlite::subagent::tests::worker(id, session("x"), 1);
     row.agent_id = "x".into();
@@ -709,6 +762,7 @@ crate::postgres_tests!(
     stale_sensitive_ask_write_refused,
     stale_detached_script_write_refused,
     stale_subagent_write_refused,
+    consultation_sides_are_fenced_on_their_own_agent,
     detached_claims_race_and_split_the_rows,
     detached_cancel_and_close_race,
     stale_task_run_write_refused,

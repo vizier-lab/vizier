@@ -21,7 +21,7 @@ use crate::{
 const COLUMNS: &str = "id, agent_id, hiring_channel, hiring_topic, parent_detached_id, group_id, \
      position, group_size, worker_topic, task, timeout_secs, state, stop_reason, question, result, \
      result_truncated, error, outcome_seq, seen_seq, delivered_seq, deadline_at, remaining_ms, \
-     created_at, updated_at, ended_at";
+     created_at, updated_at, ended_at, consultee_id, principal_user_id, follow_ups";
 
 /// The hiring-conversation predicate, parameters `?1` agent, `?2` channel JSON, `?3` topic.
 const HIRING: &str =
@@ -29,7 +29,8 @@ const HIRING: &str =
 
 /// A newest outcome nobody has taken yet (data-model.md "Deliverability"). Written without
 /// `MAX`/`GREATEST` so it reads the same on both backends.
-const DELIVERABLE: &str = "state IN ('asking', 'answered', 'failed', 'timed_out') \
+const DELIVERABLE: &str = "(state IN ('asking', 'answered', 'failed', 'timed_out') \
+     OR (state = 'stopped' AND stop_reason = 'consultee_deleted')) \
      AND outcome_seq > seen_seq AND outcome_seq > delivered_seq";
 
 /// Not final.
@@ -71,6 +72,9 @@ fn from_row(row: &Row) -> sql::Result<Option<Subagent>> {
     let created_at: i64 = row.get(22)?;
     let updated_at: i64 = row.get(23)?;
     let ended_at: Option<i64> = row.get(24)?;
+    let consultee_id: Option<String> = row.get(25)?;
+    let principal_user_id: Option<String> = row.get(26)?;
+    let follow_ups: i64 = row.get(27)?;
 
     let (Some(state), Some(created_at), Some(updated_at), Ok(channel)) = (
         SubagentState::parse(&state),
@@ -105,6 +109,9 @@ fn from_row(row: &Row) -> sql::Result<Option<Subagent>> {
         created_at,
         updated_at,
         ended_at: ended_at.and_then(millis),
+        consultee_id,
+        principal_user_id,
+        follow_ups: follow_ups.clamp(0, u32::MAX as i64) as u32,
     }))
 }
 
@@ -140,6 +147,21 @@ fn agent_of(tx: &Connection, id: &str) -> Result<Option<String>> {
         .transpose()?)
 }
 
+/// The agent whose turns do the row's work: the consultee of a consultation, else the main
+/// agent. Transitions the worker's own turn causes (settle, ask) are fenced on it, so a
+/// consultee's host never writes under a scope it does not hold (spec 064 research D3);
+/// everything the main agent causes is fenced on `agent_of`.
+fn worker_agent_of(tx: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(tx
+        .query_all(
+            "SELECT COALESCE(consultee_id, agent_id) FROM subagent WHERE id = ?1",
+            params![id],
+        )?
+        .first()
+        .map(|row| row.get::<_, String>(0))
+        .transpose()?)
+}
+
 fn hiring_params(session: &VizierSession) -> Result<(String, String, Option<String>)> {
     Ok((session.0.clone(), channel_column(&session.1)?, session.2.clone()))
 }
@@ -164,7 +186,7 @@ impl SubagentStorage for SqlStorage {
                 &format!(
                     "INSERT INTO subagent ({COLUMNS}, owner_node, owner_token) VALUES \
                      (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)"
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)"
                 ),
                 params![
                     row.id,
@@ -192,6 +214,9 @@ impl SubagentStorage for SqlStorage {
                     row.created_at.timestamp_millis(),
                     row.updated_at.timestamp_millis(),
                     row.ended_at.map(|at| at.timestamp_millis()),
+                    row.consultee_id,
+                    row.principal_user_id,
+                    row.follow_ups as i64,
                     owner_node,
                     owner_token,
                 ],
@@ -210,7 +235,7 @@ impl SubagentStorage for SqlStorage {
     ) -> Result<Option<Subagent>> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
-        let Some(agent) = agent_of(&tx, id)? else {
+        let Some(agent) = worker_agent_of(&tx, id)? else {
             return Ok(None);
         };
         check_fence(&tx, &self.fences, &Scope::Agent(agent))?;
@@ -253,6 +278,7 @@ impl SubagentStorage for SqlStorage {
         settled: Settled,
         at: Timestamp,
     ) -> Result<Option<Subagent>> {
+        let timed_out = matches!(settled, Settled::TimedOut(_));
         let (state, result, truncated, error) = match settled {
             Settled::Answered { result, truncated } => {
                 (SubagentState::Answered, Some(result), truncated, None)
@@ -262,7 +288,14 @@ impl SubagentStorage for SqlStorage {
         };
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
-        let Some(agent) = agent_of(&tx, id)? else {
+        // A settle from the worker's turn ending is the worker side's write; a time-out is the
+        // main agent's timer. Each fences the scope its caller holds.
+        let side = if timed_out {
+            agent_of(&tx, id)?
+        } else {
+            worker_agent_of(&tx, id)?
+        };
+        let Some(agent) = side else {
             return Ok(None);
         };
         check_fence(&tx, &self.fences, &Scope::Agent(agent))?;
@@ -294,7 +327,11 @@ impl SubagentStorage for SqlStorage {
     ) -> Result<StopOutcome> {
         let conn = self.conn.lock()?;
         let tx = conn.transaction()?;
-        let Some(agent) = agent_of(&tx, id)? else {
+        let side = match reason {
+            SubagentStopReason::ConsulteeDeleted => worker_agent_of(&tx, id)?,
+            _ => agent_of(&tx, id)?,
+        };
+        let Some(agent) = side else {
             return Ok(StopOutcome::NotFound);
         };
         check_fence(&tx, &self.fences, &Scope::Agent(agent))?;
@@ -374,6 +411,69 @@ impl SubagentStorage for SqlStorage {
         }
         tx.commit()?;
         Ok(claimed)
+    }
+
+    async fn follow_up_subagent(
+        &self,
+        id: &str,
+        deadline_at: Timestamp,
+        at: Timestamp,
+    ) -> Result<Option<Subagent>> {
+        let conn = self.conn.lock()?;
+        let tx = conn.transaction()?;
+        let Some(agent) = agent_of(&tx, id)? else {
+            return Ok(None);
+        };
+        check_fence(&tx, &self.fences, &Scope::Agent(agent))?;
+        // Consultations only (a worker is one task). `outcome_seq` moves when the next answer
+        // settles, so that answer is a new outcome; the old one stays in the history.
+        let changed = tx.execute(
+            "UPDATE subagent SET state = 'running', deadline_at = ?1, remaining_ms = NULL, \
+             follow_ups = follow_ups + 1, ended_at = NULL, updated_at = ?2 \
+             WHERE id = ?3 AND state = 'answered' AND consultee_id IS NOT NULL",
+            params![deadline_at.timestamp_millis(), at.timestamp_millis(), id],
+        )?;
+        let row = if changed == 1 { one(&tx, id)? } else { None };
+        tx.commit()?;
+        Ok(row)
+    }
+
+    async fn stop_consultations_of(
+        &self,
+        consultee: &AgentId,
+        at: Timestamp,
+    ) -> Result<Vec<Subagent>> {
+        let conn = self.conn.lock()?;
+        let tx = conn.transaction()?;
+        // The consultee is being deleted by its own host: its scope, not the consulting ones.
+        check_fence(&tx, &self.fences, &Scope::Agent(consultee.clone()))?;
+        let unfinished = load(
+            &tx,
+            &format!("consultee_id = ?1 AND {UNFINISHED}"),
+            "created_at, id",
+            &[consultee],
+        )?;
+        let mut stopped = vec![];
+        for row in unfinished {
+            let changed = tx.execute(
+                &format!(
+                    "UPDATE subagent SET state = 'stopped', stop_reason = ?1, deadline_at = NULL, \
+                     outcome_seq = outcome_seq + 1, updated_at = ?2, ended_at = ?2 WHERE id = ?3 AND {UNFINISHED}"
+                ),
+                params![
+                    SubagentStopReason::ConsulteeDeleted.as_str(),
+                    at.timestamp_millis(),
+                    row.id
+                ],
+            )?;
+            if changed == 1
+                && let Some(row) = one(&tx, &row.id)?
+            {
+                stopped.push(row);
+            }
+        }
+        tx.commit()?;
+        Ok(stopped)
     }
 
     async fn subagent_by_worker(&self, worker_topic: &str) -> Result<Option<Subagent>> {
@@ -517,10 +617,13 @@ impl SubagentStorage for SqlStorage {
         Ok(rows)
     }
 
-    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<()> {
+    async fn delete_agent_subagents(&self, agent_id: &str) -> Result<Vec<Subagent>> {
         let conn = self.conn.lock()?;
-        conn.execute("DELETE FROM subagent WHERE agent_id = ?1", params![agent_id])?;
-        Ok(())
+        let tx = conn.transaction()?;
+        let rows = load(&tx, "agent_id = ?1", "created_at, id", &[&agent_id])?;
+        tx.execute("DELETE FROM subagent WHERE agent_id = ?1", params![agent_id])?;
+        tx.commit()?;
+        Ok(rows)
     }
 }
 
@@ -579,6 +682,9 @@ pub(crate) mod tests {
             created_at: now,
             updated_at: now,
             ended_at: None,
+            consultee_id: None,
+            principal_user_id: None,
+            follow_ups: 0,
         }
     }
 
@@ -639,6 +745,56 @@ pub(crate) mod tests {
         assert!(done.ended_at.is_some());
         assert!(storage.settle_subagent("s_1", Settled::Failed("x".into()), now).await.unwrap().is_none(), "final stays final");
         assert!(storage.ask_subagent("s_1", "late?", 0, now).await.unwrap().is_none());
+    }
+
+    /// Spec 064 research D4: a consultation that answered can be followed up; the next answer
+    /// is a new outcome, while the old one is not re-delivered. A worker cannot.
+    #[tokio::test]
+    async fn a_follow_up_reopens_only_an_answered_consultation() {
+        let (storage, _dir) = setup();
+        let mut c = worker("c_1", hiring("t"), 1);
+        c.consultee_id = Some("other".into());
+        c.principal_user_id = Some("dani".into());
+        storage.open_subagents(vec![c, worker("s_2", hiring("t"), 2)]).await.unwrap();
+        let now = crate::time::now();
+
+        let read = storage.get_subagent("c_1").await.unwrap().unwrap();
+        assert_eq!(read.consultee_id.as_deref(), Some("other"));
+        assert_eq!(read.principal_user_id.as_deref(), Some("dani"));
+        assert_eq!(read.worker_session().0, "other", "the consultee runs the turns");
+        assert!(storage.follow_up_subagent("c_1", now, now).await.unwrap().is_none(), "running");
+
+        let first = storage.settle_subagent("c_1", answered(), now).await.unwrap().unwrap();
+        assert_eq!(first.outcome_seq, 1);
+        storage.mark_subagents_seen(&["c_1".into()]).await.unwrap();
+        let again = storage.follow_up_subagent("c_1", now, now).await.unwrap().unwrap();
+        assert_eq!(again.state, SubagentState::Running);
+        assert_eq!(again.follow_ups, 1);
+        assert_eq!(again.ended_at, None);
+        assert!(!again.is_deliverable(), "the first answer was seen; nothing new yet");
+
+        let second = storage.settle_subagent("c_1", answered(), now).await.unwrap().unwrap();
+        assert_eq!(second.outcome_seq, 2);
+        assert!(second.is_deliverable(), "the second answer is a new outcome");
+
+        storage.settle_subagent("s_2", answered(), now).await.unwrap().unwrap();
+        assert!(storage.follow_up_subagent("s_2", now, now).await.unwrap().is_none(), "a worker is one task");
+    }
+
+    #[tokio::test]
+    async fn a_deleted_consultee_stops_its_open_consultations_only() {
+        let (storage, _dir) = setup();
+        let mut c1 = worker("c_1", hiring("t"), 1);
+        c1.consultee_id = Some("other".into());
+        let mut c2 = worker("c_2", hiring("t"), 2);
+        c2.consultee_id = Some("third".into());
+        storage.open_subagents(vec![c1, c2, worker("s_3", hiring("t"), 3)]).await.unwrap();
+        let now = crate::time::now();
+        let stopped = storage.stop_consultations_of(&"other".to_string(), now).await.unwrap();
+        assert_eq!(stopped.len(), 1);
+        assert_eq!(stopped[0].stop_reason, Some(SubagentStopReason::ConsulteeDeleted));
+        assert_eq!(storage.get_subagent("c_2").await.unwrap().unwrap().state, SubagentState::Running);
+        assert_eq!(storage.get_subagent("s_3").await.unwrap().unwrap().state, SubagentState::Running);
     }
 
     #[tokio::test]

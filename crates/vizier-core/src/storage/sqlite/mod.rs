@@ -570,6 +570,15 @@ pub fn init_subagent_schema(conn: &Connection) -> Result<()> {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_worker ON subagent(worker_topic);
         ",
     )?;
+    // Consultations (`specs/064-consult-agents/data-model.md`): a row with a consultee is a
+    // consultation of another agent. New columns, not compatibility code.
+    add_column_if_missing(conn, "subagent", "consultee_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "principal_user_id", "TEXT")?;
+    add_column_if_missing(conn, "subagent", "follow_ups", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_subagent_consultee ON subagent(consultee_id) \
+         WHERE consultee_id IS NOT NULL;",
+    )?;
     Ok(())
 }
 

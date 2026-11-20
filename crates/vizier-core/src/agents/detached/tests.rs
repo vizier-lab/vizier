@@ -57,6 +57,7 @@ fn ctx(session: VizierSession, depth: u8) -> ToolContext {
         hooks: None,
         background_depth: depth,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),

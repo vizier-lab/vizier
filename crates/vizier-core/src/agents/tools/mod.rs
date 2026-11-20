@@ -38,6 +38,11 @@ use crate::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         stt::SttTranscribe,
+        consultations::{
+            AskConsultingAgentTool, ConsultAgentTool, GetConsultationTool,
+            ListConsultableAgentsTool, ListConsultationsTool, ReplyConsultationTool,
+            StopConsultationTool, WaitConsultationsTool,
+        },
         subagents::{
             AskMainAgentTool, GetSubagentTool, ListSubagentsTool, ReplySubagentTool,
             SpawnSubagentsTool, StopSubagentTool, WaitSubagentsTool,
@@ -81,6 +86,7 @@ mod session_files;
 pub mod shell;
 mod skill;
 pub mod stt;
+mod consultations;
 mod subagents;
 #[cfg(feature = "channel-telegram")]
 pub mod telegram;
@@ -141,10 +147,14 @@ pub enum ToolCategory {
     /// Interactive pages drawn in a WebUI reply (`specs/063-html-generative-ui`). Offered only in
     /// WebUI and project conversations, by the tool's `available`.
     Ui,
+    /// Consulting other agents (`specs/064-consult-agents`): ask a real, separate agent the
+    /// person may use, wait for its answer, reply to its questions and follow up. The consulted
+    /// side is offered only the tool to ask back.
+    Consultations,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 23] = [
+    pub const ALL: [ToolCategory; 24] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -168,6 +178,7 @@ impl ToolCategory {
         Self::History,
         Self::CustomTools,
         Self::Ui,
+        Self::Consultations,
     ];
 
     pub fn name(self) -> &'static str {
@@ -195,6 +206,7 @@ impl ToolCategory {
             Self::Subagents => "subagents",
             Self::CustomTools => "custom_tools",
             Self::Ui => "ui",
+            Self::Consultations => "consultations",
         }
     }
 
@@ -242,6 +254,9 @@ impl ToolCategory {
             Self::CustomTools => "Make, change and organise your own custom tools",
             Self::Ui => {
                 "Draw interactive HTML pages (apps, games, dashboards) in your reply and change them with small edits"
+            }
+            Self::Consultations => {
+                "Ask another agent for its knowledge, tools or judgment; wait for its answer, reply to its questions and follow up"
             }
         }
     }
@@ -309,6 +324,9 @@ pub struct ToolContext {
     /// workers. The subagent management tools are offered only below `subagents.max_depth`; a
     /// detached script inherits its turn's value.
     pub subagent_depth: u8,
+    /// The turn's `VizierRequest::consultation_chain` (spec 064): the consulting agents above
+    /// this turn. Its length is the consultation depth; a detached script inherits it.
+    pub consultation_chain: Vec<crate::schema::AgentId>,
     /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
@@ -1470,6 +1488,16 @@ impl BaseTools {
             .tool(ListSubagentsTool::new(deps.clone()))
             .tool(GetSubagentTool::new(deps.clone()))
             .tool(AskMainAgentTool::new(deps.clone()))
+            // Consultations (spec 064): consult a real agent the person may use; the consulted
+            // side asks back. `available` decides which a turn sees.
+            .tool(ConsultAgentTool::new(deps.clone()))
+            .tool(WaitConsultationsTool::new(deps.clone()))
+            .tool(ReplyConsultationTool::new(deps.clone()))
+            .tool(StopConsultationTool::new(deps.clone()))
+            .tool(ListConsultationsTool::new(deps.clone()))
+            .tool(GetConsultationTool::new(deps.clone()))
+            .tool(ListConsultableAgentsTool::new(deps.clone()))
+            .tool(AskConsultingAgentTool::new(deps.clone()))
             .tool(ListDetachedScripts { storage: deps.storage.clone() })
             .tool(GetDetachedScript { storage: deps.storage.clone() })
             .tool(CancelDetachedScript {
@@ -1716,6 +1744,38 @@ impl BaseTools {
     }
 }
 
+/// Test helpers shared outside the tools module.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use std::sync::Arc;
+
+    use super::ToolContext;
+    use crate::schema::VizierSession;
+
+    /// A plain turn's context on `session`: depth 0, nothing attached, no client.
+    pub(crate) fn context(session: VizierSession) -> ToolContext {
+        ToolContext {
+            session,
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            subagent_depth: 0,
+            consultation_chain: vec![],
+            deadline: None,
+            loaded_images: Default::default(),
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: false,
+            dream_sources: vec![],
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
+            detached: false,
+            parent_detached_id: None,
+            custom: Default::default(),
+        }
+    }
+}
+
 /// An `execute_python` over `router`, for tests outside the tools module.
 #[cfg(test)]
 pub(crate) fn python_for_tests(
@@ -1889,6 +1949,14 @@ mod tests {
             entry::<ListSubagentsTool>(),
             entry::<GetSubagentTool>(),
             entry::<AskMainAgentTool>(),
+            entry::<ConsultAgentTool>(),
+            entry::<WaitConsultationsTool>(),
+            entry::<ReplyConsultationTool>(),
+            entry::<StopConsultationTool>(),
+            entry::<ListConsultationsTool>(),
+            entry::<GetConsultationTool>(),
+            entry::<ListConsultableAgentsTool>(),
+            entry::<AskConsultingAgentTool>(),
             entry::<ListDetachedScripts>(),
             entry::<GetDetachedScript>(),
             entry::<CancelDetachedScript>(),
@@ -2028,6 +2096,14 @@ mod tests {
             ("list_subagents", Subagents),
             ("get_subagent", Subagents),
             ("ask_main_agent", Subagents),
+            ("consult_agent", Consultations),
+            ("wait_consultations", Consultations),
+            ("reply_consultation", Consultations),
+            ("stop_consultation", Consultations),
+            ("list_consultations", Consultations),
+            ("get_consultation", Consultations),
+            ("list_consultable_agents", Consultations),
+            ("ask_consulting_agent", Consultations),
             ("list_detached_scripts", Agents),
             ("get_detached_script", Agents),
             ("cancel_detached_script", Agents),
@@ -2308,10 +2384,11 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `ui` (spec 063) is the last; `custom_tools` (spec 061) is the one before it.
-        assert_eq!(names.last(), Some(&"ui"));
-        assert_eq!(names[names.len() - 2], "custom_tools");
-        assert_eq!(names.len(), 23);
+        // `consultations` (spec 064) is the last; `ui` (spec 063) is the one before it.
+        assert_eq!(names.last(), Some(&"consultations"));
+        assert_eq!(names[names.len() - 2], "ui");
+        assert_eq!(names[names.len() - 3], "custom_tools");
+        assert_eq!(names.len(), 24);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2568,6 +2645,7 @@ mod tests {
             hooks: None,
             background_depth: 0,
             subagent_depth: 0,
+            consultation_chain: vec![],
             deadline: None,
             loaded_images: Default::default(),
             client,

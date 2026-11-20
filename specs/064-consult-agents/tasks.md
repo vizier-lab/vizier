@@ -37,14 +37,14 @@ its access check.
 **Purpose**: the extended row, the new channel kind and the request fields that every story
 reads. Research D1, D2, D3, D8.
 
-- [ ] T003 Add `VizierChannelId::Consultation(String)` (the consulting agent id) with slug `consultation__{id}`, its `to_slug`/parse arms, `usage_activity()` → new `UsageActivity::Consultation` (label "Consultations", place `consultation:{consulting}:{topic}`), and the `"background"` grouping arm in `crates/vizier-core/src/schema/session.rs`; label the kept `Workspace(String)` variant "Workspaces (removed)" with a legacy doc comment
-- [ ] T004 Extend `Subagent` with `consultee_id: Option<AgentId>`, `principal_user_id: Option<String>`, `follow_ups: u32`; add `new_consultation_id()` (`c_` + 8 base36), `Subagent::is_consultation()`, and make `worker_session()` return `(consultee, Consultation(agent_id), topic)` for a consultation; add `SubagentStopReason::{ConsultingAgentDeleted, ConsulteeDeleted}` and a kind-aware `ByAgent` label ("stopped by the consulting agent") in `crates/vizier-core/src/schema/subagent.rs`
-- [ ] T005 Add `consultation_depth: u8` and `consultation_chain: Vec<AgentId>` to `VizierRequest` (journaled like `subagent_depth`/`project_scope`, not accepted from clients) in `crates/vizier-core/src/schema/request.rs`, and copy both onto `ToolContext` where `subagent_depth` is copied in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T006 Add `ConsultationsConfig { max_depth: u8 }` (default 1) under `consultations` in the seed config in `crates/vizier-core/src/config/mod.rs`
-- [ ] T007 Add the three columns and the partial index on `consultee_id` to the SQLite `subagent` schema with `add_column_if_missing` in `crates/vizier-core/src/storage/sqlite/subagent.rs`, and write `crates/vizier-core/src/storage/sql/postgres/migrations/0013_consultations.sql`
-- [ ] T008 Make every `SubagentStorage` transition fence on the scope of the side that causes it (research D3): open, reply, follow-up, stop-by-agent, seen, claim, time-out, re-own and session/agent stops on `agent:{agent_id}`; settle, ask and the new consultee stop on `agent:{consultee_id or agent_id}`, in `crates/vizier-core/src/storage/sqlite/subagent.rs`
-- [ ] T009 [P] Add one row per new fenced write to the contract tests (settle and ask under the consultee's fence succeed while the consulting scope is held elsewhere; a consulting-side write under a lost fence fails `OwnershipLost`) in `crates/vizier-core/src/storage/sqlite/fence_tests.rs`
-- [ ] T010 Append `ToolCategory::Consultations` (the 24th, last) with name `consultations`, reserve the name for MCP/addon clashes, and extend `a_new_category_is_appended_to_the_end_of_the_list` in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T003 Add `VizierChannelId::Consultation(String)` (the consulting agent id) with slug `consultation__{id}`, its `to_slug`/parse arms, `usage_activity()` → new `UsageActivity::Consultation` (label "Consultations", place `consultation:{consulting}:{topic}`), and the `"background"` grouping arm in `crates/vizier-core/src/schema/session.rs`; label the kept `Workspace(String)` variant "Workspaces (removed)" with a legacy doc comment
+- [X] T004 Extend `Subagent` with `consultee_id: Option<AgentId>`, `principal_user_id: Option<String>`, `follow_ups: u32`; add `new_consultation_id()` (`c_` + 8 base36), `Subagent::is_consultation()`, and make `worker_session()` return `(consultee, Consultation(agent_id), topic)` for a consultation; add `SubagentStopReason::{ConsultingAgentDeleted, ConsulteeDeleted}` and a kind-aware `ByAgent` label ("stopped by the consulting agent") in `crates/vizier-core/src/schema/subagent.rs`
+- [X] T005 Add `consultation_chain: Vec<AgentId>` to `VizierRequest` (journaled like `subagent_depth`/`project_scope`, cleared from client input in `stamp_on_receipt`) in `crates/vizier-core/src/schema/request.rs`, and copy it onto `ToolContext` where `subagent_depth` is copied in `crates/vizier-core/src/agents/tools/mod.rs`. *Built as one field: the consultation depth is the chain's length.*
+- [X] T006 Add `ConsultationsConfig { max_depth: u8 }` (default 1) under `consultations` in the seed config in `crates/vizier-core/src/config/mod.rs`
+- [X] T007 Add the three columns and the partial index on `consultee_id` to the SQLite `subagent` schema with `add_column_if_missing` in `crates/vizier-core/src/storage/sqlite/subagent.rs`, and write `crates/vizier-core/src/storage/sql/postgres/migrations/0012_consultations.sql` *(numbered 0012: it landed before the Workspace drop)*
+- [X] T008 Make every `SubagentStorage` transition fence on the scope of the side that causes it (research D3): open, reply, follow-up, stop-by-agent, seen, claim, time-out, re-own and session/agent stops on `agent:{agent_id}`; settle, ask and the new consultee stop on `agent:{consultee_id or agent_id}`, in `crates/vizier-core/src/storage/sqlite/subagent.rs`
+- [X] T009 [P] Add one row per new fenced write to the contract tests (settle and ask under the consultee's fence succeed while the consulting scope is held elsewhere; a consulting-side write under a lost fence fails `OwnershipLost`) in `crates/vizier-core/src/storage/sqlite/fence_tests.rs`
+- [X] T010 Append `ToolCategory::Consultations` (the 24th, last) with name `consultations`, reserve the name for MCP/addon clashes, and extend `a_new_category_is_appended_to_the_end_of_the_list` in `crates/vizier-core/src/agents/tools/mod.rs`
 
 **Checkpoint**: `cargo test -p vizier-core` passes, and workers behave exactly as before.
 
@@ -57,17 +57,17 @@ conversation, and A gets the answer through a wait or a delivery.
 
 **Independent Test**: quickstart §1 and §2.1.
 
-- [ ] T011 [US1] Generalise `Subagents::spawn` to take `Target::{Worker { task }, Agent { agent_id, request }}`: consultation rows get a `c_` id, `consultee_id`, `principal_user_id`, and their request goes to `worker_session()` with `consultation_depth + 1` and `consultation_chain + [A]`, with `subagent_depth` unchanged, in `crates/vizier-core/src/agents/subagents.rs`
-- [ ] T012 [US1] Make `turn_ended` settle a `Consultation` session's row (looked up by topic) as it does a `Subagent` one, and recognise either ask tool as `TurnEnd::Asked`, in `crates/vizier-core/src/agents/subagents.rs` and the `Chat` arm of `crates/vizier-core/src/agents/process.rs`
-- [ ] T013 [US1] Title `render_update` by kind ("[Consultation update]", naming the consultee and its position) in `crates/vizier-core/src/agents/subagents.rs`
-- [ ] T014 [P] [US1] Write `consultation_md(name, id)` from the fixed text in `contracts/consultation-tools.md` in a new `crates/vizier-core/src/agents/agent/system_prompt/consultation.rs`, and register the module in `system_prompt/mod.rs`
-- [ ] T015 [US1] Append `consultation_md` last for a `Consultation` session in `system_prompt_layout` (the consultee keeps its own BOOT, persona and identity), and add a pure layout test beside the worker tests in `crates/vizier-core/src/agents/agent/mod.rs`
-- [ ] T016 [US1] Frame `SubagentTask`/`SubagentReply` requests on a `Consultation` session in `generate_frontmatter` (`sender: <A>`, `via: consultation | consultation_reply | consultation_followup`, `on_behalf_of: <person display name> | none`, `consultation: N of M`), with a test, in `crates/vizier-core/src/schema/request.rs`
-- [ ] T017 [US1] Exclude `Consultation` conversations in `is_interactive_turn`'s conversation test (removes `ask_question`/`ask_sensitive_input`, FR-017) in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T018 [US1] Create `crates/vizier-core/src/agents/tools/consultations.rs` with `consult_agent` (`consultations: [{agent, request}]` 1..=8, `timeout_secs?`, validate every entry before starting any) and `wait_consultations` (refusing an `s_` id as `unknown_consultation`), returning the snapshot shape from `data-model.md`
-- [ ] T019 [US1] Register both tools on `default_toolset` in `BaseTools::new()`, add them to the `every_tool_is_in_its_category` table, and keep them out of `DREAM_TOOL_NAMES`, in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T020 [US1] Make the subagent tools refuse a `c_` id as `unknown_subagent`, and leave the `s_` path untouched, in `crates/vizier-core/src/agents/tools/subagents.rs`
-- [ ] T021 [US1] Add `consult_and_wait` and `consultation_delivered_once` cases (two dummyplug agents; B scripted by the request text) in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T011 [US1] Generalise `Subagents::spawn` to take `Target::{Worker { task }, Agent { agent_id, request }}`: consultation rows get a `c_` id, `consultee_id`, `principal_user_id`, and their request goes to `worker_session()` with `consultation_chain + [A]` (its length is the depth), at `subagent_depth` 0, with no project scope, in `crates/vizier-core/src/agents/subagents.rs`
+- [X] T012 [US1] Make `turn_ended` settle a `Consultation` session's row (looked up by topic) as it does a `Subagent` one, and recognise either ask tool as `TurnEnd::Asked`, in `crates/vizier-core/src/agents/subagents.rs` and the `Chat` arm of `crates/vizier-core/src/agents/process.rs`
+- [X] T013 [US1] Title `render_update` by kind ("[Consultation update]", naming the consultee and its position) in `crates/vizier-core/src/agents/subagents.rs`
+- [X] T014 [P] [US1] Write `consultation_md(name, id)` from the fixed text in `contracts/consultation-tools.md` in a new `crates/vizier-core/src/agents/agent/system_prompt/consultation.rs`, and register the module in `system_prompt/mod.rs`
+- [X] T015 [US1] Append `consultation_md` last for a `Consultation` session in `system_prompt_layout` (the consultee keeps its own BOOT, persona and identity), and add a pure layout test beside the worker tests in `crates/vizier-core/src/agents/agent/mod.rs`
+- [X] T016 [US1] Frame `SubagentTask`/`SubagentReply` requests on a `Consultation` session in `generate_frontmatter` (`sender: <A>`, `via: consultation | consultation_reply | consultation_followup`, `on_behalf_of: <person display name> | none`, `consultation: N of M`), with a test, in `crates/vizier-core/src/schema/request.rs`
+- [X] T017 [US1] Exclude `Consultation` conversations in `is_interactive_turn`'s conversation test (removes `ask_question`/`ask_sensitive_input`, FR-017) in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T018 [US1] Create `crates/vizier-core/src/agents/tools/consultations.rs` with `consult_agent` (`consultations: [{agent, request}]` 1..=8, `timeout_secs?`, validate every entry before starting any) and `wait_consultations` (refusing an `s_` id as `unknown_consultation`), returning the snapshot shape from `data-model.md`
+- [X] T019 [US1] Register both tools on `default_toolset` in `BaseTools::new()`, add them to the `every_tool_is_in_its_category` table, and keep them out of `DREAM_TOOL_NAMES`, in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T020 [US1] Make the subagent tools refuse a `c_` id as `unknown_subagent`, and leave the `s_` path untouched, in `crates/vizier-core/src/agents/tools/subagents.rs`
+- [X] T021 [US1] Add `consult_and_wait` and `consultation_delivered_once` cases (two dummyplug agents; B scripted by the request text) in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 **Checkpoint**: quickstart §1 and §2.1 pass. Do not release without US4.
 
@@ -80,10 +80,10 @@ and the consultable list. Research D5.
 
 **Independent Test**: quickstart §5.
 
-- [ ] T022 [US4] Create `crates/vizier-core/src/consultations/mod.rs` and `access.rs`: `principal_for_turn(deps, ctx)` (`web_user()` for HTTP/Project, A's `owner_id` for Task/System, `no_owner` otherwise), `consultable(deps, ctx, agent_id)` (`can_view_agent`, not self, not in `consultation_chain`), and `may_consult(ctx, max_depth)` (depth below the max, `subagent_depth == 0`, not a dream, and the root conversation has no `platform()`, FR-011a / #116); register in `crates/vizier-core/src/lib.rs`
-- [ ] T023 [P] [US4] Unit tests for the three functions (view right, unknown and not-allowed agents answer the same, self, chain, owner fallback, no owner, Discord/Telegram and a detached script started there refused) in `crates/vizier-core/src/consultations/access.rs`
-- [ ] T024 [US4] Call `consultable` from `consult_agent` (refusals `unknown_agent`, `self`, `in_chain`, `no_owner`; `unavailable` with the `AgentUnavailable` reason read from the published health view) and gate every consultation tool's `available(ctx)` on `may_consult`, in `crates/vizier-core/src/agents/tools/consultations.rs`
-- [ ] T025 [US4] Add `list_consultable_agents` (`{id, name, description, available}`, never self or the chain) in `crates/vizier-core/src/agents/tools/consultations.rs`, and register it in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T022 [US4] Create `crates/vizier-core/src/consultations/mod.rs` and `access.rs`: `principal_for_turn(deps, ctx)` (`web_user()` for HTTP/Project, A's `owner_id` for Task/System, `no_owner` otherwise), `consultable(deps, ctx, agent_id)` (`can_view_agent`, not self, not in `consultation_chain`), and `may_consult(ctx, max_depth)` (depth below the max, `subagent_depth == 0`, not a dream, and the root conversation has no `platform()`, FR-011a / #116); register in `crates/vizier-core/src/lib.rs`
+- [X] T023 [P] [US4] Unit tests for the three functions (view right, unknown and not-allowed agents answer the same, self, chain, owner fallback, no owner, Discord/Telegram and a detached script started there refused) in `crates/vizier-core/src/consultations/access.rs`
+- [X] T024 [US4] Call `consultable` from `consult_agent` (refusals `unknown_agent`, `self`, `in_chain`, `no_owner`; `unavailable` with the `AgentUnavailable` reason read from the published health view) and gate every consultation tool's `available(ctx)` on `may_consult`, in `crates/vizier-core/src/agents/tools/consultations.rs`
+- [X] T025 [US4] Add `list_consultable_agents` (`{id, name, description, available}`, never self or the chain) in `crates/vizier-core/src/agents/tools/consultations.rs`, and register it in `crates/vizier-core/src/agents/tools/mod.rs`
 - [ ] T026 [US4] Add `consult_refused_for_viewer`, `scheduled_run_consults_as_owner` and `no_consultations_on_discord` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 **Checkpoint**: The MVP is complete. Quickstart §1, §2.1 and §5 pass.
@@ -96,9 +96,9 @@ and the consultable list. Research D5.
 
 **Independent Test**: quickstart §3.
 
-- [ ] T027 [US2] Add `stop_consultation`, `list_consultations` and `get_consultation` (marks seen; returns `conversation`) over the shared `Subagents` methods, each filtering to `c_` rows of this conversation, in `crates/vizier-core/src/agents/tools/consultations.rs`, and register them in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T028 [US2] Make `halt`/`abort_worker` abort the consultee's session (`worker_session()` already points at B), so a stop or time-out ends B's turn with a stop notice, and confirm it in `crates/vizier-core/src/agents/subagents.rs`
-- [ ] T029 [US2] Add a `stop_one_consultation_others_finish` case in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T027 [US2] Add `stop_consultation`, `list_consultations` and `get_consultation` (marks seen; returns `conversation`) over the shared `Subagents` methods, each filtering to `c_` rows of this conversation, in `crates/vizier-core/src/agents/tools/consultations.rs`, and register them in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T028 [US2] Make `halt`/`abort_worker` abort the consultee's session (`worker_session()` already points at B), so a stop or time-out ends B's turn with a stop notice, and confirm it in `crates/vizier-core/src/agents/subagents.rs`
+- [X] T029 [US2] Add a `stop_one_consultation_others_finish` case in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 ---
 
@@ -133,7 +133,7 @@ give guidance. Research D11, D12.
 - [ ] T039 [US8] Remove the `workspaces:create`/`all_workspaces:manage` top-up from `crates/vizier-core/src/storage/user.rs`
 - [ ] T040 [US8] Delete `crates/vizier-core/src/storage/workspace.rs` and `storage/sqlite/workspace.rs`, and remove `WorkspaceStorage` from `VizierStorageProvider` in `storage/mod.rs` and `storage/sqlite/mod.rs`
 - [ ] T041 [US8] Add the once-only cleanup under marker `migration.drop_workspaces_v1` in one transaction (Workspace sessions' history, `session_detail`, `session_turn`, `scratch_file`, `session_file` rows and their blobs by reference count, `message_reaction`, `platform_message_link`; `workspace_message` notifications; the two permissions from every role; `DROP TABLE` every `workspace*` table) in `crates/vizier-core/src/storage/sqlite/mod.rs`, with a test that seeds Workspace data and checks that memory, other sessions and `usage_event` survive
-- [ ] T042 [P] [US8] Write `crates/vizier-core/src/storage/sql/postgres/migrations/0012_drop_workspaces.sql` with the same deletions and drops
+- [ ] T042 [P] [US8] Write `crates/vizier-core/src/storage/sql/postgres/migrations/0013_drop_workspaces.sql` with the same deletions and drops
 - [ ] T043 [P] [US8] Delete `crates/vizier-http/src/api/v1/workspaces.rs` and `crates/vizier-http/src/workspace_topic.rs` and their router and OpenAPI lines in `api/v1/mod.rs` and `lib.rs`
 - [ ] T044 [P] [US8] Delete `crates/vizier-http/tests/conformance/groups/workspaces.rs`, its line in `groups/mod.rs`, its recorded baselines under `target/038-baseline/conformance/`, and the Workspace routes in `crates/vizier-http/tests/conformance/pending.txt`
 - [ ] T045 [P] [US8] Delete `crates/vizier-core/tests/workspaces_service.rs` and the Workspace cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
@@ -155,10 +155,10 @@ give guidance. Research D11, D12.
 
 **Independent Test**: quickstart §4.
 
-- [ ] T050 [US3] Add `follow_up_subagent(id, deadline_at, at)` (`answered → running`, consultations only, `follow_ups + 1`, `ended_at` cleared, `outcome_seq` untouched) to the trait in `crates/vizier-core/src/storage/subagent.rs` and the guarded update in `storage/sqlite/subagent.rs`, with transition tests
-- [ ] T051 [US3] Add `Subagents::reply_or_follow_up` (asking → reply, answered → follow-up, else `not_waiting`; re-checks `consultable`, FR-013) sending `SubagentReply` with the matching `via`, in `crates/vizier-core/src/agents/subagents.rs`
-- [ ] T052 [US3] Add `reply_consultation` and `ask_consulting_agent` (turn-ending, offered only in a `Consultation` session, sharing `ask_main_agent`'s implementation) in `crates/vizier-core/src/agents/tools/consultations.rs`; register both and add them to the category table in `crates/vizier-core/src/agents/tools/mod.rs`
-- [ ] T053 [US3] Add `consultee_asks_then_answers` and `follow_up_continues_conversation` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T050 [US3] Add `follow_up_subagent(id, deadline_at, at)` (`answered → running`, consultations only, `follow_ups + 1`, `ended_at` cleared, `outcome_seq` untouched) to the trait in `crates/vizier-core/src/storage/subagent.rs` and the guarded update in `storage/sqlite/subagent.rs`, with transition tests
+- [X] T051 [US3] Add `Subagents::reply_or_follow_up` (asking → reply, answered → follow-up, else `not_waiting`; re-checks `consultable`, FR-013) sending `SubagentReply` with the matching `via`, in `crates/vizier-core/src/agents/subagents.rs`
+- [X] T052 [US3] Add `reply_consultation` and `ask_consulting_agent` (turn-ending, offered only in a `Consultation` session, sharing `ask_main_agent`'s implementation) in `crates/vizier-core/src/agents/tools/consultations.rs`; register both and add them to the category table in `crates/vizier-core/src/agents/tools/mod.rs`
+- [X] T053 [US3] Add `consultee_asks_then_answers` and `follow_up_continues_conversation` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
 
 ---
 
@@ -168,7 +168,7 @@ give guidance. Research D11, D12.
 
 **Independent Test**: quickstart §8.1 and §8.3.
 
-- [ ] T054 [US5] Add `consultee: Option<{id, name, available}>` and `follow_ups` to the `SessionFrame::Subagent` snapshot in `crates/vizier-core/src/transport/events.rs` (and wherever the snapshot DTO is built), and a `kind` filter to `service::subagents` in `crates/vizier-core/src/service/subagents.rs`
+- [ ] T054 [US5] *(`consultee` (the id) and `follow_ups` are already on the snapshot's summary; the WebUI maps the id to a name from its agent list.)* Confirm the `SessionFrame::Subagent` snapshot in `crates/vizier-core/src/transport/events.rs` (and wherever the snapshot DTO is built), and a `kind` filter to `service::subagents` in `crates/vizier-core/src/service/subagents.rs`
 - [ ] T055 [US5] Add `GET …/topic/{topic}/consultations[/{id}[/history]]` (history read from the consultee's conversation) in a new `crates/vizier-http/src/api/v1/agents/consultations.rs`; route it in `agents/mod.rs`; filter the subagent routes to `consultee == null` in `agents/subagents.rs`
 - [ ] T056 [P] [US5] Add conformance vectors for the three routes (owner, other person, unknown id) in a new `crates/vizier-http/tests/conformance/groups/consultations.rs` and record baselines with `CONFORMANCE_RECORD=1`
 - [ ] T057 [US5] Design pass on the `Chat` page of `Vizier.figcraft`: the Consultations strip item and panel (or approve the ASCII mockup in `contracts/http-and-webui.md`); review before code
@@ -192,8 +192,8 @@ give guidance. Research D11, D12.
 
 ## Phase 11: Lifecycle edges (deletion and limits, cross-story)
 
-- [ ] T064 Make `Subagents::delete_session`/`delete_agent` delete each consultation's conversation through `worker_session()` (B's history, files, scratch and turns, after aborting B's turn), and stop consultations with `ConsultingAgentDeleted` on agent delete, in `crates/vizier-core/src/agents/subagents.rs`
-- [ ] T065 Add `stop_consultations_of(consultee, ConsulteeDeleted)` (fenced on the consultee's scope) to `SubagentStorage` and `storage/sqlite/subagent.rs`, call it from the agent delete path in `crates/vizier-core/src/agents/mod.rs`, and poke each consulting session
+- [X] T064 Make `Subagents::delete_session`/`delete_agent` delete each consultation's conversation through `worker_session()` (B's history, files, scratch and turns, after aborting B's turn), and stop consultations with `ConsultingAgentDeleted` on agent delete, in `crates/vizier-core/src/agents/subagents.rs`
+- [X] T065 Add `stop_consultations_of(consultee, ConsulteeDeleted)` (fenced on the consultee's scope) to `SubagentStorage` and `storage/sqlite/subagent.rs`, call it from the agent delete path in `crates/vizier-core/src/agents/mod.rs`, and poke each consulting session
 - [ ] T066 Add `delete_conversation_removes_consultee_copy` and `deleted_consultee_is_delivered` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`
 - [ ] T067 Add an offering test (person's chat: seven tools; consultation: only `ask_consulting_agent`; worker, dream, Discord: none) in `crates/vizier-core/src/agents/tools/consultations.rs`
 

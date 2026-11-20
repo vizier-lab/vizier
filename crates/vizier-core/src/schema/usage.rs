@@ -17,7 +17,8 @@ pub enum UsageActivity {
     Chat,
     /// A project chat's coding work (`specs/041-project-coding-workspace` FR-016).
     Project,
-    /// A Workspace topic (`specs/053-workspace-channel`).
+    /// A Workspace topic (`specs/053-workspace-channel`). Workspaces were removed by spec 064;
+    /// kept so usage recorded before still reads (#82).
     Workspace,
     Background,
     Scheduled,
@@ -25,10 +26,12 @@ pub enum UsageActivity {
     Compaction,
     Vision,
     Other,
+    /// A turn of a consulted agent (`specs/064-consult-agents`).
+    Consultation,
 }
 
 impl UsageActivity {
-    pub const ALL: [UsageActivity; 9] = [
+    pub const ALL: [UsageActivity; 10] = [
         Self::Chat,
         Self::Project,
         Self::Workspace,
@@ -38,6 +41,7 @@ impl UsageActivity {
         Self::Compaction,
         Self::Vision,
         Self::Other,
+        Self::Consultation,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -51,6 +55,7 @@ impl UsageActivity {
             Self::Compaction => "compaction",
             Self::Vision => "vision",
             Self::Other => "other",
+            Self::Consultation => "consultation",
         }
     }
 
@@ -58,13 +63,14 @@ impl UsageActivity {
         match self {
             Self::Chat => "Chat",
             Self::Project => "Projects",
-            Self::Workspace => "Workspaces",
+            Self::Workspace => "Workspaces (removed)",
             Self::Background => "Background",
             Self::Scheduled => "Scheduled",
             Self::Dreams => "Dreams",
             Self::Compaction => "Compaction",
             Self::Vision => "Vision",
             Self::Other => "Other",
+            Self::Consultation => "Consultations",
         }
     }
 

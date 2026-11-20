@@ -119,7 +119,7 @@ async fn origin_of(hub: &Hub, session: &crate::schema::VizierSession, workspace:
             let name = hub.storage.get_workspace(id).await.ok().flatten().map_or_else(|| id.clone(), |w| w.name);
             ("workspace", name)
         }
-        VizierChannelId::InterAgent(_) | VizierChannelId::System | VizierChannelId::Subagent | VizierChannelId::Dream(..) => return None,
+        VizierChannelId::InterAgent(_) | VizierChannelId::System | VizierChannelId::Subagent | VizierChannelId::Consultation(_) | VizierChannelId::Dream(..) => return None,
     };
     Some(serde_json::json!({ "kind": kind, "label": label }))
 }
@@ -550,6 +550,7 @@ mod tests {
             hooks: None,
             background_depth: 0,
             subagent_depth: 0,
+            consultation_chain: vec![],
             loaded_images: Default::default(),
             deadline: None,
             client: None,
