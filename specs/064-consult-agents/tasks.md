@@ -202,7 +202,7 @@ give guidance. Research D11, D12.
 ## Phase 12: Polish and cross-cutting
 
 - [X] T068 [P] Write `docs/src/configuration/consultations.md` (what a consultation is, access, limits, the #116 deferral, the `consultations.max_depth` setting); delete `docs/src/configuration/workspaces.md`; update `docs/src/SUMMARY.md`
-- [ ] T069 [P] Write `scripts/consultations-e2e.mjs` from quickstart §1–§9 (two dummyplug agents) and delete `scripts/workspace-e2e.mjs`
+- [X] T069 [P] Write `scripts/consultations-e2e.mjs` from quickstart §1–§9 (two dummyplug agents) and delete `scripts/workspace-e2e.mjs`
 - [X] T070 [P] Update the operating doctrine in BOOT (`templates/` or the boot module) to explain subagents and consultations, and when to choose each (FR-026)
 - [X] T071 Update `CLAUDE.md`: replace the Workspaces section with a Consultations one, note `Consultation` in the channel list, set the category count to 24, list the retired names, and mention `consultations.max_depth`
 - [ ] T072 Add #82 checklist entries on GitHub for `migration.drop_workspaces_v1` and its cleanup, the kept `VizierChannelId::Workspace` variant (and the `ToolCategory` legacy entry if kept), and the five retired names
