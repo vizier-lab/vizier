@@ -795,6 +795,12 @@ impl AgentHost {
                 });
         }
 
+        // Marked before the inbox closes: a closed inbox ends the request loop at once, and a
+        // loop that ended before the mark took the update/restart teardown (consultations of
+        // this agent never stopped, its detached scripts interrupted instead of forgotten).
+        if let Some(process) = self.processes.get(agent_id) {
+            process.deleting.store(true, Ordering::SeqCst);
+        }
         self.deps
             .transport
             .unregister_agent(&agent_id.to_string())
@@ -802,7 +808,6 @@ impl AgentHost {
         // The agent is gone, so nothing answers its command subject any more.
         self.release_scoped(&agent_id.to_string());
         if let Some(process) = self.processes.remove(agent_id) {
-            process.deleting.store(true, Ordering::SeqCst);
             process.stop(agent_id).await;
         }
 
