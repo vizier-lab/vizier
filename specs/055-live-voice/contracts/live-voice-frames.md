@@ -17,10 +17,11 @@ description this document publishes **MUST** be accepted, and audio in a descrip
 **MUST** be refused — never guessed at, never silently converted.
 
 **Compatibility rule**: every server frame carries a distinct top-level key, `live_voice`, so a client
-that does not know it ignores it (`webui/app/api/frames.ts:607-630`). With `provider-live-voice` off,
-no `live_voice` frame is ever emitted. Client frames carry `live_voice_*` action names; a server
-without the feature ignores them (its inbound handler drops unknown keys) and the client never sends
-them, because the capability reads false.
+that does not know it ignores it (`webui/app/api/frames.ts:607-630`). With the agent's `live_voice.enabled` switch off
+(off unless it is configured; there is no build flag since C17, 2026-11-16, so every server this
+document describes carries the code), no `live_voice` frame is ever emitted. Client frames carry
+`live_voice_*` action names; a server older than this contract ignores them (its inbound handler drops
+unknown keys) and the client never sends them, because the capability reads false.
 
 ## Common fields
 

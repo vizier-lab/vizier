@@ -122,8 +122,9 @@ beside `questions: Arc<vizier_core::questions::Questions>` in the shared service
 the connection the same way. Architecture decision, recorded in `architecture.md` §3.
 
 **D7 — `hound` must not become a coupling.** WAV header is 44 bytes; `hound` sits behind
-`provider-media` (`plan.md` says so itself). Emitting the header by hand keeps `provider-live-voice`
-independent of `provider-media`, which is what FR-041 wants. Fix in tasks.
+`provider-media` (`plan.md` says so itself). Emitting the header by hand keeps the live voice code
+independent of `provider-media`, which is what FR-041 wants. (C17, 2026-11-16: the flag named here is
+gone; the independence it was buying is what the requirement is about.) Fix in tasks.
 
 **D10 — `ClientConnection::send` returns `false` for two different events.** It is
 `try_send(frame).is_ok()` (`crates/vizier-core/src/agents/client/connection.rs`) and the queue is
@@ -215,7 +216,8 @@ that has to reach the client *before* the speech it describes.
 
 **4.1 "Separate feature, own button, does not ride the existing STT/TTS switch" — PASS.** FR-001/003
 are unambiguous, `data-model.md` §5 gives it its own `ToolConfig`-shaped block with `enabled: false`,
-and its own flag `provider-live-voice`. Reusing the agent's *settings* (provider, voice, language) is
+and its own switch `tools.live_voice.enabled`, which was its own Cargo flag `provider-live-voice`
+until C17 removed it (2026-11-16). Reusing the agent's *settings* (provider, voice, language) is
 not reuse of the *switch*: `stt.enabled`/`tts.enabled` are never read by the live path, and
 `quickstart.md` step 6 tests exactly that (tools off → live voice still works). One nit only:
 `LiveVoiceSettings.stt/tts = null` means "use the agent's speech settings" — that must resolve the

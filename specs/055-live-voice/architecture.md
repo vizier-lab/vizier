@@ -27,9 +27,13 @@ D3 correction, and the invariants QA can test. No code here.
 | audio chunking, VAD, player, state machine | `webui/app/lib/liveVoice/{capture,vad,player,session}.ts` | client | capture 100 ms PCM16, energy VAD, gapless playback, generation guard |
 | the control and the live row | `webui/app/screens/chat/LiveVoiceRow.tsx` (the idle pill, the state word, the microphone mark, one End action), `webui/app/screens/chat/LiveVoiceButton.tsx` (archived in place, C11) | client | one row **inside the composer's own meta line** — 24 px, 0 px added, no new surface (C11, FR-043); it shows the agent, the FR-006 state word, FR-042's thinking indicator, the open microphone (FR-038) and **one** action, End (FR-045). What it takes the place of is the context ring (18 px) and the model chip (223,3 px), in that order (FR-049). **There is no interrupt control** — C7 moved it to the backlog |
 
-`vizier-http` must build **with the feature off**: every reference to `live_voice` in that crate is
-behind `#[cfg(feature = "provider-live-voice")]` (FR-041), and the inbound branch falls through to
-today's behaviour when the flag is off.
+> **C17 (2026-11-16) supersedes the build story in this document.** The `provider-live-voice` and
+> `live-voice` Cargo features were removed: live voice is compiled into every build and the only switch
+> is the per-agent `tools.live_voice.enabled`. `spec.md` FR-041 is authoritative. This section and §10 I1 are corrected in place below; the rest of the document keeps its 2026-11-08 wording.
+
+`vizier-http` carries live voice in **every** build — the `#[cfg(feature = "provider-live-voice")]`
+gate this paragraph was written against no longer exists (C17) — and the inbound branch still falls
+through to today's behaviour when the agent's `live_voice.enabled` switch is off.
 
 ## 2. Architecture
 
@@ -321,8 +325,9 @@ below is 2.57 s before the model has produced anything.
 
 ## 10. Invariants (QA turns these into tests)
 
-* **I1** With `provider-live-voice` off: no `live_voice` frame is ever emitted, the capability reads
-  false, and `cargo build -p vizier-http` has no reference to the module.
+* **I1** With the agent's `live_voice.enabled` switch off: no `live_voice` frame is ever emitted and
+  the capability reads false. **C17:** the build half of this invariant is gone — `cargo build -p
+  vizier-http` always contains the module, so there is nothing to grep for.
 * **I2** Nothing reads `stt.enabled` / `tts.enabled` on the live path: only `.settings` (nit from
   `review.md` §4.1). Turning both tools off must not affect a session.
 * **I3** No audio reaches disk or storage; the only new persisted thing is `spoken` on a request.

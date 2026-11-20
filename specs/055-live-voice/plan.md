@@ -44,7 +44,7 @@ Web: `AudioContext`, `AudioWorklet` (already used by `webui/public/vizier-captur
 
 **Storage**: none. Audio is never written to disk (FR-016); only transcript and reply text, through the existing conversation storage.
 
-**Testing**: `cargo test` per crate and per feature flag (`vizier-core` with and without `provider-live-voice`), `cargo test -p vizier-http` for the frame contract, `vitest` for the client state machine, VAD and segmenter (`webui/app/lib/liveVoice/*.test.ts`), Playwright for the two interruption paths with a fake provider, and dummyplug steps in [quickstart.md](./quickstart.md) for the agent-observable half. Speech providers are faked in every automated test; one live-provider check is marked as such.
+**Testing**: `cargo test` per crate (`vizier-core`, `vizier-http` — one build since C17, so no flag axis) for the frame contract, `vitest` for the client state machine, VAD and segmenter (`webui/app/lib/liveVoice/*.test.ts`), Playwright for the two interruption paths with a fake provider, and dummyplug steps in [quickstart.md](./quickstart.md) for the agent-observable half. Speech providers are faked in every automated test; one live-provider check is marked as such.
 
 **Target Platform**: the chat interface only — the WebUI in a browser and the desktop app's WebView (FR-035, Clarifications C1). Discord and Telegram are out of scope.
 
@@ -142,6 +142,13 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
 | R7 | Interruption reuses the existing abort path | `AgentsClient::abort(agent_id, session)` (`crates/vizier-core/src/agents_client.rs:205-207`, impl `:298-312`), which sends `VizierRequestContent::Command("abort")` — the same thing `Composer.tsx:38`'s `/abort` sends. There is no `AgentCommand::Abort`; `agents_client.rs:415` is a test fake (`review.md` D12) |
 | R8 | No new dependency is mandatory | audit in research.md §Dependency report |
 
+> **C17 (2026-11-16) supersedes the build story in this document.** The `provider-live-voice` and
+> `live-voice` Cargo features were removed: live voice is compiled into every build and the only switch
+> is the per-agent `tools.live_voice.enabled`. `spec.md` FR-041 is authoritative. In this file the
+> narrative below is kept as written on 2026-11-08 (a plan is a dated artifact, not a status page);
+> where it names a build flag, read "the per-agent switch". Every command in `quickstart.md` and
+> `tasks.md` was corrected on 2026-11-20 — a flag-bearing command in this file must not be run.
+
 ## Phase A — Capability and configuration (no audio yet)
 
 **Goal**: the control can exist, be off, and prove it changes nothing.
@@ -152,8 +159,9 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    stored agent file without the block still loads.
 3. Agent detail response gains `live_voice: bool` beside the existing `stt`/`tts` booleans
    (`webui/app/routes/chat.tsx:104-119` already reads those two).
-4. **Exit criteria**: `cargo test -p vizier-core --features provider-live-voice` and without it;
-   `cargo test -p vizier-http`; a webui build where the control is absent because the flag is off.
+4. **Exit criteria**: `cargo test -p vizier-core` and `cargo test -p vizier-http`; a webui build where
+   the control is absent because the agent's `live_voice.enabled` switch is off (the flag this line
+   originally compared against is gone — C17).
 
 ## Phase B — Server session and recognition
 
@@ -193,7 +201,7 @@ The decisions that shape the rest of the plan, each with the evidence it rests o
    T020–T022).
 4. Honest limit: a single long message is segmented only after its text exists (Clarifications,
    constraint note), so latency is "first segment", not "first token".
-5. **Exit criteria**: `cargo test -p vizier-core --features provider-live-voice` — a three-segment
+5. **Exit criteria**: `cargo test -p vizier-core --lib live_voice::` — a three-segment
    reply yields three ordered frames whose concatenated PCM equals the faked synthesiser's output; a
    first frame is emitted before the last segment is requested.
 

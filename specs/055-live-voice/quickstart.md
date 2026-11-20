@@ -12,14 +12,19 @@ written so that the person who runs it does not have to read the plan.
   `stt`/`tts` *tools* are enabled — that is FR-003, and step 6 checks it.
 * A laptop with a microphone and speakers, and a quiet room for the first pass. Headphones for the
   second.
-* `provider-live-voice` in the build. In the workspace it is part of `full`, which is what
-  `crates/vizier/Cargo.toml:30` asks `vizier-core` for, so the normal build has it. To prove the
-  other side of FR-041:
+* **No build flag** — live voice is compiled into every build of the engine and the gateway
+  (C17, 2026-11-16, `spec.md` FR-041): the `provider-live-voice` and `live-voice` features no longer
+  exist, so no build leaves it out and there is no second build to compare against. To see that in
+  the tree rather than take it on trust:
 
 ```bash
-cargo build -p vizier --no-default-features --features ""      # or without `full`
-cargo test -p vizier-core --features provider-live-voice
-cargo test -p vizier-core                                      # without it: everything else must pass
+git grep -n 'provider-live-voice\|feature = "live-voice"' -- crates/        # empty
+cargo tree -p vizier-core --no-default-features -e normal --prefix none | sort -u | wc -l   # 625, unchanged either way
+cargo test -p vizier-core --lib live_voice::                                 # 56 passed (the `::` is load-bearing)
+```
+
+The switch a person turns is per agent, not per build: `tools.live_voice.enabled`, off unless it
+is configured. Step 6 below checks that turning it off changes nothing else.
 ```
 
 ## Run it
@@ -132,7 +137,7 @@ marked as such.
 | What | Command | What it proves |
 |---|---|---|
 | Server frames | `cargo test -p vizier-http` | a session accepts the frames, one utterance produces one request, an interrupt bumps the generation and cancels, flag-off rejects them harmlessly |
-| Engine | `cargo test -p vizier-core --features provider-live-voice` | segments are ordered and complete, the first frame is emitted before the last segment is requested, an interruption stops the stream |
+| Engine | `cargo test -p vizier-core --lib live_voice::` (56; no `--features` since C17) | segments are ordered and complete, the first frame is emitted before the last segment is requested, an interruption stops the stream |
 | Client | `cd webui && npm test -- liveVoice` | the VAD fires on speech over playback and not on playback alone; stale generations are dropped; `stop()` drains the queue |
 | End to end | `cd webui && npm run e2e` | the interruption path and the live row, with a faked provider |
 

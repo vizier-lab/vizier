@@ -83,7 +83,7 @@ matrix, docs, cleanup, handoff). No task is orphaned.
 |---|---|
 | I. Lean by default | ✅ no new mandatory dependency: `base64`, `tokio::sync`, `serde` already locked; the worklet ships (`webui/public/vizier-capture-worklet.js`) |
 | II. DRY via trait seams | ✅ one `LiveVoiceEngines` trait (T030), no type-tag branching in the task list |
-| Optional capability behind a flag, API shape unchanged | ✅ `provider-live-voice`, `default = []` (T001); `live_voice: bool` additive in both builds (T011) |
+| Optional capability behind a flag, API shape unchanged | ⚠️ **retired by C17 (2026-11-16): there is no build flag.** `provider-live-voice` / `default = []` was added in T001 and removed once the owner objected to a flag that pulls in no dependency of its own; the API-shape half still holds — `live_voice: bool` is additive (T011) |
 | dummyplug e2e + scripted `quickstart.md` | ✅ three scripted steps (`quickstart.md:77-108`), run by T080 |
 | Design before UI code | ✅ wireframe `diagrams.md` §5, record `review.md:135-139`. Caveat: the approval is the author's own; acceptable for the gate, worth one look by the PM at the first demo |
 | Manual run for runtime-affecting changes | ⚠️ not applicable yet (no code); T079/T080 carry it later |

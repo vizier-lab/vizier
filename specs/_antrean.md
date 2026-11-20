@@ -499,7 +499,25 @@ QA has already caught three times today. The order: **gate commit first, documen
 |---|---|
 | `docs/src/configuration/build-flavours.md` | line 15 (the `provider-live-voice` table row), §30 heading, §32–36 contents, §39 command example → this section becomes a note that live voice is **always** compiled and its switch is the per-agent setting |
 | `Readme.md:159,168` | the `--features live-voice` build example and its 8m45s number are replaced by a build without the flag |
-| `specs/055-live-voice/tasks.md` | **T014** rewritten (tautological assertion `assert!(cfg!(feature = "live-voice"))` → a test that is genuinely red if `topic.rs:798` is pulled out; its replacement is `a_start_is_ignored_while_the_agent_switch_is_off`), **T108** its command replaced (`cargo build -p vizier --no-default-features` proves nothing as long as `crates/vizier/Cargo.toml:32` forces the feature) |
+| `specs/055-live-voice/tasks.md` | **T014** rewritten (tautological assertion `assert!(cfg!(feature = "live-voice"))` → a test that is genuinely red if `topic.rs:798` is pulled out; its replacement is `a_start_is_ignored_while_the_agent_switch_is_off`), **T108** its command replaced (`cargo build -p vizier --no-default-features` proves nothing as long as `crates/vizier/Cargo.toml:32` forces the feature) | **DONE 2026-11-20** — see the status block below. This row was a *plan* ("what changes"), not a completion claim, but it sat un-statused for four days and the work behind it had not been done. |
+**Status 2026-11-20 (Lead, measured at `aa25228d`).** The row above was a plan; `@teteh-desener` read it as a completion claim. The claim was wrong, the plan was right, and the work had not been done — reading it either way, the documents said something untrue for four days. What I found at `aa25228d` and what changed:
+
+| File | Was | Now |
+|---|---|---|
+| `tasks.md:79` T014 | "with the flag **off**" | the agent's `tools.live_voice.enabled` switch, plus the replacement test named (`a_start_is_ignored_while_the_agent_switch_is_off`, `crates/vizier-http/tests/live_voice_frames.rs:190` — the `async fn` line; the doc comment naming it is `:6`) |
+| `tasks.md:117` T108 | **`- [ ]`** with a command that can no longer run | retired as a build comparator (C17), reopened as a run-time one, **still `[ ]` and now closing with T078** — it is not ticked, because its substance is not yet measured |
+| `tasks.md:53` T006 | **`- [ ]`**, `cargo check -p vizier-core --features provider-live-voice` | the flag variant dropped, with the reason it cannot run |
+| `tasks.md:287` T078 | **`- [ ]`**, matrix includes `--features provider-live-voice` | the variable is the per-agent switch, not Cargo |
+| `quickstart.md:15-27` | a three-command block that fails hard | no build flag; two commands that work (`git grep` empty, `cargo test -p vizier-core --lib live_voice::` = 56) |
+| `quickstart.md:135` | `cargo test -p vizier-core --features provider-live-voice` | `cargo test -p vizier-core --lib live_voice::` |
+| `contracts/live-voice-frames.md:19-22` | "With `provider-live-voice` off" | the agent switch, and "a server older than this contract" instead of "a server without the feature" |
+| `analysis.md:86` | ✅ on `provider-live-voice`, `default = []` | ⚠️ retired by C17; the API-shape half kept |
+| `review.md:125,218` | prose naming the flag as a live thing | renamed to the switch, with C17 noted |
+| `plan.md`, `architecture.md` | five and two flag references | a C17 banner each, plus the runnable commands fixed (`plan.md:47,162,203`) and invariant **I1** corrected — a plan dated 2026-11-08 is a dated artifact, so its narrative keeps its wording and the banner says what superseded it |
+
+**Kept as history on purpose:** `tasks.md` T001 (`:48`), T002 (`:49`), T075 (`:284`) still describe the flag, because each carries an `In the tree: vizier@…` snapshot mark — they record what was done then, and the flag really was added and really was removed. Rewriting them would erase the removal. `spec.md`'s nineteen mentions are the C17 decision itself, which has to quote the flag to retire it.
+
+**Not fixed here, and not forgotten:** `release-checklist.md:99` says the old `--features` spellings "now fail hard" — correct, kept. `docs/src/configuration/build-flavours.md` and `Readme.md` are outside this topic's files and were already rewritten on 16 Nov with the code.
 
 Check already run 16 Nov 13:03 and the result **needs no change**: `AGENTS.md:16` zero mentions of
 `provider-live-voice` (the line never actually contained it) and `.github/workflows/ci.yml` zero lines
