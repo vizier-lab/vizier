@@ -18,8 +18,6 @@ import { OfflineBanner } from '../screens/shared/OfflineBanner'
 import { NewAgentDialog } from '../screens/agents/NewAgentDialog'
 import { SettingsSidebar } from '../screens/settings/SettingsSidebar'
 import { AgentSidebar } from '../screens/shell/AgentSidebar'
-import { WorkspaceColumn } from '../screens/workspaces/WorkspaceColumn'
-import { useWorkspaces } from '../stores/workspaces'
 import { viewOf } from '../screens/shell/pages'
 import { ShellRail } from '../screens/shell/ShellRail'
 import { MobileNavDrawer } from '../screens/shell/MobileNavDrawer'
@@ -38,8 +36,6 @@ export default function AppShell() {
     const { can } = useSession()
     const start = useAgents((s) => s.start)
     const agents = useAgents((s) => s.agents)
-    const loadWorkspaces = useWorkspaces((s) => s.load)
-    const workspaceList = useWorkspaces((s) => s.list)
     const mobile = useMobile()
     const installed = useInstalledIOS()
 
@@ -84,7 +80,6 @@ export default function AppShell() {
     }, [])
 
     useEffect(() => start(), [start])
-    useEffect(() => void loadWorkspaces(), [loadWorkspaces])
     // Whether the app can reach the engine: what the browser says, or a topic that lost its
     // connection. The banner says what is unavailable rather than pretending the app is fine.
     const offline = useConnectivity((s) => s.offline)
@@ -171,10 +166,8 @@ export default function AppShell() {
             <AgentSidebar agentId={routeAgent} />
         ) : view === 'settings' ? (
             <SettingsSidebar active={settingsPage} admin={admin} />
-        ) : view === 'workspace' ? (
-            <WorkspaceColumn />
         ) : undefined
-    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view === 'workspace' ? `workspace:${params.workspaceId}` : view
+    const sidebarKey = view === 'agent' ? `agent:${routeAgent}` : view
 
     // A new screen settles into place: it dims and lifts a
     // little, it doesn't slide in from nowhere.
@@ -204,7 +197,6 @@ export default function AppShell() {
     if (mobile) {
         const agentName = routeAgent ? (agents.find((a) => a.agent_id === routeAgent)?.name ?? routeAgent) : undefined
         const onDetails = !!routeAgent && pathname === detailsPath(routeAgent)
-        const workspaceName = view === 'workspace' ? workspaceList.find((w) => w.id === params.workspaceId)?.name : undefined
         // Inside an agent the bar goes back up (a page to the agent's details, the details to its
         // chat); everywhere else it opens the menu.
         const bar =
@@ -214,7 +206,7 @@ export default function AppShell() {
                     : { onBack: () => navigate(detailsPath(routeAgent)), backLabel: `Back to ${agentName}`, title: agentName }
                 : {
                       onMenu: () => setNavOpen(true),
-                      title: view === 'settings' ? 'Settings' : view === 'workspace' ? (workspaceName ?? 'Workspace') : 'Vizier',
+                      title: view === 'settings' ? 'Settings' : 'Vizier',
                   }
         return (
             <div className="flex h-dvh min-w-0 flex-col bg-panel pb-safe text-fg" style={installed ? { height: '100lvh' } : undefined} onClick={onClick}>
@@ -223,7 +215,7 @@ export default function AppShell() {
                         {...bar}
                         trailing={
                             <div className="flex items-center">
-                                {(onDetails || view === 'workspace') && (
+                                {onDetails && (
                                     <Button variant="ghost" size="sm" trailingIcon="chevron-down" onClick={() => setSwitcherOpen(true)}>
                                         Switch
                                     </Button>
