@@ -23,9 +23,6 @@ pub enum NotificationCategory {
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
-    /// A message in a Workspace (`specs/053-workspace-channel`), one row per message. Seen by
-    /// every current member except its author.
-    WorkspaceMessage,
 }
 
 impl NotificationCategory {
@@ -38,7 +35,6 @@ impl NotificationCategory {
             Self::BackgroundWork => "background_work",
             Self::Integration => "integration",
             Self::ChatReply => "chat_reply",
-            Self::WorkspaceMessage => "workspace_message",
         }
     }
 
@@ -51,7 +47,6 @@ impl NotificationCategory {
             "background_work" => Some(Self::BackgroundWork),
             "integration" => Some(Self::Integration),
             "chat_reply" => Some(Self::ChatReply),
-            "workspace_message" => Some(Self::WorkspaceMessage),
             _ => None,
         }
     }
@@ -115,16 +110,6 @@ impl NotificationFilter {
             _ => None,
         }
     }
-}
-
-/// The `agent_id` of a Workspace row starts with this and is followed by the Workspace id. The
-/// service adds one such id for every Workspace a person is in to the agents they may see, so the
-/// visibility clause every query already has covers Workspace rows too.
-pub const WORKSPACE_SCOPE_PREFIX: &str = "workspace:";
-
-/// The scope id of a Workspace's notifications.
-pub fn workspace_scope(workspace_id: &str) -> String {
-    format!("{WORKSPACE_SCOPE_PREFIX}{workspace_id}")
 }
 
 /// A row the `Notifications` service asks storage to insert. Not exposed by the API.

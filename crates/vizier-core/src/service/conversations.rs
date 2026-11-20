@@ -35,9 +35,9 @@ fn kind_of(channel: &str, username: &str) -> Option<ConversationKind> {
     if channel.starts_with(crate::projects::channel::PREFIX) {
         return None;
     }
-    // Workspace topics are reached through membership, never an agent's conversation pages
-    // (spec 053 R8).
-    if channel.starts_with(crate::workspaces::PREFIX) {
+    // A removed Workspace's leftovers are never listed (spec 064); a consultation is listed by
+    // its own rule once the consulted agent's people can see it (US7).
+    if channel.starts_with("workspace__") || channel.starts_with("consultation__") {
         return None;
     }
     if channel.starts_with("discord__") {

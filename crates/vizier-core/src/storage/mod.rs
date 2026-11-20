@@ -42,7 +42,6 @@ use crate::{
         turn::TurnStorage,
         usage::UsageStorage,
         user::UserStorage,
-        workspace::WorkspaceStorage,
     },
 };
 
@@ -86,7 +85,6 @@ pub mod task_run;
 pub mod turn;
 pub mod usage;
 pub mod user;
-pub mod workspace;
 
 pub mod fs;
 pub mod sqlite;
@@ -156,7 +154,6 @@ where
         + ui_page::UiPageStorage
         + NotificationStorage
         + ProjectStorage
-        + WorkspaceStorage
         + QuestionStorage
         + SensitiveAskStorage
         + FenceStorage,

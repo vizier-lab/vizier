@@ -170,12 +170,13 @@ impl Notifications {
         .await;
     }
 
-    /// One notification per final, non-cancelled detached script (spec 058). Discord, Telegram
-    /// and Workspace conversations get none, as for every agent-side event.
+    /// One notification per final, non-cancelled detached script (spec 058). Discord and
+    /// Telegram conversations get none, as for every agent-side event, and neither does a
+    /// consultation: its consulting agent is the one told (spec 064).
     pub async fn detached_finished(&self, script: &crate::schema::DetachedScript) {
         let origin = &script.session;
         if origin.1.platform().is_some()
-            || matches!(origin.1, crate::schema::VizierChannelId::Workspace(_))
+            || matches!(origin.1, crate::schema::VizierChannelId::Consultation(_))
         {
             return;
         }

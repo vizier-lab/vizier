@@ -28,7 +28,6 @@ mod memory;
 pub(crate) mod memory_revision;
 mod notification;
 mod project;
-pub(crate) mod workspace;
 mod provider;
 mod question;
 mod reaction;
@@ -482,11 +481,6 @@ impl SqlStorage {
         init_custom_tool_schema(conn)?;
         init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
-        workspace::init_workspace_schema(conn)?;
-        // Spec 053 US7, revised: an agent's prose between tool rounds is no longer shown, but its
-        // rows stay for the timeline's order. Every existing entry was a message, so the default
-        // keeps them as they were read.
-        add_column_if_missing(conn, "workspace_entry", "shown", "INTEGER NOT NULL DEFAULT 1")?;
         init_ownership_schema(conn)?;
 
         Ok(())

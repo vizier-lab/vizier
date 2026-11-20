@@ -25,7 +25,6 @@ use crate::{
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
         history::RecallHistory,
-        workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
         time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
         session_files::{
@@ -98,7 +97,6 @@ pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
 mod webui;
-mod workspaces;
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -132,8 +130,9 @@ pub enum ToolCategory {
     /// The time tools (`specs/052-unify-local-timezone`): the prompt carries no clock, so an agent
     /// asks these for the time, converts between zones and does date arithmetic.
     Time,
-    /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
-    /// in a shared topic, and reach a Workspace from any other conversation.
+    /// The Workspace tools (`specs/053-workspace-channel`). Workspaces were removed by spec 064:
+    /// the variant keeps its place in the display order and has no tools, so it is never listed
+    /// (#82).
     Workspaces,
     /// Subagents as temporary workers (`specs/059-subagent-workers`): the main agent hires,
     /// waits for, answers and stops workers; a worker asks its main agent. Who sees which tool
@@ -286,18 +285,20 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
         "cancel_background_job",
         BACKGROUND_REPLACED,
     ),
-    (
-        "consult_agent",
-        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
-    ),
-    (
-        "delegate_agent",
-        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
-    ),
+    // Spec 064: Workspaces were removed and consult_agent is live again (category
+    // consultations); every name that addressed another agent points at it.
+    ("delegate_agent", WORKSPACES_REMOVED),
+    ("mention_agent", WORKSPACES_REMOVED),
+    ("send_message_to_workspace", WORKSPACES_REMOVED),
+    ("list_workspaces", WORKSPACES_REMOVED),
+    ("read_workspace_messages", WORKSPACES_REMOVED),
     ("ui_render_interactive_ui", UI_REPLACED),
     ("render_interactive_ui", UI_REPLACED),
     ("ui_components", UI_REPLACED),
 ];
+
+/// Spec 064: the hint for every Workspace tool and for `delegate_agent`.
+const WORKSPACES_REMOVED: &str = "Workspaces were removed: consult another agent with consult_agent, then wait_consultations for its answer (category consultations). list_consultable_agents lists the agents you may consult.";
 
 /// Spec 063: the WebUI's generative UI client tools became the built-in `ui_render`.
 const UI_REPLACED: &str = "This tool was replaced by ui_render (category ui), which draws an HTML page and ends the turn. Read its guide first: describe_tool_function(\"ui_render\").";
@@ -413,13 +414,10 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
     somebody_may_answer && session_has_person(session)
 }
 
-/// Whether people are on this conversation at all. A task, dream, subagent, inter-agent or
-/// system conversation has no person on it, whatever the request kind says; a Workspace topic
-/// has people on it too: any member may answer a question (spec 053).
+/// Whether people are on this conversation at all. A task, dream, subagent, consultation,
+/// inter-agent or system conversation has no person on it, whatever the request kind says.
 pub fn session_has_person(session: &VizierSession) -> bool {
-    session.1.web_user().is_some()
-        || session.1.platform().is_some()
-        || matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
+    session.1.web_user().is_some() || session.1.platform().is_some()
 }
 
 #[derive(Clone, Default)]
@@ -1475,10 +1473,6 @@ impl BaseTools {
                 storage: deps.storage.clone(),
             })
             // Workspaces (spec 053): wake agents by mention inside one, and reach one from anywhere.
-            .tool(MentionAgent { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
             // Subagents (spec 059): the six management tools for the main agent, and
             // `ask_main_agent` for a worker; `available` decides which a turn sees.
             .tool(SpawnSubagentsTool::new(deps.clone()))
@@ -1938,10 +1932,6 @@ mod tests {
             entry::<DeleteTask>(),
             entry::<ListTaskRuns>(),
             entry::<GetTaskRunDetail>(),
-            entry::<MentionAgent>(),
-            entry::<SendMessageToWorkspace>(),
-            entry::<ListWorkspaces>(),
-            entry::<ReadWorkspaceMessages>(),
             entry::<SpawnSubagentsTool>(),
             entry::<WaitSubagentsTool>(),
             entry::<ReplySubagentTool>(),
@@ -2085,10 +2075,6 @@ mod tests {
             ("delete_task", Scheduling),
             ("list_task_runs", Scheduling),
             ("get_task_run_detail", Scheduling),
-            ("mention_agent", Workspaces),
-            ("send_message_to_workspace", Workspaces),
-            ("list_workspaces", Workspaces),
-            ("read_workspace_messages", Workspaces),
             ("spawn_subagents", Subagents),
             ("wait_subagents", Subagents),
             ("reply_subagent", Subagents),
@@ -2262,6 +2248,11 @@ mod tests {
             if category == Coding {
                 continue;
             }
+            // `workspaces` keeps its place in the order but has no tools: Workspaces were removed
+            // (spec 064), and a category with no tools is never listed.
+            if category == Workspaces {
+                continue;
+            }
             assert!(
                 EXPECTED.iter().any(|(_, c)| *c == category),
                 "{category:?} has no tool"
@@ -2300,6 +2291,22 @@ mod tests {
             assert!(hint.contains("ui_render") && hint.contains("describe_tool_function"), "{hint}");
         }
         assert_eq!(retired_hint("ui_render"), None, "ui_render is the built-in, not retired");
+        // Spec 064: the Workspace tools and delegate_agent point at the consultation tools, and
+        // consult_agent is live again.
+        for name in [
+            "delegate_agent",
+            "mention_agent",
+            "send_message_to_workspace",
+            "list_workspaces",
+            "read_workspace_messages",
+        ] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("consult_agent") && hint.contains("wait_consultations"), "{hint}");
+            for (retired, _) in RETIRED_TOOL_NAMES {
+                assert!(!hint.contains(retired), "{hint} names the retired {retired}");
+            }
+        }
+        assert_eq!(retired_hint("consult_agent"), None, "consult_agent is live again");
         // Spec 058 contracts/detached-flag.md §5.
         for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
             let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));

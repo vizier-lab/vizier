@@ -103,15 +103,6 @@ pub(super) fn write_history_entry(
                 ],
             )?;
     }
-    // An agent's shown messages in a Workspace also go into the shared timeline, in this same
-    // transaction, so the two cannot drift (spec 053 R3).
-    super::workspace::index_history_entry(
-        tx,
-        session,
-        &uid,
-        &entry.content,
-        entry.timestamp.timestamp_millis(),
-    )?;
     Ok(uid)
 }
 
