@@ -23,13 +23,12 @@ const POLL_MS = 2000
 /** Which rows a panel draws: temporary workers (spec 059) or consultations of other agents (spec 064). */
 export type PanelKind = 'workers' | 'consultations'
 
-const WORDS: Record<PanelKind, { title: string; search: string; empty: string; message: (agent: string) => string; footer: string; failed: string }> = {
+const WORDS: Record<PanelKind, { title: string; search: string; empty: string; message: (agent: string) => string; failed: string }> = {
     workers: {
         title: 'Subagents',
         search: 'Search workers...',
         empty: 'No subagents',
         message: (agent) => `Workers ${agent} hires for a task appear here.`,
-        footer: 'Newest spawn first',
         failed: "Couldn't load this worker.",
     },
     consultations: {
@@ -37,7 +36,6 @@ const WORDS: Record<PanelKind, { title: string; search: string; empty: string; m
         search: 'Search consultations...',
         empty: 'No consultations',
         message: (agent) => `Agents ${agent} consults appear here.`,
-        footer: 'Newest first',
         failed: "Couldn't load this consultation.",
     },
 }
@@ -201,7 +199,6 @@ export function SubagentsPanel({
                     ]}
                 />
             }
-            footer={<span className="type-small text-faint">{words.footer}</span>}
         >
             {groups.length === 0 ? (
                 <EmptyState

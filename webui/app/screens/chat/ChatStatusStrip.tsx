@@ -268,7 +268,6 @@ export function ChatStatusStrip({
           ]}
         />
       }
-      footer={<span className="type-small text-faint">Newest first</span>}
     >
       {workRows.length === 0 ? (
         <EmptyState
@@ -319,14 +318,11 @@ export function ChatStatusStrip({
         />
       }
       footer={
-        <>
-          <span className="type-small text-faint">Newest first</span>
-          {files.length > 0 && (
-            <TextLink tone="danger" onClick={() => setConfirmClear(true)}>
-              Clear all files...
-            </TextLink>
-          )}
-        </>
+        files.length > 0 ? (
+          <TextLink tone="danger" onClick={() => setConfirmClear(true)}>
+            Clear all files...
+          </TextLink>
+        ) : undefined
       }
     >
       {fileRows.length === 0 ? (
