@@ -4,7 +4,6 @@ import {
     BackgroundReportCard,
     ChatGreeting,
     CheckpointDivider,
-    CommandNote,
     HandoverSummary,
     JumpToLatest,
     LoadMore,
@@ -178,7 +177,6 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     const personMessage = (e: ChatMessage) => {
         const request = e.content.Request!
         const content = request.content
-        const skill = (request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
         const mentioned = (request.metadata as { mentions?: string[] } | undefined)?.mentions
         const attachments = requestAttachments(content, request.attachments)
         const spoken = isAudioRequest(content)
@@ -191,11 +189,10 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 name={byPlatformName && request.user ? personName(request.user) : 'You'}
                 seed={request.user || me?.username}
                 time={time(request.timestamp)}
-                skill={skill}
                 attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
             >
                 {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
+                {!spoken && text !== '' && <Markdown size="document" slashWords>{mentionsAsCode(text, mentioned)}</Markdown>}
             </UserMessage>
         )
     }
@@ -396,10 +393,16 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
             const kind = lobotomyAt(entries, e) ? 'lobotomy' : 'checkpoint'
             arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} kind={kind} />, `cp-${e.uid}`)
         }
-        // A command the person ran: `/checkpoint` and `/lobotomy` are written out, since the
-        // divider alone does not say one was asked for. An abort already has its StoppedNote.
+        // A command the person ran: `/checkpoint` and `/lobotomy` are drawn as the message they
+        // typed, since the divider alone does not say one was asked for. An abort already has its
+        // StoppedNote.
         if (c.Command && c.Command !== 'abort' && isCommand(c.Command)) {
-            arrive(<CommandNote key={`cmd-${e.uid}`} command={c.Command} meta={time(e.timestamp)} />, `cmd-${e.uid}`)
+            arrive(
+                <UserMessage key={`cmd-${e.uid}`} seed={me?.username} time={time(e.timestamp)}>
+                    <Markdown size="document" slashWords>{`/${c.Command}`}</Markdown>
+                </UserMessage>,
+                `cmd-${e.uid}`
+            )
         }
     }
 
@@ -434,7 +437,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
             >
-                <Markdown size="document">{q.text}</Markdown>
+                <Markdown size="document" slashWords>{q.text}</Markdown>
             </UserMessage>,
             `q-${q.id}`
         )

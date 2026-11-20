@@ -290,12 +290,19 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     const standIn = frame.entry.content.Request
                         ? state.entries.findIndex((e) => isLive(e) && e.content.Request && coveredByStored(e, [frame.entry]))
                         : -1
+                    // A stored command replaces the copy drawn when it was typed. Matched by name
+                    // alone: the server stores it when it runs, which can be well after it was typed.
+                    const command = frame.entry.content.Command
                     const base =
                         standIn >= 0 && !state.entries.some((e) => e.uid === frame.entry.uid)
                             ? state.entries.map((e, i) => (i === standIn ? frame.entry : e))
                             : frame.entry.content.Request
                               ? state.entries.filter((e) => !(isLive(e) && e.content.Request && coveredByStored(e, [frame.entry])))
-                              : state.entries
+                              : command !== undefined
+                                ? withoutStandIn(state.entries, (e) => isLive(e) && e.content.Command === command)
+                                : frame.entry.content.Checkpoint !== undefined
+                                  ? withoutStandIn(state.entries, (e) => isLive(e) && e.content.Checkpoint !== undefined)
+                                  : state.entries
                     return {
                         ...state,
                         phase: busy ? 'working' : state.phase,
@@ -486,6 +493,12 @@ export function reduce(state: TopicState, action: Action): TopicState {
     }
 }
 
+/** The entries without the first one `matches` picks out. */
+function withoutStandIn(entries: ChatMessage[], matches: (entry: ChatMessage) => boolean): ChatMessage[] {
+    const at = entries.findIndex(matches)
+    return at < 0 ? entries : entries.filter((_, i) => i !== at)
+}
+
 /** How far apart a stand-in request and its stored entry can be stamped: the client stamps both within moments, and two real messages are never this close. */
 const STAND_IN_WINDOW_MS = 2_000
 
@@ -515,8 +528,11 @@ function coveredByStored(entry: ChatMessage, stored: ChatMessage[]): boolean {
     if (entry.content.Command !== undefined) {
         // The person's abort is drawn the moment it is pressed; the server stores a `Command`
         // entry of its own a moment later, and that one replaces the drawn copy.
+        // A command is stored when it runs, which can be well after it was typed (behind a turn).
         return stored.some(
-            (s) => s.content.Command === entry.content.Command && stampedNear(s.timestamp, entry.timestamp)
+            (s) =>
+                s.content.Command === entry.content.Command &&
+                Date.parse(s.timestamp ?? '') > Date.parse(entry.timestamp ?? '') - STAND_IN_WINDOW_MS
         )
     }
     return entry.content.Checkpoint !== undefined && stored.some((s) => s.content.Checkpoint !== undefined)

@@ -90,6 +90,13 @@ describe('turn state machine', () => {
         expect(s.entries.at(-1)?.content.Command).toBe('checkpoint')
     })
 
+    it('replaces the drawn command with the stored one when it arrives over the socket', () => {
+        let s = run(start(), { type: 'command', command: 'checkpoint', now: '2026-10-23T10:00:05Z' })
+        // Stored when it ran, which can be long after it was typed.
+        s = run(s, frame({ kind: 'history_entry', entry: entry('cmd', { Command: 'checkpoint' }, '2026-10-23T10:00:30Z') }))
+        expect(s.entries.filter((e) => e.content.Command === 'checkpoint').map((e) => e.uid)).toEqual(['cmd'])
+    })
+
     it('holds a message sent while busy, so the page can show it waiting', () => {
         // It has already gone to the agent, which queues it there; the drawing waits for the
         // server to store it, so it is not lost when the page is left and reopened.
