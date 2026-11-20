@@ -27,7 +27,7 @@ const rows: Record<string, string[]> = {
 function Sheet({ id, onClose }: { id: StatusStripItemId; onClose: () => void }) {
   const list = rows[id] ?? [];
   return (
-    <StatusPanel title={id} meta={id === "work" ? "2 running" : `${list.length}`} onClose={onClose} footer={<span className="type-small text-faint">Newest first</span>}>
+    <StatusPanel title={id} meta={id === "work" ? "2 running" : `${list.length}`} onClose={onClose}>
       {list.length === 0 ? (
         <p className="px-8 py-12 type-small text-faint">Nothing here yet.</p>
       ) : (
