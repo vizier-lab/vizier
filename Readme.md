@@ -1,4 +1,8 @@
-# Vizier
+<p align="center">
+  <img src="docs/src/images/logo.png" alt="Vizier logo" width="128" height="128">
+</p>
+
+<h1 align="center">Vizier</h1>
 
 > **A digital steward for Your Majesty.**\
 > AI agents that remember who they are, and who you are. Hosted by you.
