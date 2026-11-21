@@ -157,8 +157,9 @@ export type AgentInput = {
 export type LiveVoiceInput = {
     enabled: boolean
     settings?: {
-        stt?: Record<string, unknown> | null
-        tts?: Record<string, unknown> | null
+        idle_stop_seconds?: number
+        max_utterance_seconds?: number
+        end_of_utterance_ms?: number
     } | null
 }
 
