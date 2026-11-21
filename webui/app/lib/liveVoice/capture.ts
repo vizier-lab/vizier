@@ -105,7 +105,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 }
 
 /** FR-030: a reason the person can act on, not a raw DOMException name. A few words: it is read
- * in the call pill, beside Start again. */
+ * in the call row, beside Start again. */
 export function deviceReason(error: unknown): string {
     const name = (error as { name?: string } | null)?.name ?? ''
     switch (name) {

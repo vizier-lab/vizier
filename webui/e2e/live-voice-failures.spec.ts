@@ -1,5 +1,5 @@
 // NOT RUN in this environment: no server config in the tree (dummyplug is test-only, dev.vizier.yaml
-// absent). Written against the deck's CallPill; run against a server with VIZIER_URL set.
+// absent). Written against the composer's CallRow; run against a server with VIZIER_URL set.
 //
 // T072 — the failures someone meets, and what they are offered afterwards. Every case here ends
 // with the same question: can the person try again without reloading the page?

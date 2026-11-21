@@ -59,8 +59,6 @@ type Props = {
   trailing?: ReactNode
   /** A `/btw` aside: it takes the deck's pressed slot and sheet. */
   aside?: ComposerDeckAside | null
-  /** Ahead of the strip: a live voice call's pill (spec 055). */
-  lead?: ReactNode
   /** The composer, drawn in front of the strip's back panel. */
   children: ReactNode
   className?: string
@@ -133,7 +131,6 @@ export function ChatStatusStrip({
   changes,
   lsp,
   aside,
-  lead,
   trailing,
   children,
   className,
@@ -412,7 +409,6 @@ export function ChatStatusStrip({
       open={open}
       onOpenChange={setOpen}
       aside={aside}
-      lead={lead}
       trailing={trailing}
       sheet={(item, close) => panelFor(item.id, close)}
     >

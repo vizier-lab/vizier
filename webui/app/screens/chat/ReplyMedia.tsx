@@ -6,6 +6,8 @@ import { relativeToApi, transport } from '../../api/transport'
 import { downloadFile } from '../../lib/download'
 import { assetPath } from '../../lib/fileUrls'
 import { FilePreviewModal, type PreviewFile } from '../shared/FilePreviewModal'
+import { Markdown } from '../shared/Markdown'
+import { replySeconds, useCallLevels } from './useLiveVoice'
 
 const EXT = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
 const IMAGE = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif'])
@@ -66,13 +68,50 @@ function download(a: VizierAttachment, src: string) {
  * A live voice reply still being spoken (spec 055): the player waits for its recording, the
  * transcript is already readable. The stored recording replaces it with a real player.
  */
-export function PendingAudio({ transcript }: { transcript: string }) {
+/** A spoken message's transcript, parsed: the agent speaks the same markdown it would have written. */
+const asMarkdown = (text: string | undefined) =>
+    text ? (
+        <Markdown size="document" tone="muted">
+            {text}
+        </Markdown>
+    ) : undefined
+
+export function PendingAudio({
+    transcript,
+    speaking,
+}: {
+    transcript: string
+    /** The call is speaking it now: the waveform plays along with the reply's own sound. */
+    speaking?: boolean
+}) {
+    const reply = useCallLevels((s) => s.reply)
     return (
-        <AudioPlayer pending playing={false} onPlayingChange={() => {}} position={0} duration={0} transcript={transcript} />
+        <AudioPlayer
+            pending
+            live={!!speaking}
+            levels={speaking ? reply.slice(-400) : undefined}
+            playing={false}
+            onPlayingChange={() => {}}
+            position={speaking ? replySeconds(reply) : 0}
+            duration={0}
+            transcript={asMarkdown(transcript)}
+            defaultShowTranscript
+        />
     )
 }
 
-export function Audio({ src, transcript, transcribing }: { src: string; transcript?: string; transcribing?: boolean }) {
+export function Audio({
+    src,
+    transcript,
+    transcribing,
+    openTranscript,
+}: {
+    src: string
+    transcript?: string
+    transcribing?: boolean
+    /** The transcript starts open: a spoken reply. */
+    openTranscript?: boolean
+}) {
     const el = useRef<HTMLAudioElement>(null)
     const [playing, setPlaying] = useState(false)
     const [position, setPosition] = useState(0)
@@ -102,8 +141,9 @@ export function Audio({ src, transcript, transcribing }: { src: string; transcri
                     setSpeed(s)
                     if (el.current) el.current.playbackRate = s
                 }}
-                transcript={transcript}
+                transcript={asMarkdown(transcript)}
                 transcribing={transcribing}
+                defaultShowTranscript={openTranscript}
             />
         </>
     )
@@ -123,11 +163,14 @@ export function ReplyMedia({
     attachments,
     transcript,
     transcribing,
+    openTranscript,
 }: {
     attachments: VizierAttachment[]
     transcript?: string | null
     /** A live voice message just heard: its transcript is on its way. */
     transcribing?: boolean
+    /** A spoken reply: its transcript shows as it arrives, without a press. */
+    openTranscript?: boolean
 }) {
     const [open, setOpen] = useState<number | null>(null)
     const items = attachments
@@ -171,7 +214,7 @@ export function ReplyMedia({
             )}
             {others.map(({ a, url }) => {
                 const ext = EXT(a.filename)
-                if (AUDIO.has(ext)) return <Audio key={url} src={url} transcript={transcript ?? undefined} transcribing={transcribing} />
+                if (AUDIO.has(ext)) return <Audio key={url} src={url} transcript={transcript ?? undefined} transcribing={transcribing} openTranscript={openTranscript} />
                 if (VIDEO.has(ext)) return <Video key={url} a={a} src={url} />
                 const previewable = ext in MIME && ext !== 'pdf'
                 return (

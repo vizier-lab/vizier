@@ -737,7 +737,7 @@ export class LiveVoiceClient {
 }
 
 /** One wording per ending, so a person reads why rather than a code (SC-009). */
-/** A reason in a few words: the call pill shows it beside Start again. */
+/** A reason in a few words: the call row shows it beside Start again. */
 export function humanReason(reason: EndReason): string {
     switch (reason) {
         case 'pressed_again':

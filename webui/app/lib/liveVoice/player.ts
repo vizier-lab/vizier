@@ -22,6 +22,8 @@ export interface Player {
     enqueue(samples: Float32Array, sampleRate: number, final: boolean): Queued
     /** Stop now: every queued and playing source is closed and the queue is drained. */
     stop(): void
+    /** What is being heard right now, 0 to 1, on the microphone meter's scale: the reply's waveform. */
+    level(): number
     /** Whether anything is queued or playing. */
     get playing(): boolean
     /** Resolve the context on a user gesture; browsers refuse audio before one. */
@@ -34,6 +36,8 @@ export class WebAudioPlayer implements Player {
     private context: AudioContext
     private readonly pending: AudioBufferSourceNode[] = []
     private nextStart = 0
+    /** Every segment plays through it, so `level` reads what is heard. One per context. */
+    private meter: { context: AudioContext; analyser: AnalyserNode; samples: Float32Array<ArrayBuffer> } | null = null
 
     constructor(context?: AudioContext) {
         this.context = context ?? WebAudioPlayer.newContext()
@@ -60,6 +64,24 @@ export class WebAudioPlayer implements Player {
         return this.pending.length > 0
     }
 
+    /** The analyser for this context, made on first use and again for a fresh context. */
+    private output(context: AudioContext): AnalyserNode {
+        if (this.meter?.context !== context) {
+            const analyser = context.createAnalyser()
+            analyser.fftSize = 1024
+            analyser.connect(context.destination)
+            this.meter = { context, analyser, samples: new Float32Array(analyser.fftSize) }
+        }
+        return this.meter.analyser
+    }
+
+    level(): number {
+        if (!this.meter || this.pending.length === 0 || this.meter.context.state === 'closed') return 0
+        const { analyser, samples } = this.meter
+        analyser.getFloatTimeDomainData(samples)
+        return outputLevel(samples)
+    }
+
     async resume(): Promise<void> {
         const context = this.liveContext()
         if (context.state !== 'running') await context.resume()
@@ -73,7 +95,7 @@ export class WebAudioPlayer implements Player {
         buffer.copyToChannel(new Float32Array(samples), 0)
         const source = context.createBufferSource()
         source.buffer = buffer
-        source.connect(context.destination)
+        source.connect(this.output(context))
 
         const now = context.currentTime
         // Back to back on the context clock: a segment starts where the previous one ends, so
@@ -111,6 +133,14 @@ export class WebAudioPlayer implements Player {
         if (this.context.state !== 'closed') await this.context.close()
     }
 }
+/** The same scale the microphone's meter uses: RMS times four, capped at 1. */
+export function outputLevel(samples: Float32Array): number {
+    if (samples.length === 0) return 0
+    let sum = 0
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+    return Math.min(1, Math.sqrt(sum / samples.length) * 4)
+}
+
 /** A player that keeps nothing and plays nothing, for the state-machine tests. */
 export class SilentPlayer implements Player {
     queued = 0
@@ -121,6 +151,10 @@ export class SilentPlayer implements Player {
 
     /** What a fake player reports as the wait before sound: a test sets it to check the sum. */
     audibleMs = 0
+
+    level(): number {
+        return 0
+    }
 
     enqueue(): Queued {
         this.queued += 1

@@ -1,5 +1,5 @@
 // NOT RUN in this environment: no server config in the tree (dummyplug is test-only, dev.vizier.yaml
-// absent). Written against the deck's CallPill; run against a server with VIZIER_URL set.
+// absent). Written against the composer's CallRow; run against a server with VIZIER_URL set.
 //
 // T064 — the session's own cycle: an idle ending, leaving and coming back, and a tab that loses the
 // window without losing the call. The server's idle timer is not built yet (T062's server half), so

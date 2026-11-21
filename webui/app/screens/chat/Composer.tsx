@@ -8,7 +8,7 @@ import {
     VoiceRecorder,
     type SkillMenuItem,
 } from '@vizier/design'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api/client'
 import {
     listProjectSkills,
@@ -55,6 +55,8 @@ type Props = {
     /** The agent has Text-to-Speech, so "Ask for a spoken reply" is offered. */
     ttsEnabled: boolean
     /** Starts a live voice call (spec 055): Send shows the voice icon while nothing is typed. */
+    /** A live voice call's row, drawn above the text (spec 055). */
+    call?: ReactNode
     onTalk?: () => void
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
@@ -101,6 +103,7 @@ export function Composer({
     sttEnabled,
     ttsEnabled,
     onTalk,
+    call,
     busy,
     disabledReason,
     context,
@@ -487,6 +490,7 @@ export function Composer({
                     )
                 }
                 onTalk={onTalk}
+                call={call}
                 beforeSend={
                     project && (
                         <FilterTabs<ProjectMode>

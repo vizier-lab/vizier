@@ -50,6 +50,8 @@ import { currentPrompt, markTime, promptIndex, waitingUid, withWaiting, type Pro
 type Props = {
     /** A live voice call is running here (spec 055): its newest spoken reply draws as a waiting player. */
     liveCall?: boolean
+    /** The call is speaking the newest reply now, so the reply's card plays along. */
+    liveSpeaking?: boolean
     /** The conversation, so a delivered script's row can read its record (spec 058). */
     topicId?: string
     state: TopicState
@@ -122,7 +124,7 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ liveCall, state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
+export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
     const turns = useMemo(() => orderTurnsBySent(groupHistory(entries)), [entries])
@@ -257,10 +259,10 @@ export function MessageList({ liveCall, state, agent, topicId, greeting, hasOlde
                         }
                     >
                         <div className="flex flex-col gap-16">
-                            {/* A spoken reply's transcript sits behind "Show transcript" in its player. */}
+                            {/* A spoken reply's transcript is open in its player, read along as it is heard. */}
                             {text != null && text !== '' && !spoken && !waitingForAudio && <Markdown>{text}</Markdown>}
-                            {waitingForAudio && text && <PendingAudio transcript={text} />}
-                            <ReplyMedia attachments={attachments} transcript={text} />
+                            {waitingForAudio && text && <PendingAudio transcript={text} speaking={liveSpeaking} />}
+                            <ReplyMedia attachments={attachments} transcript={text} openTranscript />
                         </div>
                     </AgentReply>
                 )}

@@ -427,7 +427,7 @@ describe('a turn this tab did not send (live voice)', () => {
 
     it('shows the agent working, as a typed send does, and queues nothing', () => {
         const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo' })
-        expect(s.phase, 'the activity trail says the agent is on it, not the call pill').toBe('thinking')
+        expect(s.phase, 'the activity trail says the agent is on it, not the call row').toBe('thinking')
         expect(s.queued).toEqual([])
     })
 

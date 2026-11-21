@@ -1,6 +1,6 @@
 import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
 import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
-import { CallPill, IconButton, Notice } from '@vizier/design'
+import { IconButton, Notice } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -26,6 +26,7 @@ import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
 import { useLiveVoice } from '../screens/chat/useLiveVoice'
+import { LiveCallRow } from '../screens/chat/LiveCallRow'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
 import type { ModelOverride } from '../api/frames'
@@ -415,6 +416,7 @@ export default function Chat() {
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
                     liveCall={!!call.state && call.state !== 'ended' && call.state !== 'failed'}
+                    liveSpeaking={call.speaking}
                     topicId={topicId}
                     bottomInset={composerHeight}
                     onScrollbarWidth={setScrollbarWidth}
@@ -519,21 +521,6 @@ export default function Chat() {
                                 />
                             ) : undefined
                         }
-                        lead={
-                            call.state && (
-                                <CallPill
-                                    aria-label="Live voice"
-                                    role="group"
-                                    state={call.state}
-                                    elapsedSeconds={call.elapsedSeconds}
-                                    level={call.level}
-                                    reason={call.reason}
-                                    onEnd={call.end}
-                                    onRestart={call.start}
-                                    onDismiss={call.dismiss}
-                                />
-                            )
-                        }
                         aside={
                             sideChat.open
                                 ? {
@@ -560,6 +547,20 @@ export default function Chat() {
                         <Composer
                             lifted
                             onTalk={voice?.liveVoice && topicId && !call.state ? call.start : undefined}
+                            call={
+                                call.state && (
+                                    <LiveCallRow
+                                        aria-label="Live voice"
+                                        role="group"
+                                        state={call.state}
+                                        elapsedSeconds={call.elapsedSeconds}
+                                        reason={call.reason}
+                                        onEnd={call.end}
+                                        onRestart={call.start}
+                                        onDismiss={call.dismiss}
+                                    />
+                                )
+                            }
                             agentId={agentId}
                             agentName={agentName}
                             project={

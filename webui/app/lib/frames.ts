@@ -484,7 +484,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
             return {
                 ...state,
                 // The agent is working on it from here, as after a typed send: the activity trail,
-                // not the call pill, says so (spec 055). A turn already running keeps its phase.
+                // not the call row, says so (spec 055). A turn already running keeps its phase.
                 phase: state.phase === 'idle' ? 'thinking' : state.phase,
                 error: null,
                 entries: mergeEntries(state.entries, [entry]),
