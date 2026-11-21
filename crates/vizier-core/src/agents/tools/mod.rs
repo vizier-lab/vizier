@@ -49,7 +49,7 @@ use crate::{
         think::ThinkTool,
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
-        webui::{ListWebuiTopics, SendWebuiMessage},
+        webui::{CreateWebuiConversation, ListWebuiTopics, SendWebuiMessage},
     },
     dependencies::VizierDependencies,
     error::VizierError,
@@ -1632,6 +1632,13 @@ impl BaseTools {
             .tool(SendWebuiMessage {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
+                transport: deps.transport.clone(),
+                notifications: deps.notifications.clone(),
+            })
+            .tool(CreateWebuiConversation {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+                transport: deps.transport.clone(),
             })
             .tool(ListWebuiTopics {
                 agent_id: agent_id.clone(),
@@ -2030,6 +2037,7 @@ mod tests {
             #[cfg(feature = "channel-telegram")]
             entry::<GetTelegramMessage>(),
             entry::<SendWebuiMessage>(),
+            entry::<CreateWebuiConversation>(),
             entry::<ListWebuiTopics>(),
             entry::<ShellExec>(),
             entry::<self_integrations::ListIntegrationKinds>(),
@@ -2153,6 +2161,7 @@ mod tests {
             #[cfg(feature = "channel-telegram")]
             ("telegram_get_message_by_id", Telegram),
             ("webui_send_message", Webui),
+            ("webui_create_conversation", Webui),
             ("webui_list_topics", Webui),
             ("shell_exec", Shell),
             ("list_integration_kinds", Integrations),

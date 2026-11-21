@@ -154,6 +154,7 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "telegram_react_message" => "👍 Telegram reaction".to_string(),
         "telegram_get_message_by_id" => "📩 Telegram message".to_string(),
         "webui_send_message" => "💬 WebUI message:".to_string(),
+        "webui_create_conversation" => "➕ New WebUI conversation:".to_string(),
         "webui_list_topics" => "📋 WebUI topics:".to_string(),
         _ => format!("use {}", &name),
     };
@@ -296,6 +297,9 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
         }
         "webui_list_topics" => {
+            format!("@{}", args["username"].as_str().unwrap_or("?"))
+        }
+        "webui_create_conversation" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
         }
         _ => format!(

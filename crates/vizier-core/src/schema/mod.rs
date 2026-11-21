@@ -89,7 +89,8 @@ pub use revision::{
 pub use secret::{AgentSecretEvent, SecretAction};
 pub use sso::{SsoSession, SsoSessionSecret, SsoSessionState};
 pub use session::{
-    AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
+    AgentId, DreamStage, DreamStatus, TOPIC_ID_LEN, TopicId, VizierChannelId, VizierSession,
+    VizierSessionDetail,
 };
 pub use session_file::SessionFileRecord;
 pub use storage::{

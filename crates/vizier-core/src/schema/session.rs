@@ -7,6 +7,9 @@ pub type AgentId = String;
 
 pub type TopicId = String;
 
+/// A WebUI topic id is a nanoid of this length, the same shape as a project id.
+pub const TOPIC_ID_LEN: usize = 10;
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct VizierSession(pub AgentId, pub VizierChannelId, pub Option<TopicId>);
