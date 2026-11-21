@@ -1285,6 +1285,14 @@ pub fn init_reaction_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_reaction_uid ON message_reaction(history_uid);
 
+        -- A live voice reply's recording (spec 055), beside the reply rather than in its history
+        -- row, filled on every read like the reactions above.
+        CREATE TABLE IF NOT EXISTS reply_audio (
+            history_uid TEXT PRIMARY KEY REFERENCES session_history(uid) ON DELETE CASCADE,
+            attachment  TEXT NOT NULL,
+            added_at    INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS platform_message_link (
             agent_id    TEXT NOT NULL,
             platform    TEXT NOT NULL,

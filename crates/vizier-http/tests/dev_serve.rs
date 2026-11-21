@@ -12,7 +12,7 @@
 //!
 //! With `VIZIER_DEV_DUMMYPLUG=<url>` (the dummyplug server, e.g. `http://127.0.0.1:9998/v1`) it also points the `dummyplug` provider
 //! there and, once the first person has signed up, gives them an agent `plug` on it with no memory
-//! embedding, so no model is downloaded.
+//! embedding, so no model is downloaded. `VIZIER_DEV_LIVE_VOICE=1` also switches live voice on for it.
 
 use vizier_core::{
     config::VizierConfig,
@@ -75,6 +75,13 @@ async fn seed_dummyplug(runtime: &VizierRuntime, url: String) {
                 .unwrap();
                 config.owner_id = Some(owner.user_id.clone());
                 config.embedding = None;
+                // `VIZIER_DEV_LIVE_VOICE=1`: the agent can hear and speak, so it offers a live voice
+                // call (spec 055). Point its Speech-to-Text and Text-to-Speech at real providers in
+                // the WebUI for a working call.
+                if std::env::var("VIZIER_DEV_LIVE_VOICE").is_ok_and(|v| v == "1") {
+                    config.tools.stt.enabled = true;
+                    config.tools.tts.enabled = true;
+                }
                 let (resp, created) = tokio::sync::oneshot::channel();
                 transport
                     .send_agent_command(AgentCommand::Create { agent_id: "plug".into(), config, resp })

@@ -654,6 +654,7 @@ mod tests {
                 http_client: Default::default(),
                 tts: Default::default(),
                 stt: Default::default(),
+                live_voice: Default::default(),
                 read_image: Default::default(),
                 image_gen: Default::default(),
             },

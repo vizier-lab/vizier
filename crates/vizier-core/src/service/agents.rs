@@ -70,6 +70,25 @@ pub struct AgentDetail {
     pub tts_settings: Option<TtsToolSettings>,
     pub stt: bool,
     pub stt_settings: Option<SttToolSettings>,
+    /// Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
+    /// it has a usable recogniser and voice. Additive: an older client ignores it.
+    pub live_voice: bool,
+    /// Which half of a session is missing, named only while the switch is on (FR-004).
+    ///
+    /// `null` when the switch is off, and when nothing is missing. The pill is drawn for every
+    /// agent whose switch is off — the default — and naming a machine there would send a person to
+    /// the second step while the first (turning the switch on) is still undone.
+    ///
+    /// Because it is `null` for both, a client **must not** read readiness from it: `null` does not
+    /// mean "ready", only "nothing to name". Readiness is [`Self::live_voice`], which is false while
+    /// the switch is off; deciding `missing == null` is enough would offer a start button to every
+    /// agent that never turned the feature on.
+    pub live_voice_missing: Option<&'static str>,
+    /// How long a silence ends the utterance, from the agent's live voice settings (G1).
+    ///
+    /// It travels to the client because the client is where the gate runs: the value used to be
+    /// hardcoded in the browser, so the setting was never read by anything.
+    pub live_voice_end_of_utterance_ms: u32,
     pub read_image: bool,
     pub read_image_settings: Option<ReadImageToolSettings>,
     pub image_gen: bool,
@@ -118,6 +137,32 @@ pub struct CreateAgentRequest {
     pub indexer: Option<IndexerConfig>,
 }
 
+/// The live voice block a person may send when saving an agent (T041, FR-003).
+///
+/// Without this the session could never be turned on: `into_config` used to hard-code
+/// `enabled: false`, so every API call was ignored and `agent_detail` reported `live_voice: false`
+/// no matter what anyone asked for.
+///
+/// `settings` is the same [`LiveVoiceSettings`] the config stores: the call's timings. The
+/// recogniser and voice are always the agent's own `stt` / `tts`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LiveVoiceInput {
+    pub enabled: bool,
+    #[serde(default)]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Object))]
+    pub settings: Option<crate::schema::agent::LiveVoiceSettings>,
+}
+
+impl LiveVoiceInput {
+    pub fn into_tool(self) -> crate::schema::agent::ToolConfig<crate::schema::agent::LiveVoiceSettings> {
+        crate::schema::agent::ToolConfig {
+            enabled: self.enabled,
+            settings: self.settings.unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CreateAgentTools {
@@ -145,6 +190,10 @@ pub struct CreateAgentTools {
     pub image_gen: Option<bool>,
     #[serde(default)]
     pub image_gen_settings: Option<ImageGenToolSettings>,
+    /// Its own switch, and never turned on by the speech tools (FR-003). `None` on an update means
+    /// "leave it as it is", which is what keeps saving an agent from silently ending the session.
+    #[serde(default)]
+    pub live_voice: Option<LiveVoiceInput>,
 }
 
 impl CreateAgentRequest {
@@ -162,6 +211,7 @@ impl CreateAgentRequest {
             read_image_settings: None,
             image_gen: None,
             image_gen_settings: None,
+            live_voice: None,
         });
 
         AgentConfig {
@@ -198,6 +248,16 @@ impl CreateAgentRequest {
                     enabled: tools.stt.unwrap_or(false),
                     settings: tools.stt_settings.unwrap_or_default(),
                 },
+                // Its own switch, and never turned on by the speech tools (FR-003). A body that
+                // does not mention it leaves the session off, which is the behaviour every agent
+                // had before T041.
+                live_voice: tools
+                    .live_voice
+                    .map(LiveVoiceInput::into_tool)
+                    .unwrap_or(ToolConfig {
+                        enabled: false,
+                        settings: crate::schema::agent::LiveVoiceSettings::default(),
+                    }),
                 read_image: ToolConfig {
                     enabled: tools.read_image.unwrap_or(false),
                     settings: tools.read_image_settings.unwrap_or_default(),
@@ -426,6 +486,50 @@ pub async fn list(
     Ok(res)
 }
 
+/// Whether this agent can hear: its Speech-to-Text is switched on (FR-004).
+pub fn has_recogniser(config: &AgentConfig) -> bool {
+    config.tools.stt.enabled
+}
+
+/// Whether this agent can speak: its Text-to-Speech is switched on (FR-004).
+pub fn has_voice(config: &AgentConfig) -> bool {
+    config.tools.tts.enabled
+}
+
+/// Whether this agent offers a live voice call (spec 055). There is no switch of its own: an agent
+/// that can both hear and speak can hold a call. `tools.live_voice` keeps the call's timings; its
+/// `enabled` flag is no longer read (#82).
+pub fn live_voice_available(config: &AgentConfig) -> bool {
+    has_recogniser(config) && has_voice(config)
+}
+
+/// Which half a live voice call still needs, the recogniser first (FR-004).
+pub fn live_voice_missing(config: &AgentConfig) -> Option<&'static str> {
+    if !has_recogniser(config) {
+        return Some("recognizer");
+    }
+    if !has_voice(config) {
+        return Some("voice");
+    }
+    None
+}
+
+/// Apply the live voice block of an update: `Some` sets it, `None` leaves what is stored.
+///
+/// Extracted so the rule can be tested without a `Services` handle. The "leave it" half is the one
+/// that matters: the agent form does not send the block, and a save that quietly ended a call would
+/// look like the feature breaking a second time.
+fn merge_live_voice(
+    config: &mut AgentConfig,
+    input: Option<LiveVoiceInput>,
+    existing: &AgentConfig,
+) {
+    config.tools.live_voice = match input {
+        Some(input) => input.into_tool(),
+        None => existing.tools.live_voice.clone(),
+    };
+}
+
 pub async fn detail(
     s: &Services,
     who: &Principal,
@@ -439,6 +543,12 @@ pub async fn detail(
     if !can_view_agent(who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
+
+    // FR-004: the session is offered only when the agent can actually hear and speak: its
+    // Speech-to-Text and Text-to-Speech are both on.
+    let has_recogniser = has_recogniser(&config);
+    let has_voice = has_voice(&config);
+    let missing = live_voice_missing(&config);
 
     Ok(AgentDetail {
         agent_id: agent_id.to_string(),
@@ -482,6 +592,13 @@ pub async fn detail(
             Some(config.tools.stt.settings.clone())
         } else {
             None
+        },
+        // FR-004: on only when the switch is on and both halves exist.
+        live_voice: has_recogniser && has_voice,
+        live_voice_missing: missing,
+        live_voice_end_of_utterance_ms: match config.tools.live_voice.settings.end_of_utterance_ms {
+            crate::schema::agent::OLD_END_OF_UTTERANCE_MS => crate::schema::agent::END_OF_UTTERANCE_MS,
+            chosen => chosen,
         },
         read_image: config.tools.read_image.enabled,
         read_image_settings: if config.tools.read_image.settings.provider.is_some()
@@ -569,6 +686,11 @@ pub async fn create(
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
+/// What a live voice call hears and speaks through, to tell whether a save changed it.
+fn speech_of(config: &AgentConfig) -> serde_json::Value {
+    serde_json::json!([config.tools.stt, config.tools.tts])
+}
+
 pub async fn update(
     s: &Services,
     who: &Principal,
@@ -577,6 +699,14 @@ pub async fn update(
 ) -> Result<AgentSaved, ServiceError> {
     check_embedding(&body)?;
 
+    // Whether the body said anything about live voice, read before `into_config` consumes it.
+    // `None` must mean "leave it alone": the agent form does not send the block today, and a save
+    // that silently ended a running session would be a bug the person could not see (T041).
+    let live_voice = body
+        .tools
+        .as_ref()
+        .and_then(|tools| tools.live_voice.clone());
+
     let mut config = body.into_config();
 
     // Preserve existing owner_id and shared_to when updating
@@ -584,10 +714,13 @@ pub async fn update(
     if !can_edit_agent(who, &existing) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
+    merge_live_voice(&mut config, live_voice, &existing);
 
+    let speech_before = speech_of(&existing);
     config.owner_id = existing.owner_id;
     config.shared_to = existing.shared_to;
     let saved = config.clone();
+    let speech_changed = speech_before != speech_of(&saved);
 
     let agent_id = agent_id.to_string();
     let summary = s
@@ -596,6 +729,11 @@ pub async fn update(
         .update(&agent_id, config)
         .await
         .map_err(command_error)?;
+    // A call that is running hears and speaks through the agent's new settings from its next
+    // utterance, rather than the ones it started with.
+    if speech_changed {
+        s.deps().live_voice.follow_agent(s.deps(), &agent_id, &saved).await;
+    }
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
@@ -874,7 +1012,7 @@ pub async fn chat(
 ) -> Result<ChatResponse, ServiceError> {
     let deps = s.deps();
     let who = if body.model_override.is_some() {
-        s.resolve(&who.user_id, who.method).await?
+        s.resolve(&who.user_id, who.method.clone()).await?
     } else {
         who.clone()
     };
@@ -1068,5 +1206,79 @@ pub async fn btw(
                 Err(ServiceError::Internal(text))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod live_voice_input_tests {
+    //! Spec 055: live voice has no switch of its own. An agent that can hear (Speech-to-Text on)
+    //! and speak (Text-to-Speech on) offers a call; the `tools.live_voice` block keeps the call's
+    //! timings and provider overrides, and a save that leaves it out keeps what was stored.
+
+    use super::*;
+    use crate::schema::agent::SttProvider;
+
+    fn body(tools: serde_json::Value) -> CreateAgentRequest {
+        serde_json::from_value(serde_json::json!({
+            "agent_id": "helper",
+            "name": "helper",
+            "provider": "openai",
+            "model": "gpt",
+            "tools": tools,
+        }))
+        .expect("a request with tools")
+    }
+
+    #[test]
+    fn an_agent_that_can_hear_and_speak_offers_a_call() {
+        let mut config = body(serde_json::json!({ "fetch": true })).into_config();
+        assert!(!live_voice_available(&config), "neither half: no call");
+        assert_eq!(live_voice_missing(&config), Some("recognizer"), "the recogniser is named first");
+
+        config.tools.stt.enabled = true;
+        assert!(!live_voice_available(&config));
+        assert_eq!(live_voice_missing(&config), Some("voice"));
+
+        config.tools.tts.enabled = true;
+        assert!(live_voice_available(&config), "both halves: a call, with no switch to find");
+        assert_eq!(live_voice_missing(&config), None);
+    }
+
+    #[test]
+    fn the_old_switch_is_not_read() {
+        // A block saved with `enabled: true` before the switch went offers nothing on its own, and
+        // `enabled: false` no longer hides a call from an agent that can hear and speak.
+        let mut config = body(serde_json::json!({ "live_voice": { "enabled": true } })).into_config();
+        assert!(!live_voice_available(&config));
+        config.tools.live_voice.enabled = false;
+        config.tools.stt.enabled = true;
+        config.tools.tts.enabled = true;
+        assert!(live_voice_available(&config));
+    }
+
+    #[test]
+    fn a_new_speech_model_is_a_speech_change_and_a_rename_is_not() {
+        let before = body(serde_json::json!({ "stt": true, "tts": true })).into_config();
+        let mut renamed = before.clone();
+        renamed.name = "someone else".into();
+        assert_eq!(speech_of(&before), speech_of(&renamed));
+        let mut new_model = before.clone();
+        new_model.tools.stt.settings.model = Some("whisper-large-v3".into());
+        assert_ne!(speech_of(&before), speech_of(&new_model));
+        let mut new_voice = before.clone();
+        new_voice.tools.tts.settings.voice = Some("alloy".into());
+        assert_ne!(speech_of(&before), speech_of(&new_voice));
+    }
+
+    #[test]
+    fn saving_an_agent_without_the_block_keeps_its_timings() {
+        // The agent form does not send the block: a save must keep the call's own settings.
+        let stored = body(serde_json::json!({
+            "live_voice": { "enabled": true, "settings": { "idle_stop_seconds": 30 } }
+        }))
+        .into_config();
+        let mut incoming = body(serde_json::json!({ "fetch": true })).into_config();
+        merge_live_voice(&mut incoming, None, &stored);
+        assert_eq!(incoming.tools.live_voice.settings.idle_stop_seconds, 30);
     }
 }

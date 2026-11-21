@@ -1,4 +1,4 @@
-# 2.23 Custom Tools
+# 2.24 Custom Tools
 
 An agent can save a Python script that composes its tools as a **custom tool**: a named, versioned tool of its own that any later script calls like a built-in one. A workflow the agent keeps repeating, such as "pull last week's notes, summarise them, write a digest", becomes one call.
 

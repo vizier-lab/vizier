@@ -69,6 +69,30 @@ impl axum::response::IntoResponse for AuthError {
     }
 }
 
+/// Whether a **scoped** API key may make this request (`specs/055-live-voice` FR-062).
+///
+/// A scoped key acts as its owner, so every agent and permission check reads the owner's role
+/// exactly as for an unscoped key. What the scope limits is *where* the key may go: a key scoped to
+/// `live_voice` reaches the chat socket and nothing else, and once there it may send live voice
+/// frames only (`TopicConnection::handle_inbound`). A key whose scope names nothing this release
+/// knows reaches nothing. This is the one place the rule is decided.
+pub fn scoped_key_may_reach(capabilities: &[String], path: &str) -> bool {
+    capabilities
+        .iter()
+        .any(|c| c == vizier_core::service::api_keys::CAPABILITY_LIVE_VOICE)
+        && is_chat_socket(path)
+}
+
+/// `/api/v1/agents/{agent}/channel/{channel}/topic/{topic}/chat`, the topic socket.
+fn is_chat_socket(path: &str) -> bool {
+    let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    matches!(
+        parts.as_slice(),
+        ["", "api", "v1", "agents", agent, "channel", channel, "topic", topic, "chat"]
+            if [agent, channel, topic].iter().all(|part| !part.is_empty())
+    )
+}
+
 async fn resolve_user_role(state: &HTTPState, user_id: &str) -> Result<(Role, Vec<String>), AuthError> {
     let user = state
         .storage
@@ -198,13 +222,32 @@ pub async fn require_auth(
 
             // Get the user associated with this API key
             let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
+            // T109/FR-062: a scoped key reaches only what its scope names. The path is the full
+            // one: this middleware runs inside nested routers, which see a shortened URI.
+            let scoped = api_key.capabilities.is_some();
+            if let Some(capabilities) = &api_key.capabilities {
+                let path = request
+                    .extensions()
+                    .get::<axum::extract::OriginalUri>()
+                    .map(|uri| uri.0.path().to_string())
+                    .unwrap_or_else(|| request.uri().path().to_string());
+                if !scoped_key_may_reach(capabilities, &path) {
+                    return Err(AuthError::Forbidden);
+                }
+            }
 
             Principal {
                 user_id: api_key.user_id,
                 username: String::new(),
                 role,
                 permissions,
-                method: AuthMethod::ApiKey,
+                method: AuthMethod::ApiKey {
+                    scoped,
+                    // T110: the session this key opens must be findable when the key is
+                    // revoked or lapses, and both facts are known here and nowhere cheaper.
+                    key_id: Some(api_key.id),
+                    expires_at: api_key.expires_at,
+                },
             }
         }
         _ => return Err(AuthError::MissingCredentials),
@@ -253,4 +296,46 @@ fn extract_token_from_query(uri: &Uri) -> Option<String> {
                     }
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    //! T109/FR-062 - where a scoped key may go.
+
+    use super::scoped_key_may_reach;
+
+    const SOCKET: &str = "/api/v1/agents/helper/channel/web/topic/t1/chat";
+
+    fn caps(list: &[&str]) -> Vec<String> {
+        list.iter().map(|c| c.to_string()).collect()
+    }
+
+    #[test]
+    fn a_live_voice_key_reaches_the_chat_socket() {
+        assert!(scoped_key_may_reach(&caps(&["live_voice"]), SOCKET));
+        assert!(scoped_key_may_reach(&caps(&["live_voice"]), &format!("{SOCKET}/")));
+    }
+
+    #[test]
+    fn and_nothing_else() {
+        for path in [
+            "/api/v1/agents",
+            "/api/v1/agents/helper",
+            "/api/v1/agents/helper/channel/web/topics",
+            "/api/v1/agents/helper/channel/web/topic/t1/subagents",
+            "/api/v1/agents/helper/channel/web/topic/t1/chat/extra",
+            "/api/v1/agents//channel/web/topic/t1/chat",
+            "/api/v1/auth/api-keys",
+            "/api/v1/users",
+            "/api/v1/inbox/stream",
+        ] {
+            assert!(!scoped_key_may_reach(&caps(&["live_voice"]), path), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_scope_that_names_nothing_known_reaches_nothing() {
+        assert!(!scoped_key_may_reach(&caps(&[]), SOCKET));
+        assert!(!scoped_key_may_reach(&caps(&["users:manage"]), SOCKET));
+    }
 }

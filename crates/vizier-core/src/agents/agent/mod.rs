@@ -753,6 +753,10 @@ impl VizierAgent {
             }
         }
 
+        // FR-017: a spoken turn is answered to be heard. Its note is a section of its own, not part
+        // of `## Client Context`, which tells the model it holds facts rather than instructions.
+        let spoken_note = req.spoken.then_some(SPOKEN_TURN_NOTE);
+
         let mut rng = StdRng::seed_from_u64(crate::time::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
@@ -970,6 +974,7 @@ impl VizierAgent {
                         digest.as_deref(),
                         project_state.as_deref(),
                         mentions.as_deref(),
+                        spoken_note,
                     ),
                 ),
                 history,
@@ -2474,6 +2479,14 @@ fn request_from(
         max_tokens: None,
     }
 }
+
+/// The note a spoken turn is given (`specs/055-live-voice` FR-017).
+///
+/// FR-017 as decided on 2026-11-08: short by default, longer only when the question genuinely
+/// needs it, and **the agent decides** — there is no user-facing switch, mode or setting. The
+/// second sentence is the honest consequence the person accepted: the engine does not stream
+/// tokens, so a long answer is silence first, then speech.
+const SPOKEN_TURN_NOTE: &str = "This message came by speech in a live voice session, and your answer is read aloud as it is spoken. Answer for listening: keep it short and direct by default — a sentence or two — because a long answer is silence in the person's ear while you write it. If the question genuinely needs research or careful reasoning, take the time you need; the person is shown that you are thinking. Never ask them to pick a mode.";
 
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.

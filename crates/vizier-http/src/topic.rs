@@ -16,6 +16,8 @@ use vizier_core::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession,
     },
     service::ServiceError,
+    storage::agent::AgentStorage,
+    storage::user::UserStorage,
     transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
@@ -40,12 +42,135 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.mid_turn = false;
     // Only a consultation request carries a chain of consulting agents (spec 064 D8).
     request.consultation_chain.clear();
+    // Only a live voice session marks a message as spoken (spec 055 FR-011); a typed one never is.
+    request.spoken = false;
+}
+
+/// Whether this caller owns that call (T110, FR-063).
+///
+/// The name alone is not enough: every API key presents an empty username, so two different keys —
+/// of one person or of two — would look like the same owner and could interrupt and end each
+/// other's session in a shared conversation. The key id is what separates them, and a person signed
+/// in normally has none, so a person's session and a key's session can never be confused either way
+/// round. Extracted from the socket arm so this rule can be asserted without an `HTTPState`.
+fn owns_session(
+    session: &vizier_core::live_voice::LiveVoiceSession,
+    principal: &vizier_core::auth::Principal,
+) -> bool {
+    session.owner == principal.username
+        && session.key_origin().map(|origin| origin.key_id)
+            == principal.method.key_id().map(str::to_string)
+}
+
+/// Whether the key behind this caller has passed its expiry (T110, FR-063).
+///
+/// Only an API key can lapse; a person's session has no expiry to pass.
+fn key_lapsed(principal: &vizier_core::auth::Principal) -> bool {
+    match &principal.method {
+        vizier_core::auth::AuthMethod::ApiKey { expires_at, .. } => {
+            expires_at.is_some_and(|at| at <= vizier_core::time::now())
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::stamp_on_receipt;
+    // The socket-level tests below build a `TopicConnection` and read its frames, so they need the
+    // module's own imports — `Arc`, `mpsc`, `ClientConnection`, `SessionFrame` and the rest. A glob
+    // is what keeps that list from drifting every time one of them is added.
+    use super::*;
     use vizier_core::schema::{VizierRequest, VizierRequestContent};
+
+    /// T109/FR-062: who may open a live voice session, and the three cases that matter.
+    #[test]
+    fn only_the_key_that_opened_a_call_owns_it() {
+        let transport = vizier_core::transport::VizierTransport::new();
+        let (out_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let session = vizier_core::live_voice::LiveVoiceSession::new(
+            vizier_core::schema::VizierSession(
+                "helper".into(),
+                vizier_core::schema::VizierChannelId::from_web("olive", "web"),
+                Some("topic-1".into()),
+            ),
+            String::new(),
+            None,
+            vizier_core::schema::agent::LiveVoiceSettings::default(),
+            vizier_core::agents::client::ClientConnection::new(out_tx),
+            transport,
+        );
+        let who = |method| vizier_core::auth::Principal {
+            user_id: "olive".into(),
+            username: String::new(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec![],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: vec![],
+            method,
+        };
+        let key = |id: &str| {
+            who(vizier_core::auth::AuthMethod::ApiKey {
+                scoped: true,
+                key_id: Some(id.into()),
+                expires_at: None,
+            })
+        };
+
+        // Opened with key A: key A owns it, key B does not.
+        session.set_key_origin(Some(vizier_core::live_voice::KeyOrigin {
+            key_id: "key-a".into(),
+            expires_at: None,
+        }));
+        assert!(owns_session(&session, &key("key-a")));
+        assert!(!owns_session(&session, &key("key-b")), "another key is not the owner");
+        // A person signed in normally is not either, and never will be for a key's session.
+        assert!(!owns_session(
+            &session,
+            &who(vizier_core::auth::AuthMethod::Jwt)
+        ));
+
+        // A person's own session: theirs, and no key's.
+        session.set_key_origin(None);
+        assert!(owns_session(&session, &who(vizier_core::auth::AuthMethod::Jwt)));
+        assert!(!owns_session(&session, &key("key-a")));
+    }
+
+    /// T110/FR-063: only a key can lapse, and a lapsed key ends the call it opened.
+    #[test]
+    fn a_key_that_has_lapsed_is_noticed_and_a_persons_session_never_is() {
+        let principal = |method| vizier_core::auth::Principal {
+            user_id: "olive".into(),
+            username: "olive".into(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec![],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: vec![],
+            method,
+        };
+        let key = |expires_at| vizier_core::auth::AuthMethod::ApiKey {
+            scoped: true,
+            key_id: Some("k1".into()),
+            expires_at,
+        };
+        let past = vizier_core::time::now() - chrono::Duration::seconds(5);
+        let future = vizier_core::time::now() + chrono::Duration::hours(1);
+
+        assert!(key_lapsed(&principal(key(Some(past)))), "a key past its expiry has lapsed");
+        assert!(!key_lapsed(&principal(key(Some(future)))), "a key with time left has not");
+        assert!(!key_lapsed(&principal(key(None))), "a key that never expires never lapses");
+        assert!(
+            !key_lapsed(&principal(vizier_core::auth::AuthMethod::Jwt)),
+            "a person's session has no expiry to pass"
+        );
+    }
 
     #[test]
     fn a_clients_own_time_and_depth_are_discarded() {
@@ -60,6 +185,7 @@ mod tests {
         let mut request = sent;
         request.background_depth = 3;
         request.mid_turn = true;
+        request.spoken = true;
 
         let before = vizier_core::time::now();
         stamp_on_receipt(&mut request);
@@ -70,7 +196,538 @@ mod tests {
             !request.mid_turn,
             "only the engine marks a message as read mid-turn"
         );
+        assert!(!request.spoken, "only a live voice session marks a message as spoken");
     }
+
+    // ---- T110 round 2 (GI-07): the expiry check, reached through the socket -------------------
+    //
+    // Round 1 proved `end_one` is right. Nothing proved that `topic.rs` calls it: every test until
+    // now called the registry directly, which is the same shape as the defect that started this —
+    // a test that never crosses the seam it is supposed to guard. These two send a frame through
+    // `handle_live_voice` and assert what the socket did with it.
+
+    /// How long a test waits for a request before deciding it will not come.
+    use super::*;
+    use tokio::sync::{broadcast, mpsc};
+
+    const WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+    /// A socket assembled the way `open()` assembles it, not opened through it.
+    ///
+    /// `open()` needs a stored agent and a project permission before it reaches live voice; the
+    /// subject here is the live voice branch, so the fields are built directly. No production code
+    /// changes: a child module sees its parent's private fields.
+    struct Socket {
+        conn: TopicConnection,
+        events: broadcast::Receiver<SessionEvent>,
+        inbox: vizier_core::transport::Inbox,
+        session: Arc<vizier_core::live_voice::LiveVoiceSession>,
+        conversation: VizierSession,
+        /// The workspace the dependencies were built in, kept alive with the socket.
+        _dir: tempfile::TempDir,
+        /// What the socket queued for the client. This is the only way a test can read a frame the
+        /// socket itself produced (a refusal), rather than one a session published.
+        out_rx: flume::Receiver<serde_json::Value>,
+    }
+
+    /// A voice that says nothing: these tests need a turn to be running, not its sound.
+    struct SilentVoice;
+
+    #[async_trait::async_trait]
+    impl vizier_core::live_voice::engines::LiveVoiceEngines for SilentVoice {
+        async fn transcribe(
+            &self,
+            _wav: &[u8],
+            _filename: &str,
+            _language: Option<&str>,
+        ) -> vizier_core::Result<String> {
+            Ok("hello".into())
+        }
+
+        async fn speak(&self, _text: &str) -> vizier_core::Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// The shape of a request as the agent's inbox sees it, so a test can name one.
+    fn request_kind(content: &VizierRequestContent) -> String {
+        match content {
+            VizierRequestContent::Command(command) => format!("command:{command}"),
+            VizierRequestContent::Chat(text) => format!("chat:{text}"),
+            other => format!("{other}"),
+        }
+    }
+
+    /// A principal as the middleware hands one over. An API key presents an empty username — that
+    /// is why the key id, not the name, decides who owns a call.
+    fn who(method: vizier_core::auth::AuthMethod) -> Principal {
+        Principal {
+            user_id: "olive".into(),
+            username: String::new(),
+            role: vizier_core::storage::user::Role {
+                role_id: "r".into(),
+                name: "role".into(),
+                permissions: vec![],
+                is_system: false,
+                created_at: vizier_core::time::now(),
+            },
+            permissions: vec![],
+            method,
+        }
+    }
+
+    /// The key these tests are about: one that lapsed five seconds ago.
+    fn lapsed_key() -> vizier_core::auth::AuthMethod {
+        vizier_core::auth::AuthMethod::ApiKey {
+            scoped: false,
+            key_id: Some("key-a".into()),
+            expires_at: Some(vizier_core::time::now() - chrono::Duration::seconds(5)),
+        }
+    }
+
+    async fn socket(
+        principal: Principal,
+        topic: &str,
+        key_origin: Option<vizier_core::live_voice::KeyOrigin>,
+    ) -> Socket {
+        let dir = tempfile::tempdir().unwrap();
+        let config = vizier_core::config::VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = vizier_core::dependencies::VizierDependencies::new(config)
+            .await
+            .unwrap();
+
+        // The conversation `open()` would build: the channel owner is the principal's username.
+        let conversation = VizierSession(
+            "helper".into(),
+            VizierChannelId::from_web(&principal.username, "web"),
+            Some(topic.into()),
+        );
+        let (client_tx, client_rx) = mpsc::channel::<serde_json::Value>(64);
+        let connection = ClientConnection::new(client_tx);
+
+        // The call the key opened, in the process registry the socket reads.
+        let session = vizier_core::live_voice::LiveVoiceSession::new(
+            conversation.clone(),
+            principal.username.clone(),
+            None,
+            vizier_core::schema::agent::LiveVoiceSettings::default(),
+            connection.clone(),
+            deps.transport.clone(),
+        );
+        session.set_state(vizier_core::live_voice::frame::SessionState::Listening);
+        session.set_key_origin(key_origin);
+        assert!(
+            deps.live_voice
+                .start(conversation.clone(), || session.clone())
+                .is_ok(),
+            "this conversation has no session before the test starts"
+        );
+
+        let (out, out_rx) = flume::unbounded();
+        let mut conn = TopicConnection {
+            session: conversation.clone(),
+            principal,
+            services: vizier_core::service::Services::new(deps.clone()),
+            transport: deps.transport.clone(),
+            storage: deps.storage.clone(),
+            limits: super::ClientLimits {
+                events: Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
+                    10,
+                    std::time::Duration::from_secs(60),
+                )),
+                state_saves: Arc::new(vizier_core::utils::rate_limit::RateLimiter::new(
+                    2,
+                    std::time::Duration::from_secs(1),
+                )),
+            },
+            connection,
+            connections: deps.client_connections.clone(),
+            questions: deps.questions.clone(),
+            client_rx: Some(client_rx),
+            events: Some(deps.transport.subscribe_session_events()),
+            out,
+            verifier: None,
+        };
+        let events = conn.events.take().expect("a socket listens to its session");
+        let inbox = deps.transport.register_agent("helper".into()).await;
+
+        Socket {
+            conn,
+            events,
+            inbox,
+            session,
+            conversation,
+            _dir: dir,
+            out_rx,
+        }
+    }
+
+    /// One audio frame: the smallest thing a client sends that reaches the expiry check.
+    fn one_audio_frame() -> serde_json::Value {
+        serde_json::json!({
+            "live_voice_audio": { "utterance_id": "u1", "seq": 0, "base64": "AAAA" }
+        })
+    }
+
+    /// T110/FR-063: a key that has lapsed ends the call it opened, at the next frame, through the
+    /// socket — and the turn it was writing is cancelled, not merely the session stopped.
+    #[tokio::test]
+    async fn a_lapsed_key_at_the_socket_cancels_the_turn_it_was_running() {
+        let mut socket = socket(
+            who(lapsed_key()),
+            "t110-socket-lapse",
+            Some(vizier_core::live_voice::KeyOrigin {
+                key_id: "key-a".into(),
+                expires_at: None,
+            }),
+        )
+        .await;
+
+        // A turn is running: its request has reached the agent and the reply has not come back.
+        let running = socket.session.clone();
+        tokio::spawn(async move {
+            running.run_turn(Arc::new(SilentVoice), "hello".into()).await
+        });
+        let submitted = tokio::time::timeout(WAIT, socket.inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+        assert_eq!(
+            request_kind(&submitted.request.content),
+            "chat:hello",
+            "the request in flight is the one this test is about to cancel"
+        );
+        // `busy` is private to `vizier-core`, and the state word is what a turn publishes while it
+        // waits (`run_turn` -> `thinking()` -> `Waiting`). Asserted so the frame below is known to
+        // interrupt a turn that is running.
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Waiting,
+            "the session is waiting for the reply when the frame arrives"
+        );
+
+        // One frame arrives. Nothing else triggers the check: the frame is the whole trigger.
+        socket
+            .conn
+            .handle_live_voice("live_voice_audio", one_audio_frame())
+            .await;
+
+        // 1. the state word the person is left with
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Ended
+        );
+        // 2. the reason, on the frame the contract names. Events travel through the bus when this
+        // process has a pump, so they are awaited rather than read synchronously; the window is
+        // generous because a local round trip is microseconds.
+        let mut ended = Vec::new();
+        while let Ok(Ok(event)) = tokio::time::timeout(WAIT, socket.events.recv()).await {
+            if let SessionFrame::LiveVoice(vizier_core::live_voice::frame::LiveVoiceControl::State {
+                state: vizier_core::live_voice::frame::SessionState::Ended,
+                reason,
+                ..
+            }) = event.frame
+            {
+                ended.push(reason);
+                break;
+            }
+        }
+        assert_eq!(
+            ended,
+            vec![Some(vizier_core::live_voice::frame::EndReason::KeyExpired)],
+            "exactly one ending, and its reason is the key's, not a press or a provider"
+        );
+        // 3. the turn is no longer running — stopping the session is not enough (FR-063).
+        // `busy` is private to `vizier-core`, so it is read through the thing it drives:
+        // `abort_turn` sends `Command("abort")` only when the flag was set, and clears it in the
+        // same swap. Exactly one abort below therefore means the turn was running and is not any
+        // more. A literal `busy == false` assertion needs a public accessor — a production
+        // visibility change, which the board's DoD reserves for the Lead.
+        // 4. and the cancellation really left: `end()` alone sends no abort
+        let mut kinds = Vec::new();
+        while let Ok(Ok(envelope)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), socket.inbox.recv_request())
+                .await
+        {
+            kinds.push(request_kind(&envelope.request.content));
+        }
+        assert_eq!(
+            kinds.iter().filter(|kind| *kind == "command:abort").count(),
+            1,
+            "the running turn is cancelled by exactly one abort, got {kinds:?}"
+        );
+        // 5. the entry is gone, so a later frame does not resolve to a session that is over
+        assert!(
+            socket.conn.services.deps().live_voice
+                .get(&socket.conversation)
+                .is_none(),
+            "the registry no longer holds a call that has ended"
+        );
+    }
+
+    /// The other half: the lapse check ends the call **that key opened**, not every call on the
+    /// socket's conversation. A session with no key behind it survives the same frame.
+    #[tokio::test]
+    async fn a_session_a_person_opened_survives_the_same_call() {
+        let mut socket = socket(who(lapsed_key()), "t110-socket-survivor", None).await;
+
+        socket
+            .conn
+            .handle_live_voice("live_voice_audio", one_audio_frame())
+            .await;
+
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Listening,
+            "a call with no key behind it is not ended by a key that lapsed"
+        );
+        let mut kinds = Vec::new();
+        while let Ok(Ok(envelope)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), socket.inbox.recv_request())
+                .await
+        {
+            kinds.push(request_kind(&envelope.request.content));
+        }
+        assert!(
+            !kinds.iter().any(|kind| kind == "command:abort"),
+            "nothing was cancelled, got {kinds:?}"
+        );
+        assert!(
+            socket.conn.services.deps().live_voice
+                .get(&socket.conversation)
+                .is_some(),
+            "the session is still the socket's"
+        );
+
+        socket.conn.services.deps().live_voice.remove(&socket.conversation, &socket.session);
+    }
+
+
+    // ---- GI-05 (FR-064): a revoked key may not start again on the socket that still holds it ----
+    //
+    // `key_lapsed` above reads the principal, and the principal is stamped once when the socket
+    // opens: a key deleted afterwards still looks like a caller to the `start` arm, which only asked
+    // what the key was *scoped* to. The two tests below cross that seam — both go through
+    // `handle_live_voice`, and both revoke through the service the route calls, so
+    // `end_owned_by_key` runs exactly as it does in production.
+
+    /// A caller who may create and revoke keys: `service::api_keys` asks for `settings:api_keys`,
+    /// and the revocation has to travel through that service, not through storage.
+    fn officer(method: vizier_core::auth::AuthMethod) -> Principal {
+        let mut principal = who(method);
+        principal.permissions = vec!["settings:api_keys".into()];
+        principal
+    }
+
+    /// An unscoped key with no expiry: nothing about this caller lapses on its own, so whatever ends
+    /// a call in these tests is the revocation and nothing else.
+    fn live_key() -> vizier_core::auth::AuthMethod {
+        vizier_core::auth::AuthMethod::ApiKey {
+            scoped: false,
+            key_id: Some("key-a".into()),
+            expires_at: None,
+        }
+    }
+
+    /// The agent this socket is talking to, with live voice on. Written straight into the store:
+    /// the subject is what `start` does, not what saving a config does.
+    async fn live_voice_agent(socket: &Socket) {
+        let config: vizier_core::schema::AgentConfig = serde_json::from_value(serde_json::json!({
+            "name": "helper", "provider": "dummyplug", "model": "dummyplug", "thinking_depth": 1,
+            "tools": {
+                "timeout": "30s",
+                "stt": { "enabled": true, "settings": {} },
+                "tts": { "enabled": true, "settings": {} }
+            },
+            "silent_read_initiative_chance": 0.0, "prompt_timeout": "1m",
+            "heartbeat_interval": "1m"
+        }))
+        .expect("a stored agent that can hear and speak");
+        socket
+            .conn
+            .storage
+            .create_agent("helper", &config)
+            .await
+            .expect("the agent is stored");
+    }
+
+    /// Mint a key through the service, then present it: the socket's principal and the running call
+    /// both name it, which is the state `start` itself leaves behind.
+    async fn key_for(socket: &mut Socket) -> String {
+        let principal = socket.conn.principal.clone();
+        let (key, _raw) = vizier_core::service::api_keys::create_scoped(
+            &socket.conn.services,
+            &principal,
+            "gi05",
+            None,
+            None,
+        )
+        .await
+        .expect("the key is created");
+        socket.conn.principal.method = vizier_core::auth::AuthMethod::ApiKey {
+            scoped: false,
+            key_id: Some(key.id.clone()),
+            expires_at: None,
+        };
+        socket.session.set_key_origin(Some(vizier_core::live_voice::KeyOrigin {
+            key_id: key.id.clone(),
+            expires_at: None,
+        }));
+        key.id
+    }
+
+    /// FR-064: the refusal happens **before any session state is created**, and it says nothing
+    /// about the agent, the conversation or the calls around it.
+    #[tokio::test]
+    async fn a_revoked_key_cannot_start_a_second_call_on_the_same_socket() {
+        let mut socket = socket(officer(live_key()), "gi05-revoked-start", None).await;
+        live_voice_agent(&socket).await;
+        let key_id = key_for(&mut socket).await;
+
+        // The revocation production runs: the row goes, then the registry hook that ends the call
+        // the key opened.
+        let principal = socket.conn.principal.clone();
+        vizier_core::service::api_keys::delete(&socket.conn.services, &principal, &key_id)
+            .await
+            .expect("the key is revoked");
+
+        // The premise, asserted rather than assumed: the revoke took the running call with it. What
+        // is left is a socket whose principal still names a key that no longer exists.
+        assert!(
+            socket.conn.services.deps().live_voice
+                .get(&socket.conversation)
+                .is_none(),
+            "the revoke ends the call it opened, so a second start inherits nothing"
+        );
+        // Nothing the ending queued is part of the answer under test.
+        while socket.out_rx.try_recv().is_ok() {}
+
+        socket
+            .conn
+            .handle_live_voice("live_voice_start", serde_json::json!({ "live_voice_start": {} }))
+            .await;
+
+        let frame = tokio::time::timeout(WAIT, socket.out_rx.recv_async())
+            .await
+            .expect("a start is answered, not ignored")
+            .expect("the socket's queue is open");
+        let control: vizier_core::live_voice::frame::LiveVoiceControl =
+            serde_json::from_value(frame["live_voice"].clone()).expect("a live voice control frame");
+
+        // 1. refused, not started — and the reason is the key's, not a provider's. Without this the
+        // test would pass on today's code for the wrong reason: a start that survives to the engine
+        // builder also ends in an error, because this build has no speech provider.
+        let refusal = match control {
+            vizier_core::live_voice::frame::LiveVoiceControl::Error { kind, message } => {
+                assert_eq!(
+                    kind,
+                    vizier_core::live_voice::frame::EndReason::PermissionWithdrawn,
+                    "a key that no longer exists is a permission that is gone"
+                );
+                message
+            }
+            other => panic!("a revoked key was answered with {other:?} instead of a refusal"),
+        };
+        // 2. nothing was created
+        assert!(
+            socket.conn.services.deps().live_voice
+                .get(&socket.conversation)
+                .is_none(),
+            "a refused start leaves no session behind"
+        );
+        // 3. and the refusal tells the caller nothing about what it refused (FR-064, last sentence)
+        for leak in ["helper", "gi05-revoked-start", "agent", "topic", "session"] {
+            assert!(
+                !refusal.contains(leak),
+                "the refusal names {leak:?}, so it reports the state it refused to touch: {refusal}"
+            );
+        }
+    }
+
+    /// The other half: revoking a key still ends the call it was running, through the one release
+    /// path T110 built. This one is a guard — green before GI-05 and after it.
+    #[tokio::test]
+    async fn a_revoked_key_at_the_socket_still_ends_the_call_it_was_running() {
+        let mut socket = socket(officer(live_key()), "gi05-revoked-running", None).await;
+        let key_id = key_for(&mut socket).await;
+
+        // A turn is in flight: its request reached the agent and the reply has not come back.
+        let running = socket.session.clone();
+        tokio::spawn(async move {
+            running
+                .run_turn(Arc::new(SilentVoice), "hello".into())
+                .await
+        });
+        let submitted = tokio::time::timeout(WAIT, socket.inbox.recv_request())
+            .await
+            .expect("the turn submits its request")
+            .expect("the inbox is open");
+        assert_eq!(request_kind(&submitted.request.content), "chat:hello");
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Waiting,
+            "the call is running when the key is revoked"
+        );
+
+        let principal = socket.conn.principal.clone();
+        vizier_core::service::api_keys::delete(&socket.conn.services, &principal, &key_id)
+            .await
+            .expect("the key is revoked");
+
+        // A frame still arrives on the socket that opened the call: the revocation is what ended it,
+        // not the frame, and the frame must not resurrect anything.
+        socket
+            .conn
+            .handle_live_voice("live_voice_audio", one_audio_frame())
+            .await;
+
+        assert_eq!(
+            socket.session.state(),
+            vizier_core::live_voice::frame::SessionState::Ended,
+            "a revoked key ends the call it opened"
+        );
+        let mut ended = Vec::new();
+        while let Ok(Ok(event)) = tokio::time::timeout(WAIT, socket.events.recv()).await {
+            if let SessionFrame::LiveVoice(
+                vizier_core::live_voice::frame::LiveVoiceControl::State {
+                    state: vizier_core::live_voice::frame::SessionState::Ended,
+                    reason,
+                    ..
+                },
+            ) = event.frame
+            {
+                ended.push(reason);
+                break;
+            }
+        }
+        assert_eq!(
+            ended,
+            vec![Some(vizier_core::live_voice::frame::EndReason::KeyRevoked)],
+            "exactly one ending, and its reason is the revocation"
+        );
+        let mut kinds = Vec::new();
+        while let Ok(Ok(envelope)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), socket.inbox.recv_request())
+                .await
+        {
+            kinds.push(request_kind(&envelope.request.content));
+        }
+        assert_eq!(
+            kinds.iter().filter(|kind| *kind == "command:abort").count(),
+            1,
+            "the running turn is cancelled by exactly one abort, got {kinds:?}"
+        );
+        assert!(
+            socket.conn.services.deps().live_voice
+                .get(&socket.conversation)
+                .is_none(),
+            "the entry is gone with the call"
+        );
+    }
+
 }
 
 pub struct TopicConnection {
@@ -231,6 +888,398 @@ impl TopicConnection {
         }
     }
 
+    /// One live voice action (`specs/055-live-voice`).
+    ///
+    /// Everything here is authorised exactly like a chat message on the same socket: the session
+    /// belongs to the principal that started it, and everybody else is told it is active rather
+    /// than being allowed to end it (FR-005).
+    pub async fn handle_live_voice(&self, key: &str, frame: serde_json::Value) {
+        use vizier_core::live_voice::frame::{ClientAction, EndReason, LiveVoiceControl, SessionState};
+
+        let Some(action) = ClientAction::parse(key, &frame) else {
+            self.send_live_voice(LiveVoiceControl::Error {
+                kind: EndReason::ProviderFailed,
+                message: "the frame did not match the live voice contract".into(),
+            });
+            return;
+        };
+        let sessions = self.services.deps().live_voice.clone();
+
+        // Every action but `start` needs the session the caller owns.
+        // Who owns this call (T110). The name alone is not enough: every API key presents an empty
+        // username, so two different keys — of the same person or of two people — would look like
+        // the same owner and could interrupt and end each other's session in a shared conversation.
+        // The key id is what separates them, and a person signed in normally has none, so their
+        // session and a key's session can never be confused either way round.
+        let owned = |session: &vizier_core::live_voice::LiveVoiceSession| {
+            owns_session(session, &self.principal)
+        };
+
+        // T110/FR-063: a key past its expiry ends the call it opened. The door already refuses an
+        // expired key — the storage lookup filters them — so what is left is a session opened while
+        // the key was valid and still running when it lapses. Checked when a frame arrives rather
+        // than by a timer, so the call ends at the next frame rather than on the exact second: the
+        // alternative is a timer per session for a rare event, and a client that has gone quiet is
+        // not talking to anyone anyway.
+        if key_lapsed(&self.principal) {
+            if let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) {
+                if session.key_origin().is_some() {
+                    // The same ending the revoke hook uses (T110 round 1): `end_one` cancels the
+                    // running turn before it stops the session. Twice now this path has been the
+                    // one that forgot a step, so it no longer steps at all — it calls the one
+                    // function both endings share.
+                    sessions.end_one(&self.session, &session, EndReason::KeyExpired).await;
+                }
+            }
+        }
+
+        match action {
+            ClientAction::Start(start) => {
+                // FR-064, first: a key that no longer exists may not start anything.
+                //
+                // `key_lapsed` above reads the principal, and the principal is stamped once when
+                // the socket opens - so a key revoked while this socket stayed open still looks
+                // like a caller here. Without this, revoke then start on the same socket builds a new
+                // call out of a credential that is gone.
+                //
+                // Checked in the `start` arm and not per frame: `key_lapsed` runs on every audio
+                // frame (one every 20 ms) and a storage read there would put the database in the
+                // audio path. A running call whose key is revoked already has its own path -
+                // `end_owned_by_key`, from `delete_api_key`.
+                //
+                // A failed lookup refuses: an unreadable key list is not proof the key is there.
+                if let vizier_core::auth::AuthMethod::ApiKey {
+                    key_id: Some(key_id),
+                    ..
+                } = &self.principal.method
+                {
+                    let still_there = self
+                        .storage
+                        .list_api_keys(&self.principal.user_id)
+                        .await
+                        .map(|keys| keys.iter().any(|key| &key.id == key_id))
+                        .unwrap_or(false);
+                    if !still_there {
+                        // The reason the scoped-key refusal uses: what is gone is the permission,
+                        // not the provider.
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::PermissionWithdrawn,
+                            message: "this key is no longer valid, so it cannot start a call"
+                                .into(),
+                        });
+                        return;
+                    }
+                }
+                // T102: the audio description is asked for, not assumed. This runs before the
+                // registry is read or written and before any state changes, so a client asking for
+                // a carrier this release does not speak leaves nothing behind — no session, no
+                // half-open microphone, no state word.
+                //
+                // The kind is `ProviderFailed` for consistency with the other refusals in this
+                // file, all of which are contract violations. It is a poor name for this one; a
+                // dedicated `unsupported_audio` variant is the honest fix and is not added here
+                // without the Lead's word.
+                let description = start.description();
+                if let Err(reason) = description.check() {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::UnsupportedAudio,
+                        message: reason,
+                    });
+                    return;
+                }
+                if let Some(existing) = sessions.get(&self.session) {
+                    if owned(&existing) && !existing.is_stopped() {
+                        // Idempotent: the same person pressing start on a reconnected socket
+                        // re-binds the lane, which is what keeps the session from going silent
+                        // (T067).
+                        existing.rebind(self.connection.clone());
+                        existing.set_state(SessionState::Listening);
+                        return;
+                    }
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: "a live voice session is already active on this conversation".into(),
+                    });
+                    return;
+                }
+
+                let config = match self.services.deps().storage.get_agent(&self.session.0).await {
+                    Ok(Some(config)) => config,
+                    _ => {
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::AgentChanged,
+                            message: "the agent is not available".into(),
+                        });
+                        return;
+                    }
+                };
+                if !vizier_core::service::agents::live_voice_available(&config) {
+                    // FR-041: an agent that cannot both hear and speak holds no call; the frame is
+                    // ignored and the socket stays open.
+                    return;
+                }
+                let settings = config.tools.live_voice.settings.clone();
+                // A call hears and speaks through the agent's own Speech-to-Text and
+                // Text-to-Speech settings, and logs which ones it runs with.
+                let stt = config.tools.stt.settings.clone();
+                let tts = config.tools.tts.settings.clone();
+                tracing::info!(
+                    agent_id = %self.session.0,
+                    stt_provider = ?stt.provider,
+                    stt_model = stt.model.as_deref().unwrap_or("-"),
+                    tts_provider = ?tts.provider,
+                    tts_model = tts.model.as_deref().unwrap_or("-"),
+                    tts_voice = tts.voice.as_deref().unwrap_or("-"),
+                    "live voice engines chosen for this call"
+                );
+                let engines = match vizier_core::live_voice::CascadeEngines::new(
+                    &stt,
+                    &tts,
+                    self.services.deps(),
+                    &self.services.deps().config.workspace,
+                    &self.session.0,
+                )
+                .await
+                {
+                    Ok(engines) => std::sync::Arc::new(engines)
+                        as std::sync::Arc<dyn vizier_core::live_voice::LiveVoiceEngines>,
+                    Err(e) => {
+                        self.send_live_voice(LiveVoiceControl::Error {
+                            kind: EndReason::ProviderFailed,
+                            message: format!("the speech providers could not start: {e}"),
+                        });
+                        return;
+                    }
+                };
+                // T095-T097 (FR-005): one call per person, across conversations. Starting here
+                // moves the one that is running elsewhere instead of leaving two behind. This runs
+                // after the engines are ready, so a start that cannot begin does not kill a call
+                // that is already working.
+                if let Some(previous) = sessions
+                    .move_owned_elsewhere(
+                        &self.session,
+                        &self.principal.username,
+                        self.principal.method.key_id(),
+                    )
+                    .await
+                {
+                    debug_assert_eq!(previous.state(), SessionState::Ended);
+                }
+                let language = stt.language.clone();
+                let session = sessions
+                    .start(self.session.clone(), || {
+                        vizier_core::live_voice::LiveVoiceSession::new(
+                            self.session.clone(),
+                            self.principal.username.clone(),
+                            language,
+                            settings,
+                            self.connection.clone(),
+                            self.transport.clone(),
+                        )
+                    })
+                    .unwrap_or_else(|existing| existing);
+                session.set_engines(engines);
+                session.set_storage(self.storage.clone());
+                session.set_description(description);
+                // T110: remember which key opened this call, so revoking or lapsing it can end the
+                // call later. `None` for a person signed in through the WebUI or the desktop app.
+                session.set_key_origin(match &self.principal.method {
+                    vizier_core::auth::AuthMethod::ApiKey { key_id, expires_at, .. } => {
+                        Some(vizier_core::live_voice::KeyOrigin {
+                            key_id: key_id.clone().unwrap_or_default(),
+                            expires_at: *expires_at,
+                        })
+                    }
+                    _ => None,
+                });
+                session.set_state(SessionState::Listening);
+            }
+            ClientAction::Audio(audio) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // T015: a little over one chunk (~6.3 KB of base64) is the most a frame may carry.
+                // Anything larger is refused outright rather than buffered, so a client cannot make
+                // the server hold an unbounded utterance one frame at a time.
+                // T102: a chunk that is not in the description the session declared is refused
+                // rather than decoded as if it were. One bad frame is not a reason to take the
+                // microphone away, so the session stays exactly as it was — listening.
+                if let Err(reason) = session.description().accepts(audio.sample_rate, &audio.format)
+                {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::UnsupportedAudio,
+                        message: reason,
+                    });
+                    return;
+                }
+                if audio.base64.len() > vizier_core::live_voice::MAX_AUDIO_FRAME_BASE64 {
+                    self.send_live_voice(LiveVoiceControl::Error {
+                        kind: EndReason::ProviderFailed,
+                        message: "an audio chunk was larger than one chunk of the contract".into(),
+                    });
+                    return;
+                }
+                let pcm = match base64::Engine::decode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &audio.base64,
+                ) {
+                    Ok(pcm) => pcm,
+                    Err(_) => return,
+                };
+                // The cap closes the utterance the way a spoken end would: the same decision runs,
+                // so a long answer cannot leave the session capturing forever.
+                if session.push_audio(&audio.utterance_id, &pcm) == Some(true) {
+                    match session.close_utterance(&audio.utterance_id).await {
+                        vizier_core::live_voice::UtteranceOutcome::Speak(utterance) => {
+                            self.drive_utterance(session, utterance).await;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            ClientAction::UtteranceEnd(end) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // The end of the utterance is the interruption (C8, FR-019): the reply stops and
+                // its turn is cancelled only now, because while the person speaks the agent is
+                // meant to keep speaking. A burst too short to be a word cancels nothing
+                // (FR-024) — that decision lives in the session, not here.
+                match session.close_utterance(&end.utterance_id).await {
+                    vizier_core::live_voice::UtteranceOutcome::Unknown => {}
+                    vizier_core::live_voice::UtteranceOutcome::TooShort => {
+                        self.send_live_voice(LiveVoiceControl::Transcript {
+                            utterance_id: end.utterance_id.clone(),
+                            text: String::new(),
+                            submitted: false,
+                        });
+                    }
+                    vizier_core::live_voice::UtteranceOutcome::Speak(utterance) => {
+                        self.drive_utterance(session, utterance).await;
+                    }
+                }
+            }
+            ClientAction::SpeechStart(start) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // The start of speech interrupts nothing (C8): it opens the utterance the audio
+                // that follows belongs to, and the agent keeps talking. The interruption happens
+                // when this utterance ends, in the arm above.
+                session.open_utterance(&start.utterance_id);
+            }
+            ClientAction::Interrupt(interrupt) => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                // C7 deferred the interrupt *control* to the backlog, so a `button` reason is a
+                // client that has not caught up: it is treated exactly like the spoken
+                // interruption rather than as a third behaviour. `typed` remains, for a surface
+                // that still has a text field: it stops the audio and the session stays live
+                // (FR-025). With nothing running either costs nothing (FR-021).
+                let reason = match interrupt.reason {
+                    Some(vizier_core::live_voice::InterruptReason::Typed) => {
+                        vizier_core::live_voice::InterruptReason::Typed
+                    }
+                    _ => vizier_core::live_voice::InterruptReason::BargeIn,
+                };
+                session.abort_turn(reason).await;
+            }
+            ClientAction::Stop => {
+                let Some(session) = sessions.get(&self.session).filter(|s| owned(s)) else {
+                    return;
+                };
+                session.end(EndReason::PressedAgain);
+                sessions.remove(&self.session, &session);
+            }
+        }
+    }
+
+    /// Recognise one closed utterance and, if it said anything, drive a spoken turn.
+    async fn drive_utterance(
+        &self,
+        session: std::sync::Arc<vizier_core::live_voice::LiveVoiceSession>,
+        utterance: vizier_core::live_voice::Utterance,
+    ) {
+        use vizier_core::live_voice::frame::{EndReason, LiveVoiceControl};
+
+        // The moment the person finished: what the message is stamped with.
+        let said_at = vizier_core::time::now();
+        if utterance.too_short() {
+            // FR-024: the audio stopped, nothing is submitted, the session listens again.
+            self.send_live_voice(LiveVoiceControl::Transcript {
+                utterance_id: utterance.id.clone(),
+                text: String::new(),
+                submitted: false,
+            });
+            return;
+        }
+        let Some(engines) = session.engines() else {
+            return;
+        };
+        // What was said is kept and shown at once, as a voice message, before recognition has an
+        // answer (spec 055): the tab draws the recording now and the transcript when it arrives.
+        let audio = match self
+            .transport
+            .send_file_upload(utterance.filename(), utterance.wav())
+            .await
+        {
+            Ok(record) => {
+                self.send_live_voice(LiveVoiceControl::Heard {
+                    utterance_id: utterance.id.clone(),
+                    filename: utterance.filename(),
+                    url: record.url.clone(),
+                });
+                Some(vizier_core::schema::VizierAttachment {
+                    filename: utterance.filename(),
+                    content: vizier_core::schema::VizierAttachmentContent::Local(record.url),
+                })
+            }
+            Err(e) => {
+                // Not kept: the turn still runs, as text.
+                tracing::warn!("live voice utterance audio upload failed: {e}");
+                None
+            }
+        };
+        let text = match engines
+            .transcribe(&utterance.wav(), &utterance.filename(), session.language().as_deref())
+            .await
+        {
+            Ok(text) => text,
+            Err(e) => {
+                self.send_live_voice(LiveVoiceControl::Error {
+                    kind: EndReason::ProviderFailed,
+                    message: format!("recognition failed: {e}"),
+                });
+                return;
+            }
+        };
+        if text.is_empty() {
+            // FR-031: told, nothing submitted, listening again.
+            self.send_live_voice(LiveVoiceControl::Error {
+                kind: EndReason::Unintelligible,
+                message: "that was not intelligible; say it again".into(),
+            });
+            return;
+        }
+        self.send_live_voice(LiveVoiceControl::Transcript {
+            utterance_id: utterance.id.clone(),
+            text: text.clone(),
+            submitted: true,
+        });
+        let engines = engines.clone();
+        tokio::spawn(async move { session.run_turn_with(engines, text, audio, Some(said_at)).await });
+    }
+
+    /// Control frames go to this socket straight away (they are also on the broadcast, which is
+    /// how the other tabs learn about the session).
+    fn send_live_voice(&self, control: vizier_core::live_voice::LiveVoiceControl) {
+        let json = serde_json::json!({ "live_voice": control });
+        if let Err(e) = self.out.try_send(json) {
+            tracing::debug!("live voice control frame not queued: {e}");
+        }
+    }
+
     pub async fn handle_inbound(&self, frame: serde_json::Value) {
         let send_frame = |frame: serde_json::Value| {
             let out = self.out.clone();
@@ -238,6 +1287,29 @@ impl TopicConnection {
                 let _ = out.send_async(frame).await;
             }
         };
+
+        // Live voice takes its own branch **before** the frame is stringified below: an audio
+        // chunk is 4.3 KB and arrives ten times a second, and copying it once more per chunk on
+        // the way in is a cost with nothing to show for it (`review.md` D5).
+        if let Some(key) = vizier_core::live_voice::frame::client_key(&frame) {
+            self.handle_live_voice(key, frame).await;
+            return;
+        }
+        // A scoped key reaches this socket only for live voice (FR-062, `scoped_key_may_reach`):
+        // anything else it sends is refused, so it cannot type to the agent.
+        if matches!(
+            self.principal.method,
+            vizier_core::auth::AuthMethod::ApiKey { scoped: true, .. }
+        ) {
+            send_frame(client_error(
+                "live_voice_only",
+                None,
+                "this key may only be used for live voice",
+            ))
+            .await;
+            return;
+        }
+
         {
                         let text_str = frame.to_string();
                         let frame = Some(frame);
@@ -359,7 +1431,7 @@ impl TopicConnection {
                                 }
                                 let principal = match self
                                     .services
-                                    .resolve(&self.principal.user_id, self.principal.method)
+                                    .resolve(&self.principal.user_id, self.principal.method.clone())
                                     .await
                                 {
                                     Ok(principal) => principal,
@@ -405,7 +1477,7 @@ impl TopicConnection {
                             // (FR-018), so a revocation between two frames refuses the next one.
                             if self.session.1.project_id().is_some() {
                                 let current_principal = if request.model_override.is_some() {
-                                    match self.services.resolve(&self.principal.user_id, self.principal.method).await {
+                                    match self.services.resolve(&self.principal.user_id, self.principal.method.clone()).await {
                                         Ok(principal) => principal,
                                         Err(error) => {
                                             send_frame(client_error("forbidden", None, error.message())).await;
@@ -565,10 +1637,35 @@ impl TopicConnection {
 impl TopicOutbound {
     pub async fn run(mut self) {
         let mut events_open = true;
+        // Audio frames this socket dropped in the current stall episode (T021, T042).
+        let mut dropped: u64 = 0;
         loop {
             tokio::select! {
                 Some(frame) = self.client_rx.recv() => {
-                    if self.out.send_async(frame).await.is_err() {
+                    // The one place a live voice frame may be dropped (`specs/055-live-voice`
+                    // contract §Delivery path): **audio**, and only audio, when this socket is
+                    // behind. Every other frame — `live_voice_state`, `transcript`, `error`,
+                    // `stall`, a reply's `Response` — is written whatever the depth, so a reply's
+                    // text can never be lost to a session that is talking too fast.
+                    //
+                    // `dropped` is this loop's own counter: the session keeps none (T042), so
+                    // there is exactly one number and exactly one report.
+                    let mut write = true;
+                    if vizier_core::live_voice::frame::is_speech_frame(&frame) {
+                        if self.out.len() > vizier_core::live_voice::LIVE_VOICE_SOCKET_BACKLOG {
+                            dropped += 1;
+                            write = false;
+                        } else if dropped > 0 {
+                            self.transport.publish_session_event(SessionEvent {
+                                session: self.session.clone(),
+                                frame: SessionFrame::LiveVoice(
+                                    vizier_core::live_voice::LiveVoiceControl::Stall { dropped },
+                                ),
+                            });
+                            dropped = 0;
+                        }
+                    }
+                    if write && self.out.send_async(frame).await.is_err() {
                         return;
                     }
                 }
@@ -647,6 +1744,15 @@ impl TopicOutbound {
                                     "sensitive_ask_closed": { "ask_id": ask_id, "outcome": outcome }
                                 }))
                             }
+                            // Live voice **control** only (`specs/055-live-voice`, contract
+                            // §Delivery path): `state`, `transcript`, `error`, `stall`. Audio is
+                            // never here — `live_voice_speech` is written per connection by the
+                            // session, and the payload type makes sending it here a compile error.
+                            // The same serialiser serves both lanes, so their field names cannot
+                            // drift (`analysis.md` M15).
+                            SessionFrame::LiveVoice(control) => serde_json::to_value(&control)
+                                .ok()
+                                .map(|control| serde_json::json!({ "live_voice": control })),
                             SessionFrame::UiPageVerified { page_id, version, verification } => {
                                 Some(serde_json::json!({
                                     "ui_page_verified": {
@@ -670,10 +1776,16 @@ impl TopicOutbound {
                             if self.out.send_async(json).await.is_err() { return; }
                         }
                     }
+                    // Another session's event, or one this socket does not handle.
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        // The client re-reads the job list on reconnect, so a dropped frame
-                        // never leaves the tray wrong for good.
+                        // A lagging subscriber cannot be repaired mid-burst, so this arm still
+                        // drops the frames it skipped. What it can no longer drop is live voice
+                        // **audio**: `live_voice_speech` never enters this ring (it is written to
+                        // the owning socket's own queue, contract §Delivery path), so a lost
+                        // `SessionFrame::Response` — the reply text — can never be caused by a
+                        // session talking. The client re-reads the job list on reconnect, so a
+                        // dropped job frame never leaves the tray wrong for good.
                         tracing::warn!("websocket for {:?} lagged, {} session event(s) dropped", self.session, skipped);
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {

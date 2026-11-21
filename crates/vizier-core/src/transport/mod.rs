@@ -110,6 +110,11 @@ pub enum SessionFrame {
         ask_id: String,
         outcome: crate::questions::model::AskState,
     },
+    /// A live voice **control** frame (`specs/055-live-voice`): `state`, `transcript`, `error` or
+    /// `stall`. Audio is deliberately not here — `LiveVoiceSpeech` travels the owner's own
+    /// connection, and this variant's payload type is what makes publishing audio as a session
+    /// event a compile error rather than a review rule.
+    LiveVoice(crate::live_voice::LiveVoiceControl),
     /// A page version's check finished (`specs/063-html-generative-ui` R6): its outcome, for
     /// every tab that draws it.
     UiPageVerified {

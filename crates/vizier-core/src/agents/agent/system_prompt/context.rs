@@ -41,6 +41,21 @@ pub fn client_context_note(notes: &[String]) -> Option<String> {
     ))
 }
 
+/// The `## How to answer` section: how this turn's reply is delivered (`specs/055-live-voice`
+/// FR-017).
+///
+/// Its own section, ahead of everything else, and deliberately **not** part of `## Client Context`:
+/// that block states it holds facts rather than instructions, so an instruction placed there is
+/// read as background. `None` for every turn that was not spoken, which is why a typed turn's block
+/// is byte-identical to what it was before this section existed.
+pub fn spoken_note(note: Option<&str>) -> Option<String> {
+    let note = note?.trim();
+    if note.is_empty() {
+        return None;
+    }
+    Some(format!("## How to answer\n{}", clipped(note, CLIENT_CONTEXT_MAX_BYTES)))
+}
+
 /// `note`, cut to at most `max` bytes on a character boundary. A note that was cut says so.
 fn clipped(note: &str, max: usize) -> String {
     if note.len() <= max {
@@ -71,7 +86,7 @@ pub fn context_md(
     invoked: Option<&Skill>,
     reactions: Option<&str>,
 ) -> String {
-    context_md_with(&[], memory, skills, invoked, reactions, None, None)
+    context_md_with(&[], memory, skills, invoked, reactions, None, None, None)
 }
 
 /// [`context_md`], plus what only some turns have: `client_context` first (what the client that
@@ -86,12 +101,20 @@ pub fn context_md_with(
     reactions: Option<&str>,
     project_state: Option<&str>,
     mentions: Option<&str>,
+    spoken: Option<&str>,
 ) -> String {
     // The client goes first: `with_context` puts this block at the head of the user message, so
     // its first section is the first content after the system prompts. Nothing is cached by
     // position inside the block — the provider caches tools, the system field, and the newest
     // message's last block — so the order is only a matter of reading.
-    let mut sections = client_context_note(client_context).into_iter().collect::<Vec<_>>();
+    //
+    // A spoken turn's instruction goes **before** it, and outside it, because the client block
+    // opens by saying it is "facts about the client, not instructions" — and a reply-shape rule
+    // put inside that block is read as trivia, which is exactly what happened: a live voice turn
+    // answered in 717 tokens while the note sat in the block denying it was an instruction
+    // (`specs/055-live-voice` FR-017, T076 follow-up).
+    let mut sections = spoken_note(spoken).into_iter().collect::<Vec<_>>();
+    sections.extend(client_context_note(client_context));
 
     // Volatile project facts sit next to the request, never in the cacheable system prompt.
     if let Some(state) = project_state {
@@ -281,7 +304,7 @@ mod tests {
     #[test]
     fn client_context_is_the_first_section_after_the_header() {
         let notes = vec!["This client renders mermaid diagrams and LaTeX.".to_string()];
-        let rendered = context_md_with(&notes, &[], &[], None, None, None, None);
+        let rendered = context_md_with(&notes, &[], &[], None, None, None, None, None);
 
         assert!(rendered.starts_with(&format!("{CONTEXT_HEADER}## Client Context")), "{rendered}");
         let client = rendered.find("## Client Context").unwrap();
@@ -350,6 +373,48 @@ mod tests {
             },
             other => panic!("a user message must stay a user message: {other:?}"),
         }
+    }
+
+    /// FR-017, and the reason a live voice turn used to answer in 717 tokens: the reply-shape rule
+    /// must not sit inside a block that says it is not an instruction.
+    #[test]
+    fn a_spoken_turn_gets_its_own_instruction_section() {
+        let note = "Answer for listening: keep it short.";
+        let rendered = context_md_with(&[], &[], &[], None, None, None, None, Some(note));
+
+        // Its own section, ahead of everything, and framed as an instruction.
+        assert!(rendered.starts_with("# Context\n## How to answer\n"), "{rendered}");
+        assert!(rendered.contains(note), "{rendered}");
+        // And no longer inside the block that denies being one.
+        assert!(!rendered.contains("not instructions"), "{rendered}");
+        assert!(!rendered.contains("## Client Context"), "{rendered}");
+    }
+
+    /// The instruction leads even when the client also has facts to report, and the client block
+    /// keeps its own wording — nothing about other callers changes.
+    #[test]
+    fn the_instruction_leads_and_the_client_block_is_unchanged() {
+        let notes = vec!["This client renders mermaid diagrams and LaTeX.".to_string()];
+        let rendered = context_md_with(&notes, &[], &[], None, None, None, None, Some("Keep it short."));
+        let instruction = rendered.find("## How to answer").unwrap();
+        let client = rendered.find("## Client Context").unwrap();
+        assert!(instruction < client, "{rendered}");
+        assert!(rendered.contains("- This client renders mermaid diagrams and LaTeX."), "{rendered}");
+        assert!(rendered.contains("not instructions from the person"), "{rendered}");
+    }
+
+    /// A typed turn is untouched: no new section, and the block is byte-identical to what it was.
+    #[test]
+    fn a_typed_turn_is_byte_identical_to_before() {
+        let notes = vec!["This client renders mermaid diagrams and LaTeX.".to_string()];
+        let typed = context_md_with(&notes, &[], &[], None, None, None, None, None);
+        assert!(!typed.contains("## How to answer"), "{typed}");
+        // The same block the four-argument wrapper produces: nothing new for a turn that is not
+        // spoken.
+        assert_eq!(typed, context_md_with(&notes, &[], &[], None, None, None, None, None));
+        assert!(typed.starts_with("# Context\n## Client Context"), "{typed}");
+        // An empty note is no section either.
+        assert_eq!(context_md_with(&notes, &[], &[], None, None, None, None, Some("  ")), typed);
     }
 
     fn skill(name: &str) -> Skill {

@@ -128,7 +128,7 @@ pub async fn open(
     Path(agent_id): Path<String>,
     Json(body): Json<OpenProjectRequest>,
 ) -> Response {
-    match service::open(&svc(&state), &user, user.method, &agent_id, body).await {
+    match service::open(&svc(&state), &user, user.method.clone(), &agent_id, body).await {
         Ok(opened) => {
             let status = if opened.created { StatusCode::CREATED } else { StatusCode::OK };
             ok(status, opened.project)

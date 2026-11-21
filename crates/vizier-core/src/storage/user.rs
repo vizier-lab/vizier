@@ -78,6 +78,11 @@ pub struct ApiKey {
     /// before it was kept have none.
     #[serde(default)]
     pub prefix: Option<String>,
+    /// Where this key may go (T109, FR-062). `None` is a key made before scopes existed and behaves
+    /// exactly as it always has. `Some(list)` acts as its owner but reaches only the surfaces the
+    /// list names (`vizier_http::auth::middleware::scoped_key_may_reach`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
 }
 
 /// When a person was last seen, and when they were here before that (spec 024: "Since you were
@@ -153,6 +158,7 @@ pub trait UserStorage {
         key_hash: &str,
         prefix: &str,
         expires_at: Option<Timestamp>,
+        capabilities: Option<Vec<String>>,
     ) -> Result<ApiKey>;
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>>;
     async fn list_api_keys(&self, user_id: &str) -> Result<Vec<ApiKey>>;

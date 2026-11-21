@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    schema::{ReactionEntry, SessionHistory},
+    schema::{ReactionEntry, SessionHistory, VizierAttachment},
     storage::VizierStorage,
 };
 
@@ -64,6 +64,11 @@ pub trait ReactionStorage {
     /// For a WebUI target: the entry, so the caller can check it is an agent `Response` and
     /// recover its session for the broadcast.
     async fn get_history_entry(&self, history_uid: &str) -> Result<Option<SessionHistory>>;
+
+    /// The recording of a reply that was spoken in a live voice call (spec 055). The reply's
+    /// history row is never rewritten: every read turns a `Message` with a recording into an
+    /// `AudioReply`, as a spoken reply reads. Saving again replaces the recording.
+    async fn save_reply_audio(&self, history_uid: &str, audio: &VizierAttachment) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -116,5 +121,9 @@ impl ReactionStorage for VizierStorage {
 
     async fn get_history_entry(&self, history_uid: &str) -> Result<Option<SessionHistory>> {
         self.0.get_history_entry(history_uid).await
+    }
+
+    async fn save_reply_audio(&self, history_uid: &str, audio: &VizierAttachment) -> Result<()> {
+        self.0.save_reply_audio(history_uid, audio).await
     }
 }
