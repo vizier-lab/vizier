@@ -1,10 +1,12 @@
-# 2.17 Desktop Web Access
+# Desktop Web Access
 
-The [desktop app](../getting-started/desktop-app.md) opens no network port by default. **Web access** is an opt-in setting (**Settings → Desktop**) that also serves the WebUI and API from the app, so you can reach your agents from a browser, a phone or another computer.
+> **Desktop app edition only.** The server opens its port and has its own sign-in; see [Channels](../configuration/channels.md#http-rest--websocket--webui).
+
+The [desktop app](./installation.md) opens no network port by default. **Web access** is an opt-in setting (**Settings → Desktop**) that also serves the WebUI and API from the app, so you can reach your agents from a browser, a phone or another computer.
 
 ## Turning it on
 
-1. The owner is created with a password, so there is one to sign in with. (An owner from an older workspace may have none: set one in **Settings → Password**.) The switch refuses to turn on without one, because a browser has to sign in.
+1. The owner is created with a password, so there is one to sign in with. (An owner from an older workspace may have none: set one in **Settings → Profile**.) The switch refuses to turn on without one, because a browser has to sign in.
 2. Turn on **Web access** and choose a port (default 9999).
 3. Open the address shown (`http://127.0.0.1:<port>`) and sign in with the owner's username and password, exactly as on a server.
 
@@ -23,5 +25,5 @@ Allowing the network binds every interface. Traffic is **plain HTTP**: passwords
 
 - The browser always signs in with a password, the same rules as the server edition. The window's automatic sign-in ("desktop identity") is never accepted over the network; a request that claims it is refused.
 - Allowed browser origins (CORS) are limited to the address being served.
-- Your operating system account is the boundary around the workspace: anyone who can run programs as you can read the workspace folder directly, and desktop access is the same as filesystem access. Encryption at rest ([2.14](./encryption.md)) protects secrets in the database from other people with a copy of the file, not from you.
+- Your operating system account is the boundary around the workspace: anyone who can run programs as you can read the workspace folder directly, and desktop access is the same as filesystem access. Encryption at rest ([2.14](../configuration/encryption.md)) protects secrets in the database from other people with a copy of the file, not from you.
 - The signing key for browser sessions lives in `{workspace}/.runtime/web-access.key` and is created on first use.

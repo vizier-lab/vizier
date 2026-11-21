@@ -1,101 +1,38 @@
-# 2.5 Tools & Embedding
+# Voice, Images & Embeddings
 
-Everything on this page is configured **per agent** — in the WebUI agent settings, or through the `tools`, `embedding`, and `indexer` fields of `POST|PUT /api/v1/agents/{id}`. There is no global tool configuration.
+Everything on this page is set **per agent**, in the WebUI under the agent's **Config → Models** tab (or the `tools`, `embedding` and `indexer` fields of `PUT /api/v1/agents/{id}`). There is no global setting. Which tools an agent has is not configured here: tools that need setup (Shell, HTTP, Brave Search, Office, MCP servers) are **addons** added from the agent's integrations pages, and everything else an agent can do needs no configuration.
 
-## Always-on tools
+## What you can set
 
-Every agent gets these regardless of configuration:
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| **Tool timeout** (`tools.timeout`) | `30m` | How long one tool call may run (`30s`, `5m`, …) |
+| **Voice replies** (`tts`) | off | The agent can speak: text becomes an audio file in the conversation |
+| **Voice input** (`stt`) | off | The agent can listen: audio becomes text. Also used for [live voice](./live-voice.md) and voice messages |
+| **Image reading** (`read_image`) | off | A vision model describes images instead of the main model seeing them directly |
+| **Image generation** (`image_gen`) | off | The agent can make images, optionally editing ones you sent |
+| **Embedding model** (`embedding`) | local `all_mini_lml6_v2` | Powers semantic [memory](./memory.md) search and skill suggestions |
 
-| Tool | Description |
-|------|-------------|
-| `think` | Scratchpad for reasoning |
-| `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
-| `current_time`, `convert_time`, `shift_time`, `time_between` | Time — the current time, zone conversion and date arithmetic. The prompt carries no clock, so an agent asks these. See [Time](./time.md) |
-| `consult_agent`, `wait_consultations`, `reply_consultation`, … | Consult another agent the person may use, and get its answer back. See [Consultations](./consultations.md) |
-| `spawn_subagents`, `wait_subagents`, `reply_subagent`, `stop_subagent`, `list_subagents`, `get_subagent` | Subagents — hire temporary workers, wait for them, answer their questions, stop them. Main agent only by default. See [Agents](./agents.md#subagents) |
-| `ask_main_agent` | Offered only to a worker: ask the agent it works for one question; ends the worker's step |
-| `list_detached_scripts`, `get_detached_script`, `cancel_detached_script` | The agent's background work: scripts run with `execute_python` `detached: true`. See [Agents](./agents.md#background-work) |
-| `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
-| `list_session_files`, `read_document_file`, `read_image_file` | Session files — transient uploaded/attached files; text documents and PDFs (txt/md/json/yaml/csv/html/pdf…) are extracted to text; Word and Excel files are read by the [Office addon](./office-addon.md) |
-| `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file`, `send_attachment` | Permanent artifacts — copy a session file in, replace its content, list them, load one back as a session file, or send one with a reply |
-| `attach_artifact_to_memory`, `detach_attachment_from_memory` | Attach or remove one artifact on a memory (memory_write never changes attachments) |
-| `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |
-| `recall_history` | History — read back a tool output pruned from the model's view, see [below](#pruned-tool-outputs) |
-| `webui_send_message`, `webui_list_topics` | Push messages into WebUI topics |
-| `memory_*` (8 tools) | Present whenever `embedding` + `indexer` are set (the API default) — see [Memory](./memory.md) |
-
-### Scratchpad
-
-The `scratchpad` category holds named plain-text files private to one conversation, for working notes, plans and output built up across tool calls:
-
-- `write_tmp(name, content)` creates a file or replaces its content.
-- `append_tmp(name, content)` adds to the end exactly as given (no separator), creating the file if absent.
-- `read_tmp(name)` returns the content, or `not_found` with the names that do exist.
-
-**Lifetime.** A conversation's scratch files last while it has a turn running or queued, so back-to-back messages share them. They are deleted once it goes idle, on `/abort`, when the agent stops with nothing queued, when the conversation or agent is deleted, and on server restart. Use memory for anything that must last.
-
-**Limits.** Names are 1–128 characters of letters, digits, `-`, `_` and `.`. Each file holds up to 1 MiB, and a conversation up to 64 files. A write over a limit is refused and changes nothing; refusals and missing files come back as results with a `status`, never as errors.
-
-Files live in the `scratch_file` SQLite table and are never written to memory, history or usage. The dream cycle gets the three tools too; each dream stage has its own scratchpad.
-
-### Pruned tool outputs
-
-A long conversation keeps every tool output in what the model is sent, round after round. To keep that bounded, old outputs are **pruned from the model's view**: once the outputs it would be sent pass about 60,000 estimated tokens (about four characters a token), the oldest are replaced, down to about 30,000, by one line:
-
-```text
-[output pruned (74.3 KB) - use recall_history("<id>") to recall]
-```
-
-- **Only the model's view changes.** History, the WebUI trail, notifications and usage keep every output whole.
-- **Never pruned:** outputs under 2 KB, failed scripts, the newest round's outputs, an output that ended the turn, images, and the tool calls themselves (so the script that produced an output stays visible).
-- **Rare, and one-way.** A pruned output stays pruned, and pruning happens in large steps, so the prompt the model's provider caches changes only when a prune happens.
-- **Everywhere the turn loop runs:** chats, project chats, channels, consultations, scheduled tasks, side chats and subagent workers. Compaction summarises the pruned view. The dream cycle is not pruned.
-
-`recall_history(id)`, in the `history` category, reads an output back by the id in its placeholder: `{status: "found", id, output}`, with the output exactly as stored (a script report comes back as a dict), or `{status: "not_found", id}` for an id that is not one of this conversation's outputs. It has no size limit yet. A script can recall several outputs, keep only the part it needs and return that. The dream cycle does not get it.
-
-The turn's `invoke_agent` span reports what was pruned: `vizier.prune.outputs` and `vizier.prune.tokens_removed` (see [Observability](./observability.md)).
-
-## Configurable tools (`tools`)
-
-The `tools` object in the agent API:
+Each feature has a switch and its own provider and model. In the API the switch and its settings are separate fields:
 
 ```json
 {
   "tools": {
     "timeout": "30m",
-    "tts": false,
+    "tts": true,
     "tts_settings": { "provider": "openai", "model": "tts-1", "voice": "alloy", "speed": 1.0 },
-    "stt": false,
-    "stt_settings": { "provider": "whisper", "model": "ggml-large-v3", "language": "en" },
-    "read_image": false,
+    "stt": true,
+    "stt_settings": { "provider": "whisper", "language": "en" },
+    "read_image": true,
     "read_image_settings": { "provider": "openai", "model": "gpt-4o-mini" },
-    "image_gen": false,
-    "image_gen_settings": { "provider": "openai", "model": "dall-e-3", "size": "1024x1024" }
+    "image_gen": false
   }
 }
 ```
 
-Shell, HTTP, Brave Search, Office and MCP servers are **addons**: they are attached to an agent with `POST /api/v1/agents/{id}/integrations`, not listed under `tools`.
+Cloud providers use the credentials you saved under **Settings → Providers** (or the provider's environment variable); there is no separate key per feature.
 
-| Field | Type | Default | Tools it enables | Notes |
-|-------|------|---------|------------------|-------|
-| `timeout` | duration | `30m` | – | Per tool-call timeout (`"30s"`, `"5m"`, …) |
-| `shell` | – | – | `shell_exec` | **An addon now** (the addons redesign). Install **Shell** with `path` and optional `env`, then `shell_exec` is contributed under the `shell` category. Docker is not offered yet. |
-| `brave_search` + `brave_search_settings` | bool + `{api_key, safesearch}` | `false` | `brave_search_web`, `brave_search_news` | An addon: install **Brave Search** from the agent’s Addons page. |
-| `fetch` | – | – | `fetch` | **Part of the HTTP addon** (the addons redesign): install **HTTP**, which adds `fetch` and `http_client` together. |
-| `http_client` | – | – | `http_client` | **Part of the HTTP addon**: arbitrary requests (GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS) with custom headers. With `save_as_session_file: true` a 2xx response body is saved byte for byte as a file of the conversation (up to 100 MiB) and returned as `session_file {filename, mime_type, size}` with an empty `body`; `filename` names it, otherwise the server's `Content-Disposition` name or the URL's last path segment is used. A same-named session file is replaced; a non-2xx response is returned as text. |
-| `discord` | bool | `false` | `discord_*` | Requires `discord_token` on the agent |
-| `telegram` | bool | `false` | `telegram_*` | Requires `telegram_token` |
-| `mcp_servers` | map | `{}` | `mcp_<server>__<tool>` | See [MCP Servers](./mcp.md) |
-| `tts` + `tts_settings` | bool + settings | `false` | `tts_generate` | Text → speech file in session files |
-| `stt` + `stt_settings` | bool + settings | `false` | `stt_transcribe` | Audio file → text; also used to auto-transcribe `audio_chat` requests |
-| `read_image` + `read_image_settings` | bool + settings | `false` | (changes `read_image_file`) | When enabled with a vision `provider` + `model`, `read_image_file` returns a text description instead of injecting the raw image |
-| `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files; optionally conditions on session images for image-to-image |
-| `python` | `{enabled, code_mode}` | both `false` | `execute_python` (+ `list_tool_functions`, `describe_tool_function` in code mode) | See [Python sandbox & code mode](#python-sandbox--code-mode). `code_mode: true` without `enabled: true` is rejected with 400 |
-
-In the WebUI the boolean and its `_settings` are one form section; in the API they're separate fields (`brave_search: true` + `brave_search_settings: {...}`).
-
-### TTS providers (`tts_settings.provider`)
+## TTS providers (`tts_settings.provider`)
 
 | Provider | Default model | Default voice | Credential |
 |----------|---------------|---------------|------------|
@@ -108,7 +45,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 `model`, `voice`, `speed` are optional overrides. OpenRouter returns MP3, which Vizier converts to WAV; a non-default `speed` is passed through, so a speech model without speed control may reject it (the provider's explanation is surfaced and the agent stays available). OpenRouter's default pair is `hexgrad/kokoro-82m` with its published voice `af_alloy`; if you pick a different speech model, choose one of the voices **it** publishes.
 
-### STT providers (`stt_settings.provider`)
+## STT providers (`stt_settings.provider`)
 
 | Provider | Default model | Credential |
 |----------|---------------|------------|
@@ -123,7 +60,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 `language` is optional (auto-detect when unset). OpenRouter caps multipart uploads at 25 MB; an oversized clip comes back as the provider's error.
 
-### Image generation providers (`image_gen_settings.provider`)
+## Image generation providers (`image_gen_settings.provider`)
 
 | Provider | Default model | Credential |
 |----------|---------------|------------|
@@ -148,13 +85,14 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 A reference whose stored media type is not `image/*` is refused before any provider call.
 
-### Choosing OpenRouter media models
+## Choosing OpenRouter media models
 
 When a capability's provider is `openrouter`, the WebUI model field is a searchable list of that capability's current models, with the documented default marked first. The list comes from the embedded seed on a fresh or offline install and is refreshed lazily from OpenRouter's public lists when a person opens it (never at startup, on agent build, or during a turn; the same `catalogue.refresh` / `catalogue.ttl` policy as chat models applies, with a manual refresh for people who manage providers). A typed model id is always accepted, so a missing or unreachable list never blocks saving. For text-to-speech, the voice field offers the selected model's published voices and still accepts a typed voice.
 
-### `read_image_settings`
+## `read_image_settings`
 
 `provider` is any chat [provider variant](./providers.md) with a vision-capable `model`. If `read_image` is enabled but provider/model are missing, the tool falls back to raw-image injection with a warning.
+
 
 ## Embedding (`embedding`)
 
@@ -244,19 +182,3 @@ The tool asks for one image per call. A blocked prompt or a response with no ima
 |--------|-------------|
 | `sqlite` (default, only option) | Vector index in the workspace SQLite database via `sqlite-vec` |
 
-## Python sandbox & code mode
-
-Two per-agent switches under `tools.python`, both off by default:
-
-- **`enabled`: the sandbox.** Adds `execute_python`, which runs a Python script in an in-process [monty](https://github.com/pydantic/monty) interpreter. There is no filesystem, network, environment or OS access, and nothing to install. Each run is stateless. The value of the script's last expression comes back as `result`, and `print()` output comes back as `stdout`. The agent's other tools are still called directly as usual.
-- **`code_mode`: programmatic tool calling** (requires `enabled`). The agent's tools become plain functions inside scripts (`hits = memory_read(query="…")`) and are hidden from the model's direct tool list. The model then sees only `think`, `execute_python`, `list_tool_functions` and `describe_tool_function`. Nested calls go through the same dispatch, hooks and per-tool timeout as direct calls, so code mode adds no capability. Only the script's final `result`/`stdout` enters the model's context.
-
-Every run returns an execution report: `{ ok, result, stdout, error: {kind, message, traceback, limit}, tool_calls: [...], duration_ms }`. The report is stored as the `execute_python` tool result in session history and streamed live to the WebUI.
-
-**Limits.** The agent's `tools.timeout` is the only bound. It covers the whole script, including every tool call it makes. Other fixed limits: recursion depth 1000, script size 64 KiB, any single allocation over 1 GiB rejected, and `print()` output up to 10 MiB. Deliberately **not** in this version: a cumulative memory ceiling (memory is released when each run ends, and a run's peak is bounded only by the timeout), a cap on tool calls per script, and output truncation.
-
-The sandbox tools are never part of the dream cycle's toolset.
-
-## Dream-cycle tool subset
-
-During a [dream cycle](./agents.md#dream-cycle) the agent runs with a restricted toolset: the 8 `memory_*` tools (which is also how it updates its Core at `core/soul`), the 4 scheduler tools, `create_skill`/`update_skill`/`list_skills`/`get_skill_details`/`use_skill`, `write_tmp`/`append_tmp`/`read_tmp`, plus `read_dream_journal`/`write_dream_journal`.

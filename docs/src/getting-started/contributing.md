@@ -63,7 +63,7 @@ The Rust code is a Cargo workspace of four crates under `crates/`. A bare `cargo
 | `vizier-derive` | Derive macros | A new derive |
 | `vizier-core` | The agent engine as a library: agents, tools, memory, storage, providers, scheduler, `VizierRuntime`. It has no web framework, command-line or terminal-UI dependency | A new tool, provider, storage backend, integration kind or channel reader |
 | `vizier-http` | The REST/WebSocket server, authentication, OpenAPI and the embedded WebUI | A new route or payload |
-| `vizier-fleet` | The Fleet roles (`gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`): one piece of the server that can run on its own node. A skeleton until [#162](https://github.com/vizier-lab/vizier/issues/162) lands the bus traits | Role logic: leader election, placement, leases, role wiring |
+| `vizier-fleet` | The Fleet roles (`gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`): one piece of the server that can run on its own node. Experimental: the roles are skeletons built on the bus contract in `vizier-schema` and do not run on their own yet. See [Fleet](../fleet/bus-contract.md) | Role logic: leader election, placement, leases, role wiring |
 | `vizier` | The command-line binary: `run`, `shutdown`, `onboard`, `skill`, `agent`, config-file resolution, logging | A new CLI flag or subcommand |
 
 Dependencies point one way: `vizier` → `vizier-http`, `vizier-fleet` → `vizier-core` → `vizier-derive`. The
@@ -80,8 +80,7 @@ only because `vizier-http` and `vizier` need them, and are not part of the API. 
 without the server, run `cargo run -p vizier-core --example headless -- --workspace /tmp/ws` with
 the `dummyplug` test model running (`cd dummyplug && npm start`).
 
-The desktop app planned in [#102](https://github.com/vizier-lab/vizier/issues/102) will be
-distributed through GitHub Releases only; it is not a crate on crates.io.
+The desktop app (`app/`, its own Cargo workspace) is distributed through GitHub Releases only; it is not a crate on crates.io. See [Install the Desktop App](../app/installation.md).
 
 For quick iteration, run matching tests in one crate with
 `just test-focus vizier-http dummyplug_provider_tests`. Run the full checks below before a PR.
@@ -96,7 +95,7 @@ cargo test -p vizier-core --no-default-features   # the engine alone
 
 ## Working on the website
 
-Docs are authored in `docs/src/`, next to the code. The website syncs them at
+Docs are authored in `docs/src/`, next to the code. `SUMMARY.md` is the sidebar: pages for the server edition, the desktop app edition and the experimental features sit in their own groups, and a page that applies to one edition says so in a note at its top. Screenshots are PNGs in `docs/src/images/`, referenced as `![alt](../images/name.png)`; take them from the WebUI in its dark theme at about 1360×840. The website syncs all of it at
 build time; `just landing` starts it on http://localhost:4321. Blog posts live
 in `landing/src/content/blog/`. The site is deployed to www.vizier.rs from the
 [`landing`](https://github.com/vizier-lab/landing) repository, and a vizier
@@ -115,6 +114,39 @@ cd webui && npm run dev     # the WebUI on http://localhost:5173, proxying /api 
 ```
 
 A change that needs a new or changed component is made in `design/` first. Commit it there, then commit the screen in `webui/`, then commit vizier with both submodule pins bumped.
+
+## Testing without a model: dummyplug
+
+`dummyplug` is a local Node.js OpenAI-compatible chat server for exercising agents, channels, sessions and tools without a live model. Start it with `just dummyplug` (requires Node.js 22), then set an agent's provider to `dummyplug` (shown as **dummyplug (testing)**) and any model name. Its default URL is `http://127.0.0.1:9998/v1`; override it with `DUMMYPLUG_URL` or save a `base_url` through Settings → Providers. It is optional: Vizier and other providers work when the server is stopped, while dummyplug turns report a connection error.
+
+The separate server reads the latest user message and replies by these rules, first match wins:
+
+| Send | Reply |
+|------|-------|
+| `tools` (any case) | A list of every tool available to the agent, including MCP tools (named `<server>_<tool>`) |
+| An exact tool name, e.g. `memory_write` | The tool's description, its required/optional arguments, and a sample request in a `json` code block |
+| `{"tool": "<name>", "arguments": { ... }}` (optionally fenced) | Runs the tool through the normal tool path (hooks, history, UI), then replies with a **Tool result** (`<name>`) block holding its output. Malformed JSON or an unknown tool gets an error reply and runs nothing. |
+| Anything else | 1–3 paragraphs of random lorem ipsum |
+
+Example:
+
+````text
+> memory_read
+**`memory_read`** — read one whole memory by `(bundle, path)`
+
+```json
+{
+  "tool": "memory_read",
+  "arguments": { "bundle": "core", "path": "soul" }
+}
+```
+
+> {"tool": "memory_read", "arguments": {"bundle": "core", "path": "soul"}}
+**Tool result** (`memory_read`):
+"# Core\n\n## Operating Framework ..."
+````
+
+Scheduled tasks, dream cycles and other non-interactive prompts fall into the last rule, so they complete normally. Token usage is always reported as zero.
 
 ## Test fixtures
 

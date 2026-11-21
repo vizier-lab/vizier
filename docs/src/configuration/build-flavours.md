@@ -1,5 +1,7 @@
 # Build Flavours
 
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
+
 Vizier ships one opinionated default build: the release binaries, the Docker image and the desktop
 app turn every optional piece on. If you build from source you can leave pieces out and get a
 smaller, faster-to-compile binary. Every optional piece is a Cargo feature of `vizier-core`; a flag

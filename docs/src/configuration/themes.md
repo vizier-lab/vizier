@@ -1,8 +1,10 @@
-# 2.20 Color Themes
+# Color Themes
 
 **Settings › Appearance** chooses how the WebUI and the desktop app look on this device. Pick one of the themes Vizier ships with, or make your own. A theme changes colors only: not fonts, spacing or layout.
 
 Themes live in the browser (or, in the desktop app, its webview). Nothing is sent to the server, so they do not follow you to another browser or device, and clearing site data removes the ones you made. Export the ones you would miss.
+
+![Settings → Appearance](../images/appearance.png)
 
 ## Choosing a theme
 

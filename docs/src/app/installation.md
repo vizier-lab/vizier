@@ -1,6 +1,8 @@
-# 1.4 Desktop App
+# Install the Desktop App
 
-Vizier also ships as a desktop app. It runs the same engine as the server inside the app, shows the same WebUI in a window, and opens **no network port** unless you turn on [web access](../configuration/desktop-web-access.md).
+> **Desktop app edition.** Using the server instead? See [Install the Server](../server/installation.md).
+
+Vizier also ships as a desktop app. It runs the same engine as the server inside the app, shows the same WebUI in a window, and opens **no network port** unless you turn on [web access](./web-access.md).
 
 ## Download
 
@@ -13,7 +15,7 @@ Every [GitHub release](https://github.com/vizier-lab/vizier/releases/latest) car
 | Linux arm64 | `Vizier_<version>_aarch64.AppImage` |
 | Windows 10/11 x64 | `Vizier_<version>_x64-setup.exe` |
 
-**Windows.** Run the installer. It installs for your user without asking for administrator rights, adds a Start menu entry, and installs the WebView2 runtime if your PC lacks it (Windows 11 has it). The installer is not code-signed yet, so SmartScreen may warn: choose **More info**, then **Run anyway**. Windows on ARM runs the x64 build under emulation. Uninstalling removes the app but keeps your workspace. To build it yourself, see [Building from Source](contributing.md#developing-the-desktop-app-on-windows).
+**Windows.** Run the installer. It installs for your user without asking for administrator rights, adds a Start menu entry, and installs the WebView2 runtime if your PC lacks it (Windows 11 has it). The installer is not code-signed yet, so SmartScreen may warn: choose **More info**, then **Run anyway**. Windows on ARM runs the x64 build under emulation. Uninstalling removes the app but keeps your workspace. To build it yourself, see [Building from Source](../getting-started/contributing.md#developing-the-desktop-app-on-windows).
 
 **macOS.** The build is not signed or notarized yet. Open the `.dmg`, drag Vizier to Applications and open it once. macOS will refuse; open **System Settings → Privacy & Security** and choose **Open Anyway** next to the Vizier message. This is only needed the first time.
 
@@ -28,7 +30,7 @@ The AppImage needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and l
 
 ## First run
 
-The first time you open the app it asks for a name and a password for the local owner (at least 8 characters). There is no login screen in the app afterwards: opening it is signing in as that owner. The password is for opening Vizier from a browser, if you turn web access on. If you forget it, change it in **Settings → Password** inside the app: the window is the owner of the workspace, so it does not ask for the old one. (A browser signed in over web access does.) The owner has the built-in system role, so everything the server's first user can do, you can do.
+The first time you open the app it asks for a name and a password for the local owner (at least 8 characters). There is no login screen in the app afterwards: opening it is signing in as that owner. The password is for opening Vizier from a browser, if you turn web access on. If you forget it, change it in **Settings → Profile** inside the app: the window is the owner of the workspace, so it does not ask for the old one. (A browser signed in over web access does.) The owner has the built-in system role, so everything the server's first user can do, you can do.
 
 ## Where your data lives
 

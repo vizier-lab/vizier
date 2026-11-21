@@ -1,4 +1,4 @@
-# 2.10 Skills
+# Skills
 
 A skill is a reusable instruction package an agent can load on demand: a folder with a `SKILL.md` (YAML frontmatter + markdown body) and optional **resources** (templates, references, scripts). Skills live on disk, are indexed by the agent's embedding model, and are surfaced to the agent as recommendations.
 
@@ -37,7 +37,7 @@ version: 1
 | `author` | string | yes | — | Who wrote it |
 | `description` | string | yes | — | One-liner. Used for recommendation and shown in listings |
 | `keywords` | array | no | `[]` | Extra terms folded into the embedding text |
-| `version` | number | no | `1` | Bumped by `update_skill`; compared by `vizier skill update` |
+| `version` | number | no | `1` | Bumped when a skill is updated; compared by `vizier skill update` |
 
 > The `activation` field from earlier versions (`always` / `on_demand` / `contextual`) is **no longer used** and is ignored if present. All skills are on-demand; see [Recommendation](#recommendation) below for how the agent finds them.
 
@@ -57,10 +57,10 @@ When both scopes have the same slug, the agent-scoped skill wins.
 There is no keyword matching or auto-injection. Instead:
 
 1. Whenever a skill is created, updated, deleted, or the agent boots, its `name + description + keywords` is embedded with the agent's embedding model and stored in the vector index (`skills` context). The body is **not** embedded — write descriptions and keywords that match how users will phrase requests.
-2. On every user message, the message is embedded and the top skills above a similarity threshold (≤5, cosine ≥ 0.4) are listed in a `## Possibly Related Skills` section of the message's `# Context` block with their slug and description.
-3. The agent decides whether to call `use_skill` (from an `execute_python` script) to load the full instructions. Its BOOT.md also tells it to check for a skill before multi-step or repeated work.
+2. On every user message, the message is embedded and the top skills above a similarity threshold (≤5, cosine ≥ 0.4) are listed as "possibly related skills" next to your message, with their slug and description.
+3. The agent decides whether to load the full instructions. Its built-in instructions also tell it to check for a skill before multi-step or repeated work.
 
-Agents without an embedding/indexer get no recommendations but can still `list_skills`.
+Agents without an embedding/indexer get no recommendations but can still list skills.
 
 ## Invoking a skill
 
@@ -75,7 +75,7 @@ A person can run a skill by name instead of waiting for the agent to pick it. Th
 
 Names match case-insensitively, and `_` and `-` count as the same (`/release_notes` runs `release-notes`). An agent skill wins over a global one with the same name. Built-in commands (`/abort`, `/checkpoint`, `/new`, …) always win; reach a skill with such a name through `/skill <name>`. `skill` and `skills` cannot be skill names for invocation. Text that only starts with a slash, such as `/etc/hosts`, stays ordinary chat.
 
-The agent receives the skill's full instructions (and its resource list) in an `## Invoked Skill` section of the message's `# Context` block, and the input as the message itself. History keeps what the person typed, with `invoked_skill` in the request metadata. `/skills` and the not-found reply are answered directly: no model call, no usage recorded. Installing or removing a skill takes effect on the next message, with no restart.
+The agent receives the skill's full instructions and its resource list, and the input as the message itself. History keeps what the person typed, with `invoked_skill` in the request metadata. `/skills` and the not-found reply are answered directly: no model call, no usage recorded. Installing or removing a skill takes effect on the next message, with no restart.
 
 **WebUI.** Typing `/` in the composer suggests the built-in commands and every skill the agent can run (from `GET /api/v1/agents/{agent_id}/skills/available`). Picking a skill puts `/<name> ` in the composer for you to add input.
 
@@ -83,20 +83,9 @@ The agent receives the skill's full instructions (and its resource list) in an `
 
 **Telegram.** The bot's command menu lists the built-ins, `/skill`, `/skills` and the skills, with `-` shown as `_` (Telegram allows only `a-z`, `0-9` and `_`), re-checked every 60 seconds. In a group, `/<skill> …` or `/skill <skill> …` runs without a mention when it names one of the agent's skills; `/skills` and unknown names need the bot addressed (`/skills@mybot` or a mention), so several bots in one group do not all answer. The bot only sees group messages that are not addressed to it when its privacy mode is off (BotFather → `/setprivacy`).
 
-## Agent tools
+## What agents can do with skills
 
-| Tool | Description |
-|------|-------------|
-| `list_skills` | Names + descriptions of global and agent skills (optionally filtered by keyword) |
-| `get_skill_details` | Full metadata + resource list |
-| `use_skill` | Load a skill's full content into context |
-| `read_skill_resource` | Read a resource file (`slug`, `path`) |
-| `execute_skill_resource` | Run a script resource (`slug`, `path`, `args`). Interpreter is chosen by extension — `.sh`→`sh`, `.py`→`python`, `.js`→`node`, `.rb`→`ruby`, `.pl`→`perl`, anything else executed directly. **Runs on the host as the Vizier process**, not inside the agent's Docker shell. |
-| `create_skill` | Write a new skill into the agent's private scope |
-| `update_skill` | Update content / description / keywords / resource files |
-| `delete_skill` | Delete a skill and its resources |
-
-`create_skill`, `update_skill`, `list_skills`, `get_skill_details`, and `use_skill` are also available during the [dream cycle](./agents.md#dream-cycle).
+An agent can list the skills it can use, read one's details and resource files, load its full instructions into the conversation, and run a script resource (**on the host as the Vizier process**, picked by file extension: `.sh`, `.py`, `.js`, `.rb`, `.pl`, anything else directly). It can also create, update and delete skills in its own private scope, and its [dream cycle](./agents.md#dream-cycle) can create and update them, which is how a repeated workflow becomes a skill.
 
 ## Managing skills
 
@@ -158,6 +147,9 @@ Install `skill-maker` and ask your agent to use it — it contains the house sty
 
 ## Project skills
 
+> [!WARNING]
+> Project skills belong to [Projects](./projects.md), which are **experimental**.
+
 A third scope lives in the **project folder** itself, in the layout the Agent Skills ecosystem already writes, so a repository that carries skills for other coding agents works here unchanged:
 
 | Root (inside the project) | Read when |
@@ -165,12 +157,12 @@ A third scope lives in the **project folder** itself, in the layout the Agent Sk
 | `.agents/skills/<slug>/SKILL.md` | first |
 | `.claude/skills/<slug>/SKILL.md` | second, for a slug `.agents` does not have |
 
-A project skill is available in a [project chat](projects.md) and in a worker hired from one, and nowhere else: an ordinary conversation, a task, a dream and another project's chat all resolve no project scope.
+A project skill is available in a [project chat](./projects.md) and in a worker hired from one, and nowhere else: an ordinary conversation, a task, a dream and another project's chat all resolve no project scope.
 
-- **Precedence**: project → agent → global, and `.agents` before `.claude` inside a project. A slug appears once, so a skill installed in both folders (`this repository` has all 15 in both) is one line in `/skills`, not two.
+- **Precedence**: project → agent → global, and `.agents` before `.claude` inside a project. A slug appears once, so a skill installed in both folders (a repository that keeps the same skills in both folders) is one line in `/skills`, not two.
 - **Read where it lies, never indexed.** Project skills are not embedded and never recommended by similarity: they are listed in the project chat's system prompt (`## Project Skills`) and read from disk each time one is loaded, so a branch switch shows up on the next turn and one project's skills can never surface in another.
-- **Never written by a tool.** `create_skill`, `update_skill` and `delete_skill` stay in the workspace; an agent cannot edit a repository through a skill tool.
-- **Scripts run through the shell.** `execute_skill_resource` is refused in a project chat; run a skill's scripts with `workspace_shell`, which stays inside the project folder, needs Build mode, and is timed and capped.
+- **Never written by a tool.** An agent's skill-writing tools stay in the workspace; it cannot edit a repository through a skill.
+- **Scripts run through the shell.** Running a skill's own scripts is refused in a project chat; run them with the workspace shell, which stays inside the project folder, needs Build mode, and is timed and capped.
 - **In the composer.** Typing `/` in a project chat offers the project's skills alongside the workspace ones (the project copy wins a slug), read from the chat's own folder — its worktree when it is bound to one, so the menu follows the branch. A skill with `user-invocable: false` is left out of the menu (it cannot be run by name) but is still in the prompt. They are never on the **Skills** page, which stays workspace-scoped.
 
 ### Frontmatter

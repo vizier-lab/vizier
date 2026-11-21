@@ -1,5 +1,8 @@
 # Fleet Bus Contract
 
+> [!WARNING]
+> **Experimental, in progress.** Fleet (running Vizier as several cooperating processes) is not finished and is **not supported for production use**. Today the server runs every role in one process on an in-process bus, which behaves exactly as before; the networked roles are still being built. These pages describe the design contract for people building on it, and they may change. Kubernetes deployments must run exactly one replica.
+
 The Fleet roles (HTTP gateway, gRPC gateway, workers, channel readers, control) talk to each other
 over a **bus**. The contract lives in the `vizier-schema` crate, which depends on no other
 workspace crate: the engine and the roles depend on it, never the other way round. This page is the

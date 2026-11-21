@@ -1,5 +1,7 @@
 # Kubernetes
 
+> **Server edition.** Kubernetes runs the server. Exactly one replica is supported: Fleet (several cooperating processes) is [experimental](../fleet/bus-contract.md).
+
 Vizier publishes a Helm 3 chart for a single server instance. The chart supports the self-contained embedded profile and an opt-in managed PostgreSQL/S3 profile. It does not install PostgreSQL, object storage, ingress, certificate, secret-sync, or observability systems.
 
 ## Support boundary

@@ -1,4 +1,4 @@
-# 3.2 Examples
+# Examples
 
 All examples assume Vizier on `http://localhost:9999`. Replace `assistant` with your agent id.
 
@@ -21,7 +21,7 @@ curl -s -X PUT localhost:9999/api/v1/providers/openai \
 # Create an agent
 curl -s localhost:9999/api/v1/agents \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"agent_id":"assistant","name":"Assistant","provider":"openai","model":"gpt-4.1-mini","tools":{"fetch":true}}'
+  -d '{"agent_id":"assistant","name":"Assistant","provider":"openai","model":"gpt-4.1-mini"}'
 
 # Synchronous chat
 curl -s localhost:9999/api/v1/agents/assistant/chat \

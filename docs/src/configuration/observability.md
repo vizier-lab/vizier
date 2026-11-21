@@ -1,4 +1,6 @@
-# 2.12 Observability
+# Observability
+
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
 
 Vizier can export **traces** and **metrics** over OpenTelemetry (OTLP). The spans follow the [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai), so any backend that understands them (Jaeger, Grafana Tempo, Honeycomb, Langfuse, …) shows model calls, tool calls and agent turns without extra setup.
 
@@ -43,7 +45,7 @@ invoke_agent otel                         ← the turn
 
 A worker's turn carries `vizier.subagent.id` and `vizier.subagent.position`. Its turn after a reply (`reply_subagent`) continues the replying call's trace.
 
-A consultation (spec 064) runs inside the asking agent's trace: its `invoke_agent` span is a child of the `execute_tool consult_agent` call that started it.
+A consultation runs inside the asking agent's trace: its `invoke_agent` span is a child of the `execute_tool consult_agent` call that started it.
 
 A message from a person (WebUI, Discord, Telegram), a scheduled task run and a dream cycle each start a **new trace**. To see a whole conversation, filter on its `gen_ai.conversation.id` (below).
 
@@ -68,7 +70,7 @@ A message from a person (WebUI, Discord, Telegram), a scheduled task run and a d
 | `vizier.background_depth` | how many background hops led to this turn (0 for a person's message) |
 | `vizier.queue.wait_ms` | time spent queued before the turn started: behind a running turn, or while the agent restarted |
 | `vizier.dream` | `true` for a dream-cycle turn |
-| `vizier.prune.outputs` | tool outputs replaced by a pruning placeholder in the turn's last request (see [Pruned tool outputs](./tools-embedding.md#pruned-tool-outputs)) |
+| `vizier.prune.outputs` | tool outputs replaced by a pruning placeholder in the turn's last request (see Pruned tool outputs) |
 | `vizier.prune.tokens_removed` | the estimated tokens that pruning removed from that request |
 
 ### `chat {model}`: one request to a provider

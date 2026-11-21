@@ -2,7 +2,7 @@
 
 A WebSocket client can give the agent tools of its own: drawing something on the person's screen, asking them to pick a file, reading the browser's location. The client declares each tool on the request it sends; the agent can call it from its scripts during that turn; the call comes back over the same socket, and the client answers it. vizier only checks the declarations' shape, names them, and carries calls and answers.
 
-This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI declares no client tools of its own: its generated pages are the built-in tool `ui_render` (see [Generative UI](./generative-ui.md)). An extension registers its tools with `registerClientTool` in `webui/app/lib/clientTools.ts`. A declaration in category `ui` named `components` or `render` (the WebUI's tools before spec 063) is dropped with a warning instead of being offered.
+This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI declares no client tools of its own: its generated pages are the built-in tool `ui_render` (see [Generative UI](./generative-ui.md)). An extension registers its tools with `registerClientTool` in `webui/app/lib/clientTools.ts`. A declaration in category `ui` named `components` or `render` is dropped with a warning instead of being offered.
 
 ```
 ws://<host>/api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat?token=<jwt>
@@ -311,7 +311,7 @@ A refused answer is a `client_error` to the sending socket only, and starts no t
 | `sensitive_value_empty` | The value is empty or only whitespace; the dialog stays open. |
 | `sensitive_value_too_large` | The value is over `max_bytes`. |
 
-Frames that are not part of the client tools protocol (for example `session_file`, sent when a file is added to the conversation) are listed in the [REST API](rest-api.md#server--client-a-file-was-added-session_file); a client ignores them like any other unknown frame.
+Frames that are not part of the client tools protocol (for example `session_file`, sent when a file is added to the conversation) are listed in the [REST API](./rest-api.md#server--client-a-file-was-added-session_file); a client ignores them like any other unknown frame.
 
 ### `client_error` codes
 

@@ -38,7 +38,7 @@ Open `http://localhost:9999`, create the first user, add a provider key under **
 
 ### Desktop app
 
-Prefer a window to a server? Download the desktop app from the [latest release](https://github.com/vizier-lab/vizier/releases/latest): a universal `.dmg` for macOS (11+, Apple Silicon and Intel; unsigned for now, see the [guide](docs/src/getting-started/desktop-app.md) for the **Open Anyway** step) an `.AppImage` for Linux x86_64 and arm64, or a `-setup.exe` installer for Windows 10/11 x64 (unsigned for now, so SmartScreen may ask you to choose **Run anyway**). It runs the same engine in the app, signs you in automatically, opens no port by default, and updates itself.
+Prefer a window to a server? Download the desktop app from the [latest release](https://github.com/vizier-lab/vizier/releases/latest): a universal `.dmg` for macOS (11+, Apple Silicon and Intel; unsigned for now, see the [guide](docs/src/app/installation.md) for the **Open Anyway** step) an `.AppImage` for Linux x86_64 and arm64, or a `-setup.exe` installer for Windows 10/11 x64 (unsigned for now, so SmartScreen may ask you to choose **Run anyway**). It runs the same engine in the app, signs you in automatically, opens no port by default, and updates itself.
 
 ### Docker
 
@@ -79,7 +79,7 @@ helm install vizier oci://ghcr.io/vizier-lab/charts/vizier \
 ```
 
 Create the referenced Secret first. See the
-[Kubernetes deployment guide](docs/src/deployment/kubernetes.md) for managed
+[Kubernetes deployment guide](docs/src/server/kubernetes.md) for managed
 storage, ingress/WebSockets, upgrades, backups, and removal.
 
 

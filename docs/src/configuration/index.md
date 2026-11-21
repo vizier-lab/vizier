@@ -1,70 +1,47 @@
-# 2.1 Overview
+# Configuration Overview
 
-Vizier keeps file-based configuration deliberately small. The YAML seed file covers only process-level settings; everything about agents, users, and providers is managed at runtime through the WebUI or HTTP API and persisted in the embedded SQLite database.
+Vizier keeps file-based configuration deliberately small. Almost everything (providers, users, agents, tools, channels) is set at runtime in the **WebUI** (or the HTTP API) and stored in the workspace's database. What is left is process-level settings, which differ by edition.
 
-## Configuration Model
+| | Server edition | Desktop app edition |
+|---|---|---|
+| Process settings | `.vizier.yaml` (optional), CLI flags, environment variables | **Settings → Desktop** in the app |
+| Everything else | The WebUI / HTTP API | The WebUI |
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  .vizier.yaml (optional, read once at startup)               │
-│                                                              │
-│    catalogue      (models.dev refresh on/off, ttl)           │
-│    storage        (always sqlite)                            │
-│    channels.http  (port, jwt_secret, jwt_expiry, ws timeout) │
-│    worker_threads                                            │
-├──────────────────────────────────────────────────────────────┤
-│  CLI flags / env vars (override the file)                    │
-│    --port  --data-dir  --storage  --workers  --ws-idle-timeout│
-├──────────────────────────────────────────────────────────────┤
-│  Runtime (WebUI / HTTP API, stored in SQLite)                │
-│    providers, users, roles, api keys                         │
-│    agents: model, tools, shell, MCP servers, embedding,      │
-│            discord/telegram tokens, dream schedule, sharing  │
-│    agent Core memory, memory bundles, tasks, skills          │
-└──────────────────────────────────────────────────────────────┘
-```
+The pages in this section marked **Server edition** (Main Configuration, CLI, Storage & Shell, Observability, Build Flavours, Kubernetes) do not apply to the app. Pages without a mark apply to both.
 
-## What lives in `.vizier.yaml`
-
-| Key | Purpose | Lifecycle |
-|-----|---------|-----------|
-| `catalogue` | `refresh`, `ttl`, `url` for the models.dev catalogue | Read every start |
-| `storage` | `type: sqlite` | Read every start |
-| `channels.http` | `port`, `jwt_secret`, `jwt_expiry_hours`, `ws_idle_timeout_secs` | Read every start |
-| `worker_threads` | Tokio worker threads | Read every start |
-
-Full reference: [Main Configuration](./main-config.md).
-
-> **Legacy keys** such as `embedding`, `shell`, `tools`, `channels.discord`, and `channels.telegram` are no longer part of the schema. They are silently ignored if present. Embedding, shell, MCP, Brave Search, and channel tokens are now configured **per agent**.
-
-## What's runtime-only
+## Where each setting lives
 
 | Setting | Where |
 |---------|-------|
-| Agents (everything) | WebUI **Agents** / `POST|PUT /api/v1/agents` — see [Agents](./agents.md) |
-| Agent Core | WebUI agent **Memory** → `core` → `soul` / `/api/v1/agents/{id}/memory/doc/core/soul` (the `…/core` route is deprecated) |
-| Agent memory bundles | WebUI agent **Memory** page / `/api/v1/agents/{id}/memory/*` — see [Memory](./memory.md) |
-| Per-agent shell, MCP servers, Brave key, TTS/STT/image tools | Agent settings `tools` — see [Tools & Embedding](./tools-embedding.md) |
-| Per-agent embedding model & indexer | Agent settings — see [Tools & Embedding](./tools-embedding.md) |
-| Discord / Telegram bot tokens | Agent settings `discord_token` / `telegram_token` — see [Channels](./channels.md) |
-| Providers | WebUI **Settings → Providers** / `/api/v1/providers` |
-| Users, roles, permissions, API keys, password | WebUI **Settings** / `/api/v1/auth/*` |
-| Skills | WebUI agent **Skills** page, `/api/v1/skills`, or `vizier skill` CLI — see [Skills](./skills.md) |
+| Port, JWT secret, worker threads, catalogue refresh *(server)* | `.vizier.yaml`, flags, env. See [Main Configuration](./main-config.md) and [CLI](./cli.md) |
+| Database and file storage *(server)* | `.vizier.yaml`, env. See [Storage & Shell](./storage-shell.md) |
+| Providers and API keys | **Settings → Providers**, or the provider's environment variable. See [Providers](./providers.md) |
+| Users, roles, API keys *(server; web access in the app)* | **Settings → Users / Roles / API keys** |
+| Color theme | **Settings → Appearance**. See [Color Themes](./themes.md) |
+| Everything about an agent (model, prompt, sharing, dreams, voice, embedding) | The agent's **Config** page. See [Agents](./agents.md) and [Voice, Images & Embeddings](./tools-embedding.md) |
+| Shell, HTTP, Brave Search, Office | The agent's **Addons** (agent menu → Connections) page ([Agents](./agents.md#addons), [Storage & Shell](./storage-shell.md#shell)) |
+| MCP servers | **MCP** (agent menu → Connections). See [MCP Servers](./mcp.md) |
+| Discord and Telegram bots | **Channels** (agent menu → Connections). See [Channels](./channels.md) |
+| Memory and Core | The agent's **Memory** page. See [Memory](./memory.md) |
+| Skills and Functions | The agent's **Skills** and **Functions** pages. See [Skills](./skills.md) and [Functions](./custom-tools.md) |
+| Secrets | The agent's **Secrets** page. See [Agent Secrets](./secrets.md) |
 
-## Config-less mode
+![Settings → Providers](../images/providers.png)
 
-`vizier run` works with no config file at all. Resolution order:
+Seed settings are read once at startup. An agent is **never** defined in YAML; create it in the WebUI.
+
+## Config-less mode (server)
+
+`vizier run` works with no config file. The file is looked up in this order:
 
 1. `-c/--config <path>`
 2. `$VIZIER_CONFIG`
 3. `./.vizier.yaml` in the current directory
 4. Built-in defaults
 
-With no file, the defaults are: SQLite storage, HTTP on port `9999` with `jwt_secret: "${VIZIER_JWT_SECRET}"`, 4 worker threads. The workspace resolves to `$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`.
+With no file, the defaults are SQLite storage, HTTP on port `9999` with `jwt_secret: "${VIZIER_JWT_SECRET}"`, and 4 worker threads. The workspace is `$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`. When a config file **is** used, the workspace is `<config dir>/.vizier/`.
 
-When a config file **is** used, the workspace is `<config dir>/.vizier/`.
-
-> **`VIZIER_JWT_SECRET` is required in config-less mode.** The built-in default references `${VIZIER_JWT_SECRET}`, and an unset variable is a load error. The Docker image sets a placeholder secret (`vizier-default-secret-change-me`) — override it in production.
+> **`VIZIER_JWT_SECRET` is required in config-less mode.** An unset variable is a load error. The Docker image sets a placeholder secret; override it in production.
 
 ## Workspace layout
 
@@ -105,16 +82,12 @@ Variables used by the defaults and the Docker entrypoint:
 | `RUST_LOG` | Tracing filter (e.g. `vizier=debug`) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, … | Provider keys, picked up without any configuration — see [Providers](./providers.md) |
 
+
 ## Sections
 
-- **[Main Configuration](./main-config.md)** — full `.vizier.yaml` reference
-- **[Providers](./providers.md)** — the model catalogue, connecting providers, custom providers
-- **[Channels](./channels.md)** — HTTP server, Discord, Telegram
-- **[Tools & Embedding](./tools-embedding.md)** — per-agent tools, embedding, indexer
-- **[Storage & Shell](./storage-shell.md)** — SQLite storage and per-agent shell (local/Docker)
-- **[Projects](./projects.md)** — folder-mounted projects, sessions, the workspace shell and permissions
-- **[Agents](./agents.md)** — agent fields, Core, dream cycle, checkpoints, sharing
-- **[CLI](./cli.md)** — `run`, `shutdown`, `onboard`, `skill`, `agent`, Docker
-- **[MCP Servers](./mcp.md)** — per-agent Model Context Protocol servers
-- **[Skills](./skills.md)** — skill packages
-- **[Memory](./memory.md)** — bundles, concept documents, link graph
+- **Getting started:** [Choose an Edition](../getting-started/editions.md), [Your First Agent](../getting-started/first-agent.md)
+- **Server edition:** [Main Configuration](./main-config.md), [CLI](./cli.md), [Storage & Shell](./storage-shell.md), [Observability](./observability.md), [Build Flavours](./build-flavours.md), [Encryption at Rest](./encryption.md)
+- **Desktop app:** [Install](../app/installation.md), [Web Access](../app/web-access.md)
+- **Using agents:** [Providers](./providers.md), [Agents](./agents.md), [Channels](./channels.md), [Voice, Images & Embeddings](./tools-embedding.md), [MCP Servers](./mcp.md), [Skills](./skills.md), [Memory](./memory.md)
+- **More:** [Agent Secrets](./secrets.md), [Artifacts](./artifacts.md), [Office addon](./office-addon.md), [Consultations](./consultations.md), [Live Voice](./live-voice.md), [Functions](./custom-tools.md), [Questions](./questions.md), [Time](./time.md), [Color Themes](./themes.md)
+- **Experimental:** [Projects](./projects.md), [Fleet](../fleet/bus-contract.md)

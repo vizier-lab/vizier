@@ -1,4 +1,4 @@
-# 2.23 Live Voice
+# Live Voice
 
 Live voice is a spoken conversation with an agent, held open: you talk, the agent answers aloud, and
 you can talk over it to cut it short. It is a capability of its own, separate from the `stt` and `tts`
@@ -11,7 +11,7 @@ and the voice icon goes from the composer.
 ## Using it
 
 The call uses the agent's own Speech-to-Text and Text-to-Speech providers — see
-[Tools & Embedding](./tools-embedding.md) for the provider tables. Credentials are the ones already
+[Voice, Images & Embeddings](./tools-embedding.md) for the provider tables. Credentials are the ones already
 saved for those providers; live voice asks for none of its own.
 
 Through `/api/v1/agents` an agent may also carry a `tools.live_voice` block, for the call's timings and,
@@ -122,7 +122,7 @@ has always made: it reaches everything its owner can. An empty or unknown capabi
 the key is made. Hand the scoped one to an outside system; never the other.
 
 The protocol a client implements — the frames, the lifecycle, the audio description and the reason
-words — is `specs/055-live-voice/contracts/live-voice-frames.md`. The audio is base64 PCM16, 16 kHz,
+words — is [`specs/055-live-voice/contracts/live-voice-frames.md`](https://github.com/vizier-lab/vizier/blob/master/specs/055-live-voice/contracts/live-voice-frames.md). The audio is base64 PCM16, 16 kHz,
 mono, in 100 ms chunks; a client that declares anything else is refused rather than converted.
 
 ## What is stored
@@ -170,17 +170,3 @@ While the message box is empty, Send shows the voice icon: press it to start a c
 turns it back into Send. A call is a pill in the composer's status strip (state, level, time, stop);
 what the agent is doing meanwhile shows in the conversation's activity trail like any turn. The
 dictation mic and the spoken-reply toggle stay as they were.
-
-## Measuring it
-
-The client logs one line per turn when the recorder is switched on:
-
-```text
-live_voice_metric turn=3 end_of_utterance_to_audible_ms=1420.5 end_of_utterance_to_silence_ms=12.3
-```
-
-The clock starts when your utterance closes on the client and stops at the first sample that is
-actually audible, so it measures what you hear rather than what the network did. The recorder only
-records: there is no threshold that fails a build. The marks, the ring size and what is not measured
-yet are written down in `specs/055-live-voice/latency.md` in the repository.
-

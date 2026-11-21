@@ -1,6 +1,10 @@
-# 2.4 Channels
+# Channels
 
 Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token. Bot tokens are encrypted at rest; back up the workspace key separately — see [Encryption at Rest](./encryption.md).
+
+![Connections → Channels](../images/channels.png)
+
+Add a Discord or Telegram connection from the agent's **Channels** (agent menu → Connections) page. The sections below explain what each platform needs.
 
 ## HTTP (REST + WebSocket + WebUI)
 
@@ -37,23 +41,18 @@ CORS is fully open (`Any` origin), so a separately hosted frontend can talk to t
 ### Authentication
 
 - **Login**: `POST /api/v1/auth/login` → JWT. Send as `Authorization: Bearer <jwt>`.
-- **API keys**: created in Settings → API Keys (or `POST /api/v1/auth/api-keys`). Keys look like `vk_…` and are sent as `Authorization: ApiKey <key>`.
+- **API keys**: created in **Settings → API keys** (or `POST /api/v1/auth/api-keys`). Keys look like `vk_…` and are sent as `Authorization: ApiKey <key>`.
+![Settings → API keys](../images/api-keys.png)
+
 - **WebSocket**: pass the JWT as `?token=<jwt>` (browsers can't set headers on WS upgrades).
 
 ### First run
 
 On a fresh database `GET /api/v1/auth/setup-status` returns `{ "needs_setup": true }` and the WebUI redirects to `/onboarding`, which calls `POST /api/v1/auth/setup` to create the first user. That user is assigned the built-in `superadmin` system role, and the WebUI then opens Home, whose setup guide covers connecting a provider and creating the first agent.
 
-### WebUI-only agent tools
-
-Every agent gets two tools for pushing messages into WebUI conversations:
-
-- `webui_send_message` — send a message to a user's WebUI topic (used for proactive messages / task results)
-- `webui_list_topics` — list a user's WebUI topics
-
 ## Discord
 
-Set the agent's `discord_token` (WebUI agent settings, or `PUT /api/v1/agents/{id}` with `discord_token`). The channel connects when the agent starts and reconnects whenever the token changes.
+Add a **Discord** connection on the agent's **Channels** (agent menu → Connections) page and paste the bot token (create the bot in the Discord developer portal and invite it to your server). Over the API: `POST /api/v1/agents/{id}/integrations` with `{"kind": "discord", "name": "…", "settings": {"token": "…"}}`. The bot connects at once and reconnects whenever the token changes; a rejected token marks only that connection as failed until you replace it.
 
 **When the bot responds**
 
@@ -75,20 +74,9 @@ Set the agent's `discord_token` (WebUI agent settings, or `PUT /api/v1/agents/{i
 | `/btw message:<text>` | Ask a side question: answered in the channel, visible to everyone, not remembered (see [Side chats](#side-chats-btw)) |
 | `/queue message:<text>` | While the agent is working: run the message as a new turn after the current one, instead of adding it to the turn in progress (see [Messages sent while the agent works](#messages-sent-while-the-agent-works)) |
 
-**Discord tools** (enabled with `tools.discord = true`; require `discord_token`):
-
-| Tool | Description |
-|------|-------------|
-| `discord_send_message` | Send a message to a channel |
-| `discord_react_message` | React to a message with an emoji |
-| `discord_get_message_by_id` | Fetch a message |
-| `discord_get_guild_info` | Guild metadata |
-| `discord_get_channel_info` | Channel metadata |
-| `discord_get_member_info` | Member metadata |
-
 ## Telegram
 
-Set the agent's `telegram_token`. Same lifecycle as Discord.
+Add a **Telegram** connection the same way, with the token from @BotFather (`"kind": "telegram"`). Same lifecycle as Discord.
 
 **When the bot responds**
 
@@ -108,14 +96,6 @@ Set the agent's `telegram_token`. Same lifecycle as Discord.
 | `/thinking` | Toggle thinking output and the activity trail (tool calls) |
 | `/btw <text>` | Ask a side question: not saved, and deleted after 2 minutes of inactivity (see [Side chats](#side-chats-btw)) |
 | `/queue <text>` | While the agent is working: run the message as a new turn after the current one (see [Messages sent while the agent works](#messages-sent-while-the-agent-works)) |
-
-**Telegram tools** (enabled with `tools.telegram = true`; require `telegram_token`):
-
-| Tool | Description |
-|------|-------------|
-| `telegram_send_message` | Send a message to a chat |
-| `telegram_react_message` | React with an emoji |
-| `telegram_get_message_by_id` | Fetch a message |
 
 ## Messages sent while the agent works
 
@@ -163,17 +143,17 @@ The same call is available to other clients as [`POST /agents/{id}/btw`](../api-
 
 ## Questions and sensitive input
 
-An agent can ask the people in a conversation structured questions (`ask_question`), and ask the person in a WebUI conversation for a credential (`ask_sensitive_input`). The tools, their limits and the redaction guarantee are in [Asking the person](./questions.md); this is how each channel shows them.
+An agent can ask the people in a conversation structured questions, and ask the person in a WebUI conversation for a credential. The limits and the redaction guarantee are in [Questions and Sensitive Input](./questions.md); this is how each channel shows them.
 
 | | WebUI | Discord | Telegram |
 |---|---|---|---|
-| `ask_question` | a card in the conversation | one message of buttons, selects and a text-entry form | one message per question, each with an inline keyboard |
+| Questions | a card in the conversation | one message of buttons, selects and a text-entry form | one message per question, each with an inline keyboard |
 | Choose one | radio buttons | buttons (up to 5 options), a select menu (up to 25) | one button per option |
 | Choose several | checkboxes | a select menu that allows several | toggle buttons (☐/☑) and **Done** |
 | Yes / no | two buttons | two buttons | two buttons |
 | Free text | a text field | a button that opens a form | reply to the question's message |
 | Submitting | **Submit** / **Dismiss** | **Submit** (sets of several questions) / **Dismiss** | **Submit** (sets of several questions) / **Dismiss** on the last message |
-| `ask_sensitive_input` | a masked dialog | **never offered** | **never offered** |
+| Sensitive input | a masked dialog | **never offered** | **never offered** |
 
 - **Anyone who can see the conversation can answer.** The first answer wins; a second press on a set that has been answered, dismissed or withdrawn is refused with a short private notice (Discord) or callback notice (Telegram) and starts no turn.
 - **Who answered** is recorded as the platform identifies them and shown on the closed question: the message is edited into a record of the answers, and its buttons go.
@@ -188,10 +168,10 @@ A session is `(agent, channel, topic)`. Each Discord channel / Telegram chat / W
 
 ## Managing tokens at runtime
 
-- **WebUI**: agent Settings → Channels
-- **API**: `PUT /api/v1/agents/{agent_id}` with `discord_token` / `telegram_token` (send `null` to disconnect)
+- **WebUI**: the agent's **Channels** (agent menu → Connections) page
+- **API**: `POST|PUT|DELETE /api/v1/agents/{id}/integrations[/{integration_id}]`
 
-The agent process is restarted on update, so the old bot connection is dropped and the new one established automatically.
+Changing a connection never restarts the agent or interrupts a conversation: the old bot connection is dropped and the new one established in the background. A bot token is used by one agent only, and an agent has at most one connection per platform.
 
 
 ## Clearing session files

@@ -1,4 +1,6 @@
-# 2.6 Storage & Shell
+# Storage & Shell
+
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
 
 ## Storage
 
@@ -94,18 +96,10 @@ The command copies every table, the memory vectors and every file, verifying eac
 
 Exit codes: `0` done, `1` failed (rerun to resume), `2` refused (source running, destination not empty, or already migrated).
 
-The `indexer` key that older docs mentioned at this level no longer exists — vector indexing is a per-agent setting (see [Tools & Embedding](./tools-embedding.md#indexer-indexer)).
 
-### Startup migrations
+### Upgrading
 
-On SQLite, `VizierDependencies::new` runs these once, guarded by markers in the `state` table (a PostgreSQL database is always created at the current layout, so it needs none of them):
-
-1. Flat memory files → bundles (pre-bundle layouts)
-2. `filesystem` backend → SQLite (if the config still says `filesystem`)
-3. Seed users → `superadmin` system role
-4. Provider credentials saved under pre-catalogue names → catalogue ids (`gemini` → `google`, …), once
-5. Per-agent MCP / shell config backfill (from the old global config)
-6. Legacy identity backfill — the source the spawn-time `core/soul` seed reads (retired before 1.0.0, #82)
+Older workspaces are upgraded in place the first time a new version starts (flat memory files, the old `filesystem` backend, legacy provider names and similar). There is nothing to run. Back up the workspace first, as for any upgrade.
 
 ## Shell
 

@@ -1,6 +1,6 @@
-# 3.5 Building on vizier-core
+# Building on vizier-core
 
-`vizier-core` is the engine as a library. The server binary and the [desktop app](../getting-started/desktop-app.md) are both hosts of it; you can write a third. A runnable starting point is `crates/vizier-core/examples/headless.rs`.
+`vizier-core` is the engine as a library. The server binary and the [desktop app](../app/installation.md) are both hosts of it; you can write a third. A runnable starting point is `crates/vizier-core/examples/headless.rs`.
 
 ## Start an engine
 
@@ -8,7 +8,7 @@
 use vizier_core::prelude::*;
 
 let config = VizierConfig::with_workspace("/path/to/workspace".into());
-let runtime = VizierRuntime::start(RuntimeOptions { config }).await?;
+let runtime = VizierRuntime::start(RuntimeOptions { config, ..Default::default() }).await?;
 ```
 
 You name the workspace explicitly. The engine never reads `$HOME` or environment variables to decide where data lives, never exits your process, and takes `{workspace}/.runtime/vizier.lock` so a second engine on the same folder is refused. A stopped subsystem is reported through `runtime.events()`, `runtime.health()` and `wait`.
@@ -53,4 +53,4 @@ Operations return `ServiceError`:
 
 `vizier_http::router(&runtime, &config)` gives you the full REST/WebSocket server as an axum `Router`; `vizier_http::serve` binds it. The desktop app uses `vizier_http::embedded::Dispatcher`, which dispatches requests in-process as one signed-in person with no socket.
 
-> The service layer is being filled in domain by domain (spec 038). Until a domain moves, its operations are still reachable through the HTTP routes.
+> The service layer is being filled in domain by domain. Until a domain moves, its operations are still reachable through the HTTP routes.
