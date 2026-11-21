@@ -101,6 +101,9 @@ pub struct VizierDependencies {
     pub questions: Arc<crate::questions::Questions>,
     /// The client sockets this process owns, by connection id (a request names one, never holds it).
     pub client_connections: crate::agents::client::ClientConnections,
+    /// Live voice calls (`specs/055-live-voice`), one per conversation; `VizierRuntime::start`
+    /// runs its idle sweeper.
+    pub live_voice: Arc<crate::live_voice::LiveVoiceSessions>,
     /// The one way the gateway side reaches an agent (`specs/048-agent-service-seam`).
     ///
     /// The service layer and the HTTP adapter call this instead of reading a running agent's
@@ -364,6 +367,7 @@ impl VizierDependencies {
             lsp: crate::projects::lsp::LspHost::new(config.lsp.max_servers),
             questions: Arc::new(crate::questions::Questions::new()),
             client_connections: crate::agents::client::ClientConnections::new(),
+            live_voice: Arc::new(crate::live_voice::LiveVoiceSessions::default()),
             agents,
         };
         // Server changes reach the inbox stream (spec 054).

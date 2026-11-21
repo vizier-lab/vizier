@@ -140,6 +140,14 @@ pub enum LiveVoiceControl {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<EndReason>,
     },
+    /// One utterance was heard and its recording kept (spec 055): the tab draws it as a voice
+    /// message straight away, and the `transcript` frame for the same utterance fills in its text.
+    Heard {
+        utterance_id: String,
+        /// The recording's file name and its URL, as a stored voice message carries them.
+        filename: String,
+        url: String,
+    },
     /// One utterance's outcome. `submitted: false` with empty `text` is the too-short case
     /// (FR-024): the audio stopped and nothing was sent.
     Transcript {

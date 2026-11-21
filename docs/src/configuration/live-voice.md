@@ -4,39 +4,25 @@ Live voice is a spoken conversation with an agent, held open: you talk, the agen
 you can talk over it to cut it short. It is a capability of its own, separate from the `stt` and `tts`
 tools — those transcribe a file and synthesise a file; live voice runs the whole loop.
 
-It is **off by default** for every agent, and every conversation, until you turn it on.
+There is no switch for it. An agent offers live voice whenever it can both hear and speak: its
+**Speech-to-Text** and **Text-to-Speech** are both turned on (the agent's Models page). Turn either off
+and the voice icon goes from the composer.
 
-## Turning it on
+## Using it
 
-Live voice is a tool block on the agent, like `tts` and `stt`, and it is created at runtime through the
-WebUI or `/api/v1/agents` — never in `.vizier.yaml`.
+The call uses the agent's own Speech-to-Text and Text-to-Speech providers — see
+[Tools & Embedding](./tools-embedding.md) for the provider tables. Credentials are the ones already
+saved for those providers; live voice asks for none of its own.
 
-```json
-{
-  "tools": {
-    "live_voice": {
-      "enabled": true,
-      "settings": {
-        "idle_stop_seconds": 180,
-        "max_utterance_seconds": 60,
-        "end_of_utterance_ms": 800
-      }
-    }
-  }
-}
-```
-
-`settings.stt` and `settings.tts` are **optional overrides**. Left out — which is the default — live
-voice uses the agent's own `stt_settings` and `tts_settings`, *whatever their `stt`/`tts` tool flags
-say*: those flags gate the tools, not the session. Set them only when the conversation should use a
-different recogniser or voice from the tools:
+Through `/api/v1/agents` an agent may also carry a `tools.live_voice` block, for the call's timings and,
+optionally, a recogniser or voice that differs from the tools'. Its `enabled` flag is no longer read.
 
 ```json
 {
   "tools": {
     "live_voice": {
-      "enabled": true,
       "settings": {
+        "end_of_utterance_ms": 1400,
         "stt": { "provider": "whisper", "model": "ggml-large-v3", "language": "en" },
         "tts": { "provider": "openai", "voice": "nova" }
       }
@@ -45,56 +31,48 @@ different recogniser or voice from the tools:
 }
 ```
 
-The agent needs **a usable recogniser and a usable voice** for a session to start at all — see
-[Tools & Embedding](./tools-embedding.md) for the provider tables. Credentials are the ones already
-saved for those providers; live voice asks for none of its own and stores none.
-
 | Setting | Default | What it does |
 |---|---:|---|
 | `idle_stop_seconds` | `180` | A session with nothing said for this long ends itself |
 | `max_utterance_seconds` | `60` | One utterance is capped here; the server enforces it |
-| `end_of_utterance_ms` | `800` | How long a silence closes what you were saying |
+| `end_of_utterance_ms` | `1400` | How long a silence closes what you were saying (100–2000) |
 
-## The row
+## The call
 
-Live voice lives in **one row inside the composer's meta line** — the line that already carries the
-context ring and the model name. It adds **no height**: the composer is the same 156 px with or without
-a call, and nothing moves when a session starts or ends. There is no floating panel, no separate rail,
-and nothing to drag.
+With the message box empty, the composer's Send button shows a **voice icon**: press it to start a
+call (typing anything turns it back into Send). The call is a **pill in the composer's status strip**,
+ahead of the counts, and the composer itself never moves:
 
-Before a session the row holds one control: a pill reading **`Live voice`**. Press it and the same line
-becomes the call:
-
-| The row says | What is happening |
+| The pill says | What is happening |
 |---|---|
-| `Connecting…` | The microphone is being opened; the browser may ask for permission now |
-| `Listening` | Open and waiting for you |
-| `Thinking` | Your words are being turned into a turn and the agent is working — **not** a dropped call |
-| `Speaking` | The reply is being read aloud |
-| `Interrupted` | You cut the reply short; the session is still live and still listening |
+| `Connecting` | The microphone is being opened; the browser may ask for permission now |
+| `Listening` | Open and waiting for you — also while the agent works on what you said; the conversation's activity trail shows that work, as for any message |
+| `Speaking` | The reply is being read aloud; speak to cut it short |
+| `Interrupted` | You cut the reply short; the call is still listening |
 | `Reconnecting` | The connection dropped; it stays open for 30 s before giving up |
-| `Ended` | Over, with the reason underneath |
-| `Failed` | Could not run, with the reason underneath |
+| `Call ended` / `Call failed` | Over, with a short reason, **Start again** and a close |
 
-Beside the state word the row always shows the microphone: `mic on` or `mic off`. It is never the
-element that disappears, and it stays true when the window is not focused. There is a timer (`0:42`),
-a small waveform, and one action: **End**. After `Ended` or `Failed` that action becomes **`Start
-again`** / **`Try again`**, and the reason stays until you start again or type.
+Beside the word: a level meter, the time (`0:42`) and a stop button. On a phone the meter gives way so
+the strip's counts still fit.
 
-When the window is narrow the row gives things up in a fixed order: the **model name** shrinks and
-then goes, then the **waveform** shortens and goes, then the **context ring** goes. The state word, the
-microphone, the timer and the end action never shrink, never wrap and never turn into an ellipsis, down
-to a 240 px floor.
+## How speech is heard
+
+The browser listens with a loudness gate over a slowly learned room level, every 20 ms. About a
+quarter of a second of voice opens what you are saying, so a click, a cough or a chair does not;
+the moments before it are kept and sent with it. A pause of `end_of_utterance_ms` (1.4 s) ends it.
+While the agent is speaking you interrupt it by talking over it for about half a second; anything
+shorter is ignored and the reply keeps playing. It cannot tell voices apart: a second person in the
+room is heard like you.
 
 ## Starting, moving and ending
 
-- **Start** — press `Live voice` in the composer. The row appears and the session begins.
+- **Start** — press the voice icon in the composer (the message box must be empty). The pill appears and the call begins.
 - **Move** — starting a call in another conversation, or with another agent, does not fail and does not
   open a second one: the call **moves** there, and the conversation it left says why.
-- **End** — the `End` action in the row, or closing the tab. Both release the microphone.
+- **End** — the stop button in the pill, or closing the tab. Both release the microphone.
 - **End by itself** — silence for `idle_stop_seconds`, the agent or conversation being deleted, the
   microphone taken away by the browser or the operating system, or the connection staying down past
-  30 s. Every one of those leaves a readable reason in the row.
+  30 s. Every one of those leaves a readable reason in the pill.
 
 There is **at most one live session per person**, across every conversation and every agent.
 
@@ -105,7 +83,7 @@ the reply keeps playing while you speak, and once `end_of_utterance_ms` of silen
 stops and the running turn is cancelled. That is deliberate; cutting the agent off at your first
 syllable would make a cough stop an answer.
 
-**There is no interrupt button in this release.** It is deferred, and the row does not show a control
+**There is no interrupt button in this release.** It is deferred, and the pill does not show a control
 that does not work. Where speaking over the agent does not work — a loud room, a poor microphone, a
 quiet voice — the only way to stop a reply is `End`.
 
@@ -135,11 +113,13 @@ Content-Type: application/json
 { "name": "call-centre", "capabilities": ["live_voice"] }
 ```
 
-A key made with `capabilities: ["live_voice"]` can open a live voice session and **nothing else** — it
-does not inherit the owner's role or permissions, so it cannot read another conversation, another
-agent's history, settings, memory or files. A key made **without** `capabilities` is what the API keys
-page has always made: it carries its owner's full permissions. Hand the scoped one to an outside
-system; never the other.
+A key made with `capabilities: ["live_voice"]` acts as its owner, but it reaches **one place**: the
+conversation socket, `/api/v1/agents/{agent}/channel/{channel}/topic/{topic}/chat`, and there it may
+send live voice frames only. Every other route answers `403`, and a typed message on the socket is
+refused with `live_voice_only`, so it cannot read settings, memory or files, or type to the agent. It
+reaches the agents its owner can reach. A key made **without** `capabilities` is what the API keys page
+has always made: it reaches everything its owner can. An empty or unknown capability is refused when
+the key is made. Hand the scoped one to an outside system; never the other.
 
 The protocol a client implements — the frames, the lifecycle, the audio description and the reason
 words — is `specs/055-live-voice/contracts/live-voice-frames.md`. The audio is base64 PCM16, 16 kHz,
@@ -147,10 +127,18 @@ mono, in 100 ms chunks; a client that declares anything else is refused rather t
 
 ## What is stored
 
-- **Your words** become an ordinary message in the conversation, marked as spoken.
-- **The reply** is stored as an ordinary agent message, whether it finished or was interrupted. An
-  interrupted reply stays visible, marked as interrupted, so you can read what you did not hear.
-- **No audio is stored.** Neither your microphone nor the reply is written to disk.
+- **Your words** become a voice message in the conversation, as one recorded with the mic would:
+  the recording appears as soon as you stop speaking, with *Transcribing* where *Show transcript*
+  will be, and the transcript fills in when recognition finishes. An utterance that was too short or
+  could not be understood is never sent, and its bubble goes.
+  If the agent is still answering something else in that conversation (a typed message, say), your
+  words wait for their own turn rather than joining the running one, so their answer is spoken.
+- **The reply** is stored as an ordinary agent message, and reads like a spoken reply: while it is
+  being said it is already a player waiting for its recording, with the text behind *Show transcript*;
+  once spoken the player plays what you heard (up to where you cut in, if you interrupted).
+- Nothing is said that the thread does not show: there are no filler words while the agent thinks.
+- **Audio is stored.** Each utterance and each reply heard in full is saved with the conversation, like
+  any voice message, and goes when the conversation is deleted.
 - Ending a session for any reason never deletes, rewrites or reorders the conversation's text. A reply
   still being written when you end finishes as **text** and is not spoken.
 
@@ -160,26 +148,28 @@ mono, in 100 ms chunks; a client that declares anything else is refused rather t
 |---|---|
 | Silence before a session ends itself | `idle_stop_seconds`, default 180 s |
 | One utterance | `max_utterance_seconds`, default 60 s |
-| Silence that closes an utterance | `end_of_utterance_ms`, default 800 ms |
+| Silence that closes an utterance | `end_of_utterance_ms`, default 1.4 s |
 | A dropped connection may stay open | 30 s |
 | Sessions at once | One per person, across every conversation and agent |
 | Total session length | No cap; the idle stop is what ends a quiet call |
 
 ## When it will not start
 
-| Reason in the row | What to fix |
+| Reason in the pill | What to fix |
 |---|---|
-| `a recogniser is not configured for this agent` | Add `stt_settings` (or a `live_voice` `stt` override) |
-| `a voice is not configured for this agent` | Add `tts_settings` (or a `live_voice` `tts` override) |
-| `no microphone could be opened` | No input device, or the browser has none to offer |
-| `the microphone was taken away` | Permission withdrawn mid-session; grant it and press `Try again` |
-| `this release carries 16 kHz mono audio` | A client sent audio in a format this build does not carry |
+| `no recogniser set up` | Add `stt_settings` (or a `live_voice` `stt` override) |
+| `no voice set up` | Add `tts_settings` (or a `live_voice` `tts` override) |
+| `microphone is blocked` | The browser refused the microphone; allow it and press *Start again* |
+| `no microphone found` | No input device, or the browser has none to offer |
+| `microphone was taken away` | Permission withdrawn mid-call; grant it and press *Start again* |
+| `needs 16 kHz mono audio` | A client sent audio in a format this build does not carry |
 
-## The old speech buttons
+## In the composer
 
-The composer's record control and spoken-reply toggle are **no longer shown**. Live voice replaces
-them on screen. Their code, providers and settings remain in the build — a different surface may use
-them later — so an agent that had them configured keeps that configuration untouched.
+While the message box is empty, Send shows the voice icon: press it to start a call. Typing anything
+turns it back into Send. A call is a pill in the composer's status strip (state, level, time, stop);
+what the agent is doing meanwhile shows in the conversation's activity trail like any turn. The
+dictation mic and the spoken-reply toggle stay as they were.
 
 ## Measuring it
 

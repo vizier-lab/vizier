@@ -35,6 +35,23 @@ pub fn hash(api_key: &str) -> String {
 /// a finer name later is cheaper than withdrawing one a third party already holds.
 pub const CAPABILITY_LIVE_VOICE: &str = "live_voice";
 
+/// Every capability a key may name. A scope that names nothing, or a name not listed here, is
+/// refused rather than stored as a key that can reach nothing.
+pub const CAPABILITIES: &[&str] = &[CAPABILITY_LIVE_VOICE];
+
+fn check_capabilities(capabilities: &[String]) -> Result<(), ServiceError> {
+    if capabilities.is_empty() {
+        return Err(ServiceError::invalid("capabilities: name at least one, or leave it out"));
+    }
+    match capabilities.iter().find(|c| !CAPABILITIES.contains(&c.as_str())) {
+        Some(unknown) => Err(ServiceError::invalid(format!(
+            "capabilities: unknown capability `{unknown}` (known: {})",
+            CAPABILITIES.join(", ")
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Returns the stored key and the raw key (shown once).
 ///
 /// `capabilities: None` is a key that carries its owner's permissions — every key made before
@@ -49,8 +66,8 @@ pub async fn create(
     create_scoped(services, principal, name, expires_in_days, None).await
 }
 
-/// The same, with the capabilities spelled out. `Some(list)` is a key that can do **only** what the
-/// list names, whatever its owner can do.
+/// The same, with the capabilities spelled out. `Some(list)` is a key that acts as its owner but
+/// reaches only what the list names.
 ///
 /// A separate name rather than a fifth parameter on `create`: every existing caller means "my own
 /// permissions", and a defaulted argument at a call site is a decision nobody reads.
@@ -62,6 +79,9 @@ pub async fn create_scoped(
     capabilities: Option<Vec<String>>,
 ) -> Result<(ApiKey, String), ServiceError> {
     access::require(principal, NEEDS)?;
+    if let Some(capabilities) = &capabilities {
+        check_capabilities(capabilities)?;
+    }
     let (raw, key_hash) = generate();
     let expires_at = expires_in_days.map(|days| crate::time::now() + Duration::days(days));
     let key = services
@@ -108,7 +128,9 @@ pub async fn delete(services: &Services, principal: &Principal, key_id: &str) ->
     // a failed delete must not take a call down with it — and through the registry's own release
     // path, so the microphone is let go the way every other ending lets it go.
     {
-        let ended = crate::live_voice::sessions()
+        let ended = services
+            .deps()
+            .live_voice
             .end_owned_by_key(key_id, crate::live_voice::EndReason::KeyRevoked)
             .await;
         if ended > 0 {
@@ -116,4 +138,16 @@ pub async fn delete(services: &Services, principal: &Principal, key_id: &str) ->
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_capabilities;
+
+    #[test]
+    fn only_known_capabilities_make_a_scope() {
+        assert!(check_capabilities(&["live_voice".into()]).is_ok());
+        assert!(check_capabilities(&[]).is_err(), "an empty scope reaches nothing");
+        assert!(check_capabilities(&["users:manage".into()]).is_err());
+    }
 }

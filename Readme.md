@@ -148,35 +148,6 @@ cd webui && npm run typecheck
 cd webui && npm run dev   # the WebUI on http://localhost:5173, proxying /api to a running `just run`
 ```
 
-### Building lean (memory and disk)
-
-`cargo build --workspace --all-features` compiles every optional provider, channel, addon and
-telemetry stack at once. On a 16 GB machine that peaks near **10 GB of RAM and a 17 GB `target/`**.
-Name the crate and the features the work actually uses instead, one `cargo` at a time:
-
-```sh
-# the gateway crate alone (live voice is always compiled in; there is no flag)
-cargo build -p vizier-http
-
-# the shipped binary, default features (role-all + core `full`)
-cargo build -p vizier
-
-# the gateway's tests, including the live voice ones
-cargo test -p vizier-http
-```
-
-Measured on 8 cores, cold target, `-j4`, 2026-11-09: `-p vizier-http` (then still with
-`--features live-voice`) **8m45s, peak RSS 4.8 GB, `target` 6.0 GB**; `-p vizier` (defaults)
-**23m22s, peak RSS 10.0 GB, `target` 17 GB**. The flag was removed on 2026-11-16: live voice adds
-no dependency, so it is compiled into every build and switched per agent instead
-(`docs/src/configuration/build-flavours.md`). The expensive optional features are `provider-media` (whisper-rs, symphonia),
-`addon-documents` (pdf-extract, ironcalc), `addon-docker` (bollard) and
-`channel-discord`/`channel-telegram`.
-
-`env -u PYTHONHOME -u PYTHONPATH` prefixes a build when `PYTHONHOME` points at a dead AppImage
-mount: there `python3` exits 1 with no message, and a build script that shells out to it fails
-silently.
-
 ### Windows (desktop app only)
 
 The desktop app builds on Windows from PowerShell; the server is Linux, macOS and Docker. Install the prerequisites once (`just` installs none of them), then use the app recipes:

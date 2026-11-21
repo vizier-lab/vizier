@@ -17,8 +17,8 @@ pub enum AuthMethod {
     Jwt,
     /// An API key: a programmatic caller.
     ///
-    /// `scoped` says the key was made with a capability list, so it carries only those and not its
-    /// owner's permissions (T109, FR-062). `key_id` and `expires_at` are how a session that key
+    /// `scoped` says the key was made with a capability list, so it reaches only the surfaces the
+    /// list names; its permissions are still its owner's (T109, FR-062). `key_id` and `expires_at` are how a session that key
     /// opened can be found again when the key is revoked or lapses (T110, FR-063) — without them
     /// the server would have to guess, or query storage on every frame. It lives here rather than
     /// on [`Principal`] because all of it is a property of the credential, not of the person.

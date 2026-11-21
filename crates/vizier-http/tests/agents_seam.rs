@@ -203,11 +203,6 @@ mod live_voice_switch {
     }
 
     /// The detail the WebUI reads. The config is written straight into the store.
-    ///
-    /// `storage.create_agent` is deliberate: it does not run `check_live_voice`, which is the only
-    /// way to reach "switch on, a half missing" — the API refuses to save that. Those are exactly
-    /// the states this field exists for, so the test writes them the way they arise (an older
-    /// config, or a machine removed after the switch was turned on).
     async fn detail_after(tools: serde_json::Value) -> vizier_core::service::agents::AgentDetail {
         let fake = FakeAgentsClient::default();
         let (deps, _dir) = deps_with(&fake).await;
@@ -219,113 +214,47 @@ mod live_voice_switch {
             .expect("the agent is there")
     }
 
-    /// A live voice block with the switch on and whichever halves the caller names.
-    fn switched_on(halves: serde_json::Value) -> serde_json::Value {
-        serde_json::json!({ "live_voice": { "enabled": true, "settings": halves } })
-    }
+    // Spec 055: no switch of its own. An agent that can hear (stt on) and speak (tts on) offers a
+    // call; the `live_voice` block's `enabled` flag is not read.
 
     #[tokio::test]
-    async fn turning_it_on_with_both_halves_makes_the_pill_available() {
-        let detail = detail_after(switched_on(serde_json::json!({
-            "stt": { "provider": "groq", "language": "id" },
-            "tts": { "provider": "elevenlabs", "voice": "rachel" }
-        })))
-        .await;
-        assert!(
-            detail.live_voice,
-            "enabled with a recogniser and a voice is what the row needs"
-        );
-        assert_eq!(
-            detail.live_voice_missing, None,
-            "nothing is missing, so nothing is named"
-        );
-    }
-
-    #[tokio::test]
-    async fn an_agent_that_never_asked_for_it_still_reports_off() {
-        let detail = detail_after(serde_json::json!({ "fetch": true })).await;
-        assert!(
-            !detail.live_voice,
-            "regression: nothing changes for an agent that does not ask"
-        );
-        assert_eq!(
-            detail.live_voice_missing, None,
-            "the switch is off: the pill is drawn for every agent, so it names no machine"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_switch_off_names_nothing_even_with_both_halves_missing() {
-        let detail = detail_after(serde_json::json!({ "live_voice": { "enabled": false } })).await;
-        assert!(!detail.live_voice);
-        assert_eq!(
-            detail.live_voice_missing, None,
-            "off is the generic sentence, not a machine"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_missing_voice_is_named_when_the_switch_is_on() {
-        let detail = detail_after(switched_on(
-            serde_json::json!({ "stt": { "provider": "groq" } }),
-        ))
-        .await;
-        assert!(!detail.live_voice, "half a session is not a session");
-        assert_eq!(detail.live_voice_missing, Some("voice"));
-    }
-
-    #[tokio::test]
-    async fn a_missing_recogniser_is_named_when_the_switch_is_on() {
-        let detail = detail_after(switched_on(serde_json::json!({
-            "tts": { "provider": "elevenlabs", "voice": "rachel" }
-        })))
-        .await;
-        assert!(!detail.live_voice);
-        assert_eq!(detail.live_voice_missing, Some("recognizer"));
-    }
-
-    #[tokio::test]
-    async fn both_missing_names_the_recogniser_first() {
-        // The order `check_live_voice` takes them in, and the half a session needs before it can
-        // answer: fixing the voice first would still leave it unable to hear.
-        let detail = detail_after(switched_on(serde_json::json!({}))).await;
-        assert!(!detail.live_voice);
-        assert_eq!(detail.live_voice_missing, Some("recognizer"));
-    }
-
-    #[tokio::test]
-    async fn the_agents_own_speech_settings_count_as_halves() {
-        // The fallback FR-004 has always had: the live voice block may name nothing, and the
-        // agent's stt/tts tool settings still describe a recogniser and a voice. "Nothing missing"
-        // is a fact about the whole config, not about one nested object.
-        let detail = detail_after(serde_json::json!({
-            "stt_settings": { "provider": "groq" },
-            "tts_settings": { "provider": "elevenlabs" },
-            "live_voice": { "enabled": true }
-        }))
-        .await;
-        assert!(
-            detail.live_voice,
-            "both halves exist, even though the live voice block names none"
-        );
+    async fn an_agent_that_can_hear_and_speak_offers_a_call() {
+        let detail = detail_after(serde_json::json!({ "stt": true, "tts": true })).await;
+        assert!(detail.live_voice, "both halves on is all a call needs");
         assert_eq!(detail.live_voice_missing, None);
     }
 
     #[tokio::test]
-    async fn the_key_travels_as_null_rather_than_disappearing() {
-        // `AgentDetail` has no `skip_serializing_if`, so the client can rely on the key existing and
-        // read `?? null`; a key that came and went would make "absent" and "nothing missing" the
-        // same thing on the wire.
-        let detail = detail_after(switched_on(serde_json::json!({
-            "stt": { "provider": "groq" },
-            "tts": { "provider": "elevenlabs" }
-        })))
+    async fn an_agent_with_neither_names_the_recogniser_first() {
+        let detail = detail_after(serde_json::json!({ "fetch": true })).await;
+        assert!(!detail.live_voice);
+        assert_eq!(detail.live_voice_missing, Some("recognizer"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_voice_is_named() {
+        let detail = detail_after(serde_json::json!({ "stt": true })).await;
+        assert!(!detail.live_voice, "half a call is not a call");
+        assert_eq!(detail.live_voice_missing, Some("voice"));
+    }
+
+    #[tokio::test]
+    async fn the_old_switch_neither_adds_nor_hides_a_call() {
+        let on = detail_after(serde_json::json!({ "live_voice": { "enabled": true } })).await;
+        assert!(!on.live_voice, "a stored switch alone offers nothing");
+        let off = detail_after(serde_json::json!({
+            "stt": true, "tts": true, "live_voice": { "enabled": false }
+        }))
         .await;
+        assert!(off.live_voice, "and an old `false` does not hide a call");
+    }
+
+    #[tokio::test]
+    async fn the_key_travels_as_null_rather_than_disappearing() {
+        // `AgentDetail` has no `skip_serializing_if`, so the client can rely on the key existing.
+        let detail = detail_after(serde_json::json!({ "stt": true, "tts": true })).await;
         let json = serde_json::to_value(&detail).expect("the detail serialises");
-        assert!(
-            json.get("live_voice_missing").is_some(),
-            "the key is always present: {json}"
-        );
+        assert!(json.get("live_voice_missing").is_some(), "the key is always present: {json}");
         assert_eq!(json["live_voice_missing"], serde_json::Value::Null);
     }
 }

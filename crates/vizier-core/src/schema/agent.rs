@@ -215,6 +215,14 @@ pub struct ToolConfig<Settings> {
     pub settings: Settings,
 }
 
+/// How long a silence ends what the person was saying, by default (spec 055). 1.4 s: 0.8 s cut people
+/// off at a breath or a pause to think.
+pub const END_OF_UTTERANCE_MS: u32 = 1400;
+
+/// The default before 2026-11-21, which agents saved then still carry. Read as the new default,
+/// since nobody chose it (#82).
+pub const OLD_END_OF_UTTERANCE_MS: u32 = 800;
+
 /// The live voice session's settings (`specs/055-live-voice` data model §5).
 ///
 /// Both speech fields are `None` by default, and `None` means "use this agent's own `stt` / `tts`
@@ -241,7 +249,7 @@ impl Default for LiveVoiceSettings {
             tts: None,
             idle_stop_seconds: 180,
             max_utterance_seconds: 60,
-            end_of_utterance_ms: 800,
+            end_of_utterance_ms: END_OF_UTTERANCE_MS,
         }
     }
 }
@@ -615,7 +623,7 @@ mod media_provider_tests {
         assert!(!without.live_voice.enabled, "absent means off");
         assert_eq!(without.live_voice.settings.idle_stop_seconds, 180);
         assert_eq!(without.live_voice.settings.max_utterance_seconds, 60);
-        assert_eq!(without.live_voice.settings.end_of_utterance_ms, 800);
+        assert_eq!(without.live_voice.settings.end_of_utterance_ms, END_OF_UTTERANCE_MS);
         assert!(without.live_voice.settings.stt.is_none());
         assert!(without.live_voice.settings.tts.is_none());
 
@@ -627,7 +635,7 @@ mod media_provider_tests {
         assert_eq!(partial.live_voice.settings.idle_stop_seconds, 30);
         // The fields the block did not name keep their defaults.
         assert_eq!(partial.live_voice.settings.max_utterance_seconds, 60);
-        assert_eq!(partial.live_voice.settings.end_of_utterance_ms, 800);
+        assert_eq!(partial.live_voice.settings.end_of_utterance_ms, END_OF_UTTERANCE_MS);
 
         // Its own switch: the speech tools stay off, and the session is on regardless (FR-003).
         assert!(!partial.stt.enabled);

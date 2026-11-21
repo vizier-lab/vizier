@@ -78,10 +78,9 @@ pub struct ApiKey {
     /// before it was kept have none.
     #[serde(default)]
     pub prefix: Option<String>,
-    /// What this key may do (T109, FR-062). `None` is a key made before scopes existed and behaves
-    /// exactly as it always has — it carries its owner's permissions. `Some(list)` is a key that
-    /// carries **only** those capabilities, whatever its owner can do: that is the whole point of
-    /// a key handed to a third party.
+    /// Where this key may go (T109, FR-062). `None` is a key made before scopes existed and behaves
+    /// exactly as it always has. `Some(list)` acts as its owner but reaches only the surfaces the
+    /// list names (`vizier_http::auth::middleware::scoped_key_may_reach`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
 }

@@ -381,7 +381,7 @@ async fn a_burst_too_short_to_be_a_word_does_not_interrupt() {
 /// next message — nothing is cancelled, because there is nothing left to cancel.
 #[tokio::test]
 async fn words_after_the_reply_finished_cancel_nothing() {
-    let mut h = Harness::new().await;
+    let h = Harness::new().await;
     // No turn was started, so the session is idle when the person finishes speaking.
     h.session.open_utterance("u-1");
     for _ in 0..3 {

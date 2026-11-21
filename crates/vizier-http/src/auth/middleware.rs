@@ -69,20 +69,28 @@ impl axum::response::IntoResponse for AuthError {
     }
 }
 
-/// What a key carries, and whether it is scoped (T109, FR-062).
+/// Whether a **scoped** API key may make this request (`specs/055-live-voice` FR-062).
 ///
-/// `None` is a key made before scopes existed, and every key the settings page makes today: it
-/// carries its owner's permissions, and nothing about those keys changes. `Some(list)` carries the
-/// list and nothing else — that is the whole of the scope, and it is why this decision lives in one
-/// small function instead of inline in the middleware where it could not be tested.
-pub fn key_permissions(
-    capabilities: Option<Vec<String>>,
-    owner: Vec<String>,
-) -> (Vec<String>, bool) {
-    match capabilities {
-        Some(capabilities) => (capabilities, true),
-        None => (owner, false),
-    }
+/// A scoped key acts as its owner, so every agent and permission check reads the owner's role
+/// exactly as for an unscoped key. What the scope limits is *where* the key may go: a key scoped to
+/// `live_voice` reaches the chat socket and nothing else, and once there it may send live voice
+/// frames only (`TopicConnection::handle_inbound`). A key whose scope names nothing this release
+/// knows reaches nothing. This is the one place the rule is decided.
+pub fn scoped_key_may_reach(capabilities: &[String], path: &str) -> bool {
+    capabilities
+        .iter()
+        .any(|c| c == vizier_core::service::api_keys::CAPABILITY_LIVE_VOICE)
+        && is_chat_socket(path)
+}
+
+/// `/api/v1/agents/{agent}/channel/{channel}/topic/{topic}/chat`, the topic socket.
+fn is_chat_socket(path: &str) -> bool {
+    let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    matches!(
+        parts.as_slice(),
+        ["", "api", "v1", "agents", agent, "channel", channel, "topic", topic, "chat"]
+            if [agent, channel, topic].iter().all(|part| !part.is_empty())
+    )
 }
 
 async fn resolve_user_role(state: &HTTPState, user_id: &str) -> Result<(Role, Vec<String>), AuthError> {
@@ -214,12 +222,19 @@ pub async fn require_auth(
 
             // Get the user associated with this API key
             let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
-            // T109/FR-062: a scoped key carries **only** its own capabilities and inherits nothing
-            // from its owner. `role` stays as it is — it is a label and a few lookups read it — but
-            // every permission check reads `permissions`, and this is the line that makes a key
-            // handed to a third party unable to do anything else. `None` is a key made before
-            // scopes existed: it keeps its owner's permissions exactly as before.
-            let (permissions, scoped) = key_permissions(api_key.capabilities, permissions);
+            // T109/FR-062: a scoped key reaches only what its scope names. The path is the full
+            // one: this middleware runs inside nested routers, which see a shortened URI.
+            let scoped = api_key.capabilities.is_some();
+            if let Some(capabilities) = &api_key.capabilities {
+                let path = request
+                    .extensions()
+                    .get::<axum::extract::OriginalUri>()
+                    .map(|uri| uri.0.path().to_string())
+                    .unwrap_or_else(|| request.uri().path().to_string());
+                if !scoped_key_may_reach(capabilities, &path) {
+                    return Err(AuthError::Forbidden);
+                }
+            }
 
             Principal {
                 user_id: api_key.user_id,
@@ -285,95 +300,42 @@ fn extract_token_from_query(uri: &Uri) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    //! T109/FR-062 — what a scoped key carries, and what it is refused.
-    //!
-    //! **What is not here.** The live socket's refusal of a scoped key that lacks `live_voice` is
-    //! asserted one layer down, on the predicate in `topic.rs` (`may_start_live_voice`): building a
-    //! `TopicConnection` needs an `HTTPState` and a topic that passes `authorize_topic`, and that
-    //! harness does not exist (the same `TODO(C5)` `live_voice_frames.rs` carries). The predicate is
-    //! the decision; the socket arm only calls it.
+    //! T109/FR-062 - where a scoped key may go.
 
-    use super::key_permissions;
-    use crate::auth::AuthMethod;
-    use vizier_core::access;
-    use vizier_core::auth::Principal;
-    use vizier_core::storage::user::Role;
+    use super::scoped_key_may_reach;
 
-    fn owner_permissions() -> Vec<String> {
-        vec![
-            "settings:api_keys".into(),
-            "users:manage".into(),
-            "live_voice".into(),
-        ]
+    const SOCKET: &str = "/api/v1/agents/helper/channel/web/topic/t1/chat";
+
+    fn caps(list: &[&str]) -> Vec<String> {
+        list.iter().map(|c| c.to_string()).collect()
     }
 
-    fn principal(permissions: Vec<String>, scoped: bool, is_system: bool) -> Principal {
-        Principal {
-            user_id: "olive".into(),
-            username: String::new(),
-            role: Role {
-                role_id: "r".into(),
-                name: "role".into(),
-                permissions: owner_permissions(),
-                is_system,
-                created_at: vizier_core::time::now(),
-            },
-            permissions,
-            method: AuthMethod::ApiKey { scoped, key_id: Some("k-test".into()), expires_at: None },
+    #[test]
+    fn a_live_voice_key_reaches_the_chat_socket() {
+        assert!(scoped_key_may_reach(&caps(&["live_voice"]), SOCKET));
+        assert!(scoped_key_may_reach(&caps(&["live_voice"]), &format!("{SOCKET}/")));
+    }
+
+    #[test]
+    fn and_nothing_else() {
+        for path in [
+            "/api/v1/agents",
+            "/api/v1/agents/helper",
+            "/api/v1/agents/helper/channel/web/topics",
+            "/api/v1/agents/helper/channel/web/topic/t1/subagents",
+            "/api/v1/agents/helper/channel/web/topic/t1/chat/extra",
+            "/api/v1/agents//channel/web/topic/t1/chat",
+            "/api/v1/auth/api-keys",
+            "/api/v1/users",
+            "/api/v1/inbox/stream",
+        ] {
+            assert!(!scoped_key_may_reach(&caps(&["live_voice"]), path), "{path}");
         }
     }
 
     #[test]
-    fn a_scoped_key_carries_only_its_capabilities() {
-        let (permissions, scoped) =
-            key_permissions(Some(vec!["live_voice".into()]), owner_permissions());
-        assert!(scoped);
-        assert_eq!(permissions, vec!["live_voice".to_string()]);
-        // The point of the whole change: nothing of the owner's comes along.
-        assert!(!permissions.iter().any(|p| p == "users:manage"));
-        assert!(!permissions.iter().any(|p| p == "settings:api_keys"));
-    }
-
-    #[test]
-    fn a_key_without_capabilities_behaves_exactly_as_before() {
-        let (permissions, scoped) = key_permissions(None, owner_permissions());
-        assert!(!scoped, "an unscoped key is not scoped");
-        assert_eq!(permissions, owner_permissions(), "it still carries its owner's");
-        // Which means the settings page keeps working with no visible change.
-        assert!(permissions.iter().any(|p| p == "settings:api_keys"));
-    }
-
-    #[test]
-    fn an_empty_scope_carries_nothing() {
-        let (permissions, scoped) = key_permissions(Some(vec![]), owner_permissions());
-        assert!(scoped);
-        assert!(permissions.is_empty(), "an empty list is a key that may do nothing");
-    }
-
-    #[test]
-    fn a_scoped_key_is_refused_where_its_owner_is_allowed() {
-        // The owner may manage users; the scoped key may not, and `access::require` is where that
-        // is decided for every endpoint at once.
-        let scoped = principal(vec!["live_voice".into()], true, false);
-        assert!(access::require(&scoped, "users:manage").is_err());
-        assert!(access::require(&scoped, "settings:api_keys").is_err());
-        // Its own capability is allowed, which is what makes it useful at all.
-        assert!(access::require(&scoped, "live_voice").is_ok());
-
-        // And the unscoped key of the same owner keeps its access — no regression for the keys
-        // people already hold.
-        let full = principal(owner_permissions(), false, false);
-        assert!(access::require(&full, "users:manage").is_ok());
-    }
-
-    #[test]
-    fn a_scoped_key_of_an_administrator_is_still_not_a_system_caller() {
-        // Without this the scope would be a decoration: `require` short-circuits for system roles.
-        let scoped = principal(vec!["live_voice".into()], true, true);
-        assert!(access::require(&scoped, "users:manage").is_err());
-        assert!(access::require(&scoped, "live_voice").is_ok());
-
-        let full = principal(owner_permissions(), false, true);
-        assert!(access::require(&full, "users:manage").is_ok(), "a system key keeps everything");
+    fn a_scope_that_names_nothing_known_reaches_nothing() {
+        assert!(!scoped_key_may_reach(&caps(&[]), SOCKET));
+        assert!(!scoped_key_may_reach(&caps(&["users:manage"]), SOCKET));
     }
 }

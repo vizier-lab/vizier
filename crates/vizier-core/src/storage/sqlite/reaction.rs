@@ -8,7 +8,7 @@ use crate::{
         reaction::{Platform, ReactionStorage, Reactor},
         sqlite::{
             SqlStorage,
-            history::{fill_client_calls, fill_question_sets, fill_ui_pages, fill_reactions, parse_history_row},
+            history::{fill_client_calls, fill_question_sets, fill_reactions, fill_reply_audio, fill_ui_pages, parse_history_row},
         },
     },
 };
@@ -142,6 +142,25 @@ impl ReactionStorage for SqlStorage {
             .optional()?;
         with_reactions(&conn, row)
     }
+
+    async fn save_reply_audio(
+        &self,
+        history_uid: &str,
+        audio: &crate::schema::VizierAttachment,
+    ) -> Result<()> {
+        let conn = self.conn.lock()?;
+        conn.execute(
+            "INSERT INTO reply_audio (history_uid, attachment, added_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT (history_uid) DO UPDATE SET attachment = excluded.attachment,
+                 added_at = excluded.added_at",
+            params![
+                history_uid,
+                serde_json::to_string(audio)?,
+                crate::time::now().timestamp_millis()
+            ],
+        )?;
+        Ok(())
+    }
 }
 
 fn with_reactions(
@@ -155,6 +174,7 @@ fn with_reactions(
     fill_client_calls(conn, std::slice::from_mut(&mut entry))?;
     fill_question_sets(conn, std::slice::from_mut(&mut entry))?;
     fill_ui_pages(conn, std::slice::from_mut(&mut entry))?;
+    fill_reply_audio(conn, std::slice::from_mut(&mut entry))?;
     Ok(Some(entry))
 }
 
@@ -226,6 +246,51 @@ mod tests {
 
     fn emojis(reactions: &[ReactionEntry]) -> Vec<&str> {
         reactions.iter().map(|r| r.emoji.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_reply_with_a_recording_reads_as_an_audio_reply() {
+        let (storage, _dir) = setup();
+        let uid = reply(&storage).await;
+        let audio = crate::schema::VizierAttachment {
+            filename: "live_reply.wav".into(),
+            content: crate::schema::VizierAttachmentContent::Local("/files/x".into()),
+        };
+        storage.save_reply_audio(&uid, &audio).await.unwrap();
+        // Saving again replaces, never duplicates.
+        storage.save_reply_audio(&uid, &audio).await.unwrap();
+
+        let entry = storage.get_history_entry(&uid).await.unwrap().unwrap();
+        match entry.content {
+            SessionHistoryContent::Response(VizierResponse {
+                content: VizierResponseContent::AudioReply(att, text, _),
+                ..
+            }) => {
+                assert_eq!(att.filename, "live_reply.wav");
+                assert_eq!(text.as_deref(), Some("hello"), "the reply's text is the transcript");
+            }
+            other => panic!("expected an audio reply, got {other:?}"),
+        }
+
+        let listed = storage.list_session_history(session(), None, None, None).await.unwrap();
+        assert!(
+            listed.iter().any(|e| matches!(
+                &e.content,
+                SessionHistoryContent::Response(VizierResponse { content: VizierResponseContent::AudioReply(..), .. })
+            )),
+            "a list read fills it the same way"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_without_a_recording_stays_text() {
+        let (storage, _dir) = setup();
+        let uid = reply(&storage).await;
+        let entry = storage.get_history_entry(&uid).await.unwrap().unwrap();
+        assert!(matches!(
+            entry.content,
+            SessionHistoryContent::Response(VizierResponse { content: VizierResponseContent::Message { .. }, .. })
+        ));
     }
 
     #[tokio::test]

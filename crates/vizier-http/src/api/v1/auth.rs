@@ -144,10 +144,10 @@ pub struct ChangePasswordRequest {
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub expires_in_days: Option<i64>,
-    /// What the key may do (T109, FR-062). Absent — the default, and what the API keys page sends —
-    /// makes a key that carries its owner's permissions, exactly as every key did before scopes
-    /// existed. `["live_voice"]` makes a key that can open a live voice session and nothing else:
-    /// that is the key a third-party client should be handed.
+    /// Where the key may go (T109, FR-062). Absent, the default and what the API keys page sends,
+    /// makes a key that reaches everything its owner can, as every key did before scopes existed.
+    /// `["live_voice"]` makes a key that acts as its owner but reaches only the chat socket, for
+    /// live voice frames: the key a third-party voice client is handed. Unknown names are refused.
     pub capabilities: Option<Vec<String>>,
 }
 

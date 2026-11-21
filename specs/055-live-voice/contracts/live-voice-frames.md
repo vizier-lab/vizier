@@ -163,6 +163,18 @@ default), and the old session's running turn is cancelled on the normal abort pa
 into the new call (FR-052). A `live_voice_start` for the **same** conversation is still refused when
 another connection holds it (open question Q2's default).
 
+### `live_voice_heard`
+
+```json
+{ "live_voice": { "type": "heard", "utterance_id": "u-42", "filename": "u-42.wav", "url": "/api/v1/files/…" } }
+```
+
+Sent when an utterance closes and its recording has been stored, **before** recognition: the client
+draws it as a voice message straight away. The `transcript` frame for the same `utterance_id` fills
+its text; a `submitted: false` transcript or an `unintelligible`/`provider_failed` error means it was
+never sent and the client takes the bubble back. The turn that follows is an `AudioChat` request
+carrying this recording and its transcript (2026-11-21: audio is stored).
+
 ### `live_voice_transcript`
 
 ```json
@@ -468,6 +480,7 @@ to contain (`state` vs `utterance_id`+`text` vs `base64`), which a client cannot
 | `type` | Variant | Extra fields |
 |---|---|---|
 | `state` | state word of FR-006 | `state`, `generation`, `reason` |
+| `heard` | one utterance's recording, stored before recognition | `utterance_id`, `filename`, `url` |
 | `transcript` | one utterance's outcome | `utterance_id`, `text`, `submitted` |
 | `speech` | one synthesised segment | `generation`, `seq`, `sample_rate`, `format`, `base64`, `final` |
 | `stall` | the socket fell behind and audio was dropped (control lane) | `dropped` |
