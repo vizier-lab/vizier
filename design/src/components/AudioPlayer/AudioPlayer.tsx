@@ -1,7 +1,6 @@
 import { useState, type HTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
-import { DotLoader } from "../DotLoader/DotLoader";
 import { TextLink } from "../TextLink/TextLink";
 import { Waveform, sampleLevels } from "./Waveform";
 
@@ -16,11 +15,6 @@ export type AudioPlayerProps = {
   onSpeedChange?: (speed: number) => void;
   /** The spoken text; "Show transcript" reveals it. */
   transcript?: ReactNode;
-  /** The transcript is on its way (a live voice message just heard): "Transcribing" holds its place. */
-  transcribing?: boolean;
-  /** The recording is not here yet (a live voice reply still being spoken): the player waits, faint,
-   * with "Speaking" where the time goes; the transcript is already readable. */
-  pending?: boolean;
 } & HTMLAttributes<HTMLDivElement>;
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -36,8 +30,6 @@ export function AudioPlayer({
   speed = 1,
   onSpeedChange,
   transcript,
-  transcribing,
-  pending,
   className,
   ...rest
 }: AudioPlayerProps) {
@@ -49,41 +41,23 @@ export function AudioPlayer({
           type="button"
           aria-label={playing ? "Pause" : "Play"}
           onClick={() => onPlayingChange(!playing)}
-          disabled={pending}
-          className="flex size-28 shrink-0 items-center justify-center rounded-pill bg-ink text-ground enabled:hover:bg-ink-hover disabled:opacity-40"
+          className="flex size-28 shrink-0 items-center justify-center rounded-pill bg-ink text-ground hover:bg-ink-hover"
         >
           <Icon name={playing ? "square" : "play"} size={13} />
         </button>
-        <Waveform
-          levels={levels}
-          progress={duration ? position / duration : 0}
-          className={cx("min-w-0 flex-1 overflow-hidden", pending && "opacity-40")}
-        />
-        {pending ? (
-          <span role="status" className="flex shrink-0 items-center gap-4 type-small text-muted">
-            Speaking
-            <DotLoader />
-          </span>
-        ) : (
-          <span className="shrink-0 type-mono-xs text-faint">
-            {clock(position)} / {clock(duration)}
-          </span>
-        )}
-        {!pending && <button
+        <Waveform levels={levels} progress={duration ? position / duration : 0} className="min-w-0 flex-1 overflow-hidden" />
+        <span className="shrink-0 type-mono-xs text-faint">
+          {clock(position)} / {clock(duration)}
+        </span>
+        <button
           type="button"
           aria-label={`Speed ${speed}×`}
           onClick={() => onSpeedChange?.(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
           className="shrink-0 rounded-xs type-mono-xs text-muted hover:text-fg"
         >
           {speed}×
-        </button>}
+        </button>
       </div>
-      {!transcript && transcribing && (
-        <p role="status" className="flex items-center gap-4 type-small text-faint">
-          Transcribing
-          <DotLoader />
-        </p>
-      )}
       {transcript && (
         <>
           <div>

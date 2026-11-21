@@ -110,7 +110,6 @@ import {
   Plane,
   Lightbulb,
   AppWindow,
-  AudioLines,
   type LucideIcon,
 } from "lucide-react";
 
@@ -237,8 +236,6 @@ export const icons = {
   "plane": Plane,
   "lightbulb": Lightbulb,
   "app-window": AppWindow,
-  // Live voice (spec 055): the composer's Talk button and the call pill
-  "audio-lines": AudioLines,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof icons;
@@ -357,7 +354,6 @@ export const lucideNames: Record<IconName, string> = {
   "plane": "plane",
   "lightbulb": "lightbulb",
   "app-window": "app-window",
-  "audio-lines": "audio-lines",
 };
 
 export const iconNames = Object.keys(icons) as IconName[];
