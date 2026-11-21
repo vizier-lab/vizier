@@ -392,6 +392,85 @@ describe('questions the agent asked (spec 042)', () => {
     })
 })
 
+/**
+ * Chunk T — a live voice turn is submitted by the server, so this tab never sends it. Without a
+ * drawn stand-in the thread stayed empty until a refresh read it back.
+ */
+describe('a turn this tab did not send (live voice)', () => {
+    it('is drawn the moment it is heard', () => {
+        const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo apa kabar' })
+        expect(s.entries).toHaveLength(1)
+        expect(s.entries[0].content.Request?.content).toEqual({ chat: 'halo apa kabar' })
+        expect(s.entries[0].uid).toBe('live-req-t-1')
+        // It is a stand-in, not history: the stored request replaces it later.
+        expect(s.entries[0].serverUid).toBe(false)
+    })
+
+    it('is drawn once, however many times the transcript repeats', () => {
+        const s = run(
+            start(),
+            { type: 'adopt', id: 't-1', text: 'halo' },
+            { type: 'adopt', id: 't-1', text: 'halo' }
+        )
+        expect(s.entries).toHaveLength(1)
+    })
+
+    it('gives way to the stored request, so a refresh leaves one entry and not two', () => {
+        const drawn = run(start(), { type: 'adopt', id: 't-1', text: 'halo apa kabar' })
+        // The server stored the same words: same content, so `coveredByStored` matches.
+        const stored = entry('s-1', { Request: { timestamp: '2026-10-23T10:00:05Z', user: 'me', content: { chat: 'halo apa kabar' } } })
+        const after = run(drawn, { type: 'history', entries: [stored] })
+        expect(after.entries).toHaveLength(1)
+        expect(after.entries[0].uid).toBe('s-1')
+        expect(after.entries.some((e) => e.uid === 'live-req-t-1')).toBe(false)
+    })
+
+    it('shows the agent working, as a typed send does, and queues nothing', () => {
+        const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo' })
+        expect(s.phase, 'the activity trail says the agent is on it, not the call row').toBe('thinking')
+        expect(s.queued).toEqual([])
+    })
+
+    it('draws the recording first, and fills the transcript in when it arrives', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const drawn = heard.entries.find((e) => e.uid === 'live-req-u-1')!.content.Request!.content
+        expect(drawn).toEqual({ audio_chat: [audio, null] })
+
+        const said = run(heard, { type: 'adopt', id: 'u-1', text: 'halo' })
+        const entries = said.entries.filter((e) => e.uid === 'live-req-u-1')
+        expect(entries, 'the transcript fills the same bubble, it does not add one').toHaveLength(1)
+        expect(entries[0].content.Request!.content).toEqual({ audio_chat: [audio, 'halo'] })
+    })
+
+    it('takes back a recording that was never sent', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const gone = run(heard, { type: 'unadopt', id: 'u-1' })
+        expect(gone.entries.some((e) => e.uid === 'live-req-u-1')).toBe(false)
+        expect(gone.phase, 'nothing is running any more').toBe('idle')
+    })
+
+    it('leaves a turn already running as it is', () => {
+        const busy = run(start(), { type: 'send', id: '1', text: 'typed' }, response('thinking_start'))
+        const s = run(busy, { type: 'adopt', id: 't-1', text: 'spoken' })
+        expect(s.phase).toBe(busy.phase)
+    })
+
+    it('lands below a reply that was already on screen', () => {
+        const earlier = run(
+            start(),
+            { type: 'send', id: '1', text: 'first' },
+            response('thinking_start'),
+            response({ message: { content: 'an answer' } } as never)
+        )
+        const s = run(earlier, { type: 'adopt', id: 't-2', text: 'second, by voice' })
+        // Appended, not inserted: a stand-in never reorders what is already drawn.
+        expect(s.entries.at(-1)?.content.Request?.content).toEqual({ chat: 'second, by voice' })
+        expect(s.entries).toHaveLength(earlier.entries.length + 1)
+    })
+})
+
 describe('an error the conversation ended on', () => {
     const failed = (uid = 'e1') =>
         entry(uid, { Response: { timestamp: 't', content: { error: { kind: 'rate_limited', message: 'credit exhausted' } }, attachments: [] } } as ChatMessage['content'])

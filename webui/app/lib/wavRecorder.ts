@@ -14,6 +14,38 @@ export const WAV_SAMPLE_RATE = 16_000
  */
 export const WORKLET_URL = '/vizier-capture-worklet.js'
 
+/** One level per 60 ms of audio: a waveform bar per moment, as the composer draws it. */
+export const LEVEL_WINDOW = WAV_SAMPLE_RATE * 0.06
+
+/** The same scale live voice's meter uses: ordinary speech (0.10–0.15 RMS) reads as about half. */
+const LEVEL_GAIN = 4
+
+/**
+ * Turns the microphone's blocks into levels, 0 to 1, one per `LEVEL_WINDOW` samples. Pure, so the
+ * windowing is tested without a microphone.
+ */
+export class LevelMeter {
+    private sum = 0
+    private count = 0
+
+    constructor(private readonly window = LEVEL_WINDOW) {}
+
+    /** The levels this block completes (often none, sometimes one). */
+    push(block: Float32Array): number[] {
+        const out: number[] = []
+        for (let i = 0; i < block.length; i++) {
+            this.sum += block[i] * block[i]
+            this.count += 1
+            if (this.count >= this.window) {
+                out.push(Math.min(1, Math.sqrt(this.sum / this.count) * LEVEL_GAIN))
+                this.sum = 0
+                this.count = 0
+            }
+        }
+        return out
+    }
+}
+
 export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
     const buffer = new ArrayBuffer(44 + samples.length * 2)
     const view = new DataView(buffer)
@@ -47,6 +79,8 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
 export class WavRecorder {
     state: 'recording' | 'inactive' = 'recording'
     onstop: ((blob: Blob) => void) | null = null
+    /** Each new level of the microphone while recording, 0 to 1, every 60 ms. */
+    onlevel: ((level: number) => void) | null = null
 
     private constructor(
         private readonly stream: MediaStream,
@@ -62,14 +96,18 @@ export class WavRecorder {
             await context.audioWorklet.addModule(WORKLET_URL)
 
             const blocks: Float32Array[] = []
+            const meter = new LevelMeter()
             const node = new AudioWorkletNode(context, 'vizier-capture')
-            node.port.onmessage = (e: MessageEvent<Float32Array>) =>
+            const recorder = new WavRecorder(stream, context, node, blocks)
+            node.port.onmessage = (e: MessageEvent<Float32Array>) => {
                 blocks.push(e.data)
+                for (const level of meter.push(e.data)) recorder.onlevel?.(level)
+            }
 
             context.createMediaStreamSource(stream).connect(node)
             // A worklet only runs while it reaches the destination; it outputs silence.
             node.connect(context.destination)
-            return new WavRecorder(stream, context, node, blocks)
+            return recorder
         } catch (e) {
             void context.close()
             throw e

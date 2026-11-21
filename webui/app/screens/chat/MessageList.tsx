@@ -34,11 +34,11 @@ import { parseDelivery } from '../../lib/detached'
 import { splitDelivery } from '../../lib/subagents'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
-import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
+import { blockDurationMs, groupHistory, lastBlockOf, orderTurnsBySent, outcomeDurationMs } from '../../lib/trail'
 import { personName } from '../../lib/tasks'
 import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
-import { ReplyMedia } from './ReplyMedia'
+import { PendingAudio, ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
 import { DeliveryRow, Trail, WorkerUpdateRow } from './Trail'
 import { DetachedSource } from './detachedSource'
@@ -48,6 +48,10 @@ import { PlanCard } from './client/PlanCard'
 import { currentPrompt, markTime, promptIndex, waitingUid, withWaiting, type PromptMark } from '../../lib/prompts'
 
 type Props = {
+    /** A live voice call is running here (spec 055): its newest spoken reply draws as a waiting player. */
+    liveCall?: boolean
+    /** The call is speaking the newest reply now, so the reply's card plays along. */
+    liveSpeaking?: boolean
     /** The conversation, so a delivered script's row can read its record (spec 058). */
     topicId?: string
     state: TopicState
@@ -120,10 +124,10 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
+export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
-    const turns = useMemo(() => groupHistory(entries), [entries])
+    const turns = useMemo(() => orderTurnsBySent(groupHistory(entries)), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
     // The scroller as state too, so the scroll-bar measurement starts when the element attaches,
@@ -189,7 +193,16 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 name={byPlatformName && request.user ? personName(request.user) : 'You'}
                 seed={request.user || me?.username}
                 time={time(request.timestamp)}
-                attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
+                attachments={
+                    attachments.length ? (
+                        <ReplyMedia
+                            attachments={attachments}
+                            transcript={spoken ? text : undefined}
+                            // A drawn voice message with no text yet is still being recognised.
+                            transcribing={spoken && !text && e.uid.startsWith('live-')}
+                        />
+                    ) : undefined
+                }
             >
                 {/* A voice message's transcript sits behind "Show transcript" in its player. */}
                 {!spoken && text !== '' && <Markdown size="document" slashWords>{mentionsAsCode(text, mentioned)}</Markdown>}
@@ -203,6 +216,16 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         const text = content ? replyText(content) : null
         const attachments = replyAttachments(content, outcome?.content.Response?.attachments)
         const spoken = isAudioReply(content)
+        // A live voice reply whose recording is not kept yet: the same card from the start, waiting
+        // for its player, instead of text that turns into a card when the speaking ends.
+        const said = turn.request?.content.Request
+        const waitingForAudio =
+            !!liveCall &&
+            !spoken &&
+            !!text &&
+            turns[turns.length - 1]?.key === turn.key &&
+            !!said &&
+            (said.spoken === true || 'audio_chat' in said.content)
         const stats = content ? replyStats(content) : undefined
         if (stats?.provider && stats.model) prices.load(stats.provider, stats.model)
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
@@ -236,9 +259,10 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                         }
                     >
                         <div className="flex flex-col gap-16">
-                            {/* A spoken reply's transcript sits behind "Show transcript" in its player. */}
-                            {text != null && text !== '' && !spoken && <Markdown>{text}</Markdown>}
-                            <ReplyMedia attachments={attachments} transcript={text} />
+                            {/* A spoken reply's transcript is open in its player, read along as it is heard. */}
+                            {text != null && text !== '' && !spoken && !waitingForAudio && <Markdown>{text}</Markdown>}
+                            {waitingForAudio && text && <PendingAudio transcript={text} speaking={liveSpeaking} />}
+                            <ReplyMedia attachments={attachments} transcript={text} openTranscript />
                         </div>
                     </AgentReply>
                 )}

@@ -25,6 +25,8 @@ import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
+import { useLiveVoice } from '../screens/chat/useLiveVoice'
+import { LiveCallRow } from '../screens/chat/LiveCallRow'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
 import type { ModelOverride } from '../api/frames'
@@ -100,23 +102,33 @@ export default function Chat() {
 
     // The mic needs the agent's Speech-to-Text and "Ask for a spoken reply" its Text-to-Speech;
     // each is offered only once the agent is known to have it.
-    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean }>()
+    // A live voice call needs the agent's switch plus both halves (spec 055 FR-004): `live_voice`.
+    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean; liveVoice: boolean; endOfUtteranceMs?: number }>()
     useEffect(() => {
         let alive = true
         setVoice(undefined)
         getAgent(agentId)
             .then((detail) => {
-                if (alive) setVoice({ stt: detail.stt, tts: detail.tts })
+                if (alive)
+                    setVoice({
+                        stt: detail.stt,
+                        tts: detail.tts,
+                        liveVoice: detail.live_voice ?? false,
+                        endOfUtteranceMs: detail.live_voice_end_of_utterance_ms,
+                    })
             })
             .catch(() => {
-                /* offer both: the config read is not worth an error on the composer */
-                if (alive) setVoice({ stt: true, tts: true })
+                /* offer both: the config read is not worth an error on the composer. A call is not
+                   offered on a guess: it needs the server's word that the agent can hold one. */
+                if (alive) setVoice({ stt: true, tts: true, liveVoice: false })
             })
         return () => {
             alive = false
         }
     }, [agentId])
 
+
+    const call = useLiveVoice({ agentId, topicId, endOfUtteranceMs: voice?.endOfUtteranceMs })
 
     const [topics, setTopics] = useState<Topic[]>([])
     const userId = useSession((s) => s.user?.user_id)
@@ -403,6 +415,8 @@ export default function Chat() {
                 <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    liveCall={!!call.state && call.state !== 'ended' && call.state !== 'failed'}
+                    liveSpeaking={call.speaking}
                     topicId={topicId}
                     bottomInset={composerHeight}
                     onScrollbarWidth={setScrollbarWidth}
@@ -532,6 +546,21 @@ export default function Chat() {
                     >
                         <Composer
                             lifted
+                            onTalk={voice?.liveVoice && topicId && !call.state ? call.start : undefined}
+                            call={
+                                call.state && (
+                                    <LiveCallRow
+                                        aria-label="Live voice"
+                                        role="group"
+                                        state={call.state}
+                                        elapsedSeconds={call.elapsedSeconds}
+                                        reason={call.reason}
+                                        onEnd={call.end}
+                                        onRestart={call.start}
+                                        onDismiss={call.dismiss}
+                                    />
+                                )
+                            }
                             agentId={agentId}
                             agentName={agentName}
                             project={

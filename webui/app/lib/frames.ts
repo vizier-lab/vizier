@@ -95,6 +95,14 @@ export type Action =
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
     | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string; queue?: boolean }
+    /**
+     * A turn nobody in this tab started, drawn in the thread the moment it is heard (a live voice
+     * utterance). It is a stand-in like `send`'s: the stored request replaces it through
+     * `coveredByStored`, so a later history read leaves one entry and not two.
+     */
+    | { type: 'adopt'; id: string; text: string; now?: string; audio?: VizierAttachment }
+    /** A drawn live voice utterance that was never sent (too short, not understood): it goes. */
+    | { type: 'unadopt'; id: string }
     | { type: 'dequeue' }
     /** The server stored a request this page was drawing as waiting. */
     | { type: 'sent'; request: VizierRequestContent; timestamp?: string }
@@ -445,6 +453,50 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 stopped: false,
                 entries: mergeEntries(state.entries, [requestEntry(state, action.id, action.text, now, action.attachments)]),
             }
+        }
+
+        case 'adopt': {
+            // A live voice turn is submitted by the server, so this tab never sees a `send` and
+            // the thread stayed empty until a refresh read it back. Drawn as soon as it is heard:
+            // a voice message with its recording, its text filled in by a second `adopt` when the
+            // transcript arrives. The stored request replaces it (`coveredByStored`).
+            const now = action.now ?? new Date(0).toISOString()
+            const uid = `live-req-${action.id}`
+            const existing = state.entries.find((e) => e.uid === uid)
+            if (existing) {
+                const request = existing.content.Request
+                if (!request) return state
+                const content =
+                    'audio_chat' in request.content
+                        ? { audio_chat: [request.content.audio_chat[0], action.text || null] as [VizierAttachment, string | null] }
+                        : { chat: action.text }
+                return {
+                    ...state,
+                    entries: state.entries.map((e) =>
+                        e.uid === uid ? { ...e, content: { ...e.content, Request: { ...request, content } } } : e
+                    ),
+                }
+            }
+            const entry = requestEntry(state, action.id, action.text, now)
+            if (action.audio && entry.content.Request) {
+                entry.content.Request.content = { audio_chat: [action.audio, action.text || null] }
+            }
+            return {
+                ...state,
+                // The agent is working on it from here, as after a typed send: the activity trail,
+                // not the call row, says so (spec 055). A turn already running keeps its phase.
+                phase: state.phase === 'idle' ? 'thinking' : state.phase,
+                error: null,
+                entries: mergeEntries(state.entries, [entry]),
+            }
+        }
+
+        case 'unadopt': {
+            const uid = `live-req-${action.id}`
+            if (!state.entries.some((e) => e.uid === uid)) return state
+            const entries = state.entries.filter((e) => e.uid !== uid)
+            const runs = entries.some((e) => e.uid.startsWith('live-req-'))
+            return { ...state, entries, phase: !runs && state.phase === 'thinking' ? 'idle' : state.phase }
         }
 
         case 'dequeue': {

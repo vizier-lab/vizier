@@ -8,7 +8,7 @@ import {
     VoiceRecorder,
     type SkillMenuItem,
 } from '@vizier/design'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api/client'
 import {
     listProjectSkills,
@@ -54,6 +54,10 @@ type Props = {
     sttEnabled: boolean
     /** The agent has Text-to-Speech, so "Ask for a spoken reply" is offered. */
     ttsEnabled: boolean
+    /** Starts a live voice call (spec 055): Send shows the voice icon while nothing is typed. */
+    /** A live voice call's row, drawn above the text (spec 055). */
+    call?: ReactNode
+    onTalk?: () => void
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -90,11 +94,16 @@ function BusyHint() {
     return <>Enter adds to the current turn · {mac ? '⌘↵' : 'Ctrl+Enter'} queues it</>
 }
 
+/** How many levels the recorder keeps: more than the widest composer has bars (a bar is 4px). */
+const MAX_LEVELS = 400
+
 export function Composer({
     agentId,
     agentName,
     sttEnabled,
     ttsEnabled,
+    onTalk,
+    call,
     busy,
     disabledReason,
     context,
@@ -119,6 +128,8 @@ export function Composer({
         blob?: Blob
     } | null>(null)
     const [spoken, setSpoken] = useState(false)
+    // The microphone while recording, newest last: the recorder's waveform moves with the voice.
+    const [levels, setLevels] = useState<number[]>([])
     // Plan/Build belongs to the chat, not to the composer's text; a switch applies next turn.
     const [mode, setMode] = useState<ProjectMode>(project?.mode ?? 'plan')
     useEffect(() => setMode(project?.mode ?? 'plan'), [project?.mode])
@@ -316,6 +327,8 @@ export function Composer({
                 throw e
             }
             recorder.current = rec
+            setLevels([])
+            rec.onlevel = (level) => setLevels((all) => [...all.slice(-(MAX_LEVELS - 1)), level])
             rec.onstop = (blob) => {
                 stopTimer()
                 setVoice((v) => (v ? { ...v, mode: 'recorded', blob } : v))
@@ -435,6 +448,7 @@ export function Composer({
                         <VoiceRecorder
                             mode={voice.mode}
                             elapsed={voice.elapsed}
+                            levels={voice.mode === 'recording' ? levels : undefined}
                             onDiscard={discardVoice}
                             playing={playing}
                             progress={progress}
@@ -475,6 +489,8 @@ export function Composer({
                         </Tooltip>
                     )
                 }
+                onTalk={onTalk}
+                call={call}
                 beforeSend={
                     project && (
                         <FilterTabs<ProjectMode>

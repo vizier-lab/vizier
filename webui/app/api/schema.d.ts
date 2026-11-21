@@ -1952,6 +1952,8 @@ export interface components {
                 image_gen: boolean;
                 image_gen_settings?: components["schemas"]["ImageGenToolSettings"] | null;
                 indexer?: components["schemas"]["IndexerConfig"] | null;
+                /** Whether this agent can hold a live voice session (spec 055 FR-004). */
+                live_voice: boolean;
                 /** Format: int64 */
                 max_tokens?: number | null;
                 model: string;
@@ -3638,6 +3640,8 @@ export interface components {
             image_gen: boolean;
             image_gen_settings?: components["schemas"]["ImageGenToolSettings"] | null;
             indexer?: components["schemas"]["IndexerConfig"] | null;
+            /** Whether this agent can hold a live voice session (spec 055 FR-004). */
+            live_voice: boolean;
             /** Format: int64 */
             max_tokens?: number | null;
             model: string;
