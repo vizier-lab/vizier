@@ -6,6 +6,7 @@ import { useDismiss } from "../../lib/dismiss";
 import { SkillMenu, type SkillMenuItem } from "../SkillMenu/SkillMenu";
 import { MentionMenu, type MentionMenuItem } from "../MentionMenu/MentionMenu";
 import { Presence } from "../../lib/Motion";
+import { Tooltip } from "../Tooltip/Tooltip";
 
 /** A trigger menu the host drives while the person types after "@" (files of a project chat). */
 export type ComposerSuggest = {
@@ -48,10 +49,17 @@ export type ComposerProps = {
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
   voice?: ReactNode;
+  /** A live voice call's `CallRow`, above the text: typing stays possible during a call. */
+  call?: ReactNode;
   /** In the tool row after Attach, "/" and the mic: a host's own toggle, e.g. a spoken reply. */
   afterTools?: ReactNode;
   /** In the right group, just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
   beforeSend?: ReactNode;
+  /**
+   * Starts a live voice call (spec 055). Given, Send shows the voice icon while there is nothing to
+   * send, and turns back into Send as soon as there is. Leave it out for an agent with no voice.
+   */
+  onTalk?: () => void;
   /** Laid over the input box exactly (a DropZone overlay while files are dragged in). */
   overlay?: ReactNode;
   /** The agent's skills, for the slash menu. */
@@ -88,8 +96,10 @@ export function Composer({
   mic = true,
   recording,
   voice,
+  call,
   afterTools,
   beforeSend,
+  onTalk,
   overlay,
   skills = [],
   suggest = null,
@@ -120,6 +130,7 @@ export function Composer({
   // While the agent works, typing something turns Stop back into Send: the message queues.
   const canSend = !disabled && hasContent;
   const showStop = busy && !hasContent;
+  const showTalk = !!onTalk && !busy && !disabled && !hasContent;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (suggest && suggestOpen) {
@@ -207,6 +218,7 @@ export function Composer({
             disabled ? "border-border" : "border-border-strong focus-within:border-live",
           )}
         >
+          {call}
           {attachments && <div className="flex flex-wrap gap-6">{attachments}</div>}
           {voice ?? (
             <textarea
@@ -278,6 +290,17 @@ export function Composer({
               >
                 <span aria-hidden className="size-10 rounded-xs bg-ground" />
               </button>
+            ) : showTalk ? (
+              <Tooltip label="Live voice">
+                <button
+                  type="button"
+                  aria-label="Start live voice"
+                  onClick={onTalk}
+                  className="flex size-34 items-center justify-center rounded-pill bg-ink text-ground hover:bg-ink-hover active:bg-ink-pressed"
+                >
+                  <Icon name="audio-lines" size={16} />
+                </button>
+              </Tooltip>
             ) : (
               <button
                 type="button"

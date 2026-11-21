@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AudioPlayer } from "./AudioPlayer";
 
 const meta = {
@@ -29,3 +29,28 @@ export const Paused: Story = {
 };
 
 export const Playing: Story = { args: { playing: true, position: 28 } };
+
+/** A live voice message just heard: the recording plays at once, the transcript is on its way. */
+export const Transcribing: Story = { args: { transcribing: true, transcript: undefined, position: 0, duration: 3 } };
+
+/** A live voice reply still being spoken: the recording is not here yet, the transcript already is. */
+export const Pending: Story = { args: { pending: true, transcript: "Two meetings tomorrow: stand-up at 9:30 and the vendor call at 11.", position: 0, duration: 0 } };
+
+/** A live voice reply as it is spoken: the waveform plays along with the voice, the transcript is open to read along. */
+export const Speaking: Story = {
+  args: { pending: true, live: true, defaultShowTranscript: true, duration: 0 },
+  render: function Render(args) {
+    const [levels, setLevels] = useState<number[]>([]);
+    const [seconds, setSeconds] = useState(0);
+    useEffect(() => {
+      let t = 0;
+      const id = setInterval(() => {
+        t += 1;
+        setLevels((all) => [...all.slice(-399), t % 40 > 34 ? 0.03 : 0.25 + 0.6 * Math.random() * Math.abs(Math.sin(t / 2.5))]);
+        setSeconds((s) => s + 0.06);
+      }, 60);
+      return () => clearInterval(id);
+    }, []);
+    return <AudioPlayer {...args} levels={levels} position={seconds} />;
+  },
+};
