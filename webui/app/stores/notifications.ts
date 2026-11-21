@@ -45,6 +45,12 @@ type NotificationStore = {
     viewing: string | null
     /** Moves to a page; opening a conversation reads it. */
     setViewing: (path: string) => void
+    /**
+     * Bumped when the server says the listings may be stale (`resync`, or a conversation created
+     * out of turn): a view built from a listing — the sidebar's conversations — reads it as its
+     * cue to look again, instead of waiting for its slow poll.
+     */
+    staleTick: number
     /** Replies not yet read, per conversation: the counts on the rail and the session rows. */
     chats: ChatUnread[]
     /** Re-reads `chats`. `readOpen` also reads the conversation on screen (a page just opened on it). */
@@ -135,6 +141,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
     },
 
     chats: [],
+    staleTick: 0,
 
     loadChats: async (readOpen = false) => {
         const asked = ++chatsAsked
@@ -293,6 +300,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
                 useAgents.getState().clearSetup(frame.agent_id)
                 break
             case 'resync':
+                set({ staleTick: s.staleTick + 1 })
                 void get().catchUp()
                 void get().loadChats()
                 useProjects.getState().reloadWatchedLsp()
@@ -370,6 +378,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
             primed: false,
             arrived: [],
             viewing: null,
+            staleTick: 0,
         })
         // The previous person's setup progress must not flash either.
         useAgents.getState().resetSetups()
