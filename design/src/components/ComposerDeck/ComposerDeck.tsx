@@ -32,8 +32,6 @@ export type ComposerDeckProps = {
   sheet?: (item: StatusStripItem, onClose: () => void) => ReactNode;
   /** An aside that takes the pressed slot and the sheet, e.g. `/btw`. Wins over `open`. */
   aside?: ComposerDeckAside | null;
-  /** Ahead of the strip, never opening the deck: a live voice call's `CallPill`. */
-  lead?: ReactNode;
   /** At the right end of the header: the model picker, or a host's own status such as a branch. */
   trailing?: ReactNode;
   /** The composer: the front panel. */
@@ -55,7 +53,7 @@ export type ComposerDeckProps = {
  * sections glides between the two heights while the new section fades in. With reduced
  * motion the height snaps and only the fades remain.
  */
-export function ComposerDeck({ items, open, onOpenChange, sheet, aside, lead, trailing, children, className }: ComposerDeckProps) {
+export function ComposerDeck({ items, open, onOpenChange, sheet, aside, trailing, children, className }: ComposerDeckProps) {
   const deck = useRef<HTMLDivElement>(null);
   const indicator = `deck-tab-${useId()}`;
   const active = aside ? null : (items.find((i) => i.id === open) ?? null);
@@ -114,7 +112,6 @@ export function ComposerDeck({ items, open, onOpenChange, sheet, aside, lead, tr
               {aside.note && <span className="type-small text-muted whitespace-nowrap">{aside.note}</span>}
             </span>
           )}
-          {lead}
           {/* The strip never shrinks, so the open item is never pushed out of sight; the trailing
               slot (the model picker) takes what is left and truncates. */}
           <div className="flex shrink-0 items-center gap-4">

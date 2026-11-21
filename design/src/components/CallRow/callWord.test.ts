@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callWord } from "./CallPill";
+import { callWord } from "./CallRow";
 
 describe("callWord", () => {
   it("names every state in plain English", () => {

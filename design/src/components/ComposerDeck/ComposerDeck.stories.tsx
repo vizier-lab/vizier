@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Composer } from "../Composer/Composer";
 import { StatusPanel } from "../StatusStrip/StatusPanel";
 import type { StatusStripItem, StatusStripItemId } from "../StatusStrip/StatusStrip";
-import { CallPill, type CallState } from "../CallPill/CallPill";
+import { CallRow, type CallState } from "../CallRow/CallRow";
 import { ComposerDeck, type ComposerDeckAside } from "./ComposerDeck";
 
 const items: StatusStripItem[] = [
@@ -122,22 +122,25 @@ export const ProjectOpen: Story = { args, render: () => <Demo project initial="l
 export const SideChat: Story = { args, render: () => <Demo aside /> };
 
 /**
- * Live voice (spec 055): with nothing typed, Send shows the voice icon. A call is a pill in the
- * lip, ahead of the strip, and never opens the deck; End puts the pill in its ended form.
+ * Live voice (spec 055): with nothing typed, Send shows the voice icon. A call is a row in the
+ * composer above the text, drawn like the recorder, and never opens the deck; the lip keeps only
+ * the strip. End puts the row in its ended form.
  */
 function LiveVoiceDemo({ initial }: { initial: CallState | null }) {
   const [call, setCall] = useState<CallState | null>(initial);
   const [value, setValue] = useState("");
-  const [level, setLevel] = useState(0.4);
+  const [levels, setLevels] = useState<number[]>([]);
   const [seconds, setSeconds] = useState(42);
   const running = call !== null && call !== "ended" && call !== "failed";
   useEffect(() => {
     if (!running) return;
-    const t = setInterval(() => {
-      setLevel(Math.random());
-      setSeconds((s) => s + 0.2);
-    }, 200);
-    return () => clearInterval(t);
+    let t = 0;
+    const id = setInterval(() => {
+      t += 1;
+      setLevels((all) => [...all.slice(-399), t % 50 > 40 ? 0.02 : 0.2 + 0.7 * Math.random() * Math.abs(Math.sin(t / 3))]);
+      setSeconds((s) => s + 0.06);
+    }, 60);
+    return () => clearInterval(id);
   }, [running]);
   return (
     <Stage>
@@ -145,19 +148,6 @@ function LiveVoiceDemo({ initial }: { initial: CallState | null }) {
         items={items}
         open={null}
         onOpenChange={() => {}}
-        lead={
-          call && (
-            <CallPill
-              state={call}
-              level={level}
-              elapsedSeconds={seconds}
-              reason={call === "ended" ? "you ended the call" : undefined}
-              onEnd={() => setCall("ended")}
-              onRestart={() => (setSeconds(0), setCall("listening"))}
-              onDismiss={() => setCall(null)}
-            />
-          )
-        }
         trailing={<span className="truncate px-6 type-mono-xs text-muted">openrouter/deepseek/deepseek-v4.1-flash ⌄</span>}
       >
         <Composer
@@ -165,10 +155,23 @@ function LiveVoiceDemo({ initial }: { initial: CallState | null }) {
           value={value}
           onValueChange={setValue}
           onSend={() => setValue("")}
-          onTalk={running ? undefined : () => (setSeconds(0), setCall("listening"))}
+          onTalk={running ? undefined : () => (setSeconds(0), setLevels([]), setCall("listening"))}
           onAttach={() => {}}
           lifted
           context={{ used: 21000, window: 200000 }}
+          call={
+            call && (
+              <CallRow
+                state={call}
+                levels={levels}
+                elapsedSeconds={seconds}
+                reason={call === "ended" ? "you ended the call" : undefined}
+                onEnd={() => setCall("ended")}
+                onRestart={() => (setSeconds(0), setLevels([]), setCall("listening"))}
+                onDismiss={() => setCall(null)}
+              />
+            )
+          }
         />
       </ComposerDeck>
     </Stage>
@@ -178,7 +181,7 @@ function LiveVoiceDemo({ initial }: { initial: CallState | null }) {
 /** No call yet: Send shows the voice icon until something is typed. */
 export const LiveVoiceIdle: Story = { args, render: () => <LiveVoiceDemo initial={null} /> };
 
-/** A call listening, in the lip ahead of the strip. */
+/** A call listening: a row in the composer, above the text. */
 export const LiveVoiceCall: Story = { args, render: () => <LiveVoiceDemo initial="listening" /> };
 
 /** The agent is answering: the reply is spoken, the deck stays closed. */
@@ -193,10 +196,19 @@ export const LiveVoiceFailed: Story = {
         items={items}
         open={null}
         onOpenChange={() => {}}
-        lead={<CallPill state="failed" reason="microphone blocked" onRestart={() => {}} onDismiss={() => {}} />}
         trailing={<span className="truncate px-6 type-mono-xs text-muted">openrouter/deepseek/deepseek-v4.1-flash ⌄</span>}
       >
-        <Composer agentName="talos" value="" onValueChange={() => {}} onSend={() => {}} onTalk={() => {}} onAttach={() => {}} lifted context={{ used: 21000, window: 200000 }} />
+        <Composer
+          agentName="talos"
+          value=""
+          onValueChange={() => {}}
+          onSend={() => {}}
+          onTalk={() => {}}
+          onAttach={() => {}}
+          lifted
+          context={{ used: 21000, window: 200000 }}
+          call={<CallRow state="failed" reason="microphone blocked" onRestart={() => {}} onDismiss={() => {}} />}
+        />
       </ComposerDeck>
     </Stage>
   ),

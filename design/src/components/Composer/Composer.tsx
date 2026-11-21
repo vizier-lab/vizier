@@ -49,6 +49,8 @@ export type ComposerProps = {
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
   voice?: ReactNode;
+  /** A live voice call's `CallRow`, above the text: typing stays possible during a call. */
+  call?: ReactNode;
   /** In the tool row after Attach, "/" and the mic: a host's own toggle, e.g. a spoken reply. */
   afterTools?: ReactNode;
   /** In the right group, just left of Send: a host's own switch, e.g. a chat's Plan/Build mode. */
@@ -94,6 +96,7 @@ export function Composer({
   mic = true,
   recording,
   voice,
+  call,
   afterTools,
   beforeSend,
   onTalk,
@@ -215,6 +218,7 @@ export function Composer({
             disabled ? "border-border" : "border-border-strong focus-within:border-live",
           )}
         >
+          {call}
           {attachments && <div className="flex flex-wrap gap-6">{attachments}</div>}
           {voice ?? (
             <textarea
