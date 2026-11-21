@@ -143,9 +143,8 @@ pub struct CreateAgentRequest {
 /// `enabled: false`, so every API call was ignored and `agent_detail` reported `live_voice: false`
 /// no matter what anyone asked for.
 ///
-/// `settings` is the same [`LiveVoiceSettings`] the config stores, so a body can carry the whole
-/// block or just `{"enabled": true}` — the latter means "use this agent's own stt/tts settings",
-/// which is what the field's `Default` already says.
+/// `settings` is the same [`LiveVoiceSettings`] the config stores: the call's timings. The
+/// recogniser and voice are always the agent's own `stt` / `tts`.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct LiveVoiceInput {
@@ -498,8 +497,8 @@ pub fn has_voice(config: &AgentConfig) -> bool {
 }
 
 /// Whether this agent offers a live voice call (spec 055). There is no switch of its own: an agent
-/// that can both hear and speak can hold a call. `tools.live_voice` keeps the call's timings and
-/// optional provider overrides; its `enabled` flag is no longer read (#82).
+/// that can both hear and speak can hold a call. `tools.live_voice` keeps the call's timings; its
+/// `enabled` flag is no longer read (#82).
 pub fn live_voice_available(config: &AgentConfig) -> bool {
     has_recogniser(config) && has_voice(config)
 }
@@ -545,9 +544,8 @@ pub async fn detail(
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
 
-    // FR-004: the session is offered only when the agent can actually hear and speak. Each half is
-    // its own setting when the live voice block names one, and otherwise the agent's speech tool
-    // setting — "configured" in the same sense the detail already reports for `stt` / `tts`.
+    // FR-004: the session is offered only when the agent can actually hear and speak: its
+    // Speech-to-Text and Text-to-Speech are both on.
     let has_recogniser = has_recogniser(&config);
     let has_voice = has_voice(&config);
     let missing = live_voice_missing(&config);
@@ -688,6 +686,11 @@ pub async fn create(
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
+/// What a live voice call hears and speaks through, to tell whether a save changed it.
+fn speech_of(config: &AgentConfig) -> serde_json::Value {
+    serde_json::json!([config.tools.stt, config.tools.tts])
+}
+
 pub async fn update(
     s: &Services,
     who: &Principal,
@@ -713,9 +716,11 @@ pub async fn update(
     }
     merge_live_voice(&mut config, live_voice, &existing);
 
+    let speech_before = speech_of(&existing);
     config.owner_id = existing.owner_id;
     config.shared_to = existing.shared_to;
     let saved = config.clone();
+    let speech_changed = speech_before != speech_of(&saved);
 
     let agent_id = agent_id.to_string();
     let summary = s
@@ -724,6 +729,11 @@ pub async fn update(
         .update(&agent_id, config)
         .await
         .map_err(command_error)?;
+    // A call that is running hears and speaks through the agent's new settings from its next
+    // utterance, rather than the ones it started with.
+    if speech_changed {
+        s.deps().live_voice.follow_agent(s.deps(), &agent_id, &saved).await;
+    }
     Ok(saved_with_warnings(s, &saved, summary).await)
 }
 
@@ -1247,14 +1257,28 @@ mod live_voice_input_tests {
     }
 
     #[test]
-    fn saving_an_agent_without_the_block_keeps_its_overrides() {
+    fn a_new_speech_model_is_a_speech_change_and_a_rename_is_not() {
+        let before = body(serde_json::json!({ "stt": true, "tts": true })).into_config();
+        let mut renamed = before.clone();
+        renamed.name = "someone else".into();
+        assert_eq!(speech_of(&before), speech_of(&renamed));
+        let mut new_model = before.clone();
+        new_model.tools.stt.settings.model = Some("whisper-large-v3".into());
+        assert_ne!(speech_of(&before), speech_of(&new_model));
+        let mut new_voice = before.clone();
+        new_voice.tools.tts.settings.voice = Some("alloy".into());
+        assert_ne!(speech_of(&before), speech_of(&new_voice));
+    }
+
+    #[test]
+    fn saving_an_agent_without_the_block_keeps_its_timings() {
         // The agent form does not send the block: a save must keep the call's own settings.
         let stored = body(serde_json::json!({
-            "live_voice": { "enabled": true, "settings": { "stt": { "provider": "groq" }, "tts": { "provider": "openai" } } }
+            "live_voice": { "enabled": true, "settings": { "idle_stop_seconds": 30 } }
         }))
         .into_config();
         let mut incoming = body(serde_json::json!({ "fetch": true })).into_config();
         merge_live_voice(&mut incoming, None, &stored);
-        assert_eq!(incoming.tools.live_voice.settings.stt.as_ref().unwrap().provider, SttProvider::Groq);
+        assert_eq!(incoming.tools.live_voice.settings.idle_stop_seconds, 30);
     }
 }

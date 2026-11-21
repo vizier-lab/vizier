@@ -225,15 +225,13 @@ pub const OLD_END_OF_UTTERANCE_MS: u32 = 800;
 
 /// The live voice session's settings (`specs/055-live-voice` data model §5).
 ///
-/// Both speech fields are `None` by default, and `None` means "use this agent's own `stt` / `tts`
-/// settings, whatever their tool flags say": those flags gate the *tools*, not the session
-/// (FR-003, FR-036a). The three numbers are the spec's defaults, exposed so the plan's budgets can
-/// be tuned without a rebuild.
+/// A call hears and speaks through the agent's own `stt` / `tts` settings; it has no recogniser or
+/// voice of its own. A row saved with the `stt`/`tts` keys an earlier draft had still loads (unknown
+/// keys are ignored) and drops them on its next save. The three numbers are the spec's defaults,
+/// exposed so the plan's budgets can be tuned without a rebuild.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct LiveVoiceSettings {
-    pub stt: Option<SttToolSettings>,
-    pub tts: Option<TtsToolSettings>,
     /// FR-029: a session with no utterance for this long ends itself.
     pub idle_stop_seconds: u64,
     /// FR-010: one utterance is capped here; the server enforces it.
@@ -245,8 +243,6 @@ pub struct LiveVoiceSettings {
 impl Default for LiveVoiceSettings {
     fn default() -> Self {
         Self {
-            stt: None,
-            tts: None,
             idle_stop_seconds: 180,
             max_utterance_seconds: 60,
             end_of_utterance_ms: END_OF_UTTERANCE_MS,
@@ -624,8 +620,6 @@ mod media_provider_tests {
         assert_eq!(without.live_voice.settings.idle_stop_seconds, 180);
         assert_eq!(without.live_voice.settings.max_utterance_seconds, 60);
         assert_eq!(without.live_voice.settings.end_of_utterance_ms, END_OF_UTTERANCE_MS);
-        assert!(without.live_voice.settings.stt.is_none());
-        assert!(without.live_voice.settings.tts.is_none());
 
         let partial: AgentToolsConfig = serde_json::from_str(
             r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"idle_stop_seconds": 30}}}"#,
@@ -641,14 +635,14 @@ mod media_provider_tests {
         assert!(!partial.stt.enabled);
         assert!(!partial.tts.enabled);
 
-        // An agent with a recogniser named for the session keeps it, and the tool flag is untouched.
-        let explicit: AgentToolsConfig = serde_json::from_str(
-            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"stt": {"provider": "openrouter", "language": "id"}}}}"#,
+        // A row saved with the old per-call recogniser still loads; the keys are dropped.
+        let old: AgentToolsConfig = serde_json::from_str(
+            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"stt": {"provider": "openrouter"}, "idle_stop_seconds": 30}}}"#,
         )
         .unwrap();
-        let stt = explicit.live_voice.settings.stt.as_ref().unwrap();
-        assert_eq!(stt.provider, SttProvider::Openrouter);
-        assert_eq!(stt.language.as_deref(), Some("id"));
+        assert_eq!(old.live_voice.settings.idle_stop_seconds, 30);
+        let saved = serde_json::to_string(&old.live_voice.settings).unwrap();
+        assert!(!saved.contains("stt"), "{saved}");
     }
 
     #[test]

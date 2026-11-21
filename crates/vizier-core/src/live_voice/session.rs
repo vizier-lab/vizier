@@ -46,8 +46,8 @@ pub struct LiveVoiceSession {
     /// Who may end it; everybody else is told it is active (FR-005).
     pub owner: String,
     /// The agent's own language, so recognition is asked in the language it is configured for
-    /// (FR-037).
-    pub language: Option<String>,
+    /// (FR-037). Replaced with the engines when the agent's speech settings change.
+    language: Mutex<Option<String>>,
     pub settings: LiveVoiceSettings,
     state: Mutex<SessionState>,
     /// Bumped by every interruption; every audio frame carries it and both sides drop anything
@@ -97,7 +97,7 @@ impl LiveVoiceSession {
         Arc::new(Self {
             session,
             owner,
-            language,
+            language: Mutex::new(language),
             settings,
             state: Mutex::new(SessionState::Connecting),
             generation,
@@ -122,9 +122,21 @@ impl LiveVoiceSession {
         *self.storage.lock() = Some(storage);
     }
 
-    /// Attach the engines once, at start.
+    /// Attach the engines at start.
     pub fn set_engines(&self, engines: SharedEngines) {
         *self.engines.lock() = Some(engines);
+    }
+
+    /// The language recognition is asked in.
+    pub fn language(&self) -> Option<String> {
+        self.language.lock().clone()
+    }
+
+    /// Hear and speak through other engines from the next utterance on: the agent's speech
+    /// settings changed while the call ran. A reply already being spoken finishes in the old voice.
+    pub fn replace_speech(&self, engines: SharedEngines, language: Option<String>) {
+        *self.engines.lock() = Some(engines);
+        *self.language.lock() = language;
     }
 
     pub fn engines(&self) -> Option<SharedEngines> {
@@ -864,6 +876,60 @@ impl LiveVoiceSessions {
                 drop(map);
                 new.touch("start");
                 Ok(new)
+            }
+        }
+    }
+
+    /// Every running call with this agent.
+    pub fn of_agent(&self, agent_id: &str) -> Vec<(VizierSession, Arc<LiveVoiceSession>)> {
+        self.map
+            .lock()
+            .iter()
+            .filter(|(conversation, session)| conversation.0 == agent_id && !session.is_stopped())
+            .map(|(conversation, session)| (conversation.clone(), session.clone()))
+            .collect()
+    }
+
+    /// The agent was saved with other speech settings: its running calls hear and speak through
+    /// the new ones from their next utterance, and end (`agent_changed`) when the agent can no
+    /// longer hear and speak or the new engines cannot start.
+    pub async fn follow_agent(
+        &self,
+        deps: &crate::dependencies::VizierDependencies,
+        agent_id: &str,
+        config: &crate::schema::agent::AgentConfig,
+    ) {
+        let calls = self.of_agent(agent_id);
+        if calls.is_empty() {
+            return;
+        }
+        let engines = if crate::service::agents::live_voice_available(config) {
+            match crate::live_voice::CascadeEngines::new(
+                &config.tools.stt.settings,
+                &config.tools.tts.settings,
+                deps,
+                &deps.config.workspace,
+                agent_id,
+            )
+            .await
+            {
+                Ok(engines) => Some(Arc::new(engines) as SharedEngines),
+                Err(e) => {
+                    tracing::warn!(%agent_id, "live voice could not switch to the new speech settings: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        for (conversation, session) in calls {
+            match &engines {
+                Some(engines) => {
+                    session.replace_speech(engines.clone(), config.tools.stt.settings.language.clone())
+                }
+                None => {
+                    self.end_one(&conversation, &session, EndReason::AgentChanged).await;
+                }
             }
         }
     }

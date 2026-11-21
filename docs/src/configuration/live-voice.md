@@ -91,8 +91,8 @@ quiet voice — the only way to stop a reply is `End`.
 
 | Leg | Where it goes |
 |---|---|
-| Your microphone | The recogniser configured on the agent (`stt_settings`, or the `live_voice` override) |
-| The reply's text | The voice configured on the agent (`tts_settings`, or the `live_voice` override) |
+| Your microphone | The recogniser configured on the agent (`stt_settings`) |
+| The reply's text | The voice configured on the agent (`tts_settings`) |
 | The audio itself | The conversation's own WebSocket, as base64 PCM16 — 16 kHz, mono, 100 ms per chunk |
 
 The sound travels on the connection the conversation already has: no second connection, no relay
@@ -157,8 +157,8 @@ mono, in 100 ms chunks; a client that declares anything else is refused rather t
 
 | Reason in the pill | What to fix |
 |---|---|
-| `no recogniser set up` | Add `stt_settings` (or a `live_voice` `stt` override) |
-| `no voice set up` | Add `tts_settings` (or a `live_voice` `tts` override) |
+| `no recogniser set up` | Turn on Speech-to-Text |
+| `no voice set up` | Turn on Text-to-Speech |
 | `microphone is blocked` | The browser refused the microphone; allow it and press *Start again* |
 | `no microphone found` | No input device, or the browser has none to offer |
 | `microphone was taken away` | Permission withdrawn mid-call; grant it and press *Start again* |

@@ -31,11 +31,7 @@ pub struct CascadeEngines {
 }
 
 impl CascadeEngines {
-    /// Build from the session's settings, falling back to the agent's own speech settings.
-    ///
-    /// A live voice block that names its own recogniser or voice wins; otherwise the agent's
-    /// `stt` / `tts` settings are used whatever their tool flags say (FR-036a) — those flags gate
-    /// the *tools*, and this is not a tool.
+    /// Build from the agent's own Speech-to-Text and Text-to-Speech settings.
     pub async fn new(
         stt: &SttToolSettings,
         tts: &TtsToolSettings,
