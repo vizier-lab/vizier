@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Composer } from "../Composer/Composer";
 import { StatusPanel } from "../StatusStrip/StatusPanel";
 import type { StatusStripItem, StatusStripItemId } from "../StatusStrip/StatusStrip";
+import { CallPill, type CallState } from "../CallPill/CallPill";
 import { ComposerDeck, type ComposerDeckAside } from "./ComposerDeck";
 
 const items: StatusStripItem[] = [
@@ -119,3 +120,84 @@ export const ProjectOpen: Story = { args, render: () => <Demo project initial="l
 
 /** `/btw`: the aside takes the pressed slot and the sheet. Pressing a strip item closes it. */
 export const SideChat: Story = { args, render: () => <Demo aside /> };
+
+/**
+ * Live voice (spec 055): with nothing typed, Send shows the voice icon. A call is a pill in the
+ * lip, ahead of the strip, and never opens the deck; End puts the pill in its ended form.
+ */
+function LiveVoiceDemo({ initial }: { initial: CallState | null }) {
+  const [call, setCall] = useState<CallState | null>(initial);
+  const [value, setValue] = useState("");
+  const [level, setLevel] = useState(0.4);
+  const [seconds, setSeconds] = useState(42);
+  const running = call !== null && call !== "ended" && call !== "failed";
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => {
+      setLevel(Math.random());
+      setSeconds((s) => s + 0.2);
+    }, 200);
+    return () => clearInterval(t);
+  }, [running]);
+  return (
+    <Stage>
+      <ComposerDeck
+        items={items}
+        open={null}
+        onOpenChange={() => {}}
+        lead={
+          call && (
+            <CallPill
+              state={call}
+              level={level}
+              elapsedSeconds={seconds}
+              reason={call === "ended" ? "you ended the call" : undefined}
+              onEnd={() => setCall("ended")}
+              onRestart={() => (setSeconds(0), setCall("listening"))}
+              onDismiss={() => setCall(null)}
+            />
+          )
+        }
+        trailing={<span className="truncate px-6 type-mono-xs text-muted">openrouter/deepseek/deepseek-v4.1-flash ⌄</span>}
+      >
+        <Composer
+          agentName="talos"
+          value={value}
+          onValueChange={setValue}
+          onSend={() => setValue("")}
+          onTalk={running ? undefined : () => (setSeconds(0), setCall("listening"))}
+          onAttach={() => {}}
+          lifted
+          context={{ used: 21000, window: 200000 }}
+        />
+      </ComposerDeck>
+    </Stage>
+  );
+}
+
+/** No call yet: Send shows the voice icon until something is typed. */
+export const LiveVoiceIdle: Story = { args, render: () => <LiveVoiceDemo initial={null} /> };
+
+/** A call listening, in the lip ahead of the strip. */
+export const LiveVoiceCall: Story = { args, render: () => <LiveVoiceDemo initial="listening" /> };
+
+/** The agent is answering: the reply is spoken, the deck stays closed. */
+export const LiveVoiceSpeaking: Story = { args, render: () => <LiveVoiceDemo initial="speaking" /> };
+
+/** After a failure: the reason, Start again and a close. */
+export const LiveVoiceFailed: Story = {
+  args,
+  render: () => (
+    <Stage>
+      <ComposerDeck
+        items={items}
+        open={null}
+        onOpenChange={() => {}}
+        lead={<CallPill state="failed" reason="microphone blocked" onRestart={() => {}} onDismiss={() => {}} />}
+        trailing={<span className="truncate px-6 type-mono-xs text-muted">openrouter/deepseek/deepseek-v4.1-flash ⌄</span>}
+      >
+        <Composer agentName="talos" value="" onValueChange={() => {}} onSend={() => {}} onTalk={() => {}} onAttach={() => {}} lifted context={{ used: 21000, window: 200000 }} />
+      </ComposerDeck>
+    </Stage>
+  ),
+};

@@ -29,3 +29,9 @@ export const Paused: Story = {
 };
 
 export const Playing: Story = { args: { playing: true, position: 28 } };
+
+/** A live voice message just heard: the recording plays at once, the transcript is on its way. */
+export const Transcribing: Story = { args: { transcribing: true, transcript: undefined, position: 0, duration: 3 } };
+
+/** A live voice reply still being spoken: the recording is not here yet, the transcript already is. */
+export const Pending: Story = { args: { pending: true, transcript: "Two meetings tomorrow: stand-up at 9:30 and the vendor call at 11.", position: 0, duration: 0 } };

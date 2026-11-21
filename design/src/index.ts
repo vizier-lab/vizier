@@ -152,6 +152,7 @@ export * from "./components/StackedBarChart";
 export * from "./components/StatGroup";
 export * from "./components/StatusStrip";
 export * from "./components/ComposerDeck";
+export * from "./components/CallPill";
 export * from "./components/SubagentWorker";
 export * from "./components/Status";
 export * from "./components/Step";
