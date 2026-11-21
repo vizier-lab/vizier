@@ -28,7 +28,7 @@ export function VoiceRecorder({ mode, elapsed, levels = sampleLevels(24, 3), onD
         <span className="type-mono-sm-medium text-fg" aria-label={`Recording, ${clock(elapsed)}`}>
           {clock(elapsed)}
         </span>
-        <Waveform levels={levels} live className="min-w-0 flex-1 overflow-hidden" />
+        <Waveform levels={levels} live />
         {onDiscard && (
           <button type="button" onClick={onDiscard} className="rounded-xs type-ui-medium text-failed hover:underline">
             Cancel

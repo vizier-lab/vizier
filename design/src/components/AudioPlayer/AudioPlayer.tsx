@@ -57,7 +57,7 @@ export function AudioPlayer({
         <Waveform
           levels={levels}
           progress={duration ? position / duration : 0}
-          className={cx("min-w-0 flex-1 overflow-hidden", pending && "opacity-40")}
+          className={cx(pending && "opacity-40")}
         />
         {pending ? (
           <span role="status" className="flex shrink-0 items-center gap-4 type-small text-muted">
