@@ -151,7 +151,7 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 label="Provider"
                                 options={options(TTS_PROVIDERS)}
                                 value={form.ttsProvider}
-                                onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '', liveVoiceTouched: true })}
+                                onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}
                             />
                             {form.ttsProvider === 'openrouter' ? (
                                 <MediaModelSelect capability="speech" model={form.ttsModel} fallbackDefault={TTS_DEFAULT_MODELS.openrouter} media={ttsMedia} onChange={(ttsModel) => set({ ttsModel })} />
@@ -179,7 +179,7 @@ export function ModelsFields({ form, errors, set }: Props) {
 
                     <ToggleSection title="Speech-to-Text" description="Understand voice messages." checked={form.stt} onCheckedChange={(stt) => set({ stt })}>
                         <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
-                            <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '', liveVoiceTouched: true })} />
+                            <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '' })} />
                             {form.sttProvider === 'openrouter' ? (
                                 <MediaModelSelect
                                     capability="transcription"
@@ -194,34 +194,6 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 <TextField label="Model" mono value={form.sttModel} placeholder={STT_DEFAULT_MODELS[form.sttProvider] ?? 'Provider default'} onChange={(e) => set({ sttModel: e.target.value })} />
                             )}
                             <TextField label="Language" mono value={form.sttLanguage} placeholder="Detect automatically" helper="A language code such as en." onChange={(e) => set({ sttLanguage: e.target.value })} />
-                        </div>
-                    </ToggleSection>
-
-                    {/* The live conversation (spec 055 T041). Its own switch: the two above are the
-                        voice-message tools, and this one is a session that listens while the person
-                        talks. It borrows their providers rather than asking for a third pair, and
-                        it says which two, because the pickers above may be collapsed. */}
-                    <ToggleSection
-                        title="Live voice"
-                        description="Talk to the agent instead of typing. It listens and answers in the conversation, and it uses the two providers above."
-                        checked={form.liveVoice}
-                        onCheckedChange={(liveVoice) => set({ liveVoice, liveVoiceTouched: true })}
-                    >
-                        <div className="flex flex-col gap-12">
-                            <p className="type-small text-faint">
-                                The call uses the two providers above — recogniser{' '}
-                                <span className="font-mono">{form.sttProvider}</span>, voice{' '}
-                                <span className="font-mono">{form.ttsProvider}</span>. Change either with the providers
-                                above, save, then open a new call.
-                            </p>
-                            {(form.sttProvider === 'whisper' || form.ttsProvider === 'kokoro') && (
-                                <p className="type-small text-faint">
-                                    The local models — <span className="font-mono">whisper</span> and{' '}
-                                    <span className="font-mono">kokoro</span> — download their weights on first use: a few
-                                    minutes, and no key needed.
-                                </p>
-                            )}
-                            {errors.liveVoice && <p className="type-small text-failed-text">{errors.liveVoice}</p>}
                         </div>
                     </ToggleSection>
                 </div>

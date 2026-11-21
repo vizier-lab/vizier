@@ -85,7 +85,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     for (const track of stream.getAudioTracks()) {
         track.onended = () => {
             release()
-            options.onLost('the microphone was taken away')
+            options.onLost('microphone was taken away')
         }
     }
     context.onstatechange = () => {
@@ -104,20 +104,21 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     }
 }
 
-/** FR-030: a reason the person can act on, not a raw DOMException name. */
+/** FR-030: a reason the person can act on, not a raw DOMException name. A few words: it is read
+ * in the call pill, beside Start again. */
 export function deviceReason(error: unknown): string {
     const name = (error as { name?: string } | null)?.name ?? ''
     switch (name) {
         case 'NotAllowedError':
         case 'SecurityError':
-            return 'the microphone was refused; allow it in the browser and try again'
+            return 'microphone is blocked'
         case 'NotFoundError':
         case 'OverconstrainedError':
-            return 'no microphone was found'
+            return 'no microphone found'
         case 'NotReadableError':
-            return 'the microphone is in use by another application'
+            return 'microphone is in use elsewhere'
         default:
-            return 'the microphone could not be opened'
+            return 'microphone could not open'
     }
 }
 

@@ -21,7 +21,14 @@ export const WINDOW_SAMPLES = 320
  * `end_of_utterance_ms` instead, which is what makes the setting mean something: it used to be
  * hardcoded here and read by nobody (G1).
  */
-export const HANGOVER_MS = 800
+export const HANGOVER_MS = 1400
+/**
+ * How much voice opens an utterance (spec 055). One loud 20 ms window used to be enough, so a click,
+ * a cough or a tail of the reply from the speakers opened one; a word lasts longer than this.
+ */
+export const ONSET_MS = 240
+/** A gap in the onset longer than this starts the count again: the voice has to be continuous-ish. */
+const ONSET_GAP_MS = 160
 /** What a hangover is clamped to. Below 100 ms a pause for breath ends the utterance; above 2 s the
  * person waits in silence for no reason. */
 export const MIN_HANGOVER_MS = 100
@@ -54,6 +61,8 @@ const FLOOR_RATE = 0.05
 export interface VadDecision {
     /** The window was voiced. */
     voiced: boolean
+    /** This window completed the onset: an utterance starts now. */
+    started: boolean
     /** The utterance ended: the person has been silent for the whole hangover. */
     utteranceEnd: boolean
 }
@@ -65,6 +74,9 @@ export class EnergyVad {
     private silentMs = 0
     private voicedMs = 0
     private spoke = false
+    /** Voice heard towards an onset, before the utterance has started. */
+    private onsetMs = 0
+    private onsetGapMs = 0
 
     constructor(
         private readonly thresholdFactor = 3,
@@ -100,6 +112,8 @@ export class EnergyVad {
         this.silentMs = 0
         this.voicedMs = 0
         this.spoke = false
+        this.onsetMs = 0
+        this.onsetGapMs = 0
     }
 
     /**
@@ -115,20 +129,36 @@ export class EnergyVad {
             : this.floor * this.thresholdFactor
         const voiced = rms > gate && rms > 0.008
 
+        const ms = windowMs(samples)
         if (!voiced) {
             // The floor follows quiet audio only, and slowly: the person's own voice must not
             // raise the gate that is supposed to hear them.
             this.floor = Math.min(MAX_FLOOR, this.floor + (rms - this.floor) * FLOOR_RATE)
-            this.silentMs += windowMs(samples)
-            const utteranceEnd = this.spoke && this.silentMs >= this.hangoverMs
+            if (!this.spoke) {
+                // A blip that did not last: forget it.
+                this.onsetGapMs += ms
+                if (this.onsetGapMs > ONSET_GAP_MS) {
+                    this.onsetMs = 0
+                    this.voicedMs = 0
+                }
+                return { voiced: false, started: false, utteranceEnd: false }
+            }
+            this.silentMs += ms
+            const utteranceEnd = this.silentMs >= this.hangoverMs
             if (utteranceEnd) this.resetUtterance()
-            return { voiced: false, utteranceEnd }
+            return { voiced: false, started: false, utteranceEnd }
         }
 
         this.silentMs = 0
-        this.voicedMs += windowMs(samples)
-        this.spoke = true
-        return { voiced: true, utteranceEnd: false }
+        this.voicedMs += ms
+        if (!this.spoke) {
+            this.onsetMs += ms
+            this.onsetGapMs = 0
+            if (this.onsetMs < ONSET_MS) return { voiced: true, started: false, utteranceEnd: false }
+            this.spoke = true
+            return { voiced: true, started: true, utteranceEnd: false }
+        }
+        return { voiced: true, started: false, utteranceEnd: false }
     }
 }
 

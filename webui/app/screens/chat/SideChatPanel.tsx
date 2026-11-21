@@ -17,6 +17,11 @@ type Props = {
     topicId: string
     /** The question typed after `/btw`, asked as soon as the panel opens. */
     question?: string
+    /**
+     * Drawn as the composer deck's sheet: the deck's header names it and closes it, so the
+     * panel draws only the question and the answer.
+     */
+    embedded?: boolean
 }
 
 /**
@@ -36,6 +41,7 @@ export function SideChatPanel({
     channelId,
     topicId,
     question,
+    embedded,
 }: Props) {
     const [state, dispatch] = useReducer(sideChatReducer, initialSideChat)
     const controller = useRef<AbortController | null>(null)
@@ -91,6 +97,59 @@ export function SideChatPanel({
 
     if (!open) return null
 
+    const body = (
+        <div className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-16 py-16">
+            <div className="flex flex-col gap-10">
+                <AgentHeader agentId={agentId} name={agentName} time={modelName} />
+                {problem ? (
+                    <p className="text-sm text-fg">{problem}</p>
+                ) : turn?.answer != null ? (
+                    <AgentReply>
+                        <Markdown>{turn.answer}</Markdown>
+                    </AgentReply>
+                ) : turn?.error ? (
+                    <AgentReply
+                        state="failed"
+                        error={
+                            <span className="flex items-center gap-8">
+                                {turn.error.message}
+                                {turn.error.retryable && (
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => {
+                                            dispatch({ type: 'retry', index: 0 })
+                                            run(turn.question)
+                                        }}
+                                    >
+                                        Retry
+                                    </Button>
+                                )}
+                            </span>
+                        }
+                    >
+                        <span />
+                    </AgentReply>
+                ) : (
+                    <Thinking>{`${agentName} is ${word}`}</Thinking>
+                )}
+            </div>
+        </div>
+    )
+
+    if (embedded) {
+        return (
+            <div className="flex max-h-[50vh] min-h-0 flex-col">
+                {question?.trim() && (
+                    <p className="mx-16 mt-14 line-clamp-4 max-w-[80%] self-end rounded-lg bg-raised px-12 py-8 type-ui text-fg [overflow-wrap:anywhere]">
+                        {question.trim()}
+                    </p>
+                )}
+                {body}
+            </div>
+        )
+    }
+
     return (
         <section
             aria-label="Side chat"
@@ -105,43 +164,7 @@ export function SideChatPanel({
                 <IconButton variant="ghost" size="sm" icon="close" aria-label="Close side chat" onClick={onClose} />
             </header>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-16 py-16">
-                <div className="flex flex-col gap-10">
-                    <AgentHeader agentId={agentId} name={agentName} time={modelName} />
-                    {problem ? (
-                        <p className="text-sm text-fg">{problem}</p>
-                    ) : turn?.answer != null ? (
-                        <AgentReply>
-                            <Markdown>{turn.answer}</Markdown>
-                        </AgentReply>
-                    ) : turn?.error ? (
-                        <AgentReply
-                            state="failed"
-                            error={
-                                <span className="flex items-center gap-8">
-                                    {turn.error.message}
-                                    {turn.error.retryable && (
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => {
-                                                dispatch({ type: 'retry', index: 0 })
-                                                run(turn.question)
-                                            }}
-                                        >
-                                            Retry
-                                        </Button>
-                                    )}
-                                </span>
-                            }
-                        >
-                            <span />
-                        </AgentReply>
-                    ) : (
-                        <Thinking>{`${agentName} is ${word}`}</Thinking>
-                    )}
-                </div>
-            </div>
+            {body}
         </section>
     )
 }

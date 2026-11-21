@@ -90,6 +90,13 @@ describe('turn state machine', () => {
         expect(s.entries.at(-1)?.content.Command).toBe('checkpoint')
     })
 
+    it('replaces the drawn command with the stored one when it arrives over the socket', () => {
+        let s = run(start(), { type: 'command', command: 'checkpoint', now: '2026-10-23T10:00:05Z' })
+        // Stored when it ran, which can be long after it was typed.
+        s = run(s, frame({ kind: 'history_entry', entry: entry('cmd', { Command: 'checkpoint' }, '2026-10-23T10:00:30Z') }))
+        expect(s.entries.filter((e) => e.content.Command === 'checkpoint').map((e) => e.uid)).toEqual(['cmd'])
+    })
+
     it('holds a message sent while busy, so the page can show it waiting', () => {
         // It has already gone to the agent, which queues it there; the drawing waits for the
         // server to store it, so it is not lost when the page is left and reopened.
@@ -418,10 +425,36 @@ describe('a turn this tab did not send (live voice)', () => {
         expect(after.entries.some((e) => e.uid === 'live-req-t-1')).toBe(false)
     })
 
-    it('does not touch the phase: the person did not type, and no queue is involved', () => {
+    it('shows the agent working, as a typed send does, and queues nothing', () => {
         const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo' })
-        expect(s.phase).toBe('idle')
+        expect(s.phase, 'the activity trail says the agent is on it, not the call pill').toBe('thinking')
         expect(s.queued).toEqual([])
+    })
+
+    it('draws the recording first, and fills the transcript in when it arrives', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const drawn = heard.entries.find((e) => e.uid === 'live-req-u-1')!.content.Request!.content
+        expect(drawn).toEqual({ audio_chat: [audio, null] })
+
+        const said = run(heard, { type: 'adopt', id: 'u-1', text: 'halo' })
+        const entries = said.entries.filter((e) => e.uid === 'live-req-u-1')
+        expect(entries, 'the transcript fills the same bubble, it does not add one').toHaveLength(1)
+        expect(entries[0].content.Request!.content).toEqual({ audio_chat: [audio, 'halo'] })
+    })
+
+    it('takes back a recording that was never sent', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const gone = run(heard, { type: 'unadopt', id: 'u-1' })
+        expect(gone.entries.some((e) => e.uid === 'live-req-u-1')).toBe(false)
+        expect(gone.phase, 'nothing is running any more').toBe('idle')
+    })
+
+    it('leaves a turn already running as it is', () => {
+        const busy = run(start(), { type: 'send', id: '1', text: 'typed' }, response('thinking_start'))
+        const s = run(busy, { type: 'adopt', id: 't-1', text: 'spoken' })
+        expect(s.phase).toBe(busy.phase)
     })
 
     it('lands below a reply that was already on screen', () => {

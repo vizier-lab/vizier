@@ -1,5 +1,5 @@
 // NOT RUN in this environment: no server config in the tree (dummyplug is test-only, dev.vizier.yaml
-// absent). Written against the B1-1 row; run against a server with VIZIER_URL set.
+// absent). Written against the deck's CallPill; run against a server with VIZIER_URL set.
 //
 // T064 — the session's own cycle: an idle ending, leaving and coming back, and a tab that loses the
 // window without losing the call. The server's idle timer is not built yet (T062's server half), so
@@ -17,7 +17,7 @@ test.use({
 
 const offered = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Start live voice' })
 const row = (page: import('@playwright/test').Page) => page.getByRole('group', { name: 'Live voice' })
-const end = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'End the live voice session' })
+const end = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'End live voice' })
 const stateWord = (page: import('@playwright/test').Page) => page.locator('[role="status"][data-state]')
 
 test.beforeEach(async ({ page }) => {
@@ -76,11 +76,11 @@ test('T064 — a hidden window does not end the call (FR-038)', async ({ page })
     await offered(page).click()
     await expect(end(page)).toBeVisible({ timeout: 10_000 })
 
-    // Background the tab the way a person does, then come back: the microphone indicator is still
-    // on and there is no ending.
+    // Background the tab the way a person does, then come back: the call is still running (its
+    // live dot and stop control are the microphone indicator) and there is no ending.
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
     await page.waitForTimeout(500)
-    await expect(page.getByText(/^mic on$/)).toBeVisible()
+    await expect(end(page)).toBeVisible()
     await expect(stateWord(page)).not.toHaveAttribute('data-state', /ended|failed/)
     await end(page).click()
 })

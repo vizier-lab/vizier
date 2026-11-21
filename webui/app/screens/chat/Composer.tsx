@@ -22,7 +22,6 @@ import { skillDescription } from '../../lib/skillDescription'
 import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
-import { LiveVoiceControl } from './LiveVoiceControl'
 import { fileSize, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/upload'
 import { WavRecorder } from '../../lib/wavRecorder'
 import type { VizierAttachment } from '../../api/frames'
@@ -48,16 +47,6 @@ type Pending = {
     reason?: string
 }
 
-/**
- * FR-053 / T107: the manual speech surfaces step aside, while the code behind them stays.
- *
- * The User's decision: "disembunyikan secara UI, tapi di code rust nya tetep ada incase kedepannya
- * kepake buat UI lain". Live voice replaces them, so the microphone and the spoken-reply toggle
- * are not drawn — but their props, their plumbing and the Rust providers are untouched, and this
- * one constant is what to flip when another surface wants them back.
- */
-const MANUAL_SPEECH_SURFACES = false
-
 type Props = {
     agentId: string
     agentName: string
@@ -65,12 +54,8 @@ type Props = {
     sttEnabled: boolean
     /** The agent has Text-to-Speech, so "Ask for a spoken reply" is offered. */
     ttsEnabled: boolean
-    /** The agent can hold a live voice session (spec 055 FR-004): its own, separate control. */
-    liveVoiceEnabled?: boolean
-    /** Which half is missing when it cannot, so the disabled control can say so. */
-    liveVoiceMissing?: 'recognizer' | 'voice' | null
-    /** The agent's own hangover, in ms (G1). */
-    liveVoiceEndOfUtteranceMs?: number
+    /** Starts a live voice call (spec 055): Send shows the voice icon while nothing is typed. */
+    onTalk?: () => void
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -92,6 +77,8 @@ type Props = {
     project?: { id: string; mode: ProjectMode; shell?: boolean }
     onModeChange?: (mode: ProjectMode) => void
     topicId?: string
+    /** In front of the status strip's back panel: a solid box casting its shadow up onto it. */
+    lifted?: boolean
 }
 
 let pendingId = 1
@@ -110,9 +97,7 @@ export function Composer({
     agentName,
     sttEnabled,
     ttsEnabled,
-    liveVoiceEnabled,
-    liveVoiceMissing,
-    liveVoiceEndOfUtteranceMs,
+    onTalk,
     busy,
     disabledReason,
     context,
@@ -124,6 +109,7 @@ export function Composer({
     project,
     onModeChange,
     topicId,
+    lifted,
 }: Props) {
     const mobile = useMobile()
     const [value, setValue] = useState('')
@@ -409,6 +395,7 @@ export function Composer({
             }}
         >
             <LibraryComposer
+                lifted={lifted}
                 agentName={agentName}
                 suggest={
                     project && suggestions && dismissedAt !== value
@@ -437,7 +424,7 @@ export function Composer({
                         ? `${abbreviate(tokens.used)} / ${abbreviate(tokens.window)}`
                         : undefined
                 }
-                mic={MANUAL_SPEECH_SURFACES && sttEnabled}
+                mic={sttEnabled}
                 recording={voice?.mode === 'recording'}
                 onAttach={() => input.current?.click()}
                 onMic={() =>
@@ -474,40 +461,24 @@ export function Composer({
                     />
                 }
                 afterTools={
-                    <>
-                        {/* Live voice is its own control, separate from the mic and the
-                            spoken-reply toggle (spec 055 FR-001..FR-003), and says why it is
-                            disabled when the agent cannot hold a session (FR-004). */}
-                        {topicId && (
-                            <LiveVoiceControl
-                                agentId={agentId}
-                                topicId={topicId}
-                                agentName={agentName}
-                                capability={liveVoiceEnabled ?? false}
-                                missing={liveVoiceMissing ?? null}
-                                endOfUtteranceMs={liveVoiceEndOfUtteranceMs}
-                            />
-                        )}
-                        {/* FR-053/T107: the spoken-reply toggle is one of the manual speech surfaces,
-                            so it is not drawn. The agent capability and the `spoken` plumbing below
-                            stay: only the control is hidden. */}
-                        {MANUAL_SPEECH_SURFACES && ttsEnabled && (
-                            <Tooltip label="Ask for a spoken reply">
-                                <button
-                                    type="button"
-                                    aria-label="Ask for a spoken reply"
-                                    aria-pressed={spoken}
-                                    onClick={() => setSpoken((on) => !on)}
-                                    className={`flex size-28 items-center justify-center rounded-sm hover:bg-raised ${
-                                        spoken ? 'text-live hover:text-live' : 'text-muted hover:text-fg'
-                                    }`}
-                                >
-                                    <Icon name="volume-2" />
-                                </button>
-                            </Tooltip>
-                        )}
-                    </>
+                    // A spoken reply needs the agent's Text-to-Speech: without it, no toggle.
+                    ttsEnabled && (
+                        <Tooltip label="Ask for a spoken reply">
+                            <button
+                                type="button"
+                                aria-label="Ask for a spoken reply"
+                                aria-pressed={spoken}
+                                onClick={() => setSpoken((on) => !on)}
+                                className={`flex size-28 items-center justify-center rounded-sm hover:bg-raised ${
+                                    spoken ? 'text-live hover:text-live' : 'text-muted hover:text-fg'
+                                }`}
+                            >
+                                <Icon name="volume-2" />
+                            </button>
+                        </Tooltip>
+                    )
                 }
+                onTalk={onTalk}
                 beforeSend={
                     project && (
                         <FilterTabs<ProjectMode>

@@ -57,12 +57,16 @@ export default function Functions() {
 
     const notFound = error instanceof ApiError && error.status === 404
     const count = list?.categories.reduce((n, c) => n + c.tools.length, 0) ?? 0
+    const off = list?.categories.reduce((n, c) => n + c.tools.filter((t) => !t.enabled).length, 0) ?? 0
 
     return (
         <PageFrame
             title="Functions"
-            meta="Tools this agent made from its own scripts. It creates them; you can switch them off, edit, roll back or delete them."
-            width="wide"
+            meta={
+                list && count > 0
+                    ? `${count} function${count === 1 ? '' : 's'} · ${list.categories.length} categor${list.categories.length === 1 ? 'y' : 'ies'}${off ? ` · ${off} switched off` : ''}`
+                    : undefined
+            }
         >
             {notFound ? (
                 <EmptyState kind="error" title="This agent isn’t there" message="It may have been deleted, or you can’t see it." />
@@ -75,22 +79,17 @@ export default function Functions() {
                 />
             ) : !list ? (
                 <div className="flex flex-col gap-14">
-                    <Skeleton className="h-120" />
-                    <Skeleton className="h-80" />
+                    <Skeleton lines={4} />
+                    <Skeleton lines={3} />
                 </div>
             ) : count === 0 ? (
                 <EmptyState
-                    icon="code"
+                    icon="functions"
                     title="No functions yet"
-                    message="The agent makes a function when it saves a workflow it repeats, from a conversation or a dream. They show up here."
+                    message="A function is a script the agent saved to run again by name, from a conversation or a dream. The agent makes them; you can switch them off, edit, roll back or delete them."
                 />
             ) : (
                 <div className="flex flex-col gap-14">
-                    {!list.tool_names_known && (
-                        <Notice tone="info" title="Some checks are unavailable">
-                            The agent hasn’t run since it started, so missing tools can’t be shown yet.
-                        </Notice>
-                    )}
                     {list.categories.map((category) => (
                         <FunctionGroup
                             key={category.name}

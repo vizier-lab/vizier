@@ -217,7 +217,7 @@ describe('FR-033 — the socket drops, and the call is told', () => {
         h.live.checkReconnectDeadline()
 
         expect(h.live.currentState).toBe('ended')
-        expect(h.last().notice).toBe('the connection dropped')
+        expect(h.last().notice).toBe('connection dropped')
         expect(h.last().micOpen).toBe(false)
     })
 

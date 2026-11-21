@@ -12,8 +12,6 @@ export default [
         layout('layouts/AppShell.tsx', [
             index('routes/home.tsx'),
             route('agents/new', 'routes/agent-new.tsx'),
-            route('workspaces/:workspaceId', 'routes/workspace.tsx', { id: 'workspace-first' }),
-            route('workspaces/:workspaceId/:topicId', 'routes/workspace.tsx', { id: 'workspace-topic' }),
 
             route(':agentId/chat', 'routes/chat.tsx', { id: 'chat-latest' }),
             route(':agentId/chat/read', 'routes/chat-read.tsx'),
@@ -34,6 +32,7 @@ export default [
             route(':agentId/skills/:slug/edit', 'routes/skill-edit.tsx'),
             route(':agentId/functions', 'routes/functions.tsx'),
             route(':agentId/functions/:name', 'routes/function.tsx'),
+            route(':agentId/functions/:name/edit', 'routes/function-edit.tsx'),
             route(':agentId/dream', 'routes/agent-dream.tsx'),
             route(':agentId/usage', 'routes/usage.tsx'),
             route(':agentId/secrets', 'routes/secrets.tsx'),

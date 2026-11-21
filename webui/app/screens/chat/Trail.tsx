@@ -1,5 +1,7 @@
 import {
     ActivityTrail,
+    CallGlyphIcon,
+    CallIcons,
     Fold,
     Notice,
     RunDetail,
@@ -8,7 +10,7 @@ import {
     TrailCall,
     TrailItem,
 } from '@vizier/design'
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { highlightCode } from '../../lib/highlight'
 import { Markdown } from '../shared/Markdown'
 import { useThinkingWord } from '../../lib/thinkingWords'
@@ -20,6 +22,11 @@ import { detachedScript } from '../../api/endpoints/chat'
 import type { DetachedScriptDetail } from '../../api/frames'
 import { detachedReport, type DeliveredScript } from '../../lib/detached'
 import { DetachedSource } from './detachedSource'
+import { callItems, describeRun, EMPTY_CONTEXT, kindOf, toolRowLabel, type ToolContext } from '../../lib/toolIcons'
+import { useToolContext } from '../../lib/useToolContext'
+
+/** The agent's own tools, for naming the calls on its trail (and in a delivered script's record). */
+const Tools = createContext<ToolContext>(EMPTY_CONTEXT)
 import type { WorkerUpdate } from '../../lib/subagents'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
@@ -33,10 +40,10 @@ function counts(trail: TrailEvent[]): string {
     const parts: string[] = []
     if (python)
         parts.push(
-            `${python} python run${python === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}`
+            `${python} step${python === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}`
         )
     const tools = trail.filter((e) => e.kind === 'tool').length
-    if (tools) parts.push(`${tools} tool${tools === 1 ? '' : 's'}`)
+    if (tools) parts.push(`${tools} lookup${tools === 1 ? '' : 's'}`)
     const delivered = trail.filter((e) => e.kind === 'delivery').length
     if (delivered)
         parts.push(`${delivered} background result${delivered === 1 ? '' : 's'}`)
@@ -99,8 +106,8 @@ function workerUpdateState(state: string) {
 export function WorkerUpdateRow({ update }: { update: WorkerUpdate }) {
     return (
         <TrailCall
-            name="subagent"
-            intent={`${update.position} · ${update.title}`}
+            name={update.agent ? 'consultation' : 'subagent'}
+            intent={update.agent ? `${update.agent} · ${update.position} · ${update.title}` : `${update.position} · ${update.title}`}
             state={workerUpdateState(update.state)}
             duration={`${update.handle} · ${update.state.replace('_', ' ')}`}
         >
@@ -155,6 +162,7 @@ export function Run({
     code: string | null
     intent: string | null
 }) {
+    const tools = useContext(Tools)
     const e = report?.error
     const source = code ?? ''
     const result =
@@ -191,6 +199,7 @@ export function Run({
                 <ScriptCall
                     key={c.seq}
                     name={c.name}
+                    icon={<CallGlyphIcon glyph={kindOf(c.name, tools).glyph} size={12} />}
                     state={c.ok ? 'ok' : 'failed'}
                     duration={duration(c.duration_ms)}
                     args={c.arguments ? previewArgs(c.arguments) : undefined}
@@ -200,7 +209,8 @@ export function Run({
     )
 }
 
-function Event({ event, live }: { event: TrailEvent; live: boolean }) {
+function Event({ event, live, compact }: { event: TrailEvent; live: boolean; compact: boolean }) {
+    const tools = useContext(Tools)
     switch (event.kind) {
         case 'thought':
             return <Thought>{event.text}</Thought>
@@ -217,9 +227,9 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
         case 'tool':
             return (
                 <TrailCall
-                    name={event.name}
+                    label={toolRowLabel(event.name, event.args, tools)}
+                    labelTone="soft"
                     state={event.stopped ? 'failed' : 'lookup'}
-                    intent={previewArgs(event.args)}
                 />
             )
         case 'delivery':
@@ -228,18 +238,26 @@ function Event({ event, live }: { event: TrailEvent; live: boolean }) {
             return <WorkerUpdateRow update={event} />
         case 'python': {
             const state = pythonState(event, live)
+            const time = event.detachedId
+                ? 'in the background'
+                : event.report
+                  ? duration(event.report.duration_ms)
+                  : undefined
+            // In words: the intent the agent stated, or a sentence made from what the run used.
             return (
                 <TrailCall
-                    name="execute_python"
-                    intent={event.intent ?? undefined}
-                    state={state}
-                    duration={
-                        event.detachedId
-                            ? `in the background · ${event.detachedId}`
-                            : event.report
-                              ? duration(event.report.duration_ms)
-                              : undefined
+                    label={event.intent || describeRun(event.report, tools)}
+                    labelTone={event.intent ? 'default' : 'soft'}
+                    icons={
+                        <CallIcons
+                            items={callItems(event.report, tools)}
+                            compact={compact}
+                            total={event.report?.tool_calls.length}
+                            duration={time}
+                        />
                     }
+                    state={state}
+                    duration={time}
                 >
                     {event.detachedId ? (
                         <Notice compact>
@@ -271,6 +289,8 @@ type Props = {
     aborted?: boolean
     /** The agent's name, for the line shown while it works. */
     agentName?: string
+    /** The agent whose trail this is: its functions and MCP servers name the calls. */
+    agentId?: string
     /**
      * The turn is still running, though this trail is finished: a call in it with no report yet is
      * waiting rather than failed.
@@ -286,9 +306,11 @@ export function Trail({
     failed,
     aborted,
     agentName,
+    agentId,
     turnRunning,
 }: Props) {
     const [all, setAll] = useState(false)
+    const tools = useToolContext(agentId)
     // The line says what the agent is doing: the intent of its newest script, or, before it has
     // stated one, an idle word that changes while the turn works.
     const word = useThinkingWord(live)
@@ -306,6 +328,7 @@ export function Trail({
             : `Worked${durationMs != null ? ` ${duration(durationMs)}` : ''}`
 
     return (
+        <Tools.Provider value={tools}>
         <ActivityTrail
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
@@ -351,8 +374,9 @@ export function Trail({
                 // The steps stay direct children of the list: the spine's
                 // not-last rule needs them as siblings. ActivityTrail animates
                 // their arrival while live.
-                return <Event key={e.id} event={e} live={live || !!turnRunning} />
+                return <Event key={e.id} event={e} live={live || !!turnRunning} compact={mobile} />
             })}
         </ActivityTrail>
+        </Tools.Provider>
     )
 }

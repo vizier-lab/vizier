@@ -1,17 +1,18 @@
 import {
   BackgroundWork,
+  ComposerDeck,
   EmptyState,
   FileRow,
   FileTypeTag,
   FilterTabs,
   SearchField,
   StatusPanel,
-  StatusStrip,
   TextLink,
+  type ComposerDeckAside,
   type StatusStripItem,
   type StatusStripItemId,
 } from '@vizier/design'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { DetachedScriptDetail, DetachedScriptSnapshot, SessionFileRecord, SubagentSnapshot } from '../../api/frames'
 import { detachedScript } from '../../api/endpoints/chat'
 import { detachedReport, scriptElapsed } from '../../lib/detached'
@@ -32,7 +33,7 @@ import { useProjects } from '../../stores/projects'
 import { toast } from '../../stores/toasts'
 import { LspPanel } from './LspPanel'
 import { SubagentsPanel } from './SubagentsPanel'
-import { workerStrip } from '../../lib/subagents'
+import { isConsultation, workerStrip } from '../../lib/subagents'
 import { FilePreviewDialog } from './FilePreviewDialog'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -54,10 +55,14 @@ type Props = {
   changes?: { count: number; open: () => void }
   /** A project chat's language servers (spec 054): the item opens the panel. Other chats have none. */
   lsp?: { projectId: string; enabled: boolean }
-  /** How far above the strip the panel sits: the composer's height, so it clears the composer. */
-  panelGap?: number
-  /** The panel's width in px: the composer's, since the strip itself is only as wide as its counts. */
-  panelWidth?: number
+  /** At the right end of the deck's header: the model picker. */
+  trailing?: ReactNode
+  /** A `/btw` aside: it takes the deck's pressed slot and sheet. */
+  aside?: ComposerDeckAside | null
+  /** Ahead of the strip: a live voice call's pill (spec 055). */
+  lead?: ReactNode
+  /** The composer, drawn in front of the strip's back panel. */
+  children: ReactNode
   className?: string
 }
 
@@ -111,9 +116,9 @@ function WorkEntry({
 }
 
 /**
- * The chat's status strip (D62): the counts of what the agent is still working on and
- * what it left in the conversation. Each count opens a panel
- * that hovers above the composer; a project's changes open their own dialog.
+ * The chat's status strip (D62) on the composer's back panel: the counts of what the agent is
+ * still working on and what it left in the conversation. Each count grows the back panel into
+ * its sheet, with the strip as the sheet's header; a project's changes open their own dialog.
  */
 export function ChatStatusStrip({
   agentId,
@@ -127,8 +132,10 @@ export function ChatStatusStrip({
   onFilesCleared,
   changes,
   lsp,
-  panelGap,
-  panelWidth,
+  aside,
+  lead,
+  trailing,
+  children,
   className,
 }: Props) {
   const [now, setNow] = useState(() => Date.now())
@@ -142,14 +149,18 @@ export function ChatStatusStrip({
 
   const running = scripts.filter((s) => s.state === 'running')
   const counts = workCounts(scripts)
-  const atWork = workerStrip(workers)
+  // One list from the server: temporary workers and consultations of other agents (spec 064).
+  const hired = useMemo(() => workers.filter((w) => !isConsultation(w)), [workers])
+  const consulted = useMemo(() => workers.filter(isConsultation), [workers])
+  const atWork = workerStrip(hired)
+  const consulting = workerStrip(consulted)
 
   // The elapsed times tick while work runs, and stop when nothing does.
   useEffect(() => {
-    if (running.length === 0 && atWork.count === 0) return
+    if (running.length === 0 && atWork.count === 0 && consulting.count === 0) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [running.length, atWork.count])
+  }, [running.length, atWork.count, consulting.count])
 
   const items: StatusStripItem[] = [
     {
@@ -165,6 +176,13 @@ export function ChatStatusStrip({
       label: atWork.dot === 'warn' ? 'subagents at work, one is asking' : 'subagents at work',
       count: atWork.count,
       dot: atWork.dot,
+    },
+    {
+      id: 'consultations',
+      icon: 'consult',
+      label: consulting.dot === 'warn' ? 'consultations open, one is asking' : 'consultations open',
+      count: consulting.count,
+      dot: consulting.dot,
     },
     { id: 'files', icon: 'attach', label: 'session files', count: files.length },
   ]
@@ -253,7 +271,6 @@ export function ChatStatusStrip({
           ]}
         />
       }
-      footer={<span className="type-small text-faint">Newest first</span>}
     >
       {workRows.length === 0 ? (
         <EmptyState
@@ -304,14 +321,11 @@ export function ChatStatusStrip({
         />
       }
       footer={
-        <>
-          <span className="type-small text-faint">Newest first</span>
-          {files.length > 0 && (
-            <TextLink tone="danger" onClick={() => setConfirmClear(true)}>
-              Clear all files...
-            </TextLink>
-          )}
-        </>
+        files.length > 0 ? (
+          <TextLink tone="danger" onClick={() => setConfirmClear(true)}>
+            Clear all files...
+          </TextLink>
+        ) : undefined
       }
     >
       {fileRows.length === 0 ? (
@@ -370,7 +384,18 @@ export function ChatStatusStrip({
         topicId={topicId}
         channel={channel}
         agentName={agentName}
-        workers={workers}
+        workers={hired}
+        now={now}
+        onClose={close}
+      />
+    ) : id === 'consultations' ? (
+      <SubagentsPanel
+        kind="consultations"
+        agentId={agentId}
+        topicId={topicId}
+        channel={channel}
+        agentName={agentName}
+        workers={consulted}
         now={now}
         onClose={close}
       />
@@ -381,19 +406,17 @@ export function ChatStatusStrip({
     )
 
   return (
-    <StatusStrip
+    <ComposerDeck
       items={items}
       className={className}
-      fullWidth={false}
       open={open}
       onOpenChange={setOpen}
-      panelGap={panelGap}
-      panelWidth={panelWidth}
-      // The language-server and subagents items are left out of the key: their status changes under
-      // an open panel, and remounting would drop an override form's text or close an expanded worker.
-      key={`${items.filter((i) => i.id !== 'lsp' && i.id !== 'subagents').map((i) => i.count).join('-')}`}
+      aside={aside}
+      lead={lead}
+      trailing={trailing}
+      sheet={(item, close) => panelFor(item.id, close)}
     >
-      {(item, close) => panelFor(item.id, close)}
-    </StatusStrip>
+      {children}
+    </ComposerDeck>
   )
 }

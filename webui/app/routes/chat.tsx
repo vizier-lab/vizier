@@ -1,6 +1,6 @@
 import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
 import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
-import { IconButton, Notice } from '@vizier/design'
+import { CallPill, IconButton, Notice } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -11,7 +11,6 @@ import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
 import { greeting } from '../lib/greetings'
-import { liveVoiceMissingFrom } from '../lib/liveVoice/voice'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { BranchChip } from '../screens/chat/BranchChip'
@@ -19,12 +18,14 @@ import { ChangesSection } from '../screens/chat/ChangesSection'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { renderQuestions } from '../screens/chat/Questions'
+import { renderPages } from '../screens/chat/UiPages'
 import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
 import { Composer } from '../screens/chat/Composer'
 import { SideChatPanel } from '../screens/chat/SideChatPanel'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
 import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
+import { useLiveVoice } from '../screens/chat/useLiveVoice'
 import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
 import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
 import type { ModelOverride } from '../api/frames'
@@ -45,9 +46,6 @@ import { conversationTitle } from '../lib/conversations'
 import { useMobile } from '../lib/useMobile'
 
 const EMPTY = emptyTopic()
-// The strip's own margin under the composer, and the air between it and the panel.
-const STRIP_MARGIN = 8
-const PANEL_GAP = 8
 
 export default function Chat() {
     const { agentId = '', topicId, projectId } = useParams()
@@ -103,41 +101,33 @@ export default function Chat() {
 
     // The mic needs the agent's Speech-to-Text and "Ask for a spoken reply" its Text-to-Speech;
     // each is offered only once the agent is known to have it.
-    const [voice, setVoice] = useState<{
-        stt: boolean
-        tts: boolean
-        liveVoice: boolean
-        /** Which half is missing, for the pill's sentence (FR-004). Never a readiness signal. */
-        missing?: 'recognizer' | 'voice' | null
-        /** The agent's hangover, in ms (G1); undefined leaves the spec's default. */
-        endOfUtteranceMs?: number
-    }>()
+    // A live voice call needs the agent's switch plus both halves (spec 055 FR-004): `live_voice`.
+    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean; liveVoice: boolean; endOfUtteranceMs?: number }>()
     useEffect(() => {
         let alive = true
         setVoice(undefined)
         getAgent(agentId)
             .then((detail) => {
-                //  is its own capability: on only when the agent's switch is on and it has
-                // both a recogniser and a voice (spec 055 FR-004).
                 if (alive)
                     setVoice({
                         stt: detail.stt,
                         tts: detail.tts,
                         liveVoice: detail.live_voice ?? false,
-                        missing: liveVoiceMissingFrom(detail),
                         endOfUtteranceMs: detail.live_voice_end_of_utterance_ms,
                     })
             })
             .catch(() => {
-                /* offer both: the config read is not worth an error on the composer */
-                // `missing: null` because we do not know — a failed read is not "complete".
-                if (alive) setVoice({ stt: true, tts: true, liveVoice: false, missing: null })
+                /* offer both: the config read is not worth an error on the composer. A call is not
+                   offered on a guess: it needs the server's word that the agent can hold one. */
+                if (alive) setVoice({ stt: true, tts: true, liveVoice: false })
             })
         return () => {
             alive = false
         }
     }, [agentId])
 
+
+    const call = useLiveVoice({ agentId, topicId, endOfUtteranceMs: voice?.endOfUtteranceMs })
 
     const [topics, setTopics] = useState<Topic[]>([])
     const userId = useSession((s) => s.user?.user_id)
@@ -169,24 +159,6 @@ export default function Chat() {
         const el = composerBox.current
         if (!el) return
         const ro = new ResizeObserver(() => setComposerHeight(el.offsetHeight))
-        ro.observe(el)
-        return () => ro.disconnect()
-    }, [])
-    // The status panel hangs above the composer, so it must clear the composer's height.
-    const composerCard = useRef<HTMLDivElement>(null)
-    const [composerCardHeight, setComposerCardHeight] = useState(84)
-    // The strip shares its row with the model picker, so it is only as wide as its counts:
-    // the panel takes the composer's width instead of the strip's.
-    const [composerCardWidth, setComposerCardWidth] = useState<number | undefined>(undefined)
-    useEffect(() => {
-        const el = composerCard.current
-        if (!el) return
-        const measure = () => {
-            setComposerCardHeight(el.offsetHeight)
-            setComposerCardWidth(el.offsetWidth)
-        }
-        measure()
-        const ro = new ResizeObserver(measure)
         ro.observe(el)
         return () => ro.disconnect()
     }, [])
@@ -243,12 +215,14 @@ export default function Chat() {
     }, [projectId, topicId, state.phase, refreshGit])
 
     const meta = useTurns((s) => s.meta[key])
+    const prompts = useTurns((s) => s.prompts[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
     const {
         send,
         sendAudio,
         command,
         loadOlder,
+        loadThrough,
         react,
         clientEvent,
         saveClientState,
@@ -440,6 +414,7 @@ export default function Chat() {
                 <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    liveCall={!!call.state && call.state !== 'ended' && call.state !== 'failed'}
                     topicId={topicId}
                     bottomInset={composerHeight}
                     onScrollbarWidth={setScrollbarWidth}
@@ -449,6 +424,8 @@ export default function Chat() {
                     hasOlder={!!meta?.loaded && !meta.exhausted}
                     loadingOlder={!!meta?.loadingOlder}
                     onLoadOlder={() => void loadOlder(agentId, topicId ?? '')}
+                    prompts={prompts}
+                    onLoadThrough={(mark) => loadThrough(agentId, topicId ?? '', mark)}
                     onReact={(uid, emoji, action) =>
                         react(agentId, topicId ?? '', uid, emoji, action)
                     }
@@ -473,6 +450,14 @@ export default function Chat() {
                         renderQuestions(turn, state.refusals, (answer) =>
                             answerQuestions(agentId, topicId ?? '', answer)
                         )
+                    }
+                    pages={(turn: Turn) =>
+                        renderPages(turn, {
+                            agentId,
+                            topicId: topicId ?? '',
+                            channel,
+                            pageStates: state.pageStates,
+                        })
                     }
                     emptyAction={
                         shouldOfferOpenProject(projectId) ? (
@@ -505,96 +490,14 @@ export default function Chat() {
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     {/* Padded like the message list, scroll bar included, so the composer lines up with the messages' column. */}
                     <div
-                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-4 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
+                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-12 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
                         style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
                     >
-                    <div className="mx-auto w-full max-w-4xl">
-                    <SideChatPanel
-                        key={sideChat.id}
-                        open={sideChat.open}
-                        onClose={closeSideChat}
-                        agentId={agentId}
-                        agentName={agentName}
-                        modelName={modelName}
-                        channelId={channel}
-                        topicId={topicId ?? ''}
-                        question={sideChat.question}
-                    />
-                    <div ref={composerCard}>
-                    <Composer
-                        agentId={agentId}
-                        agentName={agentName}
-                        project={
-                            projectId
-                                ? {
-                                      id: projectId,
-                                      mode: projectMode ?? 'plan',
-                                      shell: project?.shell_enabled,
-                                  }
-                                : undefined
-                        }
-                        topicId={topicId}
-                        onModeChange={(mode) => {
-                            if (!projectId || !topicId) return
-                            void setProjectMode(agentId, projectId, topicId, mode).catch(
-                                (error) =>
-                                    toast.error(
-                                        "Couldn't change the mode",
-                                        error instanceof Error ? error.message : undefined
-                                    )
-                            )
-                        }}
-                        sttEnabled={voice?.stt ?? false}
-                        ttsEnabled={voice?.tts ?? false}
-                        liveVoiceEnabled={voice?.liveVoice ?? false}
-                        liveVoiceMissing={voice?.missing ?? null}
-                        liveVoiceEndOfUtteranceMs={voice?.endOfUtteranceMs}
-                        busy={state.phase !== 'idle'}
-                        disabledReason={
-                            failed
-                                ? `${agentName} can't answer until it restarts`
-                                : connection === 'offline'
-                                  ? "You're offline"
-                                  : canOverrideModel && modelOverride && channel === CHANNEL && !modelChoiceAvailable
-                                    ? 'The selected model is unavailable. Choose another model or Agent default.'
-                                    : undefined
-                        }
-                        context={
-                            state.context
-                                ? { ...state.context, detail: modelName }
-                                : null
-                        }
-                        onSend={(text, attachments, spoken, mentions, queue) =>
-                            send(
-                                agentId,
-                                topicId ?? '',
-                                text,
-                                attachments,
-                                spoken,
-                                mentions,
-                                canOverrideModel && channel && userId ? modelOverride : null,
-                                queue
-                            )
-                        }
-                        onSendAudio={(attachment) =>
-                            sendAudio(
-                                agentId,
-                                topicId ?? '',
-                                attachment,
-                                canOverrideModel && channel && userId ? modelOverride : null
-                            )
-                        }
-                        onCommand={(c) => command(agentId, topicId ?? '', c)}
-                        onStop={() => command(agentId, topicId ?? '', 'abort')}
-                        onSideChat={(question) =>
-                            setSideChat({ open: true, id: nanoid(), question })
-                        }
-                    />
-                    </div>
-                    {/* The status strip: what the agent is still working on, what it left in this conversation and what it changed. */}
-                    <div className="mt-8 flex min-w-0 items-center gap-16">
+                    {/* The composer stays max-w-4xl plus its own 28px; the messages are narrower (max-w-3xl), inside the deck. */}
+                    <div className="mx-auto w-full max-w-[calc(var(--container-4xl)+28px)]">
+                    {/* The composer and its back panel: the status strip and the model picker ride the
+                        panel's lip, an open item (or a /btw aside) grows it upward into a sheet. */}
                     <ChatStatusStrip
-                        className="shrink-0"
                         agentId={agentId}
                         topicId={topicId ?? ''}
                         scripts={scripts}
@@ -606,21 +509,123 @@ export default function Chat() {
                         onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
                         changes={changes}
                         lsp={projectId && project ? { projectId, enabled: project.lsp_enabled } : undefined}
-                        // The panel clears the composer and the strip's own margin.
-                        panelGap={composerCardHeight + STRIP_MARGIN + PANEL_GAP}
-                        panelWidth={composerCardWidth}
-                    />
-                    {canOverrideModel && userId && topicId && (
-                        <>
-                            <ModelOverridePicker
-                                defaultModel={health?.model ?? null}
-                                value={modelOverride}
-                                onChange={changeModelOverride}
-                                onAvailabilityChange={setModelChoiceAvailable}
-                            />
-                        </>
-                    )}
-                    </div>
+                        trailing={
+                            canOverrideModel && userId && topicId ? (
+                                <ModelOverridePicker
+                                    defaultModel={health?.model ?? null}
+                                    value={modelOverride}
+                                    onChange={changeModelOverride}
+                                    onAvailabilityChange={setModelChoiceAvailable}
+                                />
+                            ) : undefined
+                        }
+                        lead={
+                            call.state && (
+                                <CallPill
+                                    aria-label="Live voice"
+                                    role="group"
+                                    state={call.state}
+                                    elapsedSeconds={call.elapsedSeconds}
+                                    level={call.level}
+                                    reason={call.reason}
+                                    onEnd={call.end}
+                                    onRestart={call.start}
+                                    onDismiss={call.dismiss}
+                                />
+                            )
+                        }
+                        aside={
+                            sideChat.open
+                                ? {
+                                      label: '/btw',
+                                      onClose: closeSideChat,
+                                      content: (
+                                          <SideChatPanel
+                                              key={sideChat.id}
+                                              embedded
+                                              open={sideChat.open}
+                                              onClose={closeSideChat}
+                                              agentId={agentId}
+                                              agentName={agentName}
+                                              modelName={modelName}
+                                              channelId={channel}
+                                              topicId={topicId ?? ''}
+                                              question={sideChat.question}
+                                          />
+                                      ),
+                                  }
+                                : null
+                        }
+                    >
+                        <Composer
+                            lifted
+                            onTalk={voice?.liveVoice && topicId && !call.state ? call.start : undefined}
+                            agentId={agentId}
+                            agentName={agentName}
+                            project={
+                                projectId
+                                    ? {
+                                          id: projectId,
+                                          mode: projectMode ?? 'plan',
+                                          shell: project?.shell_enabled,
+                                      }
+                                    : undefined
+                            }
+                            topicId={topicId}
+                            onModeChange={(mode) => {
+                                if (!projectId || !topicId) return
+                                void setProjectMode(agentId, projectId, topicId, mode).catch(
+                                    (error) =>
+                                        toast.error(
+                                            "Couldn't change the mode",
+                                            error instanceof Error ? error.message : undefined
+                                        )
+                                )
+                            }}
+                            sttEnabled={voice?.stt ?? false}
+                            ttsEnabled={voice?.tts ?? false}
+                            busy={state.phase !== 'idle'}
+                            disabledReason={
+                                failed
+                                    ? `${agentName} can't answer until it restarts`
+                                    : connection === 'offline'
+                                      ? "You're offline"
+                                      : canOverrideModel && modelOverride && channel === CHANNEL && !modelChoiceAvailable
+                                        ? 'The selected model is unavailable. Choose another model or Agent default.'
+                                        : undefined
+                            }
+                            context={
+                                state.context
+                                    ? { ...state.context, detail: modelName }
+                                    : null
+                            }
+                            onSend={(text, attachments, spoken, mentions, queue) =>
+                                send(
+                                    agentId,
+                                    topicId ?? '',
+                                    text,
+                                    attachments,
+                                    spoken,
+                                    mentions,
+                                    canOverrideModel && channel && userId ? modelOverride : null,
+                                    queue
+                                )
+                            }
+                            onSendAudio={(attachment) =>
+                                sendAudio(
+                                    agentId,
+                                    topicId ?? '',
+                                    attachment,
+                                    canOverrideModel && channel && userId ? modelOverride : null
+                                )
+                            }
+                            onCommand={(c) => command(agentId, topicId ?? '', c)}
+                            onStop={() => command(agentId, topicId ?? '', 'abort')}
+                            onSideChat={(question) =>
+                                setSideChat({ open: true, id: nanoid(), question })
+                            }
+                        />
+                    </ChatStatusStrip>
                     </div>
                     </div>
                 </div>

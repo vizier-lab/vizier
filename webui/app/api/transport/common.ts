@@ -87,13 +87,14 @@ export interface Transport {
     upload<T>(path: string, form: FormData): Promise<T>
     fetchFile(path: string, init?: { range?: [number, number]; signal?: AbortSignal }): Promise<Response>
     assetUrl(path: string): string
+    /** A URL for an iframe that must carry no credential: an agent page's frame ticket
+     * (specs/063-html-generative-ui research R7a). The page's script can read its own URL. */
+    frameUrl(path: string): string
     saveFile(path: string, filename: string): Promise<void>
     /** Saves text made here, not fetched from a server path. Cancelling a save dialog is not an error. */
     saveText(text: string, filename: string): Promise<void>
     openFile(path: string, filename: string): Promise<void>
     openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
-    /** One Workspace topic: the `hello`, then entries, steps and states. Sends `{ post }` back. */
-    openWorkspace(t: { workspaceId: string; topicId: string }, opts: TopicOptions): TopicHandle
     /** One live connection for notifications and setup status; reconnects with the topic backoff. */
     openInbox(opts: InboxOptions): InboxHandle
     notify(n: { title: string; body: string; href: string }): Promise<void>

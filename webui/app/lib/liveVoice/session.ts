@@ -56,6 +56,12 @@ export interface LiveVoiceView {
  */
 export const CONNECTING_DEADLINE_MS = 30_000
 
+/** One utterance, as the thread draws it (spec 055). */
+export type UtteranceEvent =
+    | { kind: 'heard'; id: string; filename: string; url: string }
+    | { kind: 'transcribed'; id: string; text: string }
+    | { kind: 'dropped'; id: string }
+
 export interface LiveVoiceDeps {
     /** Send one frame on the topic socket; `false` when the socket is not open. */
     send(frame: object): boolean
@@ -68,6 +74,11 @@ export interface LiveVoiceDeps {
     }): Promise<{ stop(): void; open: boolean }>
     /** Render. Called on every change. */
     onView(view: LiveVoiceView): void
+    /**
+     * What happened to one utterance, for the thread (spec 055): `heard` as soon as its recording
+     * is kept, then `transcribed` with the text, or `dropped` when nothing was sent.
+     */
+    onUtterance?(event: UtteranceEvent): void
     /** The recognition language, if the agent names one. */
     language?: string
     /**
@@ -113,7 +124,11 @@ const LEVEL_GAIN = 4
  * AGC step produces. It only guards the *end* of an utterance — speech still opens one on the
  * first voiced window, so nothing a person says is ever unsent.
  */
-const MIN_VOICED_MS = 300
+/** While the reply is audible, this much voice is what interrupts it: a cough or a word of
+ * agreement does not cut the agent off, talking over it does. */
+const MIN_VOICED_MS = 500
+/** Audio kept from before an utterance opens, so the words that completed the onset are sent. */
+const PREROLL_CHUNKS = 5
 
 const TRANSITIONS: Record<SessionState, SessionState[]> = {
     off: ['connecting'],
@@ -154,6 +169,8 @@ export class LiveVoiceClient {
      * playing while the person speaks.
      */
     private replyAudible = false
+    /** The last chunks heard while no utterance was open (`PREROLL_CHUNKS`). */
+    private preroll: Int16Array[] = []
     /**
      * The generation whose reply has been silenced on this side, or -1.
      *
@@ -179,6 +196,9 @@ export class LiveVoiceClient {
      * the sample its first one produced.
      */
     private pendingMetric: { endOfUtterance: number; silenceMs: number } | null = null
+
+    /** The utterance whose recording was kept and is waiting for its transcript. */
+    private lastHeard: string | null = null
 
     constructor(private readonly deps: LiveVoiceDeps) {
         this.vad = new EnergyVad(3, hangoverOf(deps.endOfUtteranceMs))
@@ -301,15 +321,32 @@ export class LiveVoiceClient {
                 this.applyState(frame.state, frame.reason ?? undefined)
                 break
             }
+            case 'heard':
+                this.lastHeard = frame.utterance_id
+                this.deps.onUtterance?.({ kind: 'heard', id: frame.utterance_id, filename: frame.filename, url: frame.url })
+                break
             case 'transcript':
                 this.view.transcript = frame.text
                 if (!frame.submitted && !frame.text) {
                     this.view.notice = 'that was too short to send'
                 }
+                this.deps.onUtterance?.(
+                    frame.submitted
+                        ? { kind: 'transcribed', id: frame.utterance_id, text: frame.text }
+                        : { kind: 'dropped', id: frame.utterance_id }
+                )
+                // Settled: a later error is about the reply, not about this recording.
+                this.lastHeard = null
                 this.render()
                 break
             case 'error':
                 this.view.notice = frame.message
+                // A recording that could not be understood, or whose recognition failed, was never
+                // sent: its bubble goes (FR-031).
+                if (this.lastHeard && (frame.kind === 'unintelligible' || frame.kind === 'provider_failed')) {
+                    this.deps.onUtterance?.({ kind: 'dropped', id: this.lastHeard })
+                }
+                this.lastHeard = null
                 this.render()
                 break
             case 'stall':
@@ -441,7 +478,12 @@ export class LiveVoiceClient {
         // `!this.utteranceId` was never true again — `speech_start` went out at most once per
         // session and every later utterance was audio the server dropped without a word
         // (`push_audio` -> `None`, `session.rs:418-419`).
-        if (!this.utteranceId) return
+        if (!this.utteranceId) {
+            // Not yet an utterance: keep the last half second, which the onset will need.
+            this.preroll.push(samples)
+            if (this.preroll.length > PREROLL_CHUNKS) this.preroll.shift()
+            return
+        }
         this.deps.send(audioFrame(`u-${this.utteranceId}`, this.seq++, encodePcm16Base64(samples)))
     }
 
@@ -459,10 +501,14 @@ export class LiveVoiceClient {
         // The start of speech interrupts nothing (C8): while the person talks the reply keeps
         // playing, and the only thing a voiced window does is open the utterance the following
         // chunks belong to.
-        if (!this.utteranceId && decision.voiced) {
+        if (!this.utteranceId && decision.started) {
             this.utteranceId += 1
             this.seq = 0
             this.deps.send(speechStartFrame(`u-${this.utteranceId}`))
+            // The onset's own audio arrived before the utterance existed: send it first.
+            for (const chunk of this.preroll.splice(0)) {
+                this.deps.send(audioFrame(`u-${this.utteranceId}`, this.seq++, encodePcm16Base64(chunk)))
+            }
         }
         if (decision.utteranceEnd) {
             // A blip is not a person finishing a sentence (bro-pm's DoD for the lost-TTS report):
@@ -691,50 +737,51 @@ export class LiveVoiceClient {
 }
 
 /** One wording per ending, so a person reads why rather than a code (SC-009). */
+/** A reason in a few words: the call pill shows it beside Start again. */
 export function humanReason(reason: EndReason): string {
     switch (reason) {
         case 'pressed_again':
-            return 'live voice is off'
+            return 'you ended the call'
         case 'left_conversation':
-            return 'you left the conversation, so live voice ended'
+            return 'you left the conversation'
         case 'page_closed':
-            return 'the page was closed'
+            return 'the page closed'
         case 'permission_withdrawn':
-            return 'the microphone was taken away'
+            return 'microphone was taken away'
         case 'conversation_deleted':
-            return 'this conversation was deleted'
+            return 'conversation deleted'
         case 'agent_changed':
-            return 'the agent was changed'
+            return 'agent was changed'
         case 'idle':
-            return 'live voice ended after a while with nothing said'
+            return 'nothing said for a while'
         case 'connection_lost':
-            return 'the connection dropped'
+            return 'connection dropped'
         case 'server_restart':
-            return 'the server restarted'
+            return 'server restarted'
         case 'no_device':
-            return 'no microphone could be opened'
+            return 'no microphone found'
         case 'no_recognizer':
-            return 'a recogniser is not configured for this agent'
+            return 'no recogniser set up'
         case 'no_voice':
-            return 'a voice is not configured for this agent'
+            return 'no voice set up'
         case 'provider_failed':
-            return 'the speech provider failed'
+            return 'speech provider failed'
         case 'unintelligible':
-            return 'that was not intelligible; say it again'
+            return 'could not make that out'
         case 'key_revoked':
             // T110: the credential behind this call was deleted. Its own sentence, because
             // "live voice is off" would hide the fact that something outside ended it.
-            return 'the API key for this call was revoked'
+            return 'API key revoked'
         case 'key_expired':
-            return 'the API key for this call expired'
+            return 'API key expired'
         case 'moved':
             // T096: the person started a call somewhere else. One session is all they may
             // have, so this one ended — and the sentence has to say that, or it reads like
             // a failure they did not cause.
-            return 'this call moved to another conversation'
+            return 'moved to another conversation'
         case 'unsupported_audio':
             // T102: the client asked for audio this release does not carry. It must not read
             // as a provider failure, or a person goes looking at credentials for a format bug.
-            return 'this release carries 16 kHz mono audio'
+            return 'needs 16 kHz mono audio'
     }
 }

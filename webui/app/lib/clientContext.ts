@@ -7,6 +7,7 @@
 // prompts — and never stores it with the request, so it is a fact about now rather than a
 // message the person typed.
 import { declaredClientTools } from './clientTools'
+import { pausedNotes } from './uiPage/mounting'
 
 /** At most `CLIENT_CONTEXT_MAX_ENTRIES` notes of `CLIENT_CONTEXT_MAX_BYTES` bytes each. */
 export const CLIENT_CONTEXT: string[] = [
@@ -18,14 +19,15 @@ export const CLIENT_CONTEXT: string[] = [
  * §1) and what it can render. Commands, reactions and tool results are not requests, so they
  * carry neither.
  */
-export function withClientExtras(frame: object): object {
+export function withClientExtras(frame: object, topic?: string): object {
     if (!('content' in frame) || (frame as { content: object }).content === null) return frame
     const content = (frame as { content: object }).content
     if ('command' in content) return frame
     const declared = declaredClientTools()
     return {
         ...frame,
-        client_context: CLIENT_CONTEXT,
+        // A page of this conversation that froze the tab is told to the agent (spec 063 FR-016a).
+        client_context: topic ? [...CLIENT_CONTEXT, ...pausedNotes(topic)] : CLIENT_CONTEXT,
         ...(declared.client_tools.length ? declared : {}),
     }
 }

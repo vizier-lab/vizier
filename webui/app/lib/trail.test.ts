@@ -10,6 +10,7 @@ import { test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import {
+  orderTurnsBySent,
   appendClientCall,
   appendLiveEvent,
   applyClientOutcome,
@@ -813,4 +814,46 @@ test('a message the turn never read opens a turn of its own', () => {
   const turns = groupHistory([request('go'), tool('fetch'), response('done'), request('second'), response('ok')])
   assert.equal(turns.length, 2)
   assert.deepEqual(shape(turns[0].blocks), ['tool'])
+})
+
+// Spec 063: a page version belongs to the reply of the turn that drew it, in order, and never to
+// its trail; a fixed draft and its fix are both kept so the draft can be drawn collapsed.
+test('page versions belong to the turn that drew them, in order', () => {
+  const page = (version: number) => entry({ UiPage: { page_id: 'pg_1', version, title: 'Chess' } })
+  const turns = groupHistory([request('a chess game'), python('c1', {}), toolResult('c1', '{}'), page(1), page(2), response('')])
+  assert.equal(turns.length, 1)
+  assert.deepEqual(
+    turns[0].pages.map((p) => p.content.UiPage?.version),
+    [1, 2]
+  )
+  assert.ok(turns[0].blocks.every((b) => b.kind !== 'trail' || b.events.every((e) => e.id !== turns[0].pages[0].uid)))
+})
+
+// Spec 055: the thread in the order messages were sent, each turn whole.
+const sentTurn = (key: string, sent?: string): Turn =>
+  ({
+    key,
+    request: sent
+      ? ({ uid: `r-${key}`, timestamp: sent, content: { Request: { timestamp: sent, user: '', content: { chat: key } } } } as unknown as ChatMessage)
+      : undefined,
+    blocks: [],
+    live: false,
+    clientCalls: [],
+    questions: [],
+    pages: [],
+  }) as Turn
+
+test('orderTurnsBySent places a message stored late by when it was sent, with its whole turn', () => {
+  const arrived = [sentTurn('typed', '2026-11-21T10:00:05Z'), sentTurn('spoken', '2026-11-21T10:00:02Z')]
+  assert.deepEqual(orderTurnsBySent(arrived).map((t) => t.key), ['spoken', 'typed'])
+})
+
+test('orderTurnsBySent keeps a turn with no message after the one before it', () => {
+  const arrived = [sentTurn('a', '2026-11-21T10:00:01Z'), sentTurn('task'), sentTurn('b', '2026-11-21T10:00:03Z')]
+  assert.deepEqual(orderTurnsBySent(arrived).map((t) => t.key), ['a', 'task', 'b'])
+})
+
+test('orderTurnsBySent is stable for equal times', () => {
+  const at = '2026-11-21T10:00:01Z'
+  assert.deepEqual(orderTurnsBySent([sentTurn('x', at), sentTurn('y', at)]).map((t) => t.key), ['x', 'y'])
 })

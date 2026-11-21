@@ -49,6 +49,7 @@ export type EndReason =
 /** A control frame: the only family that arrives on the session socket's broadcast. */
 export type ControlFrame =
     | { type: 'state'; state: SessionState; generation: number; reason?: EndReason | null }
+    | { type: 'heard'; utterance_id: string; filename: string; url: string }
     | { type: 'transcript'; utterance_id: string; text: string; submitted: boolean }
     | { type: 'error'; kind: EndReason; message: string }
     | { type: 'stall'; dropped: number }
@@ -80,6 +81,13 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
                 state: frame.state as SessionState,
                 generation: Number(frame.generation ?? 0),
                 reason: (frame.reason as EndReason | null | undefined) ?? null,
+            }
+        case 'heard':
+            return {
+                type: 'heard',
+                utterance_id: String(frame.utterance_id ?? ''),
+                filename: String(frame.filename ?? ''),
+                url: String(frame.url ?? ''),
             }
         case 'transcript':
             return {

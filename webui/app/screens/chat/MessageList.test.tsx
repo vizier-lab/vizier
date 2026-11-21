@@ -59,6 +59,16 @@ describe('a command the person ran', () => {
         expect(html).toContain('text-live-text')
     })
 
+    it('draws a skill as the message typed, with the /word highlighted and no chip', () => {
+        const html = draw([
+            entry('req', {
+                Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: '/code-review the queue' }, metadata: { invoked_skill: 'code-review' } },
+            } as ChatMessage['content']),
+        ])
+        expect(html).toContain('<span class="text-live-text">/code-review</span>')
+        expect(html).toContain(' the queue')
+    })
+
     it('does not repeat /abort, which the StoppedNote already names', () => {
         const html = draw([
             entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'hi' } } }),
@@ -148,7 +158,8 @@ describe('a message the turn read while it worked (spec 062)', () => {
     })
 
     it('draws the message once, inside the turn, after the request that started it', () => {
-        const html = draw(finished)
+        // The prompt ruler names the current prompt in its accessible value; that is not drawn.
+        const html = draw(finished).replace(/aria-valuetext="[^"]*"/g, '')
         expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)
         expect(html.indexOf('keep the old token format')).toBeGreaterThan(html.indexOf('refactor the auth module'))
     })

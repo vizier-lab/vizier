@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiveVoiceClient, humanReason, type LiveVoiceDeps, type LiveVoiceView } from './session'
 import { SilentPlayer } from './player'
-import { stateWord } from '../../screens/chat/LiveVoiceBar'
+import { stateWord } from './words'
 import type { SessionState } from './frames'
 import { liveVoiceReport, resetLiveVoiceMetrics, setLiveVoiceMetrics } from './metrics'
 
@@ -30,6 +30,8 @@ function harness(options: { captureFails?: string } = {}) {
         },
         onView: (view) => views.push(view),
         now: () => clock,
+        // Written against an 800 ms pause; the default itself is pinned in `vad.test.ts`.
+        endOfUtteranceMs: 800,
     }
     const client = new LiveVoiceClient(deps)
     return {
@@ -159,10 +161,10 @@ describe('the live voice state machine', () => {
         expect(h.released.count).toBe(1)
         expect(h.client.currentState).toBe('ended')
 
-        const failing = harness({ captureFails: 'no microphone was found' })
+        const failing = harness({ captureFails: 'no microphone found' })
         await failing.client.start()
         expect(failing.client.currentState).toBe('failed')
-        expect(failing.lastView().notice).toBe('no microphone was found')
+        expect(failing.lastView().notice).toBe('no microphone found')
     })
 
     it('refuses a move the table does not allow', () => {
@@ -249,6 +251,8 @@ function driven(options: { sendReturns?: (frame: object) => boolean } = {}) {
         },
         onView: (view) => views.push(view),
         now: () => clock,
+        // Written against an 800 ms pause; the default itself is pinned in `vad.test.ts`.
+        endOfUtteranceMs: 800,
     })
     return {
         client,
@@ -309,7 +313,7 @@ describe('the raised gate is released when the server says the reply is over', (
         h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 1 } })
 
         // The same voice now opens an utterance, because the gate came back down to its real factor.
-        h.speak(40, 0.025)
+        h.speak(300, 0.025)
         expect(
             h.sent.filter((frame) => 'live_voice_speech_start' in frame),
             'the server said listening, so the reply is not audible any more'
@@ -318,16 +322,16 @@ describe('the raised gate is released when the server says the reply is over', (
 })
 
 describe('FR-042 — the thinking indicator', () => {
-    it('says thinking on waiting, and never in the reconnecting wording', async () => {
+    it('waiting reads as listening in the pill, and never in the reconnecting wording', async () => {
         const h = driven()
         await h.client.start()
         h.client.onFrame({ live_voice: { type: 'state', state: 'waiting', generation: 1 } })
         expect(h.last().thinking).toBe(true)
-        expect(stateWord(h.last())).toBe('agent sedang berpikir')
+        expect(stateWord(h.last())).toBe('Listening')
 
         h.client.onSocketState('reconnecting')
         expect(h.last().thinking).toBe(false)
-        expect(stateWord(h.last())).toBe('reconnecting')
+        expect(stateWord(h.last())).toBe('Reconnecting')
         // The two words are never the same string, which is what keeps them apart on screen.
         expect(stateWord({ ...h.last(), state: 'waiting' })).not.toBe(stateWord({ ...h.last(), state: 'reconnecting' }))
     })
@@ -398,7 +402,6 @@ describe('FR-042 — the thinking indicator', () => {
                 'off',
                 'connecting',
                 'listening',
-                'waiting',
                 'speaking',
                 'interrupted',
                 'reconnecting',
@@ -407,6 +410,9 @@ describe('FR-042 — the thinking indicator', () => {
             ] as const
         ).map((state) => stateWord({ ...h0(), state }))
         expect(new Set(words).size).toBe(words.length)
+        // `waiting` is the one exception, on purpose: the agent working shows in the activity
+        // trail, and the call itself is still listening.
+        expect(stateWord({ ...h0(), state: 'waiting' })).toBe(stateWord({ ...h0(), state: 'listening' }))
     })
 })
 
@@ -492,6 +498,9 @@ function ordered(options: { sendReturns?: (frame: object) => boolean } = {}) {
         },
         onView: (view) => views.push(view),
         now: () => 1000,
+        // These tests are about what an utterance end does, written against an 800 ms pause; the
+        // default itself is pinned in `vad.test.ts`.
+        endOfUtteranceMs: 800,
     })
     const voice = (ms: number) => {
         const window = new Float32Array(320)
@@ -528,7 +537,7 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         expect(h.client.currentState).toBe('speaking')
 
         const before = h.player.stopped
-        h.voice(400)
+        h.voice(600)
         h.chunk()
         // The reply is still audible: nothing stopped it, and no interruption was announced.
         expect(h.player.stopped, 'the agent keeps talking while the person talks').toBe(before)
@@ -543,7 +552,7 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         const h = ordered()
         await h.client.start()
         h.client.onFrame(audible)
-        h.voice(400)
+        h.voice(600)
         h.log.length = 0
 
         h.silence(900)
@@ -561,9 +570,9 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
     it('sends speech_start once per utterance, and utterance_end once', async () => {
         const h = ordered()
         await h.client.start()
-        h.voice(400)
+        h.voice(600)
         h.silence(900)
-        h.voice(400)
+        h.voice(600)
         h.silence(900)
         expect(h.log.filter((entry) => entry === 'live_voice_speech_start')).toHaveLength(2)
         expect(h.log.filter((entry) => entry === 'live_voice_utterance_end')).toHaveLength(2)
@@ -585,10 +594,10 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         h.chunk()
 
         // Then a person speaks, finishes, and speaks again.
-        h.voice(400)
+        h.voice(600)
         h.silence(900)
         h.chunk()
-        h.voice(400)
+        h.voice(600)
         h.silence(900)
 
         expect(
@@ -617,20 +626,21 @@ describe('T045 — the interruption lands at the end of the utterance (C8)', () 
         )
     })
 
-    it('with no reply playing, the same burst still ends the utterance for the server to judge', async () => {
-        // FR-024 is untouched: when nothing is being spoken over, the client still closes the
-        // utterance and the server still decides that it was too short to be a word.
+    it('a burst too short to be a word opens no utterance at all (spec 055)', async () => {
+        // A click or a cough used to open an utterance the server then had to judge too short; it
+        // never leaves the client now.
         const h = ordered()
         await h.client.start()
         h.voice(100)
         h.silence(900)
-        expect(h.log).toContain('live_voice_utterance_end')
+        expect(h.log).not.toContain('live_voice_speech_start')
+        expect(h.log).not.toContain('live_voice_utterance_end')
     })
 
     it('the frame order is unchanged: chunks, then the end', async () => {
         const h = ordered()
         await h.client.start()
-        h.voice(400)
+        h.voice(600)
         h.chunk()
         h.chunk()
         h.silence(900)
@@ -651,7 +661,7 @@ describe('T045 — a silenced reply cannot come back to life', () => {
         const queuedBefore = h.player.queued
 
         // The person speaks, then finishes: the audio stops on that tick.
-        h.voice(400)
+        h.voice(600)
         h.chunk()
         h.silence(900)
         expect(h.player.stopped).toBeGreaterThan(0)
@@ -676,7 +686,7 @@ describe('T045 — a silenced reply cannot come back to life', () => {
         const h = ordered()
         await h.client.start()
         h.client.onFrame(audible)
-        h.voice(400)
+        h.voice(600)
         h.silence(900)
         expect(h.player.playing).toBe(false)
 
@@ -694,7 +704,7 @@ describe('T045 — the word follows the audio', () => {
         const h = ordered()
         await h.client.start()
         h.client.onFrame(audible) // generation 1 audible
-        h.voice(400)
+        h.voice(600)
         h.chunk()
         h.silence(900)
         // The cut happened: audio stopped and the session is listening again.
@@ -715,7 +725,7 @@ describe('T045 — the word follows the audio', () => {
         const h = ordered()
         await h.client.start()
         h.client.onFrame(audible)
-        h.voice(400)
+        h.voice(600)
         h.chunk()
         h.silence(900)
         h.client.onFrame({ live_voice: { type: 'state', state: 'listening', generation: 2 } })
@@ -764,7 +774,7 @@ describe('C2 — every ending lets go of the microphone and the audio context', 
         const h = await live()
         h.client.stop('left_conversation')
         expect(h.client.currentState).toBe('ended')
-        expect(h.last().notice).toBe('you left the conversation, so live voice ended')
+        expect(h.last().notice).toBe('you left the conversation')
         expect(h.microphones()).toBe(1)
         expect(h.player.closed).toBe(1)
         expect(h.last().micOpen).toBe(false)
@@ -797,7 +807,7 @@ describe('C2 — every ending lets go of the microphone and the audio context', 
             live_voice: { type: 'state', state: 'ended', generation: 1, reason: 'idle' },
         })
         expect(h.client.currentState).toBe('ended')
-        expect(h.last().notice).toBe('live voice ended after a while with nothing said')
+        expect(h.last().notice).toBe('nothing said for a while')
         expect(h.microphones()).toBe(1)
         expect(h.player.closed).toBe(1)
         expect(h.last().micOpen).toBe(false)
@@ -850,7 +860,7 @@ describe('C3 — a dropped session ends at thirty seconds, not never (T067)', ()
         const h = driven()
         await h.client.start()
         expect(h.client.currentState).toBe('listening')
-        h.speak(200)
+        h.speak(300)
         h.advance(200)
         return h
     }
@@ -922,7 +932,7 @@ describe('C3 — a dropped session ends at thirty seconds, not never (T067)', ()
         await new Promise((resolve) => setTimeout(resolve, 220))
 
         expect(h.client.currentState).toBe('ended')
-        expect(h.last().notice).toBe('the connection dropped')
+        expect(h.last().notice).toBe('connection dropped')
         expect(h.last().micOpen).toBe(false)
         expect(h.microphones(), 'the device is released once').toBe(1)
         expect(h.player.closed).toBe(1)
@@ -1095,7 +1105,7 @@ describe('T076 — the latency marks are two events', () => {
         h.player.audibleMs = 200
 
         // The 800 ms hangover fires at clock 1000: that is the zero.
-        h.speak(200)
+        h.speak(300)
         h.stopSpeaking()
         // The reply's first segment arrives 300 ms later and will be heard 200 ms after that.
         h.advance(300)
@@ -1114,7 +1124,7 @@ describe('T076 — the latency marks are two events', () => {
         const h = driven()
         await h.client.start()
         h.player.audibleMs = 200
-        h.speak(200)
+        h.speak(300)
         h.stopSpeaking()
         h.advance(300)
         h.client.onFrame(segment(1, 0))
@@ -1139,7 +1149,7 @@ describe('T076 — the latency marks are two events', () => {
             h.advance(40)
             stop()
         }
-        h.speak(200)
+        h.speak(300)
         h.stopSpeaking()
         h.advance(300)
         h.client.onFrame(segment())
@@ -1156,7 +1166,7 @@ describe('T076 — the latency marks are two events', () => {
         const h = driven()
         await h.client.start()
         h.player.audibleMs = 200
-        h.speak(200)
+        h.speak(300)
         h.stopSpeaking()
         h.advance(300)
         h.client.onFrame(segment())
@@ -1170,7 +1180,7 @@ describe('T076 — the latency marks are two events', () => {
         const h = driven()
         await h.client.start()
         h.player.audibleMs = 200
-        h.speak(200)
+        h.speak(300)
         h.stopSpeaking()
         // The row goes before the reply arrives: that turn is never measured.
         h.client.stop('left_conversation')
@@ -1204,7 +1214,7 @@ describe('C5/A — an idle ending, a second visit, a hidden window', () => {
         const view = h.last()
         expect(h.client.currentState).toBe('ended')
         expect(view.notice, 'the reason is a sentence, not a code').toBe(
-            'live voice ended after a while with nothing said'
+            'nothing said for a while'
         )
         expect(view.notice).not.toMatch(/idle/)
         expect(view.micOpen, 'an idle ending releases the microphone').toBe(false)
@@ -1304,7 +1314,7 @@ describe('C5/A — an idle ending, a second visit, a hidden window', () => {
         // dispatch `visibilitychange` on. FR-038 wants the microphone alive while the window is in
         // the background; the one hide event the surface listens for is `pagehide`, which fires on
         // navigation and page close, not on a hidden tab.
-        const control = readFileSync('app/screens/chat/LiveVoiceControl.tsx', 'utf8')
+        const control = readFileSync('app/screens/chat/useLiveVoice.ts', 'utf8')
         const session = readFileSync('app/lib/liveVoice/session.ts', 'utf8')
         for (const source of [control, session]) {
             expect(source).not.toContain('visibilitychange')
@@ -1352,7 +1362,7 @@ describe('C5/B — after a failure, the next attempt works', () => {
             player,
             openCapture: async () => {
                 attempts += 1
-                if (attempts === 1) throw new Error('no microphone was found')
+                if (attempts === 1) throw new Error('no microphone found')
                 return { stop: () => {}, open: true }
             },
             onView: (view) => views.push(view),
@@ -1360,7 +1370,7 @@ describe('C5/B — after a failure, the next attempt works', () => {
         })
         await client.start()
         expect(client.currentState).toBe('failed')
-        expect(views[views.length - 1].notice).toBe('no microphone was found')
+        expect(views[views.length - 1].notice).toBe('no microphone found')
 
         await client.start()
         expect(client.currentState).toBe('listening')
@@ -1385,10 +1395,10 @@ describe('C5/B — after a failure, the next attempt works', () => {
             live_voice: {
                 type: 'error',
                 kind: 'unintelligible',
-                message: 'that was not intelligible; say it again',
+                message: 'could not make that out',
             },
         })
-        expect(h.last().notice).toBe('that was not intelligible; say it again')
+        expect(h.last().notice).toBe('could not make that out')
         expect(h.last().notice).not.toBe('that was too short to send')
         // Neither is an ending: the session is still listening.
         expect(h.client.currentState).toBe('listening')
@@ -1685,13 +1695,13 @@ describe('the blip guard — a knock does not cut a reply (C8)', () => {
         )
     })
 
-    it('a word of 400 ms still ends the utterance, as it did before', async () => {
+    it('speaking over the reply for longer than the barge-in bar ends the utterance', async () => {
         const h = driven()
         await h.client.start()
         h.client.onFrame({ live_voice: { type: 'state', state: 'speaking', generation: 1 } })
         h.client.onFrame(audible)
 
-        h.speak(400, 0.3)
+        h.speak(600, 0.3)
         h.stopSpeaking()
 
         expect(
@@ -1704,10 +1714,11 @@ describe('the blip guard — a knock does not cut a reply (C8)', () => {
         const h = driven()
         await h.client.start()
         h.client.onFrame(audible)
-        h.speak(20, 0.3)
+        // Long enough to open an utterance, too short to interrupt the reply: abandoned.
+        h.speak(300, 0.3)
         h.stopSpeaking()
         const opened = h.sent.filter((frame) => 'live_voice_speech_start' in frame).length
-        h.speak(60, 0.3)
+        h.speak(300, 0.3)
         expect(
             h.sent.filter((frame) => 'live_voice_speech_start' in frame).length,
             'a second blip opens a second utterance rather than reusing a closed one'

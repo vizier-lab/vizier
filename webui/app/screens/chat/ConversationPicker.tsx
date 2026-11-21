@@ -138,7 +138,7 @@ export function ConversationPicker({
                         <Segment
                             key={k.value}
                             selected={kind === k.value}
-                            count={counts ? count(counts[k.value]) : undefined}
+                            count={counts ? count(counts[k.value] ?? 0) : undefined}
                             onClick={() => setKind(k.value)}
                         >
                             {k.label}

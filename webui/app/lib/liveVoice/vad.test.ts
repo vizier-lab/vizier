@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EnergyVad, HANGOVER_MS, MAX_HANGOVER_MS, MIN_HANGOVER_MS, WINDOW_SAMPLES, hangoverOf, rootMeanSquare } from './vad'
+import { EnergyVad, HANGOVER_MS, MAX_HANGOVER_MS, MIN_HANGOVER_MS, ONSET_MS, WINDOW_SAMPLES, hangoverOf, rootMeanSquare } from './vad'
 import { LiveVoiceClient } from './session'
 import { SilentPlayer } from './player'
 
@@ -70,11 +70,32 @@ describe('the energy gate', () => {
     it('reports the voiced duration as a continuous state, which ducking reads (T047)', () => {
         const vad = new EnergyVad()
         expect(vad.voicedFor).toBe(0)
-        feed(vad, 200, 0.05)
-        expect(vad.voicedFor).toBeGreaterThanOrEqual(180)
-        feed(vad, 900, 0)
+        feed(vad, 300, 0.05)
+        expect(vad.voicedFor).toBeGreaterThanOrEqual(280)
+        feed(vad, HANGOVER_MS + 100, 0)
         // The utterance closed, so the counter starts again with the next one.
         expect(vad.voicedFor).toBe(0)
+    })
+
+    it('a click or a cough opens no utterance; a word does, once (spec 055)', () => {
+        const vad = new EnergyVad()
+        const blip = feed(vad, 100, 0.3)
+        expect(blip.some((d) => d.started), 'a 100 ms blip is not speech').toBe(false)
+        feed(vad, 400, 0)
+        expect(vad.hasSpeech, 'and it is forgotten').toBe(false)
+        expect(vad.voicedFor).toBe(0)
+
+        const word = feed(vad, ONSET_MS + 100, 0.3)
+        expect(word.filter((d) => d.started), 'the onset fires once').toHaveLength(1)
+        expect(vad.hasSpeech).toBe(true)
+    })
+
+    it('a short dip inside the onset does not start the count again', () => {
+        const vad = new EnergyVad()
+        feed(vad, 140, 0.3)
+        feed(vad, 60, 0)
+        const rest = feed(vad, 120, 0.3)
+        expect(rest.some((d) => d.started), 'speech with a tiny gap still opens the utterance').toBe(true)
     })
 
     it('follows a loud room without going deaf', () => {
@@ -100,19 +121,19 @@ describe('the energy gate', () => {
 describe('the hangover a session uses', () => {
     it('closes the utterance at the configured silence, not the spec default', () => {
         const vad = new EnergyVad(3, hangoverOf(250))
-        feed(vad, 200, 0.2)
-        // 300 ms of silence: past the configured 250 ms hangover, well short of the 800 default.
+        feed(vad, 300, 0.2)
+        // 300 ms of silence: past the configured 250 ms hangover, well short of the default.
         const decisions = feed(vad, 300, 0)
         expect(decisions.some((d) => d.utteranceEnd), 'the utterance ended at ~250 ms').toBe(true)
     })
 
     it('a gate built without an argument keeps the spec default', () => {
         const vad = new EnergyVad()
-        feed(vad, 200, 0.2)
-        const early = feed(vad, 400, 0)
-        expect(early.some((d) => d.utteranceEnd), 'not yet at 400 ms').toBe(false)
+        feed(vad, 300, 0.2)
+        const early = feed(vad, 1000, 0)
+        expect(early.some((d) => d.utteranceEnd), 'a pause of a second does not end it').toBe(false)
         const late = feed(vad, 500, 0)
-        expect(late.some((d) => d.utteranceEnd), 'ended past 800 ms').toBe(true)
+        expect(late.some((d) => d.utteranceEnd), 'ended past the 1.4 s default').toBe(true)
     })
 
     it('clamps a setting that would make the gate unusable, and says what it clamps to', () => {

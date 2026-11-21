@@ -62,7 +62,17 @@ function download(a: VizierAttachment, src: string) {
     openElsewhere(src)
 }
 
-export function Audio({ src, transcript }: { src: string; transcript?: string }) {
+/**
+ * A live voice reply still being spoken (spec 055): the player waits for its recording, the
+ * transcript is already readable. The stored recording replaces it with a real player.
+ */
+export function PendingAudio({ transcript }: { transcript: string }) {
+    return (
+        <AudioPlayer pending playing={false} onPlayingChange={() => {}} position={0} duration={0} transcript={transcript} />
+    )
+}
+
+export function Audio({ src, transcript, transcribing }: { src: string; transcript?: string; transcribing?: boolean }) {
     const el = useRef<HTMLAudioElement>(null)
     const [playing, setPlaying] = useState(false)
     const [position, setPosition] = useState(0)
@@ -93,6 +103,7 @@ export function Audio({ src, transcript }: { src: string; transcript?: string })
                     if (el.current) el.current.playbackRate = s
                 }}
                 transcript={transcript}
+                transcribing={transcribing}
             />
         </>
     )
@@ -108,7 +119,16 @@ export function Video({ a, src }: { a: Pick<VizierAttachment, 'filename'>; src: 
 }
 
 /** What a reply carries: images side by side, audio and video players, other files as peeks. */
-export function ReplyMedia({ attachments, transcript }: { attachments: VizierAttachment[]; transcript?: string | null }) {
+export function ReplyMedia({
+    attachments,
+    transcript,
+    transcribing,
+}: {
+    attachments: VizierAttachment[]
+    transcript?: string | null
+    /** A live voice message just heard: its transcript is on its way. */
+    transcribing?: boolean
+}) {
     const [open, setOpen] = useState<number | null>(null)
     const items = attachments
         .map((a) => ({ a, url: attachmentUrl(a) }))
@@ -151,7 +171,7 @@ export function ReplyMedia({ attachments, transcript }: { attachments: VizierAtt
             )}
             {others.map(({ a, url }) => {
                 const ext = EXT(a.filename)
-                if (AUDIO.has(ext)) return <Audio key={url} src={url} transcript={transcript ?? undefined} />
+                if (AUDIO.has(ext)) return <Audio key={url} src={url} transcript={transcript ?? undefined} transcribing={transcribing} />
                 if (VIDEO.has(ext)) return <Video key={url} a={a} src={url} />
                 const previewable = ext in MIME && ext !== 'pdf'
                 return (

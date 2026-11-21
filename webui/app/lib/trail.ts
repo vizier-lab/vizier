@@ -172,7 +172,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
   // still belongs to a turn rather than being dropped.
   const newTurn = (key: string, request?: ChatMessage): Turn => {
-    const turn: Turn = { key, request, blocks: [], live: false, clientCalls: [], questions: [] }
+    const turn: Turn = { key, request, blocks: [], live: false, clientCalls: [], questions: [], pages: [] }
     turns.push(turn)
     return turn
   }
@@ -259,6 +259,13 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       continue
     }
 
+    // A page version belongs to the reply the turn ends with, like a question set (spec 063).
+    if (content.UiPage) {
+      if (!open) open = newTurn(entry.uid)
+      open.pages.push(entry)
+      continue
+    }
+
     // A report pairs with its call by `call_id`, which history always carries.
     if (content.ToolResult) {
       const holder = callBlocks.get(content.ToolResult.call_id)
@@ -342,6 +349,24 @@ export function openTurn(turns: Turn[]): Turn | undefined {
  * place, a new one goes after the last. Stored order is kept, so the same step arriving
  * twice (pushed, then read back) is shown once.
  */
+/**
+ * Turns in the order their messages were sent (spec 055). The thread used to keep the order things
+ * arrived in, so a spoken message, stored only once it was recognised and its turn began, could land
+ * below a reply sent after it. Each turn moves whole, with its trail and reply. A turn with no
+ * message (a task, a dream) keeps its place after the turn before it. The sort is stable.
+ */
+export function orderTurnsBySent(turns: Turn[]): Turn[] {
+  let last = Number.NEGATIVE_INFINITY
+  const keyed = turns.map((turn, index) => {
+    const sent = turn.request?.content.Request?.timestamp ?? turn.request?.timestamp
+    const at = sent ? Date.parse(sent) : Number.NaN
+    if (Number.isFinite(at)) last = at
+    return { turn, index, at: Number.isFinite(at) ? at : last }
+  })
+  keyed.sort((a, b) => a.at - b.at || a.index - b.index)
+  return keyed.map((k) => k.turn)
+}
+
 export function mergeEntries(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const at = new Map<string, number>()
   prev.forEach((entry, i) => at.set(entry.uid, i))

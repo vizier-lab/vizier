@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "react-router build",
+    "build": "react-router build && npm run build:kit",
     "dev": "react-router dev",
     "typecheck": "react-router typegen && tsc",
     "test": "vitest run",
     "e2e": "playwright test",
     "gen:api": "openapi-typescript openapi.json -o app/api/schema.d.ts",
     "icons": "node scripts/icons.mjs",
-    "lint:tokens": "node ../design/scripts/lint-tokens.mjs app"
+    "lint:tokens": "node ../design/scripts/lint-tokens.mjs app",
+    "build:kit": "vite build --config vite.kit.config.ts && vite build --config vite.kit.config.ts --mode runtime"
   },
   "dependencies": {
     "@json-render/core": "0.21.3",

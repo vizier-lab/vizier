@@ -1,4 +1,5 @@
 import { api, paged, request, type Page } from '../client'
+import type { PromptMark } from '../../lib/prompts'
 import type { components } from '../schema'
 import type {
     ChatMessage,
@@ -28,6 +29,9 @@ export interface HistoryCursor {
     before?: string
     before_seq?: number | null
     limit?: number
+    /** Read back to this entry (inclusive), everything up to `before`, whatever `limit` says. */
+    since?: string
+    since_seq?: number | null
 }
 
 /** Entries in stored order; with `before`, the page ending just before that entry. */
@@ -36,8 +40,14 @@ export function topicHistory(agentId: string, topicId: string, cursor: HistoryCu
     if (cursor.before) qs.set('before', cursor.before)
     if (cursor.before_seq != null) qs.set('before_seq', String(cursor.before_seq))
     if (cursor.limit) qs.set('limit', String(cursor.limit))
+    if (cursor.since) qs.set('since', cursor.since)
+    if (cursor.since != null && cursor.since_seq != null) qs.set('since_seq', String(cursor.since_seq))
     return api.get<ChatMessage[]>(`${base(agentId, topicId, cursor.channel)}/history?${qs}`)
 }
+
+/** Every message the person sent in the topic, oldest first: the prompt ruler's marks. */
+export const topicPrompts = (agentId: string, topicId: string, channel: string = CHANNEL) =>
+    api.get<PromptMark[]>(`${base(agentId, topicId, channel)}/prompts`)
 
 /** The topic's detached scripts: the running ones, then the last 50 that ended. Read-only. */
 export const topicDetachedScripts = (agentId: string, topicId: string, channel: string = CHANNEL) =>
@@ -96,3 +106,38 @@ export type SideChatResponse = components['schemas']['BtwResponse']
 /** Asks one off-the-record question beside a conversation. Nothing is saved except usage. */
 export const askSideChat = (agentId: string, body: SideChatRequest, signal?: AbortSignal) =>
     request<SideChatResponse>('POST', `/agents/${agentId}/btw`, body, { signal })
+
+/** One version of an interactive page, as the page route lists it (spec 063). */
+export interface UiPageVersion {
+    version: number
+    size: number
+    origin: 'full' | 'edits'
+    base_version: number | null
+    created_at: number
+    verification: UiVerification
+}
+
+/** A version's check (spec 063 data-model.md). */
+export type UiVerification =
+    | { state: 'pending' }
+    | { state: 'unverified'; reason: 'no_tab' | 'timeout' | 'closed' }
+    | { state: 'clean'; observed_ms?: number }
+    | { state: 'problems'; observed_ms?: number; problems: { kind: string; message: string; source?: string; line?: number; column?: number; detail?: string }[] }
+
+export interface UiPage {
+    page_id: string
+    title: string
+    latest_version: number
+    state: unknown
+    state_seq: number
+    versions: UiPageVersion[]
+}
+
+export const getUiPage = (agentId: string, topicId: string, pageId: string, channel: string = CHANNEL) =>
+    api.get<UiPage>(`${base(agentId, topicId, channel)}/pages/${encodeURIComponent(pageId)}`)
+
+/** Where to load a frame of one version from: a ten-minute ticket path with no credential. */
+export const uiFrameTicket = (agentId: string, topicId: string, pageId: string, version: number, channel: string = CHANNEL) =>
+    api.get<{ path: string; expires_at: number }>(
+        `${base(agentId, topicId, channel)}/pages/${encodeURIComponent(pageId)}/versions/${version}/frame`
+    )

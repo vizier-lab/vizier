@@ -1,6 +1,7 @@
 import { api } from '../client'
 
-export type ConversationKind = 'webui' | 'discord' | 'telegram'
+/** `consultation`: another agent's consultations of this one (spec 064), read-only, for its editors. */
+export type ConversationKind = 'webui' | 'discord' | 'telegram' | 'consultation'
 
 export type ConversationItem = {
     channel: string
@@ -15,7 +16,7 @@ export type ConversationItem = {
 
 export type ConversationPage = {
     items: ConversationItem[]
-    counts: { all: number; webui: number; discord: number; telegram: number }
+    counts: { all: number; webui: number; discord: number; telegram: number; consultation?: number }
     total: number
     next?: string | null
 }

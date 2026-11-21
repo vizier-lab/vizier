@@ -7,16 +7,20 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
+import { remarkSlashWords } from '../../lib/remarkSlashWords'
 import { Mermaid } from './Mermaid'
 
 type Props = {
     children: string
     size?: ComponentProps<typeof Prose>['size']
     tone?: ComponentProps<typeof Prose>['tone']
+    /** A person's message: every `/word` in it is drawn in the live colour. */
+    slashWords?: boolean
 }
 
 // Module level: a fresh plugin array on every render re-parses the whole document each time.
 const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkBreaks, remarkMath]
+const PERSON_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [...PLUGINS, remarkSlashWords]
 
 // KaTeX is the one rehype pass. It rewrites math nodes only — `inlineMath` and `math`, which
 // `remarkMath` produced — so a fence's text is still the source when `code` reads it below.
@@ -86,10 +90,10 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
  * diagram) and math (`$…$` and `$$…$$`, through KaTeX). A fence always wins: `$` inside one is
  * source, because the highlighter reads it as text and KaTeX never sees it.
  */
-export function Markdown({ children, size = 'reply', tone }: Props) {
+export function Markdown({ children, size = 'reply', tone, slashWords }: Props) {
     return (
         <Prose size={size} tone={tone}>
-            <ReactMarkdown remarkPlugins={PLUGINS} rehypePlugins={REHYPE} components={components}>
+            <ReactMarkdown remarkPlugins={slashWords ? PERSON_PLUGINS : PLUGINS} rehypePlugins={REHYPE} components={components}>
                 {children}
             </ReactMarkdown>
         </Prose>

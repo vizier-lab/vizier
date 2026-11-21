@@ -102,7 +102,7 @@ export function isViewing(
     item: NotificationItem,
     path: string | null | undefined
 ): boolean {
-    // A reply in the open conversation, or a message in the Workspace topic on screen.
-    if (!path || (item.category !== 'chat_reply' && item.category !== 'workspace_message')) return false
+    // A reply in the open conversation.
+    if (!path || item.category !== 'chat_reply') return false
     return samePath(item.href, path)
 }
