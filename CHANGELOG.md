@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2026-11-21
+
+### 🚀 Features
+
+- [**breaking**] Consult other agents; remove Workspaces (#215)
+- *(live-voice)* Live voice calls with kept audio (spec 055) (#216)
+- *(tools)* A WebUI message reaches the open tab, and an agent can open a conversation
+
+### 🐛 Bug Fixes
+
+- *(core)* Mark an agent as deleting before closing its inbox
+- *(core)* Package the ui-kit assets so vizier-core publishes
+
+### 📚 Documentation
+
+- Overhaul with server and desktop app editions, screenshots and experimental notes
+
+### ⚙️ Miscellaneous Tasks
+
+- *(webui)* Bump design and webui for the composer deck
+- *(webui)* Bump design and webui for the composer deck tweaks
+- *(webui)* Bump design and webui for the deck's glass header and live pill
+- *(webui)* Bump design and webui for the deck's header, phone and colour fixes
+- *(webui)* Bump design for the deck-style slash and @ menus
+- Pin design and webui without the deck sheets' sort-order footer
+- *(app)* Key the Rust cache by the runner image version
+- Pin webui with commands and skills drawn as typed
 ## [0.16.0-rc.3] - 2026-11-19
 
 ### 🚀 Features
@@ -25,6 +52,7 @@ All notable changes to this project will be documented in this file.
 - *(webui)* Wrap long lines and number them in the function editor
 - *(webui)* Bump design and webui for the trail icon spacing
 - *(webui)* Bump webui for the subagent trail icon
+- Bump version to 0.16.0-rc.3
 ## [0.16.0-rc.2] - 2026-11-15
 
 ### 🚀 Features
