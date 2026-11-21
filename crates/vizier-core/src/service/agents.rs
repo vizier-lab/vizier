@@ -19,7 +19,8 @@ use crate::{
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
     },
     storage::{
-        agent::AgentStorage, history::HistoryStorage, session::SessionStorage, user::UserStorage,
+        agent::AgentStorage, history::HistoryStorage, session::SessionStorage, share::ShareStorage,
+        user::UserStorage,
     },
 };
 

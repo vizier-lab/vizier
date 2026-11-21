@@ -38,6 +38,15 @@ pub struct HTTPState {
     pub share_misses: Arc<vizier_core::utils::rate_limit::RateLimiter>,
     /// People searches per person: 30 a minute.
     pub share_searches: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// In-memory cache for POST /shares idempotency (FR-050/FR-051).
+    pub share_idempotency: Arc<
+        parking_lot::Mutex<
+            std::collections::HashMap<
+                (String, String),
+                (vizier_core::service::shares::CreatedShare, std::time::Instant),
+            >,
+        >,
+    >,
 }
 
 impl HTTPState {
@@ -77,4 +86,15 @@ pub(crate) fn share_searches_limiter() -> Arc<vizier_core::utils::rate_limit::Ra
         vizier_core::service::shares::SEARCHES_PER_MINUTE,
         std::time::Duration::from_secs(60),
     ))
+}
+
+pub(crate) fn share_idempotency_cache() -> Arc<
+    parking_lot::Mutex<
+        std::collections::HashMap<
+            (String, String),
+            (vizier_core::service::shares::CreatedShare, std::time::Instant),
+        >,
+    >,
+> {
+    Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()))
 }

@@ -126,6 +126,61 @@ pub struct ShareRecord {
     pub removals_json: String,
 }
 
+/// Composite keyset pagination cursor combining `(created_at, share_id)` to avoid skipping items
+/// with identical timestamps.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ShareCursor {
+    pub created_at: i64,
+    pub share_id: String,
+}
+
+impl ShareCursor {
+    pub fn new(created_at: i64, share_id: impl Into<String>) -> Self {
+        Self {
+            created_at,
+            share_id: share_id.into(),
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        format!("{}:{}", self.created_at, self.share_id)
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        if let Some((ts_str, id)) = s.split_once(':') {
+            if let Ok(ts) = ts_str.parse::<i64>() {
+                return Some(Self::new(ts, id));
+            }
+        }
+        if let Ok(cursor) = serde_json::from_str::<Self>(s) {
+            return Some(cursor);
+        }
+        use base64::Engine;
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(s) {
+            if let Ok(decoded) = String::from_utf8(bytes) {
+                if let Some(cursor) = Self::parse(&decoded) {
+                    return Some(cursor);
+                }
+            }
+        }
+        if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s) {
+            if let Ok(decoded) = String::from_utf8(bytes) {
+                if let Some(cursor) = Self::parse(&decoded) {
+                    return Some(cursor);
+                }
+            }
+        }
+        if let Ok(ts) = s.parse::<i64>() {
+            return Some(Self::new(ts, String::new()));
+        }
+        None
+    }
+}
+
 /// A share with its stored document and named people.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareContent {
@@ -175,12 +230,13 @@ pub trait ShareStorage {
     /// One share, revoked or not, with its content and named people.
     async fn get_share(&self, share_id: &str) -> Result<Option<ShareContent>>;
 
-    /// An author's shares, newest first, keyset-paged by `before` (a `created_at`). No content.
+    /// An author's shares, newest first, keyset-paged by `before` (composite `created_at, share_id`). No content.
     async fn list_shares_by_creator(
         &self,
         creator_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>>;
 
     /// Every share's metadata, newest first. No content, no names; `viewer_id` only decides
@@ -188,8 +244,9 @@ pub trait ShareStorage {
     async fn list_all_shares(
         &self,
         viewer_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>>;
 
     /// Revoke an active share: set `revoked_at` and delete the snapshot text (the row stays so
@@ -236,19 +293,21 @@ impl ShareStorage for VizierStorage {
     async fn list_shares_by_creator(
         &self,
         creator_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>> {
-        self.0.list_shares_by_creator(creator_id, before, limit).await
+        self.0.list_shares_by_creator(creator_id, before, limit, active_only).await
     }
 
     async fn list_all_shares(
         &self,
         viewer_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>> {
-        self.0.list_all_shares(viewer_id, before, limit).await
+        self.0.list_all_shares(viewer_id, before, limit, active_only).await
     }
 
     async fn revoke_share(&self, share_id: &str, by: &str, at: i64) -> Result<bool> {

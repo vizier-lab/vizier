@@ -84,6 +84,20 @@ impl RateLimiter {
         times.push_back(now);
         true
     }
+
+    /// Removes the most recent hit for `key` (refunds quota when an action failed).
+    pub fn refund(&self, key: &str) {
+        let Ok(mut hits) = self.hits.lock() else {
+            return;
+        };
+        let key = if hits.contains_key(key) || hits.len() < self.max_keys { key } else { OVERFLOW_KEY };
+        if let Some(times) = hits.get_mut(key) {
+            times.pop_back();
+            if times.is_empty() {
+                hits.remove(key);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -122,6 +136,17 @@ mod tests {
         let hits = limiter.hits.lock().unwrap();
         assert!(!hits.contains_key("a"));
         assert!(hits.contains_key("b"));
+    }
+
+    #[test]
+    fn refund_restores_quota() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60));
+        assert!(limiter.check("a"));
+        assert!(limiter.check("a"));
+        assert!(!limiter.check("a"));
+        limiter.refund("a");
+        assert!(limiter.check("a"));
+        assert!(!limiter.check("a"));
     }
 }
 

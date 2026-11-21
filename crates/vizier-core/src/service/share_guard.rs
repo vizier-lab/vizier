@@ -69,6 +69,49 @@ pub fn find_secret(doc: &serde_json::Map<String, Value>, title: &str) -> Option<
     })
 }
 
+/// `Some("agent secret")` when the snapshot or the title holds any secret from the agent's secret store.
+/// `media` is skipped at the top level: it is base64 image data, not text anyone wrote.
+pub fn find_agent_secret(
+    doc: &serde_json::Map<String, Value>,
+    title: &str,
+    secrets: &[String],
+) -> Option<&'static str> {
+    let non_empty: Vec<&str> = secrets
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if non_empty.is_empty() {
+        return None;
+    }
+
+    if non_empty.iter().any(|sec| title.contains(sec)) {
+        return Some("agent secret");
+    }
+
+    fn check_val(v: &Value, secrets: &[&str]) -> bool {
+        match v {
+            Value::String(s) => secrets.iter().any(|sec| s.contains(sec)),
+            Value::Array(a) => a.iter().any(|item| check_val(item, secrets)),
+            Value::Object(o) => {
+                o.iter().any(|(k, v)| secrets.iter().any(|sec| k.contains(sec)) || check_val(v, secrets))
+            }
+            _ => false,
+        }
+    }
+
+    let found = doc
+        .iter()
+        .filter(|(k, _)| k.as_str() != "media")
+        .any(|(k, v)| non_empty.iter().any(|sec| k.contains(sec)) || check_val(v, &non_empty));
+
+    if found {
+        Some("agent secret")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +188,44 @@ mod tests {
         assert!(find_secret(d.as_object().unwrap(), "t").is_some(), "ui spec");
         let d = json!({"turns": [{"parts": []}], "media": {"k": {"data": format!("AKIAIOSFODNN7EXAMPLE{key}")}}});
         assert!(find_secret(d.as_object().unwrap(), "t").is_none(), "media payload skipped");
+    }
+
+    #[test]
+    fn agent_secrets_are_detected() {
+        let sec = "super-confidential-token-12345".to_string();
+        let secrets = vec![sec.clone(), "".to_string(), "   ".to_string()];
+
+        // In title
+        assert_eq!(
+            find_agent_secret(&doc("hello"), &format!("Secret: {sec}"), &secrets),
+            Some("agent secret")
+        );
+        // In turn markdown
+        assert_eq!(
+            find_agent_secret(&doc(&format!("Authorization: {sec}")), "title", &secrets),
+            Some("agent secret")
+        );
+        // In trail args
+        let d = json!({"turns": [{"trail": [{"args": {"token": sec}}]}]});
+        assert_eq!(
+            find_agent_secret(d.as_object().unwrap(), "title", &secrets),
+            Some("agent secret")
+        );
+        // In media payload - skipped!
+        let d = json!({"turns": [{"parts": []}], "media": {"k": {"data": sec}}});
+        assert_eq!(
+            find_agent_secret(d.as_object().unwrap(), "title", &secrets),
+            None
+        );
+        // Clean doc
+        assert_eq!(
+            find_agent_secret(&doc("all good"), "title", &secrets),
+            None
+        );
+        // Empty secrets list
+        assert_eq!(
+            find_agent_secret(&doc("hello"), "title", &[]),
+            None
+        );
     }
 }

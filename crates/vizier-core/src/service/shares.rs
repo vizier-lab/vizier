@@ -13,8 +13,11 @@ use crate::{
     auth::Principal,
     storage::{
         agent::AgentStorage,
+        secret::SecretStorage,
+        session::SessionStorage,
         share::{
-            Access, Audience, CachePolicy, InsertOutcome, ShareContent, ShareRecord, ShareStorage,
+            Access, Audience, CachePolicy, InsertOutcome, ShareContent, ShareCursor, ShareRecord,
+            ShareStorage,
         },
         user::UserStorage,
     },
@@ -171,7 +174,13 @@ fn forbidden() -> ServiceError {
 }
 
 /// The document's own checks, with no change to it.
-fn check_snapshot(text: &str, include_trail: bool, title: &str) -> Result<(), ServiceError> {
+fn check_snapshot(
+    text: &str,
+    include_trail: bool,
+    title: &str,
+    agent_secrets: &[String],
+    agent_name: &str,
+) -> Result<(), ServiceError> {
     let doc: Value = serde_json::from_str(text).map_err(|_| invalid("The snapshot is not valid JSON"))?;
     let Value::Object(doc) = doc else {
         return Err(invalid("The snapshot must be an object"));
@@ -196,8 +205,22 @@ fn check_snapshot(text: &str, include_trail: bool, title: &str) -> Result<(), Se
             _ => return Err(invalid("The snapshot title is not a string of at most 120 characters")),
         }
     }
+    if let Some(source) = doc.get("source") {
+        if let Some(name) = source.get("agent_name").and_then(Value::as_str) {
+            if name != agent_name {
+                return Err(invalid("The snapshot agent_name differs from the agent name"));
+            }
+        }
+    }
     // Last-resort backstop, not redaction (FR-051). The message never carries the match.
     if let Some(kind) = super::share_guard::find_secret(&doc, title) {
+        return Err(ServiceError::Invalid {
+            status: 422,
+            message: format!("The snapshot appears to contain a secret ({kind}). Remove it and share again"),
+            code: Some(super::share_guard::SECRET_DETECTED.into()),
+        });
+    }
+    if let Some(kind) = super::share_guard::find_agent_secret(&doc, title, agent_secrets) {
         return Err(ServiceError::Invalid {
             status: 422,
             message: format!("The snapshot appears to contain a secret ({kind}). Remove it and share again"),
@@ -364,6 +387,7 @@ async fn create_with(
     if !allowed {
         return Err(forbidden());
     }
+    let agent = agent.unwrap();
 
     if req.title.chars().count() > MAX_TITLE_CHARS {
         return Err(invalid("The title is longer than 120 characters"));
@@ -380,7 +404,41 @@ async fn create_with(
     if snapshot_json.len() > MAX_BODY_BYTES {
         return Err(ServiceError::TooLarge("The snapshot is too large to share".into()));
     }
-    check_snapshot(snapshot_json, req.include_trail, &req.title)?;
+
+    let secret_records = s
+        .deps()
+        .storage
+        .list_agent_secrets(&req.agent_id)
+        .await
+        .unwrap_or_default();
+    let mut agent_secrets = Vec::with_capacity(secret_records.len());
+    for rec in &secret_records {
+        if let Ok(Some(val)) = s.deps().storage.get_agent_secret(&req.agent_id, &rec.name).await {
+            agent_secrets.push(val);
+        }
+    }
+
+    check_snapshot(snapshot_json, req.include_trail, &req.title, &agent_secrets, &agent.name)?;
+
+    // Provenance Check (FR-002, FR-003):
+    let sessions = s
+        .deps()
+        .storage
+        .find_sessions_by_topic(&req.agent_id, &req.topic_id)
+        .await
+        .map_err(|e| storage_error("Failed to read session", e))?;
+    if sessions.is_empty() {
+        return Err(ServiceError::NotFound("Topic not found".into()));
+    }
+    let Some(detail) = sessions.into_iter().find(|d| d.channel.web_user() == Some(&who.username)) else {
+        return Err(forbidden());
+    };
+    if !matches!(
+        detail.channel,
+        crate::schema::VizierChannelId::HTTP(..) | crate::schema::VizierChannelId::Project(..)
+    ) {
+        return Err(invalid("Only WebUI and project conversations can be shared"));
+    }
     let mut people = check_people(s, req.audience, &req.people).await?;
     // The author is always allowed; the list passed to `Audience::allows` includes them.
     people.sort();
@@ -579,13 +637,14 @@ fn is_admin(who: &Principal) -> bool {
 pub async fn list_mine(
     s: &Services,
     who: &Principal,
-    before: Option<i64>,
+    before: Option<ShareCursor>,
     limit: usize,
+    active_only: bool,
 ) -> Result<Vec<ShareListItem>, ServiceError> {
     let storage = &s.deps().storage;
     let limit = limit.clamp(1, 100);
     let summaries = storage
-        .list_shares_by_creator(&who.user_id, before, limit)
+        .list_shares_by_creator(&who.user_id, before, limit, active_only)
         .await
         .map_err(|e| storage_error("Failed to list shares", e))?;
 
@@ -618,8 +677,9 @@ pub async fn list_mine(
 pub async fn list_all(
     s: &Services,
     who: &Principal,
-    before: Option<i64>,
+    before: Option<ShareCursor>,
     limit: usize,
+    active_only: bool,
 ) -> Result<Vec<ShareListItem>, ServiceError> {
     if !is_admin(who) {
         return Err(forbidden());
@@ -627,7 +687,7 @@ pub async fn list_all(
     let storage = &s.deps().storage;
     let limit = limit.clamp(1, 100);
     let summaries = storage
-        .list_all_shares(&who.user_id, before, limit)
+        .list_all_shares(&who.user_id, before, limit, active_only)
         .await
         .map_err(|e| storage_error("Failed to list all shares", e))?;
 
@@ -739,31 +799,57 @@ mod tests {
 
     #[test]
     fn a_plain_document_passes_and_the_structural_rules_hold() {
-        assert!(check_snapshot(&doc(|_| {}), false, "t").is_ok());
-        assert!(check_snapshot("{", false, "t").is_err());
-        assert!(check_snapshot("[]", false, "t").is_err());
-        assert!(check_snapshot(&doc(|v| v["format_version"] = 2.into()), false, "t").is_err());
-        assert!(check_snapshot(&doc(|v| v["extra"] = 1.into()), false, "t").is_err());
-        assert!(check_snapshot(&doc(|v| v["turns"] = serde_json::json!([])), false, "t").is_err());
-        assert!(check_snapshot(&doc(|v| v["rehydration"] = 1.into()), false, "t").is_err());
-        assert!(check_snapshot(&doc(|v| v["title"] = "x".repeat(121).into()), false, "t").is_err());
+        let check = |text: &str, trail: bool, title: &str| check_snapshot(text, trail, title, &[], "agent-a");
+        assert!(check(&doc(|_| {}), false, "t").is_ok());
+        assert!(check("{", false, "t").is_err());
+        assert!(check("[]", false, "t").is_err());
+        assert!(check(&doc(|v| v["format_version"] = 2.into()), false, "t").is_err());
+        assert!(check(&doc(|v| v["extra"] = 1.into()), false, "t").is_err());
+        assert!(check(&doc(|v| v["turns"] = serde_json::json!([])), false, "t").is_err());
+        assert!(check(&doc(|v| v["rehydration"] = 1.into()), false, "t").is_err());
+        assert!(check(&doc(|v| v["title"] = "x".repeat(121).into()), false, "t").is_err());
         let long = "x".repeat(MAX_TEXT_BYTES + 1);
         assert!(matches!(
-            check_snapshot(&doc(|v| v["turns"][0]["parts"][0]["markdown"] = long.into()), false, "t"),
+            check(&doc(|v| v["turns"][0]["parts"][0]["markdown"] = long.into()), false, "t"),
             Err(ServiceError::TooLarge(_))
         ));
     }
 
     #[test]
     fn trail_parts_with_the_flag_off_are_refused_and_never_rewritten() {
+        let check = |text: &str, trail: bool, title: &str| check_snapshot(text, trail, title, &[], "agent-a");
         let with_trail = doc(|v| v["turns"][0]["trail"] = serde_json::json!([{"kind": "tool_call", "name": "x"}]));
-        let err = check_snapshot(&with_trail, false, "t").unwrap_err();
+        let err = check(&with_trail, false, "t").unwrap_err();
         assert_eq!((err.status(), err.code()), (422, Some("trail_mismatch")));
-        assert!(check_snapshot(&with_trail, true, "t").is_ok());
+        assert!(check(&with_trail, true, "t").is_ok());
         // An empty trail is not trail.
-        assert!(check_snapshot(&doc(|v| v["turns"][0]["trail"] = serde_json::json!([])), false, "t").is_ok());
+        assert!(check(&doc(|v| v["turns"][0]["trail"] = serde_json::json!([])), false, "t").is_ok());
         // The document says it has a trail while the request says it has not.
-        assert_eq!(check_snapshot(&doc(|v| v["include_trail"] = true.into()), false, "t").unwrap_err().status(), 422);
+        assert_eq!(check(&doc(|v| v["include_trail"] = true.into()), false, "t").unwrap_err().status(), 422);
+    }
+
+    #[test]
+    fn agent_secret_and_agent_name_validation() {
+        let secret = "agent-super-secret-12345".to_string();
+        let secrets = vec![secret.clone()];
+        // Secret in title
+        let doc_with_secret_title = doc(|v| v["title"] = format!("Secret {secret}").into());
+        let err = check_snapshot(&doc_with_secret_title, false, &format!("Secret {secret}"), &secrets, "agent-a").unwrap_err();
+        assert_eq!((err.status(), err.code()), (422, Some(crate::service::share_guard::SECRET_DETECTED)));
+
+        // Secret in markdown
+        let with_sec = doc(|v| v["turns"][0]["parts"][0]["markdown"] = format!("token: {secret}").into());
+        let err = check_snapshot(&with_sec, false, "t", &secrets, "agent-a").unwrap_err();
+        assert_eq!((err.status(), err.code()), (422, Some(crate::service::share_guard::SECRET_DETECTED)));
+
+        // Mismatched agent_name
+        let spoofed = doc(|v| v["source"] = serde_json::json!({"agent_name": "evil-agent"}));
+        let err = check_snapshot(&spoofed, false, "t", &[], "agent-a").unwrap_err();
+        assert_eq!(err.status(), 400);
+
+        // Matching agent_name
+        let correct = doc(|v| v["source"] = serde_json::json!({"agent_name": "agent-a"}));
+        assert!(check_snapshot(&correct, false, "t", &[], "agent-a").is_ok());
     }
 }
 
@@ -826,6 +912,28 @@ mod service_tests {
         let mut b = crate::tests_support::agent_config("dp-b");
         b.owner_id = Some(plain.user_id.clone());
         st.create_agent("dp-b", &b).await.unwrap();
+
+        use crate::schema::{VizierChannelId, VizierSessionDetail};
+        for (agent_id, user) in [
+            ("dp-a", &owner),
+            ("dp-a", &sharer_all),
+            ("dp-b", &sharer_all),
+            ("dp-a", &root),
+            ("dp-b", &root),
+            ("dp-b", &plain),
+            ("dp-a", &other),
+        ] {
+            st.save_session_detail(VizierSessionDetail {
+                agent_id: agent_id.to_string(),
+                channel: VizierChannelId::from_web(&user.username, "webui"),
+                topic: Some("t1".to_string()),
+                title: "A chat".to_string(),
+                is_thinking: false,
+            })
+            .await
+            .unwrap();
+        }
+
         World { s, owner, other, sharer_all, plain, root, _dir: dir }
     }
 
@@ -1115,9 +1223,9 @@ mod service_tests {
             .unwrap()
             .share_id;
 
-        assert_eq!(list_all(&w.s, &w.plain, None, 50).await.unwrap_err().status(), 403);
-        assert_eq!(list_all(&w.s, &w.owner, None, 50).await.unwrap_err().status(), 403);
-        let all = list_all(&w.s, admin, None, 50).await.unwrap();
+        assert_eq!(list_all(&w.s, &w.plain, None, 50, false).await.unwrap_err().status(), 403);
+        assert_eq!(list_all(&w.s, &w.owner, None, 50, false).await.unwrap_err().status(), 403);
+        let all = list_all(&w.s, admin, None, 50, false).await.unwrap();
         let title_of = |id: &str| all.iter().find(|i| i.share_id == id).unwrap().title.clone();
         assert_eq!(title_of(&private), None, "not for the administrator: no title");
         assert_eq!(title_of(&naming).as_deref(), Some("A chat"));
@@ -1152,7 +1260,7 @@ mod service_tests {
         // An administrator may revoke any share, and the list shows it as revoked.
         revoke(&w.s, &w.sharer_all, &other_id).await.unwrap();
         assert_eq!(w.s.deps().storage.get_share(&other_id).await.unwrap().unwrap().snapshot_json, "");
-        let mine = list_mine(&w.s, &w.owner, None, 50).await.unwrap();
+        let mine = list_mine(&w.s, &w.owner, None, 50, false).await.unwrap();
         assert!(mine.iter().all(|i| i.revoked_at.is_some()));
         assert_eq!(w.s.deps().storage.count_active_by_creator(&w.owner.user_id).await.unwrap(), 0);
     }
@@ -1162,12 +1270,12 @@ mod service_tests {
         let w = world().await;
         let s1 = create(&w.s, &w.owner, &body("dp-a", "public", None)).await.unwrap().share_id;
         let s2 = create(&w.s, &w.owner, &body("dp-a", "signed_in", None)).await.unwrap().share_id;
-        let mine = list_mine(&w.s, &w.owner, None, 50).await.unwrap();
+        let mine = list_mine(&w.s, &w.owner, None, 50, false).await.unwrap();
         let ids: Vec<_> = mine.iter().map(|i| i.share_id.as_str()).collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&s1.as_str()) && ids.contains(&s2.as_str()));
         assert!(mine.iter().all(|i| i.creator_name.is_none() && i.title.as_deref() == Some("A chat")));
-        assert!(list_mine(&w.s, &w.other, None, 50).await.unwrap().is_empty());
+        assert!(list_mine(&w.s, &w.other, None, 50, false).await.unwrap().is_empty());
     }
 
     /// FR-045 through the service: deleting the account removes its shares and its place in
@@ -1198,9 +1306,10 @@ mod service_tests {
 
     #[test]
     fn media_is_checked_for_type_size_and_references() {
-        assert!(check_snapshot(&with_media(|_| {}), false, "t").is_ok());
+        let check = |text: &str, trail: bool, title: &str| check_snapshot(text, trail, title, &[], "agent-a");
+        assert!(check(&with_media(|_| {}), false, "t").is_ok());
         let status = |edit: &dyn Fn(&mut Value)| {
-            check_snapshot(&with_media(|v| edit(v)), false, "t").unwrap_err().status()
+            check(&with_media(|v| edit(v)), false, "t").unwrap_err().status()
         };
         assert_eq!(status(&|v| v["media"]["m1"]["mime"] = "image/svg+xml".into()), 400);
         assert_eq!(status(&|v| v["media"]["m1"]["mime"] = "text/html".into()), 400);
@@ -1212,12 +1321,13 @@ mod service_tests {
         let big = "A".repeat(((MAX_MEDIA_BYTES / 3) + 2) * 4);
         assert_eq!(status(&|v| { v["media"]["m1"].as_object_mut().unwrap().remove("bytes"); v["media"]["m1"]["data"] = big.clone().into() }), 413);
         // An unreferenced item is fine (dropped on read).
-        assert!(check_snapshot(&with_media(|v| { v["turns"][0]["parts"].as_array_mut().unwrap().pop(); }), false, "t").is_ok());
+        assert!(check(&with_media(|v| { v["turns"][0]["parts"].as_array_mut().unwrap().pop(); }), false, "t").is_ok());
     }
 
     #[test]
     fn the_document_title_must_equal_the_share_title() {
-        assert!(check_snapshot(&doc(|_| {}), false, "t").is_ok());
-        assert_eq!(check_snapshot(&doc(|_| {}), false, "other").unwrap_err().status(), 400);
+        let check = |text: &str, trail: bool, title: &str| check_snapshot(text, trail, title, &[], "agent-a");
+        assert!(check(&doc(|_| {}), false, "t").is_ok());
+        assert_eq!(check(&doc(|_| {}), false, "other").unwrap_err().status(), 400);
     }
 }

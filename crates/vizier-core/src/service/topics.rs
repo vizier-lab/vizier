@@ -18,6 +18,7 @@ use crate::{
     storage::{
         agent::AgentStorage, detached_script::DetachedScriptStorage, history::HistoryStorage,
         project::ProjectStorage, session::SessionStorage, session_file::SessionFileStorage,
+        share::ShareStorage,
     },
 };
 
@@ -507,7 +508,7 @@ pub async fn delete(
     let session = VizierSession(
         agent_id.to_string(),
         VizierChannelId::from_web(&who.username, channel_id),
-        Some(topic_id),
+        Some(topic_id.clone()),
     );
     let files = &s.deps().session_files;
     if files.has_active_turn(&session).await {

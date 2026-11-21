@@ -55,19 +55,43 @@ fn guard_headers(headers: &mut HeaderMap) {
     );
 }
 
+/// Checks whether a peer IP is loopback or belongs to trusted proxies.
+pub(crate) fn is_trusted_peer(peer: &IpAddr, trusted: &[String]) -> bool {
+    if peer.is_loopback() {
+        return true;
+    }
+    for item in trusted {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(ip) = trimmed.parse::<IpAddr>() {
+            if &ip == peer {
+                return true;
+            }
+        }
+        if let Ok(net) = trimmed.parse::<ipnet::IpNet>() {
+            if net.contains(peer) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The key the miss limiter counts under.
 ///
 /// The connection's own address is used. `X-Forwarded-For` / `X-Real-IP` are believed only when
-/// the connection comes from this machine (a reverse proxy in front of the server): anyone else
+/// the connection comes from this machine or a trusted reverse proxy: anyone else
 /// could send those headers with any value and either dodge the limit or throw another person
 /// into their bucket. Behind the proxy the entry the proxy appended (the last one) is taken, not
 /// the first, which the caller wrote. IPv6 addresses count per /64. Without a peer address
 /// (in-process calls) every caller shares one bucket named `unknown`.
-pub(crate) fn client_address(peer: Option<IpAddr>, headers: &HeaderMap) -> String {
+pub(crate) fn client_address(peer: Option<IpAddr>, headers: &HeaderMap, trusted_proxies: &[String]) -> String {
     let Some(peer) = peer else {
         return "unknown".to_string();
     };
-    let forwarded = peer.is_loopback().then(|| {
+    let forwarded = is_trusted_peer(&peer, trusted_proxies).then(|| {
         let from = |name: &str| {
             headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| {
                 v.split(',').next_back().and_then(|last| last.trim().parse::<IpAddr>().ok())
@@ -229,7 +253,11 @@ pub async fn read(
         Err(e) => {
             let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             if status == StatusCode::NOT_FOUND || status == StatusCode::UNAUTHORIZED {
-                let client = client_address(peer.map(|Extension(ConnectInfo(a))| a.ip()), &request_headers);
+                let client = client_address(
+                    peer.map(|Extension(ConnectInfo(a))| a.ip()),
+                    &request_headers,
+                    &state.config.trusted_proxies,
+                );
                 if !state.share_misses.check(&client) {
                     let wait = state
                         .share_misses
@@ -256,18 +284,22 @@ pub async fn read(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ListSharesQuery {
-    pub before: Option<i64>,
+    pub before_created_at: Option<i64>,
+    pub before_share_id: Option<String>,
     pub limit: Option<usize>,
     pub all: Option<bool>,
+    pub active: Option<bool>,
 }
 
 #[utoipa::path(
     get,
     path = "/shares",
     params(
-        ("before" = Option<i64>, Query, description = "Keyset pagination: created_at timestamp"),
+        ("before_created_at" = Option<i64>, Query, description = "Keyset pagination: created_at timestamp"),
+        ("before_share_id" = Option<String>, Query, description = "Keyset pagination: share_id tie-breaker"),
         ("limit" = Option<usize>, Query, description = "Max items to return (≤ 100, default 50)"),
-        ("all" = Option<bool>, Query, description = "List all shares across instance (requires admin)")
+        ("all" = Option<bool>, Query, description = "List all shares across instance (requires admin)"),
+        ("active" = Option<bool>, Query, description = "Filter for active (unrevoked) shares only")
     ),
     responses(
         (status = 200, description = "List of shares", body = APIResponse<Vec<ShareListItem>>),
@@ -282,10 +314,17 @@ pub async fn list(
 ) -> Response {
     let limit = query.limit.unwrap_or(50);
     let all = query.all.unwrap_or(false);
+    let active_only = query.active.unwrap_or(false);
+    let cursor = query.before_created_at.map(|created_at| {
+        vizier_core::storage::share::ShareCursor::new(
+            created_at,
+            query.before_share_id.unwrap_or_default(),
+        )
+    });
     let result = if all {
-        service::list_all(&svc(&state), &user, query.before, limit).await
+        service::list_all(&svc(&state), &user, cursor, limit, active_only).await
     } else {
-        service::list_mine(&svc(&state), &user, query.before, limit).await
+        service::list_mine(&svc(&state), &user, cursor, limit, active_only).await
     };
     match result {
         Ok(items) => ok(StatusCode::OK, items),
@@ -334,31 +373,41 @@ mod tests {
     #[test]
     fn forwarding_headers_are_ignored_unless_the_peer_is_this_machine() {
         let spoof = headers(&[("x-forwarded-for", "9.9.9.9"), ("x-real-ip", "8.8.8.8")]);
-        assert_eq!(client_address(ip("203.0.113.7"), &spoof), "203.0.113.7");
-        assert_eq!(client_address(ip("203.0.113.7"), &HeaderMap::new()), "203.0.113.7");
+        let no_proxies: Vec<String> = vec![];
+        assert_eq!(client_address(ip("203.0.113.7"), &spoof, &no_proxies), "203.0.113.7");
+        assert_eq!(client_address(ip("203.0.113.7"), &HeaderMap::new(), &no_proxies), "203.0.113.7");
         // Different peers are different buckets, and no peer is one shared, named bucket.
-        assert_ne!(client_address(ip("203.0.113.7"), &spoof), client_address(ip("203.0.113.8"), &spoof));
-        assert_eq!(client_address(None, &spoof), "unknown");
+        assert_ne!(
+            client_address(ip("203.0.113.7"), &spoof, &no_proxies),
+            client_address(ip("203.0.113.8"), &spoof, &no_proxies)
+        );
+        assert_eq!(client_address(None, &spoof, &no_proxies), "unknown");
     }
 
     #[test]
     fn behind_a_local_proxy_the_entry_the_proxy_added_is_used() {
         // The first entry is whatever the caller wrote; the last is the proxy's own.
+        let no_proxies: Vec<String> = vec![];
         let h = headers(&[("x-forwarded-for", "1.1.1.1, 198.51.100.4")]);
-        assert_eq!(client_address(ip("127.0.0.1"), &h), "198.51.100.4");
-        assert_eq!(client_address(ip("::1"), &h), "198.51.100.4");
+        assert_eq!(client_address(ip("127.0.0.1"), &h, &no_proxies), "198.51.100.4");
+        assert_eq!(client_address(ip("::1"), &h, &no_proxies), "198.51.100.4");
         let real = headers(&[("x-real-ip", "198.51.100.5")]);
-        assert_eq!(client_address(ip("127.0.0.1"), &real), "198.51.100.5");
+        assert_eq!(client_address(ip("127.0.0.1"), &real, &no_proxies), "198.51.100.5");
         // Garbage falls back to the peer.
         let junk = headers(&[("x-forwarded-for", "not an ip")]);
-        assert_eq!(client_address(ip("127.0.0.1"), &junk), "127.0.0.1");
+        assert_eq!(client_address(ip("127.0.0.1"), &junk, &no_proxies), "127.0.0.1");
+
+        // Trusted proxies config also honors forwarding headers:
+        let trusted = vec!["10.0.0.0/8".to_string()];
+        assert_eq!(client_address(ip("10.1.2.3"), &h, &trusted), "198.51.100.4");
     }
 
     #[test]
     fn ipv6_counts_per_slash_64() {
-        let a = client_address(ip("2001:db8:1:2:aaaa::1"), &HeaderMap::new());
-        let b = client_address(ip("2001:db8:1:2:bbbb::9"), &HeaderMap::new());
-        let c = client_address(ip("2001:db8:1:3::1"), &HeaderMap::new());
+        let no_proxies: Vec<String> = vec![];
+        let a = client_address(ip("2001:db8:1:2:aaaa::1"), &HeaderMap::new(), &no_proxies);
+        let b = client_address(ip("2001:db8:1:2:bbbb::9"), &HeaderMap::new(), &no_proxies);
+        let c = client_address(ip("2001:db8:1:3::1"), &HeaderMap::new(), &no_proxies);
         assert_eq!(a, b);
         assert_ne!(a, c);
     }

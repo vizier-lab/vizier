@@ -50,6 +50,7 @@ calamine = { workspace = true, optional = true }
 chrono.workspace = true
 chrono-tz.workspace = true
 iana-time-zone.workspace = true
+ipnet.workspace = true
 config.workspace = true
 croner.workspace = true
 docx-rs = { workspace = true, optional = true }

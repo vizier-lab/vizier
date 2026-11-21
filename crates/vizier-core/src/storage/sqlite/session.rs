@@ -436,6 +436,26 @@ impl SessionStorage for SqlStorage {
         )?;
         Ok(())
     }
+
+    async fn find_sessions_by_topic(
+        &self,
+        agent_id: &str,
+        topic: &str,
+    ) -> Result<Vec<VizierSessionDetail>> {
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT data FROM session_detail WHERE agent_id = ?1 AND topic = ?2",
+        )?;
+        let mut rows = stmt.query_map(params![agent_id, topic], |row| {
+            let data: String = row.get(0)?;
+            Ok(data)
+        })?;
+        let mut all = Vec::new();
+        for r in rows {
+            all.push(serde_json::from_str::<VizierSessionDetail>(&r?)?);
+        }
+        Ok(all)
+    }
 }
 
 #[cfg(test)]

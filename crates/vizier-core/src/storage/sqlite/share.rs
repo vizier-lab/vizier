@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use crate::storage::{
-    share::{Audience, InsertOutcome, ShareContent, ShareRecord, ShareStorage, ShareSummary},
+    share::{Audience, InsertOutcome, ShareContent, ShareCursor, ShareRecord, ShareStorage, ShareSummary},
     sql::{Connection, OptionalExtension, ToSql, params, params_from_iter},
     sqlite::SqlStorage,
 };
@@ -95,8 +95,9 @@ fn list(
     conn: &Connection,
     creator: Option<&str>,
     viewer: Option<&str>,
-    before: Option<i64>,
+    before: Option<ShareCursor>,
     limit: usize,
+    active_only: bool,
 ) -> Result<Vec<ShareSummary>> {
     // Column 13: how many people are named; column 14: whether `viewer` is one of them.
     let mut sql = format!(
@@ -111,9 +112,19 @@ fn list(
         sql.push_str(" AND s.creator_id = ?");
         args.push(Box::new(creator.to_string()));
     }
-    if let Some(before) = before {
-        sql.push_str(" AND s.created_at < ?");
-        args.push(Box::new(before));
+    if active_only {
+        sql.push_str(" AND s.revoked_at IS NULL");
+    }
+    if let Some(cursor) = before {
+        if cursor.share_id.is_empty() {
+            sql.push_str(" AND s.created_at < ?");
+            args.push(Box::new(cursor.created_at));
+        } else {
+            sql.push_str(" AND (s.created_at < ? OR (s.created_at = ? AND s.share_id < ?))");
+            args.push(Box::new(cursor.created_at));
+            args.push(Box::new(cursor.created_at));
+            args.push(Box::new(cursor.share_id));
+        }
     }
     sql.push_str(" ORDER BY s.created_at DESC, s.share_id DESC LIMIT ?");
     args.push(Box::new(limit as i64));
@@ -226,21 +237,23 @@ impl ShareStorage for SqlStorage {
     async fn list_shares_by_creator(
         &self,
         creator_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>> {
         let conn = self.conn.lock()?;
-        list(&conn, Some(creator_id), None, before, limit)
+        list(&conn, Some(creator_id), None, before, limit, active_only)
     }
 
     async fn list_all_shares(
         &self,
         viewer_id: &str,
-        before: Option<i64>,
+        before: Option<ShareCursor>,
         limit: usize,
+        active_only: bool,
     ) -> Result<Vec<ShareSummary>> {
         let conn = self.conn.lock()?;
-        list(&conn, None, Some(viewer_id), before, limit)
+        list(&conn, None, Some(viewer_id), before, limit, active_only)
     }
 
     async fn search_people(&self, prefix: &str, limit: usize) -> Result<Vec<(String, String)>> {
@@ -412,19 +425,55 @@ mod tests {
             s.insert_share(&share(id, who, Audience::Public, &[], i as i64), 200, i64::MAX).await.unwrap();
         }
         s.insert_share(&share("d", "u1", Audience::Specific, &["x", "y"], 5), 200, i64::MAX).await.unwrap();
-        let mine = s.list_shares_by_creator("u1", None, 10).await.unwrap();
+        let mine = s.list_shares_by_creator("u1", None, 10, false).await.unwrap();
         let ids: Vec<_> = mine.iter().map(|m| m.record.share_id.as_str()).collect();
         assert_eq!(ids, ["d", "b", "a"]);
         assert_eq!(mine[0].people_count, 2);
-        let page = s.list_shares_by_creator("u1", Some(5), 1).await.unwrap();
+        let page = s.list_shares_by_creator("u1", Some(ShareCursor::new(5, "d")), 1, false).await.unwrap();
         assert_eq!(page[0].record.share_id, "b");
-        assert_eq!(s.list_all_shares("x", None, 10).await.unwrap().len(), 4);
+        assert_eq!(s.list_all_shares("x", None, 10, false).await.unwrap().len(), 4);
         // Only whether the asker is named is reported, never who is.
-        let all = s.list_all_shares("x", None, 10).await.unwrap();
+        let all = s.list_all_shares("x", None, 10, false).await.unwrap();
         let named: Vec<_> = all.iter().filter(|m| m.viewer_named).map(|m| m.record.share_id.as_str()).collect();
         assert_eq!(named, ["d"]);
         // The listing SQL has no way to read the document.
         assert!(!META.contains("snapshot_json"));
+    }
+
+    #[tokio::test]
+    async fn composite_cursor_handles_identical_timestamps_and_active_only_filters() {
+        let s = storage();
+        // Insert shares with the exact same timestamp (100)
+        s.insert_share(&share("share_c", "u1", Audience::Public, &[], 100), 200, i64::MAX).await.unwrap();
+        s.insert_share(&share("share_b", "u1", Audience::Public, &[], 100), 200, i64::MAX).await.unwrap();
+        s.insert_share(&share("share_a", "u1", Audience::Public, &[], 100), 200, i64::MAX).await.unwrap();
+
+        // Newest first by created_at DESC, share_id DESC
+        let all = s.list_shares_by_creator("u1", None, 10, false).await.unwrap();
+        let ids: Vec<_> = all.iter().map(|m| m.record.share_id.as_str()).collect();
+        assert_eq!(ids, ["share_c", "share_b", "share_a"]);
+
+        // Keyset paging after "share_c" with identical timestamp (100)
+        let page = s.list_shares_by_creator("u1", Some(ShareCursor::new(100, "share_c")), 1, false).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].record.share_id, "share_b");
+
+        // Next page after "share_b"
+        let page2 = s.list_shares_by_creator("u1", Some(ShareCursor::new(100, "share_b")), 1, false).await.unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].record.share_id, "share_a");
+
+        // Revoke "share_b"
+        s.revoke_share("share_b", "u1", 200).await.unwrap();
+
+        // active_only = false returns all 3
+        let all = s.list_shares_by_creator("u1", None, 10, false).await.unwrap();
+        assert_eq!(all.len(), 3);
+
+        // active_only = true returns only share_c and share_a
+        let active = s.list_shares_by_creator("u1", None, 10, true).await.unwrap();
+        let active_ids: Vec<_> = active.iter().map(|m| m.record.share_id.as_str()).collect();
+        assert_eq!(active_ids, ["share_c", "share_a"]);
     }
 
     #[tokio::test]

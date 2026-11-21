@@ -85,6 +85,9 @@ pub(crate) fn new_state(runtime: &VizierRuntime, auth: state::AuthMode) -> HTTPS
         share_creates: crate::state::share_creates_limiter(),
         share_misses: crate::state::share_misses_limiter(),
         share_searches: crate::state::share_searches_limiter(),
+        share_idempotency: std::sync::Arc::new(parking_lot::Mutex::new(
+            std::collections::HashMap::new(),
+        )),
     }
 }
 
