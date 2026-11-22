@@ -35,6 +35,9 @@ pub const MAX_PEOPLE: usize = 50;
 pub const MAX_TURNS: usize = 5_000;
 pub const MAX_PARTS: usize = 64;
 pub const MAX_TEXT_BYTES: usize = 256 * 1024;
+/// One `page` part's document (spec 063's HTML page), in bytes. The WebUI twin is
+/// `pageBytes` in `webui/app/lib/share/limits.ts`.
+pub const MAX_PAGE_BYTES: usize = 2 * 1024 * 1024;
 /// Creates per person per hour (the limiter lives on `HTTPState`).
 pub const CREATES_PER_HOUR: usize = 10;
 /// Unknown or refused reads per address per minute.
@@ -262,6 +265,14 @@ fn check_snapshot(
             });
             if too_long {
                 return Err(ServiceError::TooLarge("A text part is too long".into()));
+            }
+            // A page's document is a string, and no bigger than the WebUI would have kept.
+            for p in parts.iter().filter(|p| p.get("kind").and_then(Value::as_str) == Some("page")) {
+                match p.get("html").and_then(Value::as_str) {
+                    Some(html) if html.len() <= MAX_PAGE_BYTES => {}
+                    Some(_) => return Err(ServiceError::TooLarge("A page part is too large".into())),
+                    None => return Err(invalid("A page part has no html string")),
+                }
             }
         }
         if turn.get("trail").and_then(Value::as_array).is_some_and(|t| !t.is_empty()) {
@@ -813,6 +824,22 @@ mod tests {
             check(&doc(|v| v["turns"][0]["parts"][0]["markdown"] = long.into()), false, "t"),
             Err(ServiceError::TooLarge(_))
         ));
+    }
+
+    #[test]
+    fn a_page_part_is_a_string_within_its_cap() {
+        let check = |text: &str| check_snapshot(text, false, "t", &[], "agent-a");
+        let page = |html: Value| {
+            doc(|v| {
+                v["turns"][0]["parts"] =
+                    serde_json::json!([{"kind": "page", "title": "Chess", "version": 2, "html": html}]);
+            })
+        };
+        assert!(check(&page("<p>x</p>".into())).is_ok());
+        assert!(check(&page(Value::Null)).is_err(), "html must be a string");
+        assert!(check(&page(serde_json::json!({ "text": "x" }))).is_err());
+        let big = "x".repeat(MAX_PAGE_BYTES + 1);
+        assert!(matches!(check(&page(big.into())), Err(ServiceError::TooLarge(_))));
     }
 
     #[test]
