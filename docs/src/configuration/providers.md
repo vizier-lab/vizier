@@ -1,6 +1,8 @@
-# 2.3 Providers
+# Providers
 
 A provider is an LLM backend. Providers are shared across all agents; each agent picks one `provider` + `model` (and optionally a different `dream_provider`/`dream_model` for its dream cycle, and a vision model for read-image).
+
+![Settings → Providers](../images/providers.png)
 
 ## The model catalogue
 
@@ -50,9 +52,6 @@ API: `GET|POST /api/v1/providers/custom`, `PUT|DELETE /api/v1/providers/custom/{
 | `elevenlabs` | `api_key` | `ELEVENLABS_API_KEY` | TTS/STT only |
 | `voyageai` | `api_key` | `VOYAGE_API_KEY` | Embeddings only |
 | `hyperbolic` | `api_key` | `HYPERBOLIC_API_KEY` | TTS and image generation |
-| `dummyplug` | `base_url` | `DUMMYPLUG_URL` | Local test server; default `http://127.0.0.1:9998/v1` |
-
-`dummyplug` is a testing provider, not a connected provider by default. It appears in Settings → Providers only when an agent uses it, a base URL has been saved, or `DUMMYPLUG_URL` is set. Deleting a saved base URL removes its row unless an agent still uses it or the environment variable still supplies a connection. The sample Compose setup does not set `DUMMYPLUG_URL`; enable its `dummyplug` profile and set the URL explicitly when testing.
 
 Every other provider comes from the catalogue.
 
@@ -101,7 +100,7 @@ Requests are signed with AWS Signature Version 4 (service `bedrock`); the access
 
 Chat models come from the catalogue — their ids, names, context windows, output limits, tool/vision capabilities and prices are used unchanged. The picker lists all 200 catalogue entries, cross-region profiles included; a typed id the picker does not list is stored and sent exactly as entered, and the provider decides whether it is valid.
 
-Embeddings (`embedding.provider: bedrock`) and image generation (`image_gen_settings.provider: bedrock`) use the same saved connection and region. See [Tools & Embedding](./tools-embedding.md#amazon-bedrock) for their model families, defaults and dimensions.
+Embeddings (`embedding.provider: bedrock`) and image generation (`image_gen_settings.provider: bedrock`) use the same saved connection and region. See [Voice, Images & Embeddings](./tools-embedding.md#amazon-bedrock) for their model families, defaults and dimensions.
 
 ### Errors and recovery
 
@@ -214,39 +213,6 @@ Provider ids now follow the catalogue. The old names are still accepted everywhe
 
 On upgrade, saved credentials and agents are rewritten to the new ids once. An agent on a removed provider shows `provider "galadriel" is not available; pick another provider` until it's moved.
 
-## Dummyplug (testing)
-
-`dummyplug` is a local Node.js OpenAI-compatible chat server for exercising agents, channels, sessions and tools without a live model. Start it with `just dummyplug` (requires Node.js 22), then set an agent's provider to `dummyplug` (shown as **dummyplug (testing)**) and any model name. Its default URL is `http://127.0.0.1:9998/v1`; override it with `DUMMYPLUG_URL` or save a `base_url` through Settings → Providers. It is optional: Vizier and other providers work when the server is stopped, while dummyplug turns report a connection error.
-
-The separate server reads the latest user message and replies by these rules, first match wins:
-
-| Send | Reply |
-|------|-------|
-| `tools` (any case) | A list of every tool available to the agent, including MCP tools (named `<server>_<tool>`) |
-| An exact tool name, e.g. `memory_write` | The tool's description, its required/optional arguments, and a sample request in a `json` code block |
-| `{"tool": "<name>", "arguments": { ... }}` (optionally fenced) | Runs the tool through the normal tool path (hooks, history, UI), then replies with a **Tool result** (`<name>`) block holding its output. Malformed JSON or an unknown tool gets an error reply and runs nothing. |
-| Anything else | 1–3 paragraphs of random lorem ipsum |
-
-Example:
-
-````text
-> memory_read
-**`memory_read`** — read one whole memory by `(bundle, path)`
-
-```json
-{
-  "tool": "memory_read",
-  "arguments": { "bundle": "core", "path": "soul" }
-}
-```
-
-> {"tool": "memory_read", "arguments": {"bundle": "core", "path": "soul"}}
-**Tool result** (`memory_read`):
-"# Core\n\n## Operating Framework ..."
-````
-
-Scheduled tasks, dream cycles and other non-interactive prompts fall into the last rule, so they complete normally. Token usage is always reported as zero.
-
 ## Model limits and capabilities
 
 An agent's context window and output limit come from the catalogue entry for its model; Settings shows them on the model card, and `vizier agent ps` shows the effective context window and where it came from. The agent's `context_window` and `max_tokens` fields (under **Advanced** in the WebUI) override them. For a model the catalogue doesn't list, Vizier asks the provider's model listing (OpenRouter, Ollama) and then falls back to detection by model name. The context window drives automatic [checkpoints](./agents.md#checkpoints).
@@ -255,4 +221,4 @@ Capabilities are used too: images are sent straight to a model that can see them
 
 ## Related per-agent providers
 
-Embedding, TTS, STT, and image generation each have their own provider choice configured **per agent**; they reuse the credentials of the matching provider here (e.g. Gemini embeddings use `google`'s key). See [Tools & Embedding](./tools-embedding.md).
+Embedding, TTS, STT, and image generation each have their own provider choice configured **per agent**; they reuse the credentials of the matching provider here (e.g. Gemini embeddings use `google`'s key). See [Voice, Images & Embeddings](./tools-embedding.md).

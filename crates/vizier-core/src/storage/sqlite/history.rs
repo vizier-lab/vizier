@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::{
     schema::{
         ClientCallOutcome, ReactionEntry, SessionHistory, SessionHistoryContent,
-        VizierAttachmentContent, VizierResponseContent, VizierSession,
+        VizierAttachment, VizierAttachmentContent, VizierResponse, VizierResponseContent,
+        VizierSession,
     },
     storage::{
         history::{HistoryStorage, is_non_user_channel},
@@ -103,15 +104,6 @@ pub(super) fn write_history_entry(
                 ],
             )?;
     }
-    // An agent's shown messages in a Workspace also go into the shared timeline, in this same
-    // transaction, so the two cannot drift (spec 053 R3).
-    super::workspace::index_history_entry(
-        tx,
-        session,
-        &uid,
-        &entry.content,
-        entry.timestamp.timestamp_millis(),
-    )?;
     Ok(uid)
 }
 
@@ -386,6 +378,57 @@ pub(super) fn fill_ui_pages(conn: &sql::Connection, entries: &mut [SessionHistor
     Ok(())
 }
 
+/// A live voice reply's recording (spec 055): a `Message` reply with a `reply_audio` row reads as
+/// the `AudioReply` it was heard as, its text as the transcript. The history row itself is never
+/// rewritten, so deleting the recording's row gives the plain reply back.
+pub(super) fn fill_reply_audio(
+    conn: &sql::Connection,
+    entries: &mut [SessionHistory],
+) -> sql::Result<()> {
+    let wanted: Vec<String> = entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                &entry.content,
+                SessionHistoryContent::Response(VizierResponse {
+                    content: VizierResponseContent::Message { .. },
+                    ..
+                })
+            )
+        })
+        .map(|entry| entry.uid.clone())
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut by_uid: HashMap<String, VizierAttachment> = HashMap::new();
+    for chunk in wanted.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let rows = conn.query_all(
+            &format!("SELECT history_uid, attachment FROM reply_audio WHERE history_uid IN ({placeholders})"),
+            sql::params_from_iter(chunk.iter().map(String::as_str)),
+        )?;
+        for row in rows {
+            let uid: String = row.get(0)?;
+            let text: String = row.get(1)?;
+            if let Ok(audio) = serde_json::from_str::<VizierAttachment>(&text) {
+                by_uid.insert(uid, audio);
+            }
+        }
+    }
+    for entry in entries.iter_mut() {
+        let Some(audio) = by_uid.remove(&entry.uid) else {
+            continue;
+        };
+        if let SessionHistoryContent::Response(response) = &mut entry.content
+            && let VizierResponseContent::Message { content, stats } = &response.content
+        {
+            response.content = VizierResponseContent::AudioReply(audio, Some(content.clone()), stats.clone());
+        }
+    }
+    Ok(())
+}
+
 /// The sort key every in-Rust re-sort of history uses.
 ///
 /// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
@@ -489,6 +532,7 @@ impl SqlStorage {
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
         fill_ui_pages(&conn, &mut list)?;
+        fill_reply_audio(&conn, &mut list)?;
         Ok(list)
     }
 }
@@ -632,6 +676,7 @@ impl HistoryStorage for SqlStorage {
         fill_client_calls(&conn, &mut list)?;
         fill_question_sets(&conn, &mut list)?;
         fill_ui_pages(&conn, &mut list)?;
+        fill_reply_audio(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -758,6 +803,7 @@ impl HistoryStorage for SqlStorage {
         fill_client_calls(&conn, &mut history)?;
         fill_question_sets(&conn, &mut history)?;
         fill_ui_pages(&conn, &mut history)?;
+        fill_reply_audio(&conn, &mut history)?;
 
         Ok((history, handover))
     }

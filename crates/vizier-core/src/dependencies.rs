@@ -101,6 +101,9 @@ pub struct VizierDependencies {
     pub questions: Arc<crate::questions::Questions>,
     /// The client sockets this process owns, by connection id (a request names one, never holds it).
     pub client_connections: crate::agents::client::ClientConnections,
+    /// Live voice calls (`specs/055-live-voice`), one per conversation; `VizierRuntime::start`
+    /// runs its idle sweeper.
+    pub live_voice: Arc<crate::live_voice::LiveVoiceSessions>,
     /// The one way the gateway side reaches an agent (`specs/048-agent-service-seam`).
     ///
     /// The service layer and the HTTP adapter call this instead of reading a running agent's
@@ -264,6 +267,8 @@ impl VizierDependencies {
             storage.clone(),
             file_manager.clone(),
         ));
+        // Spec 064: Workspaces were removed; their data goes once, before any agent starts.
+        Self::migrate_drop_workspaces(&storage, &sql, &session_files).await?;
         let notifications = crate::notifications::Notifications::new(storage.clone());
         // New rows reach the inbox stream; recovery runs later, with it already installed.
         notifications.install_transport(transport.clone());
@@ -362,6 +367,7 @@ impl VizierDependencies {
             lsp: crate::projects::lsp::LspHost::new(config.lsp.max_servers),
             questions: Arc::new(crate::questions::Questions::new()),
             client_connections: crate::agents::client::ClientConnections::new(),
+            live_voice: Arc::new(crate::live_voice::LiveVoiceSessions::default()),
             agents,
         };
         // Server changes reach the inbox stream (spec 054).
@@ -1163,6 +1169,101 @@ impl VizierDependencies {
     /// Set once every one-time task has been rewritten in local time.
     pub const ONE_TIME_TASK_LOCAL: &'static str = "migration.one_time_task_local_v1";
 
+    /// Set once every Workspace's data has been removed (spec 064).
+    pub const WORKSPACES_DROPPED: &'static str = "migration.drop_workspaces_v1";
+
+    /// The Workspace tables, children first.
+    const WORKSPACE_TABLES: [&'static str; 6] = [
+        "workspace_read",
+        "workspace_mention",
+        "workspace_entry",
+        "workspace_member",
+        "workspace_topic",
+        "workspace",
+    ];
+
+    /// Spec 064 (FR-033, clarification Q2): Workspaces were removed, and their data goes with
+    /// them, once. Each member agent's record of a Workspace topic is deleted through the one
+    /// conversation-delete path (history, files, scratch, pending turns, notifications), then the
+    /// `workspace_message` rows, the two permissions in every role, and the tables. Agents'
+    /// memory, their other conversations and recorded usage are untouched. Written over the SQL
+    /// connection so it runs on SQLite and PostgreSQL alike (PostgreSQL's migration `0013` drops
+    /// the tables too). A run stopped partway is repeated safely: every step finds less to do.
+    /// Tracked for removal in #82.
+    async fn migrate_drop_workspaces(
+        storage: &VizierStorage,
+        sql: &SqlStore,
+        files: &crate::session_files::SessionFiles,
+    ) -> Result<()> {
+        use crate::{
+            schema::{VizierChannelId, VizierSession},
+            storage::{state::StateStorage, user::UserStorage},
+        };
+        const PREFIX: &str = "workspace__";
+
+        let key = Self::WORKSPACES_DROPPED.to_string();
+        if storage.get_state(key.clone()).await?.is_some() {
+            return Ok(());
+        }
+        let sessions: Vec<VizierSession> = {
+            let conn = sql.lock()?;
+            // A pending turn would make the conversation's delete refuse; nothing will run it.
+            conn.execute(
+                "DELETE FROM session_turn WHERE substr(channel, 1, 11) = ?1",
+                crate::storage::sql::params![PREFIX],
+            )?;
+            let rows = conn.query_all(
+                "SELECT agent_id, channel, topic FROM session_history WHERE substr(channel, 1, 11) = ?1 \
+                 UNION SELECT agent_id, channel, topic FROM session_detail WHERE substr(channel, 1, 11) = ?1",
+                crate::storage::sql::params![PREFIX],
+            )?;
+            let mut sessions = vec![];
+            for row in rows {
+                let agent: String = row.get(0)?;
+                let channel: String = row.get(1)?;
+                let topic: Option<String> = row.get(2)?;
+                if let Some(id) = channel.strip_prefix(PREFIX) {
+                    let session = VizierSession(agent, VizierChannelId::Workspace(id.to_string()), topic);
+                    if !sessions.contains(&session) {
+                        sessions.push(session);
+                    }
+                }
+            }
+            sessions
+        };
+        for session in &sessions {
+            if let Err(e) = files.delete_conversation(session).await {
+                tracing::warn!(session = %session.to_slug(), "could not delete a Workspace conversation: {e}");
+            }
+        }
+        {
+            let conn = sql.lock()?;
+            conn.execute(
+                "DELETE FROM notification WHERE category = ?1",
+                crate::storage::sql::params!["workspace_message"],
+            )?;
+            for table in Self::WORKSPACE_TABLES {
+                conn.execute_batch(&format!("DROP TABLE IF EXISTS {table}"))?;
+            }
+        }
+        for role in storage.list_roles().await? {
+            let kept: Vec<String> = role
+                .permissions
+                .iter()
+                .filter(|p| !matches!(p.as_str(), "workspaces:create" | "all_workspaces:manage"))
+                .cloned()
+                .collect();
+            if kept.len() != role.permissions.len() {
+                storage.update_role(&role.role_id, &role.name, kept).await?;
+            }
+        }
+        storage.save_state(key, serde_json::json!(true)).await?;
+        if !sessions.is_empty() {
+            tracing::info!("removed {} Workspace conversation(s) (Workspaces were removed)", sessions.len());
+        }
+        Ok(())
+    }
+
     /// Spec 052: one-time tasks were stored with a `Z` (UTC) time; rewrite each to the local form
     /// of the same instant, so a task keeps its moment and now reads in the instance's zone.
     ///
@@ -1648,5 +1749,85 @@ mod one_time_task_tests {
         let first = task_data(&sql, "once");
         VizierDependencies::migrate_one_time_tasks_to_local(&storage).await.unwrap();
         assert_eq!(task_data(&sql, "once"), first);
+    }
+}
+
+
+/// Spec 064: the one-time removal of Workspace data.
+#[cfg(test)]
+mod drop_workspaces_tests {
+    use std::sync::Arc;
+
+    use super::VizierDependencies;
+    use crate::{
+        schema::{SessionHistoryContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession},
+        storage::{
+            VizierStorage, document::BlobDocumentStore, history::HistoryStorage, sql::SqlStore,
+            sqlite::SqlStorage, state::StateStorage, user::UserStorage,
+        },
+    };
+
+    fn chat(text: &str) -> SessionHistoryContent {
+        SessionHistoryContent::Request(VizierRequest {
+            content: VizierRequestContent::Chat(text.into()),
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn workspace_data_goes_once_and_nothing_else_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        SqlStorage::init_schema(&conn).unwrap();
+        // What a 053 install left: a Workspace table and a member agent's record of a topic.
+        conn.execute_batch("CREATE TABLE workspace (id TEXT PRIMARY KEY); INSERT INTO workspace VALUES ('w1');")
+            .unwrap();
+        let sql = SqlStore::sqlite(conn);
+        let storage = VizierStorage::new(SqlStorage::new(
+            sql.clone(),
+            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
+        ));
+        let files = crate::session_files::SessionFiles::new(
+            Arc::new(storage.clone()),
+            crate::file_manager::FileManager::new(
+                dir.path(),
+                Arc::new(crate::storage::blob::LocalBlobStore::new(dir.path())),
+            ),
+        );
+        let topic = VizierSession("a".into(), VizierChannelId::Workspace("w1".into()), Some("t1".into()));
+        let chat_session = VizierSession(
+            "a".into(),
+            VizierChannelId::HTTP("ana".into(), "webui".into()),
+            Some("c".into()),
+        );
+        storage.save_session_history(topic.clone(), chat("in the workspace")).await.unwrap();
+        storage.save_session_history(chat_session.clone(), chat("in a chat")).await.unwrap();
+        let role = storage
+            .create_role("maker", vec!["workspaces:create".into(), "all_agents:view".into()], false)
+            .await
+            .unwrap();
+
+        VizierDependencies::migrate_drop_workspaces(&storage, &sql, &files).await.unwrap();
+
+        assert!(storage.list_session_history(topic.clone(), None, None, None).await.unwrap().is_empty());
+        assert_eq!(storage.list_session_history(chat_session.clone(), None, None, None).await.unwrap().len(), 1);
+        let role = storage.get_role(&role.role_id).await.unwrap().unwrap();
+        assert_eq!(role.permissions, vec!["all_agents:view".to_string()]);
+        let left: i64 = sql
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workspace'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0, "the table is dropped");
+        assert!(storage.get_state(VizierDependencies::WORKSPACES_DROPPED.into()).await.unwrap().is_some());
+
+        // Once: a second run does nothing, even to rows that look like Workspace ones.
+        storage.save_session_history(topic.clone(), chat("late")).await.unwrap();
+        VizierDependencies::migrate_drop_workspaces(&storage, &sql, &files).await.unwrap();
+        assert_eq!(storage.list_session_history(topic, None, None, None).await.unwrap().len(), 1);
     }
 }

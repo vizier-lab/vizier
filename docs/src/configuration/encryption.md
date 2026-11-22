@@ -1,8 +1,10 @@
-# 2.14 Encryption at Rest
+# Encryption at Rest
 
 Vizier stores credentials and secret values in its embedded SQLite database. Those values — agent secrets, provider API keys and access tokens, custom-provider keys and header values, Discord/Telegram bot tokens, the Brave Search key, MCP environment values, and shell environment values — are **encrypted at rest** with a workspace key that is not stored in the database. Everything else stays readable: names, masks, timestamps, provider endpoints and base URLs, integration transport/command/arguments/URL/safe-search flags, shell paths and images, and agent models and prompts.
 
-The protection is field-level and transparent. Every existing workflow — agent `get_secret`, the WebUI and HTTP API, provider calls, channel connections, addons and MCP tools — behaves exactly as before. No endpoint, screen or configuration key was added.
+The protection is field-level and transparent. Every existing workflow — agents reading their secrets, the WebUI and HTTP API, provider calls, channel connections, addons and MCP tools — behaves exactly as before. No endpoint, screen or configuration key was added.
+
+> **Desktop app:** the app generates and keeps the key in its workspace folder automatically; back it up with the workspace.
 
 ## Key sources and precedence
 
@@ -105,7 +107,7 @@ done
 grep -c "$(sed -n '2p' <workspace>/.runtime/encryption.key)" /tmp/vizier.log
 ```
 
-Expect `0` for every line. Do not scan session history or the agent request/debug log for a value an agent set with `set_secret`: the set input is part of the agent's script and is documented as the one set-operation exception (`specs/027-agent-secrets`). Values set through the WebUI or HTTP API never enter a transcript.
+Expect `0` for every line. Do not scan session history or the agent request/debug log for a value an agent saved as a secret: the set input is part of the agent's script and is documented as the one set-operation exception (`specs/027-agent-secrets`). Values set through the WebUI or HTTP API never enter a transcript.
 
 ## Contract references
 

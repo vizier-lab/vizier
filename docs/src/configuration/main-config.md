@@ -1,4 +1,6 @@
-# 2.2 Main Configuration
+# Main Configuration
+
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
 
 `.vizier.yaml` is optional. When present, all keys sit under a single top-level `vizier:` key.
 
@@ -59,7 +61,7 @@ See [Projects](./projects.md#language-intelligence).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_depth` | number | `1` | How deep workers may hire workers. At `1` only the main agent is offered the subagent tools; a worker is offered only `ask_main_agent`. Raise it to let workers hire their own. |
+| `max_depth` | number | `1` | How deep workers may hire workers. At `1` only the main agent can hire workers. Raise it to let workers hire their own. |
 
 See [Agents](./agents.md#subagents).
 
@@ -82,7 +84,7 @@ See [Agents](./agents.md#subagents).
 
 `channels.http` is an `Option` — omitting it disables the HTTP channel entirely (no WebUI, no API). Passing `--port` or `--ws-idle-timeout` on the CLI re-enables it with defaults.
 
-> Discord and Telegram are **not** configured here. Each agent carries its own `discord_token` / `telegram_token`; see [Channels](./channels.md).
+> Discord and Telegram are **not** configured here. Each agent has its own Discord and Telegram connections, added on its **Channels** (agent menu → Connections) page; see [Channels](./channels.md).
 
 ### `worker_threads`
 
@@ -122,11 +124,11 @@ Older versions accepted `embedding`, `shell`, `tools.brave_search`, `tools.mcp_s
 | Legacy key | Now |
 |------------|-----|
 | `embedding` | per-agent `embedding` (WebUI agent settings) |
-| `shell` | per-agent `tools.shell` |
-| `tools.mcp_servers` | per-agent `tools.mcp_servers` |
-| `tools.brave_search` | per-agent `tools.brave_search_settings` |
-| `channels.discord.<agent>.token` | per-agent `discord_token` |
-| `channels.telegram.<agent>.token` | per-agent `telegram_token` |
+| `shell` | the per-agent **Shell** addon |
+| `tools.mcp_servers` | per-agent [MCP integrations](./mcp.md) |
+| `tools.brave_search` | the per-agent **Brave Search** addon |
+| `channels.discord.<agent>.token` | a per-agent Discord connection |
+| `channels.telegram.<agent>.token` | a per-agent Telegram connection |
 | `providers` | Settings → Providers, or the provider's env var |
 
 ## Minimal examples

@@ -143,10 +143,10 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
         }
         "stt_huggingface" => stt(Box::new(HuggingFaceStt(ep(bearer)))).await,
         "tts_openai" => {
-            tts(Box::new(OpenAiTts { endpoint: ep(bearer), response_format: None }), "alloy").await
+            tts(Box::new(OpenAiTts { endpoint: ep(bearer), response_format: None, pcm_rate: None }), "alloy").await
         }
         "tts_openrouter" => {
-            tts(Box::new(OpenAiTts { endpoint: ep(bearer), response_format: Some("mp3") }), "alloy").await
+            tts(Box::new(OpenAiTts { endpoint: ep(bearer), response_format: Some("mp3"), pcm_rate: None }), "alloy").await
         }
         "tts_xai" => tts(Box::new(XaiTts(ep(bearer))), "alloy").await,
         "tts_hyperbolic" => tts(Box::new(HyperbolicTts(ep(bearer))), "EN-US").await,

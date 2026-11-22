@@ -225,6 +225,31 @@ impl TurnStorage for SqlStorage {
         Ok(taken > 0)
     }
 
+    async fn release_turn_claim(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let agent = tx
+            .query_all("SELECT agent_id FROM session_turn WHERE id = ?1", params![id])?
+            .first()
+            .map(|row| row.get::<_, String>(0))
+            .transpose()?;
+        let Some(agent) = agent else {
+            return Ok(());
+        };
+        let scope = Scope::Agent(agent);
+        check_fence(&tx, &self.fences, &scope)?;
+        let (_, token) = self.fences.owner_of(&scope);
+        if let Some(token) = token {
+            tx.execute(
+                "UPDATE session_turn SET owner_node = NULL, owner_token = NULL \
+                 WHERE id = ?1 AND owner_token = ?2",
+                params![id, token],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     async fn sessions_with_pending_turns(&self) -> Result<Vec<VizierSession>> {
         let conn = self.conn.lock()?;
         let mut stmt = conn.prepare("SELECT DISTINCT session FROM session_turn")?;

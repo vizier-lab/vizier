@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use super::{Services, error::ServiceError};
 use crate::{
-    access::{Caller, can_show_platform_chats, can_view_agent, platform_of_slug},
+    access::{Caller, can_edit_agent, can_show_platform_chats, can_view_agent, platform_of_slug},
     artifacts::access as artifacts_access,
     auth::Principal,
     schema::{
@@ -73,6 +73,10 @@ pub fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, b
     // A subagent's conversation is addressable by its topic.
     if channel_id.eq_ignore_ascii_case("SUBAGENT") {
         return (VizierChannelId::Subagent, false);
+    }
+    // A consultation another agent sent this one (spec 064 US7), by its topic.
+    if let Some(from) = channel_id.strip_prefix("consultation__").filter(|f| !f.is_empty()) {
+        return (VizierChannelId::Consultation(from.to_string()), false);
     }
     (
         VizierChannelId::from_web(username, channel_id),
@@ -166,6 +170,10 @@ pub async fn authorize_topic(
     if let Some(platform) = platform_of_slug(channel_id)
         && !can_show_platform_chats(who, &config, platform)
     {
+        return Err(ServiceError::Forbidden("Access denied".into()));
+    }
+    // A consultation is read by the consulted agent's editors only (spec 064 FR-014).
+    if channel_id.starts_with("consultation__") && !can_edit_agent(who, &config) {
         return Err(ServiceError::Forbidden("Access denied".into()));
     }
     authorize_project_channel(s, who, &config, agent_id, channel_id).await?;

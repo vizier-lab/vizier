@@ -276,6 +276,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_added_file_keeps_another_of_the_same_name() {
+        let h = setup();
+        let s = session("t");
+        let add = |id: &'static str| {
+            let storage = h.storage.clone();
+            let s = s.clone();
+            async move { storage.add_session_file(&s, "report.pdf", "application/pdf", 1, id).await.unwrap() }
+        };
+        assert_eq!(add("f1").await.filename, "report.pdf");
+        assert_eq!(add("f2").await.filename, "report (2).pdf");
+        assert_eq!(add("f3").await.filename, "report (3).pdf");
+        // The same upload again stays where it is.
+        assert_eq!(add("f2").await.filename, "report (2).pdf");
+
+        let mut files: Vec<_> = h
+            .storage
+            .list_session_files(&s)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.filename, f.file_id))
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                ("report (2).pdf".into(), "f2".into()),
+                ("report (3).pdf".into(), "f3".into()),
+                ("report.pdf".into(), "f1".into()),
+            ]
+        );
+        let found = h.storage.get_session_file(&s, "report (2).pdf").await.unwrap();
+        assert_eq!(found.map(|f| f.file_id), Some("f2".into()));
+    }
+
+    #[tokio::test]
+    async fn a_saved_file_still_replaces_one_of_the_same_name() {
+        let h = setup();
+        let s = session("t");
+        h.storage.add_session_file(&s, "out.docx", "x", 1, "f1").await.unwrap();
+        // A tool writing a file by name replaces it, as its description says.
+        h.storage.save_session_file(&s, "out.docx", "x", 1, "f2").await.unwrap();
+        let files = h.storage.list_session_files(&s).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_id, "f2");
+    }
+
+    #[tokio::test]
+    async fn names_are_kept_apart_per_conversation() {
+        let h = setup();
+        let saved = h.storage.add_session_file(&session("a"), "a.txt", "x", 1, "f1").await.unwrap();
+        let other = h.storage.add_session_file(&session("b"), "a.txt", "x", 1, "f2").await.unwrap();
+        assert_eq!((saved.filename.as_str(), other.filename.as_str()), ("a.txt", "a.txt"));
+    }
+
+    #[tokio::test]
     async fn a_running_or_queued_turn_refuses_the_clear() {
         let h = setup();
         let s = session("t");

@@ -96,7 +96,10 @@ pub fn mode(request: &VizierRequest, session: &VizierSession) -> Mode {
     let VizierRequestContent::Chat(text) = &request.content else {
         return Mode::Queue;
     };
+    // A spoken message waits for its own turn: its session speaks the reply that comes back on its
+    // own sender, and a steered message's sender only gets `Steered` (spec 055 FR-007).
     if request.queue
+        || request.spoken
         || request.transient
         || invocation::parse(text) != Parsed::Plain
         || !crate::agents::tools::session_has_person(session)
@@ -193,6 +196,13 @@ mod tests {
     fn the_person_can_choose_to_queue() {
         let mut request = chat("later");
         request.queue = true;
+        assert_eq!(mode(&request, &web()), Mode::Queue);
+    }
+
+    #[test]
+    fn a_spoken_message_waits_for_its_own_turn() {
+        let mut request = chat("and the weather?");
+        request.spoken = true;
         assert_eq!(mode(&request, &web()), Mode::Queue);
     }
 

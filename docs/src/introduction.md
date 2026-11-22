@@ -3,80 +3,51 @@
 > **A digital steward for Your Majesty.**\
 > AI agents that remember who they are, and who you are. Hosted by you.
 
-Vizier is a Rust-based AI agent framework: a single binary that runs multiple concurrent AI agents, each with its own provider, tools, memory, and identity, exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded SQLite — no external database service required.
+Vizier is an AI agent framework written in Rust. One Vizier runs many agents at once, each with its own model provider, tools, memory and identity, and reaches them over the WebUI, Discord, Telegram and an HTTP API. Everything is stored in an embedded SQLite database and plain markdown files, so there is nothing else to run.
 
-## Features
+It comes in two editions that share one engine and one WebUI:
 
-- **Multi-Channel**: Discord, Telegram, HTTP (REST API & WebSocket), and a bundled WebUI. Each agent gets its own bot token per platform.
-- **Many Providers**: Ollama, Llama.cpp, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Xiaomi MiMo, Groq, Mistral, xAI, Perplexity, Moonshot, Z.ai, MiniMax, Together, Cohere, Hugging Face, Hyperbolic, Voyage AI, Galadriel, Mira, ChatGPT (OAuth), GitHub Copilot, Azure OpenAI, OpenCode Zen/Go, and any OpenAI-compatible `custom` endpoint. The provider layer is built into Vizier; providers come from the models.dev catalogue.
-- **Open-Format Memory**: Long-term memory is plain markdown on disk (YAML frontmatter + body), organized into per-agent **bundles** with a link graph (`[label](concept.md)` and `[[bundle/slug]]`), semantic search via a per-agent embedding model, and `.zip` export/import.
-- **Tools**: Shell execution (local or Docker-sandboxed), web search (Brave), web fetch, HTTP client, scheduler (cron & one-time tasks), memory graph tools, skills, session files (documents, images), TTS / STT / image generation, sub-tasks, inter-agent consult/delegate, per-platform messaging tools, and per-agent MCP servers.
-- **Skills**: Reusable `SKILL.md` instruction packages with resources and scripts — global or per-agent, installable from a registry, git, or local path, and recommended to the agent by embedding similarity.
-- **Dream Cycle**: Optional per-agent cron-scheduled reflection that extracts insights from recent sessions and consolidates them into memory, including the agent's Core.
-- **Checkpoints**: Automatic context-window handover when a session approaches the model's context limit, plus manual `/checkpoint` and `/lobotomy` commands.
-- **Multi-user**: JWT + API-key auth, roles with granular permissions, agent ownership and sharing.
-- **Config-less**: Runs with no config file at all — the WebUI/API manages everything at runtime.
+- **[Server edition](./server/installation.md)**: a single binary or container you host. Many users, Discord/Telegram bots, REST and WebSocket API, Docker and Kubernetes.
+- **[Desktop app edition](./app/installation.md)**: a native app for macOS, Linux and Windows with no setup and no open port. Just you and your agents.
 
-## Architecture
+Not sure which? See [Choose an Edition](./getting-started/editions.md).
+
+![The Vizier WebUI](./images/home.png)
+
+## What you get
+
+- **Agents that remember.** Long-term memory is plain markdown you can read and edit, organised into bundles with a link graph and semantic search. An agent's identity (its Core) is one of those documents. See [Memory](./configuration/memory.md).
+- **Any model.** Providers come from the models.dev catalogue (OpenAI, Anthropic, Google, OpenRouter, Ollama, Bedrock and many more), plus any OpenAI- or Anthropic-compatible endpoint. See [Providers](./configuration/providers.md).
+- **Where you already talk.** The WebUI, Discord and Telegram. Each agent has its own bot. See [Channels](./configuration/channels.md).
+- **Tools you choose.** Shell, HTTP, web search, Office files and any [MCP server](./configuration/mcp.md), added per agent. Reusable [skills](./configuration/skills.md) and saved [functions](./configuration/custom-tools.md).
+- **Initiative.** Scheduled tasks, background work, subagents, [consulting other agents](./configuration/consultations.md), and a nightly **dream cycle** that turns the day's conversations into durable memory.
+- **Long conversations.** Automatic checkpoints hand a conversation over to a fresh context before it overflows.
+- **Voice.** Speech in and out, and live voice calls. See [Live Voice](./configuration/live-voice.md).
+- **Control.** Users, roles and permissions, sharing, API keys, encryption of secrets at rest, and a usage page showing what each agent spends.
+
+## How it fits together
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                          Channels                            │
-│   ┌─────────┐   ┌──────────┐   ┌────────────────────────┐    │
-│   │ Discord │   │ Telegram │   │  HTTP (REST/WS/WebUI)  │    │
-│   └────┬────┘   └────┬─────┘   └───────────┬────────────┘    │
-└────────┼─────────────┼─────────────────────┼─────────────────┘
-         └─────────────┴──────────┬──────────┘
-                                  ▼
-                       VizierTransport (in-process bus)
-                                  │
-┌─────────────────────────────────▼────────────────────────────┐
-│                    One process per agent                     │
-│  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │   Core    │ │  Memory  │ │  Tools   │ │ Skills + MCP   │  │
-│  │(core/soul)│ │ (bundles)│ │ (+shell) │ │ (per-agent)    │  │
-│  └───────────┘ └──────────┘ └──────────┘ └────────────────┘  │
-└─────────────────────────────────┬────────────────────────────┘
-                                  │
-      ┌───────────────────────────┼───────────────────────────┐
-      ▼                           ▼                           ▼
-  Scheduler                   Providers                   Storage
- (cron, tasks,           (29 LLM backends,           (embedded SQLite +
-  dream cycle)           TTS/STT/image/embed)         markdown memory)
+        WebUI          Discord          Telegram          REST / WebSocket
+          └───────────────┴────────────────┴──────────────────┘
+                                   │
+                              Vizier engine
+        ┌──────────────┬───────────┴───────────┬───────────────┐
+     Agents         Scheduler              Providers         Storage
+ (memory, tools,   (tasks, dreams)     (chat, voice,       (SQLite or PostgreSQL,
+  skills, MCP)                          images, embeddings)  markdown files)
 ```
 
-## Quick Start
+## Start here
 
-```sh
-# Install Vizier
-curl -fsSL https://get.vizier.rs | sh
+1. [Choose an edition](./getting-started/editions.md) and install it: [server](./server/installation.md) or [desktop app](./app/installation.md).
+2. Follow its quick start, then [Your First Agent](./getting-started/first-agent.md).
+3. Browse [Using Vizier](./configuration/index.md) for each feature.
+4. Build on it with the [REST API](./api-integration/rest-api.md).
 
-# (Optional) generate a seed .vizier.yaml
-vizier onboard
-
-# Run
-vizier run
-```
-
-Then open `http://localhost:9999`, create the first user account, and create your agents in the WebUI. Vizier works without a config file — see [Quick Start](./getting-started/quick-start.md).
-
-## Configuration Model
-
-Vizier has a deliberately small file-based config and pushes almost everything to runtime:
-
-1. **Seed config** (`.vizier.yaml`, optional) — `providers`, `storage`, `channels.http`, `worker_threads`. Providers listed here are migrated into storage on first run.
-2. **Runtime config** (WebUI / HTTP API) — providers, users, roles, and *all* agent configuration (model, tools, shell, MCP servers, embedding, channel tokens, dream schedule).
-
-See [Configuration Overview](./configuration/index.md).
-
-## Project Status
+## Project status
 
 > [!WARNING]
-> **Disclaimer:** This project is under active, fast-moving development. Configuration shapes and APIs may change between minor versions.
+> Vizier is under active, fast-moving development. Configuration shapes and APIs may change between minor versions.
 
-## Next Steps
-
-- [Installation Guide](./getting-started/installation.md) — Get Vizier installed
-- [Quick Start](./getting-started/quick-start.md) — Run your first agent
-- [Configuration](./configuration/index.md) — Configure providers and agents
-- [REST API](./api-integration/rest-api.md) — Integrate programmatically
+**Projects** (agents working inside a folder on your computer) and **Fleet** (running Vizier as several cooperating processes) are **experimental**: they are still being built and are marked as such in these docs.

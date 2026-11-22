@@ -138,8 +138,10 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "read_dream_journal" => "💤 Reading dream journal:".to_string(),
         "schedule_one_time_task" => "⏰ Scheduling task:".to_string(),
         "schedule_cron_task" => "🔄 Setting up recurring task:".to_string(),
-        "mention_agent" => "📣 Mentioning agents:".to_string(),
-        "send_message_to_workspace" => "📨 Posting to a Workspace:".to_string(),
+        "consult_agent" => "🤝 Consulting:".to_string(),
+        "wait_consultations" => "⏳ Waiting for consultations".to_string(),
+        "reply_consultation" => "↩️ Answering a consultation".to_string(),
+        "ask_consulting_agent" => "❓ Asking the consulting agent".to_string(),
         "spawn_subagents" => "⚡ Hiring workers".to_string(),
         "wait_subagents" => "⏳ Waiting for workers".to_string(),
         "reply_subagent" => "↩️ Answering a worker".to_string(),
@@ -152,6 +154,7 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "telegram_react_message" => "👍 Telegram reaction".to_string(),
         "telegram_get_message_by_id" => "📩 Telegram message".to_string(),
         "webui_send_message" => "💬 WebUI message:".to_string(),
+        "webui_create_conversation" => "➕ New WebUI conversation:".to_string(),
         "webui_list_topics" => "📋 WebUI topics:".to_string(),
         _ => format!("use {}", &name),
     };
@@ -280,24 +283,23 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "schedule_one_time_task" | "schedule_cron_task" => {
             format!("'{}'", args["title"].as_str().unwrap_or("?"))
         }
-        "mention_agent" => format!(
-            "{} about '{}'",
-            args["agents"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|x| x.as_str()).map(|x| format!("@{}", x.trim_start_matches('@'))).collect::<Vec<_>>().join(" "))
-                .unwrap_or_default(),
-            args["message"].as_str().unwrap_or("")
-        ),
-        "send_message_to_workspace" => format!(
-            "{} / {}",
-            args["workspace_name"].as_str().unwrap_or("?"),
-            args["workspace_topic"].as_str().unwrap_or("?")
-        ),
+        "consult_agent" => args["consultations"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|c| c["agent"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default(),
         "create_skill" => format!("'{}'", args["name"].as_str().unwrap_or("?")),
         "webui_send_message" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
         }
         "webui_list_topics" => {
+            format!("@{}", args["username"].as_str().unwrap_or("?"))
+        }
+        "webui_create_conversation" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
         }
         _ => format!(

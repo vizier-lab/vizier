@@ -273,6 +273,7 @@ pub fn run(args: RunArgs) -> Result<()> {
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
         }),
+        trusted_proxies: None,
     };
     config.apply_overrides(&overrides);
 

@@ -19,7 +19,6 @@ mod shares;
 mod subagents;
 mod tasks;
 mod topics;
-mod workspaces;
 
 pub fn all() -> Vec<Vector> {
     let mut all = vec![
@@ -49,6 +48,5 @@ pub fn all() -> Vec<Vector> {
     all.extend(subagents::vectors());
     all.extend(tasks::vectors());
     all.extend(topics::vectors());
-    all.extend(workspaces::vectors());
     all
 }

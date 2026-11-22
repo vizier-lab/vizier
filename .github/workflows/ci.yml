@@ -632,9 +632,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # A cached target dir keeps whisper-rs-sys's CMakeCache.txt, which holds the absolute MSVC
+      # path: on a new runner image with a newer toolset it points at a cl.exe that is gone. So
+      # the cache is keyed by the image version (`ImageVersion`, set on GitHub-hosted runners but
+      # not in the `env` context until it is exported).
+      - name: Read the runner image version
+        shell: bash
+        run: echo "RUNNER_IMAGE_VERSION=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app -> target
+          key: image-${{ env.RUNNER_IMAGE_VERSION }}
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
       - uses: actions/setup-node@v4
         with:

@@ -18,11 +18,10 @@ the source conversation, deleting it, or deleting the agent therefore cannot aff
 
 ## Promoting and replacing
 
-- An agent uses `promote_artifact` (Files category) or the chat side panel's **Promote** action;
-  a person needs the artifact **manage** permission.
+- An agent promotes a file itself, or you use the chat side panel's **Promote** action (you need the artifact **manage** permission).
 - A name is unique per agent and case-sensitive. Promoting a duplicate name is refused with a
   message pointing to replacement.
-- `update_artifact` replaces the content, keeps the id and name, increments the version and
+- Replacing an artifact keeps its id and name, increments the version and
   writes a new `content.v<n>` before switching the row. The previous version file is removed
   after the switch. A failed source read or transaction leaves the old content and version
   intact.
@@ -78,9 +77,8 @@ attachments:
     name: Q3-report.pdf
 ```
 
-- `memory_write` is content-only and **preserves whatever is already attached**.
-- `attach_artifact_to_memory` adds one artifact (idempotent by id).
-- `detach_attachment_from_memory` removes one attachment by display name.
+- Editing a memory's text never changes what is attached.
+- An agent (or you, over the API) attaches or detaches artifacts separately.
 - The HTTP operations are `POST`/`DELETE /agents/{agent_id}/memory/attachments/{bundle}/{path}`.
 - Attaching or detaching rewrites only the frontmatter, the node count, one revision and the
   reference rows. It never re-chunks, re-embeds or changes the body.
@@ -88,18 +86,12 @@ attachments:
   refused with `422` so it is never silently ignored.
 
 Pre-035 memory attachments (`{ filename, content: { local } }`) still parse and are readable,
-detachable by filename and listed by `memory_read`. They are **legacy**: not migrated, no
+detachable by filename and shown with the memory. They are **legacy**: not migrated, no
 retroactive promotion, tracked for removal before 1.0.0 (#82).
 
 ## Dreams and source conversations
 
-A dream cycle may read the session files of the conversations it reflects on and promote one of
-them. `ToolContext.dream_sources` is the per-turn allow-list (extraction's source; consolidation's
-cycle sources). The dream toolset includes `list_session_files`, `read_document_file`,
-`read_image_file`, `promote_artifact`, `list_artifacts`, `attach_artifact_to_memory` and
-`detach_attachment_from_memory`. It excludes `update_artifact`,
-`load_artifact_as_session_file`, `send_attachment` and every clear/delete operation. Source files
-are never written by a dream.
+A dream cycle may read the files of the conversations it reflects on and promote one of them to an artifact, or attach one to a memory. It cannot replace or delete artifacts, send attachments or clear files, and it never writes to the source files.
 
 ## API
 

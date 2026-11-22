@@ -243,6 +243,10 @@ impl VizierRuntime {
         let transport = deps.clone();
         subsystems.spawn("command handler", async move { transport.run().await });
 
+        // Live voice calls are held wherever a chat socket is served, so their idle sweeper runs
+        // whatever the roles (`specs/055-live-voice` FR-029). It ends with `deps`.
+        deps.live_voice.spawn_sweeper(crate::live_voice::IDLE_SWEEP);
+
         Ok(Self {
             deps,
             roles,

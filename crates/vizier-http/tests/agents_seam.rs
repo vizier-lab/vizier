@@ -180,3 +180,81 @@ async fn the_seam_is_a_trait_object() {
     seam.health("alpha").await.unwrap();
     assert_eq!(fake.calls().len(), 1, "the fake behind the trait is the test's fake");
 }
+
+/// T041 — the switch that made the whole feature unreachable.
+///
+/// These go through the same two steps the API goes through: the request body becomes a config
+/// (`CreateAgentRequest::into_config`, which is what `PUT /agents/{id}` calls), the config is
+/// stored, and `detail` — what the WebUI reads to decide whether to draw the pill — is asked what
+/// it sees. A fake agents client is enough because nothing here starts a session.
+mod live_voice_switch {
+    use super::*;
+    use vizier_core::service::agents::CreateAgentRequest;
+
+    fn request(tools: serde_json::Value) -> CreateAgentRequest {
+        serde_json::from_value(serde_json::json!({
+            "agent_id": "helper",
+            "name": "helper",
+            "provider": "dummyplug",
+            "model": "dummyplug",
+            "tools": tools,
+        }))
+        .expect("a request with tools")
+    }
+
+    /// The detail the WebUI reads. The config is written straight into the store.
+    async fn detail_after(tools: serde_json::Value) -> vizier_core::service::agents::AgentDetail {
+        let fake = FakeAgentsClient::default();
+        let (deps, _dir) = deps_with(&fake).await;
+        let config = request(tools).into_config();
+        deps.storage.create_agent("helper", &config).await.unwrap();
+        let services = Services::new(deps);
+        agents_service::detail(&services, &who(), "helper")
+            .await
+            .expect("the agent is there")
+    }
+
+    // Spec 055: no switch of its own. An agent that can hear (stt on) and speak (tts on) offers a
+    // call; the `live_voice` block's `enabled` flag is not read.
+
+    #[tokio::test]
+    async fn an_agent_that_can_hear_and_speak_offers_a_call() {
+        let detail = detail_after(serde_json::json!({ "stt": true, "tts": true })).await;
+        assert!(detail.live_voice, "both halves on is all a call needs");
+        assert_eq!(detail.live_voice_missing, None);
+    }
+
+    #[tokio::test]
+    async fn an_agent_with_neither_names_the_recogniser_first() {
+        let detail = detail_after(serde_json::json!({ "fetch": true })).await;
+        assert!(!detail.live_voice);
+        assert_eq!(detail.live_voice_missing, Some("recognizer"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_voice_is_named() {
+        let detail = detail_after(serde_json::json!({ "stt": true })).await;
+        assert!(!detail.live_voice, "half a call is not a call");
+        assert_eq!(detail.live_voice_missing, Some("voice"));
+    }
+
+    #[tokio::test]
+    async fn the_old_switch_neither_adds_nor_hides_a_call() {
+        let on = detail_after(serde_json::json!({ "live_voice": { "enabled": true } })).await;
+        assert!(!on.live_voice, "a stored switch alone offers nothing");
+        let off = detail_after(serde_json::json!({
+            "stt": true, "tts": true, "live_voice": { "enabled": false }
+        }))
+        .await;
+        assert!(off.live_voice, "and an old `false` does not hide a call");
+    }
+
+    #[tokio::test]
+    async fn the_key_travels_as_null_rather_than_disappearing() {
+        // `AgentDetail` has no `skip_serializing_if`, so the client can rely on the key existing.
+        let detail = detail_after(serde_json::json!({ "stt": true, "tts": true })).await;
+        let json = serde_json::to_value(&detail).expect("the detail serialises");
+        assert!(json.get("live_voice_missing").is_some(), "the key is always present: {json}");
+        assert_eq!(json["live_voice_missing"], serde_json::Value::Null);
+    }
+}

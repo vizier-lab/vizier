@@ -1,4 +1,6 @@
-# 2.8 CLI
+# CLI
+
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
 
 ```
 vizier <COMMAND>
@@ -11,7 +13,9 @@ Commands:
   skill     Manage skills (install, list, uninstall, update)
   agent     Manage and inspect agents
 
-`vizier --version` / `vizier <cmd> --help` work as usual.
+```
+
+`vizier --version` and `vizier <cmd> --help` work as usual.
 
 ## `vizier run`
 
@@ -42,7 +46,10 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 
 ### Roles
 
-Fleet runs the same binary as a cluster by splitting it into roles ([#159](https://github.com/vizier-lab/vizier/issues/159)).
+> [!WARNING]
+> **Experimental.** Roles are part of [Fleet](../fleet/bus-contract.md), which is still in progress. Use the default (`all`) for anything real.
+
+Fleet runs the same binary as a cluster by splitting it into roles.
 
 | Role | Does | Singleton? |
 |------|------|------------|
@@ -53,18 +60,11 @@ Fleet runs the same binary as a cluster by splitting it into roles ([#159](https
 | `control` | The scheduler (cron, one-shot, dreams), retention purge, migrations, catalogue refresh | one leader plus standbys |
 | `all` | Every role in one process (**default**) | |
 
-`--role all` is exactly the single-node server described on this page. **Every other role is refused
-for now**, with a message naming the sub-issue that wires it in: `control`
-([#166](https://github.com/vizier-lab/vizier/issues/166)), `channels`
-([#167](https://github.com/vizier-lab/vizier/issues/167)), `worker`
-([#168](https://github.com/vizier-lab/vizier/issues/168)), `gateway-http`
-([#169](https://github.com/vizier-lab/vizier/issues/169)) and `gateway-grpc`
-([#170](https://github.com/vizier-lab/vizier/issues/170)). A role the binary was not built with is
-refused with the flag to rebuild with.
+`--role all` is exactly the single-node server described on this page. **Every other role is refused for now** with a message saying it is not available yet; the networked roles are still being built. A role the binary was not built with is refused with the flag to rebuild with.
 
 ```sh
 vizier run --role all            # one node doing everything: today's server
-vizier run --role worker,control # refused until #166 and #168 land
+vizier run --role worker,control # refused for now
 ```
 
 The process's roles show in `vizier agent ps` (`Roles  all`) and in `VizierRuntime::health`.

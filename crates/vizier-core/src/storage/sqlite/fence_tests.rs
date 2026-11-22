@@ -141,12 +141,19 @@ async fn stale_turn_transition_refused() {
     n.assert_refused(&scope, n.a.note_resume(id, 1).await);
     n.assert_refused(&scope, n.a.finish_turn(id).await);
     n.assert_refused(&scope, n.a.cancel_session_turns(&session("x")).await);
+    n.assert_refused(&scope, n.a.release_turn_claim(id).await);
     let rows = n.b.pending_turns("x").await.unwrap();
     assert_eq!(rows.len(), 1, "the row survived");
     assert_eq!(rows[0].state, TurnState::Queued);
     assert_eq!(rows[0].request_uid, None);
 
     n.b.start_turn(id).await.unwrap();
+    // Spec 064: the owner takes the row, hands it to its next instance (released), and the
+    // next instance takes it again; a second receipt is still a duplicate.
+    assert!(n.b.claim_turn_on_receipt(id).await.unwrap());
+    assert!(!n.b.claim_turn_on_receipt(id).await.unwrap(), "a duplicate delivery");
+    n.b.release_turn_claim(id).await.unwrap();
+    assert!(n.b.claim_turn_on_receipt(id).await.unwrap(), "the handed-on turn is taken");
     n.b.set_turn_request_uid(id, "uid").await.unwrap();
     assert_eq!(n.b.note_resume(id, 1).await.unwrap(), 1);
     n.b.finish_turn(id).await.unwrap();
@@ -301,6 +308,59 @@ async fn stale_detached_script_write_refused() {
     );
     assert_eq!(n.b.claim_deliverable_scripts(&session("x")).await.unwrap().len(), 1);
     assert_eq!(n.b.interrupt_running_scripts("x", None, None).await.unwrap().len(), 1);
+}
+
+/// A consultation of `y` by `x` (spec 064).
+fn consultation(id: &str) -> crate::schema::Subagent {
+    let mut row = worker(id);
+    row.consultee_id = Some("y".into());
+    row.principal_user_id = Some("u".into());
+    row
+}
+
+/// Spec 064 research D3: a consultation's row has two sides. What the consulting agent causes
+/// is fenced on its scope, what the consultee's own turn causes on the consultee's. A node that
+/// lost the consultee may no longer settle or ask, while it still holds the consulting scope and
+/// may stop, reply and follow up; the consultee's new owner settles.
+#[tokio::test]
+async fn consultation_sides_are_fenced_on_their_own_agent() {
+    use crate::schema::{SubagentState, SubagentStopReason};
+    let n = nodes();
+    let consulting = Scope::Agent("x".into());
+    let consultee = Scope::Agent("y".into());
+    n.a_then_b(&consulting).await;
+    n.a_then_b(&consultee).await;
+    n.a.open_subagents(vec![consultation("c_1"), consultation("c_2"), consultation("c_3")])
+        .await
+        .unwrap();
+    n.b_takes_over(&consultee).await;
+    let now = crate::time::now();
+    let answered = || Settled::Answered { result: "done".into(), truncated: false };
+
+    // The consultee side, from the node that lost it, is refused.
+    n.assert_refused(&consultee, n.a.settle_subagent("c_1", answered(), now).await);
+    n.assert_refused(&consultee, n.a.ask_subagent("c_2", "which?", 0, now).await);
+    n.assert_refused(
+        &consultee,
+        n.a.stop_subagent("c_3", SubagentStopReason::ConsulteeDeleted, now).await,
+    );
+    n.assert_refused(&consultee, n.a.stop_consultations_of(&"y".to_string(), now).await);
+    assert_eq!(n.b.get_subagent("c_1").await.unwrap().unwrap().state, SubagentState::Running);
+
+    // The consultee's new owner settles and asks; the consulting side, still held by A, stops,
+    // follows up and replies.
+    n.b.settle_subagent("c_1", answered(), now).await.unwrap().unwrap();
+    n.b.ask_subagent("c_2", "which?", 0, now).await.unwrap().unwrap();
+    assert!(!*n.a.ownership_lost(&consulting).borrow());
+    n.a.follow_up_subagent("c_1", now, now).await.unwrap().unwrap();
+    n.a.reply_subagent("c_2", now, now).await.unwrap().unwrap();
+    assert!(matches!(
+        n.a.stop_subagent("c_3", SubagentStopReason::ByAgent, now).await.unwrap(),
+        StopOutcome::Stopped(_)
+    ));
+    // A time-out is the consulting side's timer.
+    n.a.settle_subagent("c_2", Settled::TimedOut("late".into()), now).await.unwrap().unwrap();
+    assert_eq!(n.b.stop_consultations_of(&"y".to_string(), now).await.unwrap().len(), 1, "c_1 again running");
 }
 
 fn worker(id: &str) -> crate::schema::Subagent {
@@ -709,6 +769,7 @@ crate::postgres_tests!(
     stale_sensitive_ask_write_refused,
     stale_detached_script_write_refused,
     stale_subagent_write_refused,
+    consultation_sides_are_fenced_on_their_own_agent,
     detached_claims_race_and_split_the_rows,
     detached_cancel_and_close_race,
     stale_task_run_write_refused,

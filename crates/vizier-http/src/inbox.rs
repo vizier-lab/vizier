@@ -58,7 +58,7 @@ impl InboxConnection {
         Ok(Self {
             services,
             user_id: principal.user_id.clone(),
-            method: principal.method,
+            method: principal.method.clone(),
             events,
             out,
         })
@@ -92,7 +92,7 @@ impl InboxConnection {
             }
 
             if !batch.is_empty() {
-                match inbox::deliver(&self.services, &self.user_id, self.method, &batch).await {
+                match inbox::deliver(&self.services, &self.user_id, self.method.clone(), &batch).await {
                     Delivery::Close => return,
                     Delivery::Frames(frames) => {
                         for frame in &frames {
@@ -107,7 +107,7 @@ impl InboxConnection {
 
             // Events were lost, so the client's picture may be wrong: start it over.
             if lagged {
-                match inbox::hello_for(&self.services, &self.user_id, self.method).await {
+                match inbox::hello_for(&self.services, &self.user_id, self.method.clone()).await {
                     Ok(hello) => {
                         if let Some(value) = json(&hello)
                             && self.out.send_async(value).await.is_err()

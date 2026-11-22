@@ -24,7 +24,6 @@ pub mod project_lsp;
 pub mod shares;
 pub mod share_guard;
 pub mod projects;
-pub mod workspaces;
 pub mod setup;
 pub mod providers;
 pub mod providers_sso;

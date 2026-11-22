@@ -10,7 +10,6 @@
 use serde::Serialize;
 
 use crate::{
-    storage::workspace::WorkspaceStorage,
     access::can_view_agent,
     auth::{AuthMethod, Principal},
     schema::{AgentConfig, NotificationCounts, NotificationItem},
@@ -81,18 +80,6 @@ pub enum Delivery {
 /// The pure rule: may `principal` be told about `event`, and as what? `agents` is every stored
 /// agent, because whether a setup belongs to an agent not yet stored matters.
 pub fn judge(principal: &Principal, agents: &[(String, AgentConfig)], event: &InboxEvent) -> Option<InboxFrame> {
-    judge_with(principal, agents, &[], event)
-}
-
-/// [`judge`], also knowing the Workspaces the person is in: a Workspace message is for every
-/// current member but its author, whether or not they can view the agent that wrote it
-/// (`specs/053-workspace-channel` research R20).
-pub fn judge_with(
-    principal: &Principal,
-    agents: &[(String, AgentConfig)],
-    workspaces: &[String],
-    event: &InboxEvent,
-) -> Option<InboxFrame> {
     let can_view = |agent_id: &str| {
         agents
             .iter()
@@ -101,11 +88,7 @@ pub fn judge_with(
     let mine = |user: &str| user == principal.user_id;
     match event {
         InboxEvent::Created { item, audience, source_session, author } => {
-            let in_workspace = item
-                .agent_id
-                .strip_prefix(crate::schema::WORKSPACE_SCOPE_PREFIX)
-                .is_some_and(|id| workspaces.iter().any(|w| w == id));
-            let visible = (can_view(&item.agent_id) || in_workspace)
+            let visible = can_view(&item.agent_id)
                 && audience.as_deref().is_none_or(mine)
                 && author.as_deref() != Some(principal.user_id.as_str());
             visible.then(|| {
@@ -176,18 +159,9 @@ pub async fn deliver(
             return Delivery::Frames(vec![]);
         }
     };
-    let workspaces: Vec<String> = services
-        .deps()
-        .storage
-        .workspaces_of_person(&principal.username)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(workspace, _)| workspace.id)
-        .collect();
     let mut frames: Vec<InboxFrame> = events
         .iter()
-        .filter_map(|event| judge_with(&principal, &agents, &workspaces, event))
+        .filter_map(|event| judge(&principal, &agents, event))
         .collect();
     for frame in frames.iter_mut() {
         if let InboxFrame::Notification { item, .. } = frame {
@@ -241,13 +215,11 @@ pub async fn hello_for(services: &Services, user_id: &str, method: AuthMethod) -
 }
 
 async fn visible_ids(services: &Services, principal: &Principal) -> Result<Vec<String>, ServiceError> {
-    let mut ids: Vec<String> = super::overview::visible_agents(services, principal)
+    Ok(super::overview::visible_agents(services, principal)
         .await?
         .into_iter()
         .map(|(id, _)| id)
-        .collect();
-    ids.extend(super::notifications::workspace_scopes(services, principal).await);
-    Ok(ids)
+        .collect())
 }
 
 #[cfg(test)]
@@ -306,14 +278,6 @@ mod tests {
         }
     }
 
-    /// A Workspace message by `author` (a user id or an agent id).
-    fn workspace_message(workspace: &str, author: &str) -> InboxEvent {
-        let InboxEvent::Created { item, audience, source_session, .. } = created(&crate::schema::workspace_scope(workspace), None) else {
-            unreachable!()
-        };
-        InboxEvent::Created { item, audience, source_session, author: Some(author.into()) }
-    }
-
     fn setup(agent_id: &str) -> SetupState {
         SetupState {
             agent_id: agent_id.into(),
@@ -355,19 +319,6 @@ mod tests {
         let all = principal("zed", false, &["all_agents:view", "all_agents:projects"]);
         assert!(judge(&all, &agents(), &lsp_event("theirs")).is_some());
         assert!(judge(&principal("root", true, &[]), &agents(), &lsp_event("theirs")).is_some());
-    }
-
-    #[test]
-    fn a_workspace_message_is_for_every_member_but_its_author() {
-        let ana = principal("ana", false, &["owned_agents:view"]);
-        let in_room = ["w1".to_string()];
-        // Visible to a member even though they cannot view the agent that wrote it.
-        assert!(judge_with(&ana, &agents(), &in_room, &workspace_message("w1", "theirs")).is_some());
-        // Not to a person who is not in that Workspace.
-        assert!(judge_with(&ana, &agents(), &["w2".to_string()], &workspace_message("w1", "theirs")).is_none());
-        assert!(judge(&ana, &agents(), &workspace_message("w1", "theirs")).is_none());
-        // Never to its author.
-        assert!(judge_with(&ana, &agents(), &in_room, &workspace_message("w1", "ana")).is_none());
     }
 
     #[test]

@@ -75,8 +75,23 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 12,
-        name: "0012_shared_snapshot",
-        sql: include_str!("migrations/0012_shared_snapshot.sql"),
+        name: "0012_consultations",
+        sql: include_str!("migrations/0012_consultations.sql"),
+    },
+    Migration {
+        version: 13,
+        name: "0013_drop_workspaces",
+        sql: include_str!("migrations/0013_drop_workspaces.sql"),
+    },
+    Migration {
+        version: 14,
+        name: "0014_reply_audio",
+        sql: include_str!("migrations/0014_reply_audio.sql"),
+    },
+    Migration {
+        version: 15,
+        name: "0015_shared_snapshot",
+        sql: include_str!("migrations/0015_shared_snapshot.sql"),
     },
 ];
 

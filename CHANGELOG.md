@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2026-11-21
+
+### 🚀 Features
+
+- [**breaking**] Consult other agents; remove Workspaces (#215)
+- *(live-voice)* Live voice calls with kept audio (spec 055) (#216)
+- *(tools)* A WebUI message reaches the open tab, and an agent can open a conversation
+
+### 🐛 Bug Fixes
+
+- *(core)* Mark an agent as deleting before closing its inbox
+- *(core)* Package the ui-kit assets so vizier-core publishes
+
+### 📚 Documentation
+
+- Overhaul with server and desktop app editions, screenshots and experimental notes
+
+### ⚙️ Miscellaneous Tasks
+
+- *(webui)* Bump design and webui for the composer deck
+- *(webui)* Bump design and webui for the composer deck tweaks
+- *(webui)* Bump design and webui for the deck's glass header and live pill
+- *(webui)* Bump design and webui for the deck's header, phone and colour fixes
+- *(webui)* Bump design for the deck-style slash and @ menus
+- Pin design and webui without the deck sheets' sort-order footer
+- *(app)* Key the Rust cache by the runner image version
+- Pin webui with commands and skills drawn as typed
+## [0.16.0-rc.3] - 2026-11-19
+
+### 🚀 Features
+
+- *(ui-pages)* [**breaking**] HTML generative UI as one built-in tool (spec 063) (#212)
+- *(chat)* Prompt ruler — list a topic's prompts and read history back to one
+- *(mcp)* Headers for remote MCP servers
+- *(webui)* Plain-language activity trail rows
+
+### 🐛 Bug Fixes
+
+- *(chat)* Keep a full-screen interface inside the chat panel
+- *(ci)* Give the Kubernetes smoke volume to the pod's user (#213)
+- *(webui)* Composer wider than the messages on desktop too
+- *(design)* Agent replies as wide as the activity trail
+- *(session-files)* Keep both files when an arriving file's name is taken
+
+### ⚙️ Miscellaneous Tasks
+
+- *(webui)* Functions pages match Skills and Schedule, highlighted code
+- *(webui)* Wrap long lines and number them in the function editor
+- *(webui)* Bump design and webui for the trail icon spacing
+- *(webui)* Bump webui for the subagent trail icon
+- Bump version to 0.16.0-rc.3
 ## [0.16.0-rc.2] - 2026-11-15
 
 ### 🚀 Features
@@ -31,6 +82,7 @@ All notable changes to this project will be documented in this file.
 - Bump design and webui (strip icons, subagents default tab, error after reload)
 - Bump webui (intent on the running trail head)
 - Bump design (house icon on the home tile)
+- Bump version to 0.16.0-rc.2
 - Bump version to 0.16.0-rc.2
 ## [0.16.0-rc.1] - 2026-11-13
 

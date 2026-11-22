@@ -2,54 +2,65 @@
 
 [Introduction](./introduction.md)
 
-# 1. Getting Started
+# Getting Started
 
-- [1.1 Installation](./getting-started/installation.md)
-- [1.2 Quick Start](./getting-started/quick-start.md)
-- [1.3 Building from Source](./getting-started/contributing.md)
-- [1.4 Desktop App](./getting-started/desktop-app.md)
+- [Choose an Edition](./getting-started/editions.md)
+- [Your First Agent](./getting-started/first-agent.md)
 
-# 2. Configuration
+# Server Edition
 
-- [2.1 Overview](./configuration/index.md)
-- [2.2 Main Configuration](./configuration/main-config.md)
-- [2.3 Providers](./configuration/providers.md)
-- [2.4 Channels](./configuration/channels.md)
-- [2.5 Tools & Embedding](./configuration/tools-embedding.md)
-- [2.6 Storage & Shell](./configuration/storage-shell.md)
-- [2.7 Agents](./configuration/agents.md)
-- [2.8 CLI](./configuration/cli.md)
-- [2.9 MCP Servers](./configuration/mcp.md)
-- [2.10 Skills](./configuration/skills.md)
-- [2.11 Memory](./configuration/memory.md)
-- [2.12 Observability](./configuration/observability.md)
-- [2.13 Agent Secrets](./configuration/secrets.md)
-- [2.14 Encryption at Rest](./configuration/encryption.md)
-- [2.15 Artifacts](./configuration/artifacts.md)
-- [2.16 Office Addon](./configuration/office-addon.md)
-- [2.17 Desktop Web Access](./configuration/desktop-web-access.md)
-- [2.18 Asking the Person](./configuration/questions.md)
-- [2.19 Build Flavours](./configuration/build-flavours.md)
-- [2.20 Color Themes](./configuration/themes.md)
-- [2.21 Time](./configuration/time.md)
-- [2.22 Workspaces](./configuration/workspaces.md)
-- [2.23 Custom Tools](./configuration/custom-tools.md)
-- [2.24 Sharing Conversations](./configuration/sharing.md)
+- [Install the Server](./server/installation.md)
+- [Quick Start](./server/quick-start.md)
+- [Main Configuration](./configuration/main-config.md)
+- [CLI](./configuration/cli.md)
+- [Storage & Shell](./configuration/storage-shell.md)
+- [Encryption at Rest](./configuration/encryption.md)
+- [Observability](./configuration/observability.md)
+- [Kubernetes](./server/kubernetes.md)
 
-# 3. API Integration
+# Desktop App Edition
 
-- [3.1 REST API](./api-integration/rest-api.md)
-- [3.2 Client Tools](./api-integration/client-tools.md)
-- [3.3 Generative UI](./api-integration/generative-ui.md)
-- [3.4 Examples](./api-integration/examples.md)
-- [3.5 Building on vizier-core](./api-integration/building-on-vizier-core.md)
-- [3.6 Shared Chat API](./api-integration/shares.md)
+- [Install the Desktop App](./app/installation.md)
+- [Quick Start](./app/quick-start.md)
+- [Web Access](./app/web-access.md)
 
-# 4. Deployment
+# Using Vizier
 
-- [4.1 Kubernetes](./deployment/kubernetes.md)
+- [Configuration Overview](./configuration/index.md)
+- [Providers](./configuration/providers.md)
+- [Agents](./configuration/agents.md)
+- [Channels](./configuration/channels.md)
+- [Memory](./configuration/memory.md)
+- [Skills](./configuration/skills.md)
+- [Functions](./configuration/custom-tools.md)
+- [MCP Servers](./configuration/mcp.md)
+- [Voice, Images & Embeddings](./configuration/tools-embedding.md)
+- [Live Voice](./configuration/live-voice.md)
+- [Agent Secrets](./configuration/secrets.md)
+- [Artifacts](./configuration/artifacts.md)
+- [Office Addon](./configuration/office-addon.md)
+- [Consultations](./configuration/consultations.md)
+- [Questions and Sensitive Input](./configuration/questions.md)
+- [Sharing Conversations](./configuration/sharing.md)
+- [Time](./configuration/time.md)
+- [Color Themes](./configuration/themes.md)
 
-# Fleet
+# API Integration
 
-- [Bus Contract](./fleet/bus-contract.md)
-- [Ownership and Recovery](./fleet/ownership-and-recovery.md)
+- [REST API](./api-integration/rest-api.md)
+- [Client Tools](./api-integration/client-tools.md)
+- [Generative UI](./api-integration/generative-ui.md)
+- [Shared Chat API](./api-integration/shares.md)
+- [Examples](./api-integration/examples.md)
+- [Building on vizier-core](./api-integration/building-on-vizier-core.md)
+
+# Experimental
+
+- [Projects](./configuration/projects.md)
+- [Fleet: Bus Contract](./fleet/bus-contract.md)
+- [Fleet: Ownership and Recovery](./fleet/ownership-and-recovery.md)
+
+# Contributing
+
+- [Building from Source](./getting-started/contributing.md)
+- [Build Flavours](./configuration/build-flavours.md)

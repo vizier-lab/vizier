@@ -198,6 +198,11 @@ pub struct AgentToolsConfig {
     pub tts: ToolConfig<TtsToolSettings>,
     #[serde(default)]
     pub stt: ToolConfig<SttToolSettings>,
+    /// Live voice (`specs/055-live-voice`): its own switch, independent of `stt.enabled` and
+    /// `tts.enabled` (FR-003). Absent from a stored agent, it reads `enabled: false` and the
+    /// defaults below, so that agent behaves exactly as it does today (FR-040).
+    #[serde(default)]
+    pub live_voice: ToolConfig<LiveVoiceSettings>,
     #[serde(default)]
     pub read_image: ToolConfig<ReadImageToolSettings>,
     #[serde(default)]
@@ -208,6 +213,41 @@ pub struct AgentToolsConfig {
 pub struct ToolConfig<Settings> {
     pub enabled: bool,
     pub settings: Settings,
+}
+
+/// How long a silence ends what the person was saying, by default (spec 055). 1.4 s: 0.8 s cut people
+/// off at a breath or a pause to think.
+pub const END_OF_UTTERANCE_MS: u32 = 1400;
+
+/// The default before 2026-11-21, which agents saved then still carry. Read as the new default,
+/// since nobody chose it (#82).
+pub const OLD_END_OF_UTTERANCE_MS: u32 = 800;
+
+/// The live voice session's settings (`specs/055-live-voice` data model §5).
+///
+/// A call hears and speaks through the agent's own `stt` / `tts` settings; it has no recogniser or
+/// voice of its own. A row saved with the `stt`/`tts` keys an earlier draft had still loads (unknown
+/// keys are ignored) and drops them on its next save. The three numbers are the spec's defaults,
+/// exposed so the plan's budgets can be tuned without a rebuild.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct LiveVoiceSettings {
+    /// FR-029: a session with no utterance for this long ends itself.
+    pub idle_stop_seconds: u64,
+    /// FR-010: one utterance is capped here; the server enforces it.
+    pub max_utterance_seconds: u32,
+    /// FR-010: the client's end-of-utterance hangover.
+    pub end_of_utterance_ms: u32,
+}
+
+impl Default for LiveVoiceSettings {
+    fn default() -> Self {
+        Self {
+            idle_stop_seconds: 180,
+            max_utterance_seconds: 60,
+            end_of_utterance_ms: END_OF_UTTERANCE_MS,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
@@ -568,6 +608,41 @@ mod media_provider_tests {
         let json = serde_json::to_string(&image).unwrap();
         assert!(json.contains(r#""provider":"openrouter""#), "{json}");
         assert_eq!(serde_json::from_str::<SttProvider>(r#""openai""#).unwrap(), SttProvider::Openai);
+    }
+
+    /// FR-040: a stored agent without the block behaves exactly as it does today, and a partial
+    /// block fills in the spec's documented defaults.
+    #[test]
+    fn live_voice_is_off_and_defaulted_until_it_is_configured() {
+        let without: AgentToolsConfig =
+            serde_json::from_str(r#"{"timeout": "60s"}"#).unwrap();
+        assert!(!without.live_voice.enabled, "absent means off");
+        assert_eq!(without.live_voice.settings.idle_stop_seconds, 180);
+        assert_eq!(without.live_voice.settings.max_utterance_seconds, 60);
+        assert_eq!(without.live_voice.settings.end_of_utterance_ms, END_OF_UTTERANCE_MS);
+
+        let partial: AgentToolsConfig = serde_json::from_str(
+            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"idle_stop_seconds": 30}}}"#,
+        )
+        .unwrap();
+        assert!(partial.live_voice.enabled);
+        assert_eq!(partial.live_voice.settings.idle_stop_seconds, 30);
+        // The fields the block did not name keep their defaults.
+        assert_eq!(partial.live_voice.settings.max_utterance_seconds, 60);
+        assert_eq!(partial.live_voice.settings.end_of_utterance_ms, END_OF_UTTERANCE_MS);
+
+        // Its own switch: the speech tools stay off, and the session is on regardless (FR-003).
+        assert!(!partial.stt.enabled);
+        assert!(!partial.tts.enabled);
+
+        // A row saved with the old per-call recogniser still loads; the keys are dropped.
+        let old: AgentToolsConfig = serde_json::from_str(
+            r#"{"timeout": "60s", "live_voice": {"enabled": true, "settings": {"stt": {"provider": "openrouter"}, "idle_stop_seconds": 30}}}"#,
+        )
+        .unwrap();
+        assert_eq!(old.live_voice.settings.idle_stop_seconds, 30);
+        let saved = serde_json::to_string(&old.live_voice.settings).unwrap();
+        assert!(!saved.contains("stt"), "{saved}");
     }
 
     #[test]

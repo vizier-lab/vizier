@@ -23,13 +23,13 @@ The startup log names the result, and `GET /api/v1/utils/timezone` returns it:
 The image includes the zone database, so setting `TZ` is enough:
 
 ```sh
-docker run -e TZ=Asia/Jakarta vizierlab/vizier
+docker run -e TZ=Asia/Jakarta blinfoldking/vizier
 ```
 
 ```yaml
 services:
   vizier:
-    image: vizierlab/vizier
+    image: blinfoldking/vizier
     environment:
       TZ: Asia/Jakarta
 ```
@@ -65,14 +65,7 @@ Cron expressions and dream schedules are evaluated in local time. A job set to a
 
 ## How agents tell the time
 
-Agents aren't told the current time in their prompt, which keeps the prompt identical from turn to turn and makes prompt caching more effective. They have four tools in the `time` category instead:
-
-| Tool | Purpose |
-|---|---|
-| `current_time` | The time now, in the instance's zone or a named one |
-| `convert_time` | A moment shown in another zone |
-| `shift_time` | Add days, hours or minutes, move to a weekday, or set a time of day |
-| `time_between` | The difference between two moments |
+Agents aren't told the current time in their prompt, which keeps the prompt identical from turn to turn and makes prompt caching more effective. Instead they have built-in time tools: the current time (in the instance's zone or a named one), conversion to another zone, date arithmetic (add days or hours, move to a weekday, set a time of day) and the difference between two moments.
 
 Each message an agent reads shows when it arrived as `sent_at`. The server sets this time when it receives the message, on every channel. A time sent by a client is discarded.
 

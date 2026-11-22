@@ -1,5 +1,8 @@
 # Ownership and Recovery
 
+> [!WARNING]
+> **Experimental, in progress.** Fleet (running Vizier as several cooperating processes) is not finished and is **not supported for production use**. Today the server runs every role in one process on an in-process bus, which behaves exactly as before; the networked roles are still being built. These pages describe the design contract for people building on it, and they may change. Kubernetes deployments must run exactly one replica.
+
 In a Fleet more than one process can read the same database, but only one of them may *run* a given
 agent, and only one may run the scheduler. This page is the text of how that is decided, what a
 node that has lost its place is refused, and how the next owner picks up the work the last one left.

@@ -143,7 +143,7 @@ impl RevisionOrigin {
     pub fn from_user(user: &Principal) -> Self {
         let trigger = match user.method {
             AuthMethod::Jwt => RevisionTrigger::WebUi,
-            AuthMethod::ApiKey => RevisionTrigger::Api,
+            AuthMethod::ApiKey { .. } => RevisionTrigger::Api,
             AuthMethod::Desktop => RevisionTrigger::WebUi,
         };
         Self {

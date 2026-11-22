@@ -1,95 +1,67 @@
-# 2.9 MCP Servers
+# MCP Servers
 
-[MCP (Model Context Protocol)](https://modelcontextprotocol.io/) lets an agent call tools exposed by external servers. In Vizier, MCP servers are configured **per agent** — each agent spins up its own client connections when it starts. There is no global MCP registry.
+![Connections → MCP servers](../images/mcp.png)
 
-## Configuration
+[MCP (Model Context Protocol)](https://modelcontextprotocol.io/) lets an agent use tools exposed by external servers (GitHub, a filesystem, a database, your own service). MCP servers belong to **one agent**: each agent runs its own connections, and there is no global registry.
 
-Agent settings → Tools → MCP Servers in the WebUI, or the `tools.mcp_servers` map in `POST|PUT /api/v1/agents/{id}`:
+## Adding a server
 
-```json
+Open the agent's **MCP** (agent menu → Connections) page and choose to add a server. Give it a name, choose the transport and fill in its settings. Adding, changing or removing a server takes effect from the agent's next turn and never restarts the agent or interrupts a conversation.
+
+The same thing over the API is an integration of kind `mcp`:
+
+```http
+POST /api/v1/agents/{id}/integrations
+Content-Type: application/json
+
 {
-  "tools": {
-    "mcp_servers": {
-      "filesystem": {
-        "host": "local",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/docs"],
-        "env": { "LOG_LEVEL": "info" }
-      },
-      "remote": {
-        "host": "http",
-        "uri": "https://mcp.example.com/mcp"
-      }
-    }
+  "kind": "mcp",
+  "name": "github",
+  "settings": {
+    "transport": "local",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_…" }
   }
 }
 ```
 
-The map key is the server name you choose; it becomes part of every tool name.
+The **name** is 1 to 48 lowercase letters, digits, `_` or `-`, and it becomes part of every tool name. Names are unique per agent, not across the install.
 
-### `host: local` — stdio subprocess
+### Local server (stdio)
 
-| Field | Required | Description |
-|-------|----------|-------------|
+`"transport": "local"` (the default) starts a subprocess on the machine running Vizier and talks to it over stdin/stdout.
+
+| Setting | Required | Description |
+|---------|----------|-------------|
 | `command` | yes | Executable to spawn |
-| `args` | yes | Arguments (may be `[]`) |
+| `args` | no | Arguments |
 | `env` | no | Extra environment variables for the subprocess |
 
-The process is started with the agent and communicates over stdin/stdout.
+> [!WARNING]
+> A local server runs commands on the Vizier host with Vizier's permissions. Add only servers you trust. By default an agent cannot add MCP servers to itself; that is the **MCP servers** switch under **Addons → Self-management**.
 
-### `host: http` — Streamable HTTP
+### Remote server (Streamable HTTP)
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `uri` | yes | MCP endpoint URL |
-| `headers` | no | HTTP headers sent with every request, e.g. `{"Authorization": "Bearer <token>"}` or `{"X-API-Key": "<key>"}` |
+`"transport": "http"` connects to a server over the network.
 
-Uses the MCP *Streamable HTTP* transport (`rmcp`). In the WebUI, the **Headers** editor on a remote server is where a key or token goes. A header the transport sets itself (`Accept`, `Content-Type`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`) or a malformed name or value is refused when you save. A server that answers `401` shows as failed with "the server requires authentication".
+| Setting | Required | Description |
+|---------|----------|-------------|
+| `uri` | yes | The MCP endpoint URL |
+| `headers` | no | Headers sent with every request, for example `{"Authorization": "Bearer <token>"}` |
 
-OAuth sign-in (the MCP authorization flow, where the server sends you to a login page) is not supported yet. For such a server, use a personal access token if it offers one, or put a proxy in front.
+A header the transport sets itself (`Accept`, `Content-Type`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`) or a malformed name or value is refused when you save. A server that answers `401` shows as failed with "the server requires authentication".
 
-## Tool naming
+OAuth sign-in (the flow where the server sends you to a login page) is not supported yet. Use a personal access token if the server offers one, or put a proxy in front.
 
-Every tool the server advertises is registered on the agent as:
+## What the agent gets
 
-```
-mcp_<server_name>__<tool_name>
-```
+Each tool the server advertises appears on the agent as `<server>_<tool>`, grouped under the server's name (for example `github_create_issue` in the `github` group). If that clashes with a built-in tool or group, Vizier adds a suffix (`_mcp`, `_2`, …) so nothing is overwritten. Tool arguments are passed through unchanged, and calls are bound by the agent's tool timeout.
 
-| Server | Tool | Registered as |
-|--------|------|---------------|
-| `filesystem` | `read_file` | `mcp_filesystem__read_file` |
-| `remote` | `search` | `mcp_remote__search` |
+## Health and reconnecting
 
-Tool input schemas are passed through from the server. Calls are subject to the agent's `tools.timeout`.
+Servers connect in the background, so a slow or broken one never delays a turn. The list of tools is cached for five minutes (or until the server says it changed). A server that crashes or hangs is reconnected with a backoff, and while it is down only its own tools are missing; the agent carries on without them. Each server shows its state on the Integrations page.
 
-## Lifecycle
+## Secrets
 
-- Clients are created in `VizierTools::new()` when the agent process starts; a server that fails to start is logged and skipped (the agent still runs without its tools).
-- Updating the agent restarts the process and therefore all MCP connections.
-- Deleting the agent tears them down.
-
-## Example: GitHub MCP server
-
-```json
-{
-  "tools": {
-    "mcp_servers": {
-      "github": {
-        "host": "local",
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-github"],
-        "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_…" }
-      }
-    }
-  }
-}
-```
-
-The agent then sees `mcp_github__create_issue`, `mcp_github__search_repositories`, and so on.
-
-Every value in a server's `env` and `headers` maps is encrypted at rest and shown masked (`••••a91c`) in the WebUI and API; `command`, `args`, `transport`, the URL and the header names stay readable. See [Encryption at Rest](./encryption.md) for the key and backup rules.
-
-## Migration note
-
-Older versions declared servers globally under `tools.mcp_servers` in `.vizier.yaml` and referenced them by name from each agent. That YAML key is now ignored; a one-time startup migration copied any global definitions onto the agents that referenced them.
+Every value in a server's `env` and `headers` is encrypted at rest and shown masked (`••••a91c`) in the WebUI and API. The command, arguments, transport, URL and header names stay readable. See [Encryption at Rest](./encryption.md) for the key and backup rules.

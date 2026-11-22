@@ -255,6 +255,7 @@ fn env() -> Env {
         hooks: None,
         background_depth: 0,
         subagent_depth: 0,
+        consultation_chain: vec![],
         deadline: None,
         loaded_images: Default::default(),
         client: None,

@@ -24,6 +24,20 @@ fn resolved_model(settings: &TtsToolSettings) -> String {
         .unwrap_or_else(|| settings.provider.default_model().into())
 }
 
+/// The rate a Gemini speech model answers in, when the model is one.
+///
+/// 24 kHz is what Google documents for its TTS output; the value is one constant on purpose,
+/// because the only way to change it is to change what the provider sends. `None` for every other
+/// model, which keeps their mp3 path exactly as it was.
+pub(crate) fn gemini_pcm_rate(model: &str) -> Option<u32> {
+    let model = model.to_ascii_lowercase();
+    if model.contains("gemini") && model.contains("tts") {
+        Some(24_000)
+    } else {
+        None
+    }
+}
+
 impl VizierTts {
     pub async fn new(
         settings: &TtsToolSettings,
@@ -33,6 +47,8 @@ impl VizierTts {
     ) -> Result<Self> {
         let provider = &settings.provider;
         let model = resolved_model(settings);
+        // Decided before the model is moved into the endpoint below.
+        let gemini_pcm = gemini_pcm_rate(&model);
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
             #[cfg(feature = "provider-media")]
             (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
@@ -58,10 +74,16 @@ impl VizierTts {
             (TtsProvider::Openrouter, Some(id)) => Arc::new(OpenAiTts {
                 endpoint: media::endpoint(deps, &id, model).await?,
                 response_format: Some("mp3"),
+                // A Gemini speech model behind OpenRouter refuses mp3 outright:
+                // `400 … only supports response_format="pcm"`. It was the whole reason a live
+                // call had an answer on screen and no sound. Its PCM is 24 kHz mono, so it is
+                // asked for that and resampled to the rate every segment is delivered at.
+                pcm_rate: gemini_pcm,
             }),
             (_, Some(id)) => Arc::new(OpenAiTts {
                 endpoint: media::endpoint(deps, &id, model).await?,
                 response_format: None,
+                pcm_rate: gemini_pcm,
             }),
             (_, None) => unreachable!("only kokoro needs no credentials"),
         };
@@ -377,3 +399,4 @@ mod tests {
         assert_eq!(resolved_model(&settings), "someone/other");
     }
 }
+

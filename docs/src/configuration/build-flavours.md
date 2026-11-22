@@ -1,5 +1,7 @@
 # Build Flavours
 
+> **Server edition.** These settings do not apply to the desktop app, which is configured in **Settings → Desktop**. See [Choose an Edition](../getting-started/editions.md).
+
 Vizier ships one opinionated default build: the release binaries, the Docker image and the desktop
 app turn every optional piece on. If you build from source you can leave pieces out and get a
 smaller, faster-to-compile binary. Every optional piece is a Cargo feature of `vizier-core`; a flag
@@ -25,6 +27,27 @@ Names are grouped as `channel-*`, `addon-*`, `provider-*`, `gateway-*`, `bus-nat
 
 `default = []` for `vizier-core`, so an app that embeds the engine pays only for what it asks for.
 The `vizier` binary and the desktop app depend on `vizier-core` with `full`.
+
+### Live voice has no flag (since 2026-11-16)
+
+Live voice is **compiled into every build** of the engine and the gateway. There is no
+`provider-live-voice` in `vizier-core` and no `live-voice` in `vizier-http`: the flags were removed,
+not renamed, because the capability pulled in **no dependency of its own** (`cargo tree -p vizier-core
+--no-default-features -e normal --prefix none | sort -u` gives the same 625 crates with and without
+it). A flag that buys no build saving only invites the question "why is this gated", which is the
+question the project owner asked.
+
+What turns live voice on for a person is the **per-agent `live_voice.enabled` setting**, off unless
+it is configured. With it off, a `live_voice_start` is ignored **without closing the socket**, no
+`live_voice` frame is ever emitted, and every existing chat and speech capability works exactly as
+before (FR-041). The capability itself — what the row shows, what is stored — is
+[Live Voice](./live-voice.md).
+
+Because the tests are no longer behind a file-level `#![cfg]`, they run on every `cargo test`:
+
+```sh
+cargo test -p vizier-http          # the four live_voice_* binaries report 7 / 8 / 11 / 6
+```
 
 ### The binary's role flags
 

@@ -25,7 +25,6 @@ use crate::{
         },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
         history::RecallHistory,
-        workspaces::{ListWorkspaces, MentionAgent, ReadWorkspaceMessages, SendMessageToWorkspace},
         time::{ConvertTime, CurrentTime, ShiftTime, TimeBetween},
         secrets::{GetSecret, SetSecret},
         session_files::{
@@ -38,6 +37,11 @@ use crate::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         stt::SttTranscribe,
+        consultations::{
+            AskConsultingAgentTool, ConsultAgentTool, GetConsultationTool,
+            ListConsultableAgentsTool, ListConsultationsTool, ReplyConsultationTool,
+            StopConsultationTool, WaitConsultationsTool,
+        },
         subagents::{
             AskMainAgentTool, GetSubagentTool, ListSubagentsTool, ReplySubagentTool,
             SpawnSubagentsTool, StopSubagentTool, WaitSubagentsTool,
@@ -45,7 +49,7 @@ use crate::{
         think::ThinkTool,
         tts::TtsGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
-        webui::{ListWebuiTopics, SendWebuiMessage},
+        webui::{CreateWebuiConversation, ListWebuiTopics, SendWebuiMessage},
     },
     dependencies::VizierDependencies,
     error::VizierError,
@@ -81,6 +85,7 @@ mod session_files;
 pub mod shell;
 mod skill;
 pub mod stt;
+mod consultations;
 mod subagents;
 #[cfg(feature = "channel-telegram")]
 pub mod telegram;
@@ -92,7 +97,6 @@ pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
 mod webui;
-mod workspaces;
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -126,8 +130,9 @@ pub enum ToolCategory {
     /// The time tools (`specs/052-unify-local-timezone`): the prompt carries no clock, so an agent
     /// asks these for the time, converts between zones and does date arithmetic.
     Time,
-    /// The Workspace tools (`specs/053-workspace-channel`): wake other agents by mentioning them
-    /// in a shared topic, and reach a Workspace from any other conversation.
+    /// The Workspace tools (`specs/053-workspace-channel`). Workspaces were removed by spec 064:
+    /// the variant keeps its place in the display order and has no tools, so it is never listed
+    /// (#82).
     Workspaces,
     /// Subagents as temporary workers (`specs/059-subagent-workers`): the main agent hires,
     /// waits for, answers and stops workers; a worker asks its main agent. Who sees which tool
@@ -141,10 +146,14 @@ pub enum ToolCategory {
     /// Interactive pages drawn in a WebUI reply (`specs/063-html-generative-ui`). Offered only in
     /// WebUI and project conversations, by the tool's `available`.
     Ui,
+    /// Consulting other agents (`specs/064-consult-agents`): ask a real, separate agent the
+    /// person may use, wait for its answer, reply to its questions and follow up. The consulted
+    /// side is offered only the tool to ask back.
+    Consultations,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 23] = [
+    pub const ALL: [ToolCategory; 24] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -168,6 +177,7 @@ impl ToolCategory {
         Self::History,
         Self::CustomTools,
         Self::Ui,
+        Self::Consultations,
     ];
 
     pub fn name(self) -> &'static str {
@@ -195,6 +205,7 @@ impl ToolCategory {
             Self::Subagents => "subagents",
             Self::CustomTools => "custom_tools",
             Self::Ui => "ui",
+            Self::Consultations => "consultations",
         }
     }
 
@@ -243,6 +254,9 @@ impl ToolCategory {
             Self::Ui => {
                 "Draw interactive HTML pages (apps, games, dashboards) in your reply and change them with small edits"
             }
+            Self::Consultations => {
+                "Ask another agent for its knowledge, tools or judgment; wait for its answer, reply to its questions and follow up"
+            }
         }
     }
 }
@@ -271,18 +285,20 @@ pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
         "cancel_background_job",
         BACKGROUND_REPLACED,
     ),
-    (
-        "consult_agent",
-        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
-    ),
-    (
-        "delegate_agent",
-        "consult_agent and delegate_agent were replaced: use mention_agent inside a Workspace, and send_message_to_workspace outside one. Both agents must be members of the Workspace.",
-    ),
+    // Spec 064: Workspaces were removed and consult_agent is live again (category
+    // consultations); every name that addressed another agent points at it.
+    ("delegate_agent", WORKSPACES_REMOVED),
+    ("mention_agent", WORKSPACES_REMOVED),
+    ("send_message_to_workspace", WORKSPACES_REMOVED),
+    ("list_workspaces", WORKSPACES_REMOVED),
+    ("read_workspace_messages", WORKSPACES_REMOVED),
     ("ui_render_interactive_ui", UI_REPLACED),
     ("render_interactive_ui", UI_REPLACED),
     ("ui_components", UI_REPLACED),
 ];
+
+/// Spec 064: the hint for every Workspace tool and for `delegate_agent`.
+const WORKSPACES_REMOVED: &str = "Workspaces were removed: consult another agent with consult_agent, then wait_consultations for its answer (category consultations). list_consultable_agents lists the agents you may consult.";
 
 /// Spec 063: the WebUI's generative UI client tools became the built-in `ui_render`.
 const UI_REPLACED: &str = "This tool was replaced by ui_render (category ui), which draws an HTML page and ends the turn. Read its guide first: describe_tool_function(\"ui_render\").";
@@ -309,6 +325,9 @@ pub struct ToolContext {
     /// workers. The subagent management tools are offered only below `subagents.max_depth`; a
     /// detached script inherits its turn's value.
     pub subagent_depth: u8,
+    /// The turn's `VizierRequest::consultation_chain` (spec 064): the consulting agents above
+    /// this turn. Its length is the consultation depth; a detached script inherits it.
+    pub consultation_chain: Vec<crate::schema::AgentId>,
     /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
@@ -395,13 +414,10 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
     somebody_may_answer && session_has_person(session)
 }
 
-/// Whether people are on this conversation at all. A task, dream, subagent, inter-agent or
-/// system conversation has no person on it, whatever the request kind says; a Workspace topic
-/// has people on it too: any member may answer a question (spec 053).
+/// Whether people are on this conversation at all. A task, dream, subagent, consultation,
+/// inter-agent or system conversation has no person on it, whatever the request kind says.
 pub fn session_has_person(session: &VizierSession) -> bool {
-    session.1.web_user().is_some()
-        || session.1.platform().is_some()
-        || matches!(session.1, crate::schema::VizierChannelId::Workspace(_))
+    session.1.web_user().is_some() || session.1.platform().is_some()
 }
 
 #[derive(Clone, Default)]
@@ -1457,10 +1473,6 @@ impl BaseTools {
                 storage: deps.storage.clone(),
             })
             // Workspaces (spec 053): wake agents by mention inside one, and reach one from anywhere.
-            .tool(MentionAgent { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(SendMessageToWorkspace { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(ListWorkspaces { hub: crate::workspaces::Hub::from(&deps) })
-            .tool(ReadWorkspaceMessages { hub: crate::workspaces::Hub::from(&deps) })
             // Subagents (spec 059): the six management tools for the main agent, and
             // `ask_main_agent` for a worker; `available` decides which a turn sees.
             .tool(SpawnSubagentsTool::new(deps.clone()))
@@ -1470,6 +1482,16 @@ impl BaseTools {
             .tool(ListSubagentsTool::new(deps.clone()))
             .tool(GetSubagentTool::new(deps.clone()))
             .tool(AskMainAgentTool::new(deps.clone()))
+            // Consultations (spec 064): consult a real agent the person may use; the consulted
+            // side asks back. `available` decides which a turn sees.
+            .tool(ConsultAgentTool::new(deps.clone()))
+            .tool(WaitConsultationsTool::new(deps.clone()))
+            .tool(ReplyConsultationTool::new(deps.clone()))
+            .tool(StopConsultationTool::new(deps.clone()))
+            .tool(ListConsultationsTool::new(deps.clone()))
+            .tool(GetConsultationTool::new(deps.clone()))
+            .tool(ListConsultableAgentsTool::new(deps.clone()))
+            .tool(AskConsultingAgentTool::new(deps.clone()))
             .tool(ListDetachedScripts { storage: deps.storage.clone() })
             .tool(GetDetachedScript { storage: deps.storage.clone() })
             .tool(CancelDetachedScript {
@@ -1610,6 +1632,13 @@ impl BaseTools {
             .tool(SendWebuiMessage {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
+                transport: deps.transport.clone(),
+                notifications: deps.notifications.clone(),
+            })
+            .tool(CreateWebuiConversation {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+                transport: deps.transport.clone(),
             })
             .tool(ListWebuiTopics {
                 agent_id: agent_id.clone(),
@@ -1713,6 +1742,38 @@ impl BaseTools {
             reserved: Arc::new(deps.integration_kinds.addon_ids()),
             detached: Some(deps.detached.clone()),
         })
+    }
+}
+
+/// Test helpers shared outside the tools module.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use std::sync::Arc;
+
+    use super::ToolContext;
+    use crate::schema::VizierSession;
+
+    /// A plain turn's context on `session`: depth 0, nothing attached, no client.
+    pub(crate) fn context(session: VizierSession) -> ToolContext {
+        ToolContext {
+            session,
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            subagent_depth: 0,
+            consultation_chain: vec![],
+            deadline: None,
+            loaded_images: Default::default(),
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(Default::default()),
+            interactive: false,
+            dream_sources: vec![],
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
+            detached: false,
+            parent_detached_id: None,
+            custom: Default::default(),
+        }
     }
 }
 
@@ -1878,10 +1939,6 @@ mod tests {
             entry::<DeleteTask>(),
             entry::<ListTaskRuns>(),
             entry::<GetTaskRunDetail>(),
-            entry::<MentionAgent>(),
-            entry::<SendMessageToWorkspace>(),
-            entry::<ListWorkspaces>(),
-            entry::<ReadWorkspaceMessages>(),
             entry::<SpawnSubagentsTool>(),
             entry::<WaitSubagentsTool>(),
             entry::<ReplySubagentTool>(),
@@ -1889,6 +1946,14 @@ mod tests {
             entry::<ListSubagentsTool>(),
             entry::<GetSubagentTool>(),
             entry::<AskMainAgentTool>(),
+            entry::<ConsultAgentTool>(),
+            entry::<WaitConsultationsTool>(),
+            entry::<ReplyConsultationTool>(),
+            entry::<StopConsultationTool>(),
+            entry::<ListConsultationsTool>(),
+            entry::<GetConsultationTool>(),
+            entry::<ListConsultableAgentsTool>(),
+            entry::<AskConsultingAgentTool>(),
             entry::<ListDetachedScripts>(),
             entry::<GetDetachedScript>(),
             entry::<CancelDetachedScript>(),
@@ -1972,6 +2037,7 @@ mod tests {
             #[cfg(feature = "channel-telegram")]
             entry::<GetTelegramMessage>(),
             entry::<SendWebuiMessage>(),
+            entry::<CreateWebuiConversation>(),
             entry::<ListWebuiTopics>(),
             entry::<ShellExec>(),
             entry::<self_integrations::ListIntegrationKinds>(),
@@ -2017,10 +2083,6 @@ mod tests {
             ("delete_task", Scheduling),
             ("list_task_runs", Scheduling),
             ("get_task_run_detail", Scheduling),
-            ("mention_agent", Workspaces),
-            ("send_message_to_workspace", Workspaces),
-            ("list_workspaces", Workspaces),
-            ("read_workspace_messages", Workspaces),
             ("spawn_subagents", Subagents),
             ("wait_subagents", Subagents),
             ("reply_subagent", Subagents),
@@ -2028,6 +2090,14 @@ mod tests {
             ("list_subagents", Subagents),
             ("get_subagent", Subagents),
             ("ask_main_agent", Subagents),
+            ("consult_agent", Consultations),
+            ("wait_consultations", Consultations),
+            ("reply_consultation", Consultations),
+            ("stop_consultation", Consultations),
+            ("list_consultations", Consultations),
+            ("get_consultation", Consultations),
+            ("list_consultable_agents", Consultations),
+            ("ask_consulting_agent", Consultations),
             ("list_detached_scripts", Agents),
             ("get_detached_script", Agents),
             ("cancel_detached_script", Agents),
@@ -2091,6 +2161,7 @@ mod tests {
             #[cfg(feature = "channel-telegram")]
             ("telegram_get_message_by_id", Telegram),
             ("webui_send_message", Webui),
+            ("webui_create_conversation", Webui),
             ("webui_list_topics", Webui),
             ("shell_exec", Shell),
             ("list_integration_kinds", Integrations),
@@ -2186,6 +2257,11 @@ mod tests {
             if category == Coding {
                 continue;
             }
+            // `workspaces` keeps its place in the order but has no tools: Workspaces were removed
+            // (spec 064), and a category with no tools is never listed.
+            if category == Workspaces {
+                continue;
+            }
             assert!(
                 EXPECTED.iter().any(|(_, c)| *c == category),
                 "{category:?} has no tool"
@@ -2224,6 +2300,22 @@ mod tests {
             assert!(hint.contains("ui_render") && hint.contains("describe_tool_function"), "{hint}");
         }
         assert_eq!(retired_hint("ui_render"), None, "ui_render is the built-in, not retired");
+        // Spec 064: the Workspace tools and delegate_agent point at the consultation tools, and
+        // consult_agent is live again.
+        for name in [
+            "delegate_agent",
+            "mention_agent",
+            "send_message_to_workspace",
+            "list_workspaces",
+            "read_workspace_messages",
+        ] {
+            let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
+            assert!(hint.contains("consult_agent") && hint.contains("wait_consultations"), "{hint}");
+            for (retired, _) in RETIRED_TOOL_NAMES {
+                assert!(!hint.contains(retired), "{hint} names the retired {retired}");
+            }
+        }
+        assert_eq!(retired_hint("consult_agent"), None, "consult_agent is live again");
         // Spec 058 contracts/detached-flag.md §5.
         for name in ["background_subagents", "list_background_jobs", "cancel_background_job"] {
             let hint = retired_hint(name).unwrap_or_else(|| panic!("{name} has a hint"));
@@ -2308,10 +2400,11 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `ui` (spec 063) is the last; `custom_tools` (spec 061) is the one before it.
-        assert_eq!(names.last(), Some(&"ui"));
-        assert_eq!(names[names.len() - 2], "custom_tools");
-        assert_eq!(names.len(), 23);
+        // `consultations` (spec 064) is the last; `ui` (spec 063) is the one before it.
+        assert_eq!(names.last(), Some(&"consultations"));
+        assert_eq!(names[names.len() - 2], "ui");
+        assert_eq!(names[names.len() - 3], "custom_tools");
+        assert_eq!(names.len(), 24);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2568,6 +2661,7 @@ mod tests {
             hooks: None,
             background_depth: 0,
             subagent_depth: 0,
+            consultation_chain: vec![],
             deadline: None,
             loaded_images: Default::default(),
             client,

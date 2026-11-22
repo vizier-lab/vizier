@@ -1,4 +1,4 @@
-# 3.1 REST API
+# REST API
 
 Base URL: `http://localhost:<port>/api/v1`. Interactive docs: `http://localhost:<port>/swagger` (OpenAPI JSON at `/openapi.json`). The Swagger spec covers the core endpoints; this page lists everything the router actually mounts.
 
@@ -57,7 +57,7 @@ POST /api/v1/auth/login
 | `PUT` / `DELETE` | `/auth/roles/{role_id}` | `roles:manage` | same |
 | `GET` | `/auth/roles/available-permissions` | `roles:manage` | All permission strings |
 
-Permissions: `all_agents:view|create|edit|delete`, `owned_agents:view|edit|delete`, `agents:view`, `agents:mcp_config`, `agents:shell_config`, `settings:providers|password|api_keys`, `users:manage`, `roles:manage`, `all_agents:secret`, `owned_agents:secret`. The built-in `superadmin` role is a *system* role that bypasses all checks; a default `user` role gets `agents:view`, `settings:password`, `settings:api_keys`.
+Permissions (`GET /auth/roles/available-permissions` returns the live list): `all_agents:view|create|edit|delete`, `owned_agents:view|edit|delete`, `all_agents:integrations:manage`, `owned_agents:integrations:manage`, `all_agents:secret`, `owned_agents:secret`, `all_agents:view_artifacts`, `owned_agents:view_artifacts`, `all_agents:manage_artifacts`, `owned_agents:manage_artifacts`, `all_agents:manage_functions`, `owned_agents:manage_functions`, `all_agents:projects`, `owned_agents:projects`, `all_agents:show_discord_chats`, `owned_agents:show_discord_chats`, `all_agents:show_telegram_chats`, `owned_agents:show_telegram_chats`, `settings:providers`, `settings:password`, `settings:api_keys`, `model_override`, `agents:shell_config`, `users:manage`, `roles:manage`. The built-in `superadmin` role is a *system* role that bypasses all checks.
 
 ## Agents
 
@@ -72,6 +72,7 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `PUT` | `/agents/{id}` | Replace config (same body as create). Restarts the agent |
 | `DELETE` | `/agents/{id}?delete_workspace=true\|false` | Delete; optionally wipe `agents/{id}/` on disk |
 | `GET` | `/agents/{id}/ping` | Liveness of one agent |
+| `POST` | `/agents/{id}/restart` | Restart the agent without changing its config |
 | `GET` | `/agents/{id}/usage?start_date&end_date&activity` | Usage report: cost, tokens, activities, models, costliest conversations (see [Agents › Usage](../configuration/agents.md#usage)) |
 | `GET` | `/agents/{id}/usage/conversation?channel&topic&…` | One conversation's model calls |
 | `GET` / `PATCH` | `/agents/{id}/sharing` | `{ "add": [user_id], "remove": [user_id] }` |
@@ -181,7 +182,33 @@ Under `/agents/{id}/channel/{channel_id}`. The WebUI uses `channel_id = "vizier-
 | `/agents/{id}/memory/*` | [Memory → HTTP API](../configuration/memory.md#http-api) |
 | `/agents/{id}/tasks[/ {slug}]` | [Agents → Tasks](../configuration/agents.md#tasks) |
 | `/agents/{id}/skills[/ {slug}]` | [Skills → HTTP API](../configuration/skills.md#http-api) |
-| `/agents/{id}/dream/{trigger,status,journal,journal/{entry_id}}` | [Agents → Dream cycle](../configuration/agents.md#dream-cycle) |
+| `/agents/{id}/dream/{trigger,status,journal,journal/{entry_id},cycles,nights}` | [Agents → Dream cycle](../configuration/agents.md#dream-cycle) |
+
+## Integrations (channels, addons, MCP)
+
+Discord and Telegram bots, addons (Shell, HTTP, Brave Search, Office) and MCP servers are **integrations**, each owned by one agent. Reads need view access to the agent; changes need `all_agents:integrations:manage`, or `owned_agents:integrations:manage` for an agent you own.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/integrations/kinds` | The catalogue of kinds and their settings fields (`/integrations/kinds/{id}/icon` is public) |
+| `GET` / `POST` | `/agents/{id}/integrations` | List / create `{ "kind", "name", "settings" }` |
+| `PUT` / `DELETE` | `/integrations/{id}`, `/agents/{id}/integrations/{iid}` | Change settings / delete. Secret values come back masked, and sending the mask back keeps the stored value |
+| `GET` / `PUT` | `/agents/{id}/integrations/grants` | Which families (`mcp`, `addon`, `channel`) the agent may manage for itself |
+| `GET` | `/agents/{id}/integrations/events` | Who changed what (setting names, never values) |
+
+Changes apply from the agent's next turn and never restart it.
+
+## Functions (custom tools)
+
+`GET /agents/{id}/custom-tools` (and `/{tool}`, `/{tool}/versions`, `/{tool}/diff`, `/events`), `PUT /agents/{id}/custom-tools/{tool}`, `…/{tool}/enabled`, `…/{tool}/rollback`, `DELETE …/{tool}` and `PUT /agents/{id}/custom-tool-categories/{name}`. Changes need `manage_functions`; there is no create or run route. See [Functions](../configuration/custom-tools.md).
+
+## Conversation extras
+
+Under `/agents/{id}/channel/{channel_id}/topic/{topic_id}`: `/subagents[/{id}[/history]]` (workers and consultations), `/detached-scripts[/{id}]` (background work), `/prompts` and `/pages/{page}[/versions/{n}]` (generative UI pages, see [Generative UI](./generative-ui.md)). All are read-only.
+
+## Projects (experimental)
+
+`/agents/{id}/projects` and `/agents/{id}/projects/{project}` with `/files`, `/git`, `/git/{branches,changes,diff,switch}`, `/sessions`, `/sessions/{topic}/mode`, `/worktrees`, `/skills` and `/lsp`. Projects can be created only from the desktop app, and these routes may change. See [Projects](../configuration/projects.md).
 
 ## Providers (`settings:providers`)
 
@@ -321,6 +348,8 @@ An unknown `filter` is a `400`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/ping` | `"pong"`, no auth |
+| `GET` | `/utils/timezone` | The server's timezone `{ name, offset }` |
+| `GET` | `/inbox/stream` | WebSocket: live notifications and setup progress (frames `hello`, `notification`, `read`, `setup`, `setup_cleared`, `resync`) |
 | `GET` | `/status` | No auth. `{ online, version, setup_required }`: what the sign-in page shows before anyone has signed in |
 
 ## WebSocket chat

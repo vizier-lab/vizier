@@ -28,7 +28,6 @@ pub mod shares;
 pub mod skill_support;
 pub mod skills;
 pub mod utils;
-pub mod workspaces;
 
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
@@ -253,11 +252,6 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             agents().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest("/integrations", integrations::integrations(state.clone()))
-        .nest(
-            "/workspaces",
-            workspaces::workspaces()
-                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
-        )
         .nest(
             "/notifications",
             notifications::notifications()

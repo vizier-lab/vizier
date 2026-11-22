@@ -1,8 +1,11 @@
-# 2.13 Projects
+# Projects
+
+> [!WARNING]
+> **Experimental.** Projects are still in progress. They work, but their behaviour, settings and the coding tools they offer may change between releases, and commands run **without a sandbox**. Projects can only be created from the [desktop app](../app/installation.md); the server can use projects that already exist. Expect rough edges and please report them.
 
 A **project** mounts one host folder to exactly one agent. Inside a project session the agent
 works in that folder: it knows the path, reads the folder's `AGENTS.md` (or `CLAUDE.md`), and can
-run commands there through the `workspace_shell` tool. Projects are created only from the desktop
+run commands there through the workspace shell. Projects are created only from the desktop
 app; the browser can use the projects that already exist.
 
 ## Opening a project
@@ -42,37 +45,17 @@ the project and its files, but not their session lists or histories.
 
 Every project chat has a mode, saved with the chat. A new chat starts in **Plan**.
 
-- **Plan** offers only tools that read: `read_file`, `list_files`, `grep`, `glob` and the
-  read-only git tools. The agent is told to finish with `propose_plan`, which the WebUI draws as a
-  plan card with **Build this plan**.
-- **Build** adds `write_file` and `edit_file`, and `workspace_shell` when the project's shell
-  switch is on.
+- **Plan** offers only tools that read: reading and searching files and the read-only git tools. The agent finishes with a proposed plan, which the WebUI draws as a plan card with **Build this plan**.
+- **Build** adds writing and editing files, and the workspace shell when the project's shell switch is on.
 
 The mode is server state, so every tab, a resumed turn and a turn a detached script's result wakes see the same one.
 A switch applies from the next turn; a running turn keeps the tools it started with. Subagents
 launched from a project chat inherit its folder (the worktree, when it has one) and the launching
-turn's mode, minus `propose_plan`.
+turn's mode, minus the plan proposal.
 
 ## Coding tools
 
-All project tools are listed in the `coding` category. They take paths relative to the chat's
-folder and refuse anything that leaves it (`path_outside_project`), including through `..`,
-symbolic links or an absolute path. In the main folder, `.vizier/` is refused as
-`path_in_worktree_area`.
-
-| Tool | What it does |
-|---|---|
-| `read_file` | Reads a file, optionally a 1-based line range, with line numbers and a continuation hint |
-| `list_files` | Lists a folder, sorted, with sizes, honouring ignore rules |
-| `glob` | Finds files by a gitignore-style pattern |
-| `grep` | Regex search with optional glob and context lines |
-| `write_file` | Writes a whole file atomically, creating parents inside the folder |
-| `edit_file` | Replaces exact text; refuses a miss, an ambiguity or a stale read, leaving the file byte-identical |
-
-`edit_file` and `write_file` only overwrite a file the chat has read and whose bytes still match
-what it read; a changed file is `stale_read` until it is read again. Edits preserve CRLF line
-endings and the final-newline state. Listings and searches follow `.gitignore`, nested ignore
-files and `info/exclude`; `include_ignored` reaches ignored files deliberately.
+In a project chat the agent can read files (optionally a line range), list folders, find files by pattern, search with a regular expression, and in Build mode write whole files and replace exact text. Everything is confined to the chat's folder: paths that leave it, through `..`, symbolic links or an absolute path, are refused, and `.vizier/` is off limits in the main folder. A file is only overwritten if the chat has read it and it has not changed since (otherwise the agent must read it again), edits preserve CRLF line endings and the final newline, and a failed edit leaves the file byte-identical. Listings and searches follow `.gitignore` and `info/exclude`.
 
 ## Language intelligence
 
@@ -82,14 +65,9 @@ open; a project opened before this feature stays off until someone turns it on.
 
 **What the agent gets**
 
-- `edit_file` and `write_file` return a `diagnostics` field when a server is running for the file:
-  `current` lists the errors and warnings this edit caused, `pending` means they are not known yet
-  (it never means the code is clean, so the agent calls `lsp_diagnostics` later), and `unavailable`
-  says why the file was not checked. The wait is at most 3 seconds, and a write never fails because of
+- After an edit, the agent is told which errors and warnings the edit caused, when a server is running for the file. If they are not known yet it says so (never meaning the code is clean) and checks later, and if the file could not be checked it says why. The wait is at most 3 seconds, and a write never fails because of
   it.
-- Five tools in the `coding` category, offered in **Plan and Build**: `lsp_definition`,
-  `lsp_references`, `lsp_hover`, `lsp_symbols` and `lsp_diagnostics`. The agent names a file, a line
-  and the symbol, never a column. Results use paths relative to the chat's folder, a location outside
+- Five code-navigation questions, offered in **Plan and Build**: definition, references, hover, symbols and diagnostics. The agent names a file, a line and the symbol, never a column. Results use paths relative to the chat's folder, a location outside
   the project is marked `outside_project` with only a file name, and a long list is cut at 50 items.
 - No tool changes a file. A server's request to apply an edit is refused.
 
@@ -161,7 +139,7 @@ cost is that some Rust errors, such as borrow-checker errors and breakage in fil
 are not in an edit's `diagnostics`, so the agent is told to run the build before it finishes.
 
 **Staying correct.** Before every question the file is re-read and sent to the server if it differs.
-After `workspace_shell` runs, or a branch is switched, Vizier tells the servers about the files that
+After the shell runs a command, or a branch is switched, Vizier tells the servers about the files that
 changed, in the background; if more than 5,000 changed, the server restarts instead.
 
 ## Mentions
@@ -180,7 +158,7 @@ diff. The branch menu switches or creates a branch. A switch is refused while a 
 that folder (`turn_active`), when another worktree has the branch checked out
 (`branch_checked_out`), or when git would overwrite local changes (`local_changes`).
 
-The agent has read-only `git_status`, `git_diff` and `git_log`. There is no commit or push in the
+The agent has read-only git status, diff and log. There is no commit or push in the
 UI: commit through the workspace shell in Build mode, or outside Vizier.
 
 ## Worktrees
@@ -201,7 +179,7 @@ on disk.
 
 ## The workspace shell
 
-In a Build-mode project session, with the shell switch on, the agent has `workspace_shell`:
+In a Build-mode project session, with the shell switch on, the agent can run commands in the project folder (the workspace shell). A call looks like:
 
 ```json
 { "command": "cargo test", "workdir": "crates", "timeout_secs": 120 }
@@ -234,7 +212,7 @@ The folder's own skills, in `.agents/skills/<slug>/` (then `.claude/skills`), ar
 chat and listed in a `## Project Skills` section of its system prompt. They are read where they lie,
 never copied into the workspace and never indexed, so a branch switch shows up on the next turn.
 `/skills` lists them with the workspace ones, each slug once, and typing `/` in the composer offers
-them too, read from the chat's worktree when it is bound to one. [Skills](skills.md#project-skills)
+them too, read from the chat's worktree when it is bound to one. [Skills](./skills.md#project-skills)
 has the frontmatter, the precedence and what happens to a skill's scripts and hooks.
 
 ## Permissions
@@ -298,9 +276,7 @@ Agent-scoped routes under `/api/v1/agents/{agent_id}/projects`:
 | `DELETE` | `/{project_id}/worktrees/{id}?force=&delete_branch=` | Delete the chat and folder |
 
 A project session's channel id is `project__<project_id>`; history, files and the chat socket use
-the existing channel routes with that id. Internally the channel is its own kind, so a project
-chat is reported as **Projects** in usage, links to its project chat in notifications, and never
-appears in the regular Sessions list. Chats created before this change are migrated at startup.
+the existing channel routes with that id. A project chat is reported as **Projects** in usage, links to its project chat in notifications, and never appears in the regular Sessions list.
 
 ## Out of scope
 

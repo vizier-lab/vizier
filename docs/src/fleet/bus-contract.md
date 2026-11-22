@@ -1,5 +1,8 @@
 # Fleet Bus Contract
 
+> [!WARNING]
+> **Experimental, in progress.** Fleet (running Vizier as several cooperating processes) is not finished and is **not supported for production use**. Today the server runs every role in one process on an in-process bus, which behaves exactly as before; the networked roles are still being built. These pages describe the design contract for people building on it, and they may change. Kubernetes deployments must run exactly one replica.
+
 The Fleet roles (HTTP gateway, gRPC gateway, workers, channel readers, control) talk to each other
 over a **bus**. The contract lives in the `vizier-schema` crate, which depends on no other
 workspace crate: the engine and the roles depend on it, never the other way round. This page is the
@@ -86,7 +89,6 @@ identifier is written as one token by percent-encoding every byte outside `[A-Za
 | `process.cmd` | a command from the command socket | request and reply |
 | `session.{id}.events` | a session event | fan-out; subscribers use `session.>` |
 | `integration.changed` | an integration write | fan-out |
-| `workspace.{id}.events` | a Workspace message or note was written, a mention's state changed, or its members changed | fan-out; each gateway re-checks membership per delivery (spec 053) |
 | `inbox.events` | a notification created, read state changed, or live setup changed | fan-out; each gateway decides per connection who may see it |
 | `lease.{name}` | the lease name space | the `Leases` trait |
 

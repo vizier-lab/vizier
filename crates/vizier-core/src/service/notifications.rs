@@ -8,7 +8,6 @@ use std::collections::HashMap;
 
 
 use crate::{
-    storage::workspace::WorkspaceStorage,
     auth::Principal,
     notifications::cursor,
     schema::{ChatUnread, NotificationCounts, NotificationFilter, NotificationItem, NotificationPage, VizierSession},
@@ -26,23 +25,7 @@ async fn visible(services: &Services, user: &Principal) -> Vec<String> {
         .await
         .map(|agents| agents.into_iter().map(|(id, _)| id).collect())
         .unwrap_or_default();
-    ids.extend(workspace_scopes(services, user).await);
     ids
-}
-
-/// One scope id for each Workspace the person is in now. Their Workspace rows are visible through
-/// it, and revoking membership removes it, so a removal takes effect at once with nothing to
-/// delete (`specs/053-workspace-channel` research R20).
-pub(crate) async fn workspace_scopes(services: &Services, user: &Principal) -> Vec<String> {
-    services
-        .deps()
-        .storage
-        .workspaces_of_person(&user.username)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(workspace, _)| crate::schema::workspace_scope(&workspace.id))
-        .collect()
 }
 
 /// The title a row shows, once per distinct conversation on the page: the conversation's
