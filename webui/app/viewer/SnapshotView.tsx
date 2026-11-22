@@ -118,18 +118,22 @@ export function SnapshotView({ snapshot, banner }: { snapshot: Snapshot; banner?
     const when = dateText(snapshot.created_at)
     return (
         <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-ground text-fg" data-testid="snapshot-view">
+            {/* One column for the header, the conversation and the footer: the padding is the page's,
+                the width limit the column's, so every edge lines up on every screen (FR-004). */}
             <header className="border-b border-border-strong">
-                <div className="mx-auto flex w-full min-w-0 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-8 px-24 py-16">
-                    <div className="flex min-w-0 items-baseline justify-between gap-16">
-                        <h1 className="min-w-0 flex-1 type-heading [overflow-wrap:anywhere] text-fg">{snapshot.title || 'Shared conversation'}</h1>
-                        <span className="shrink-0 type-mono-xs text-faint">Shared snapshot</span>
+                <div className="px-24 py-16">
+                    <div className="mx-auto flex w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-8">
+                        <div className="flex items-baseline justify-between gap-16">
+                            <h1 className="min-w-0 flex-1 [overflow-wrap:anywhere] type-heading text-fg">{snapshot.title || 'Shared conversation'}</h1>
+                            <span className="shrink-0 type-mono-xs text-faint">Shared snapshot</span>
+                        </div>
+                        <p className="[overflow-wrap:anywhere] type-mono-xs text-faint">
+                            Read-only copy{when ? ` · ${when}` : ''} · activity trail {snapshot.include_trail ? 'included' : 'not included'}
+                        </p>
+                        {/* FR-007: the author's name is here only when they chose to show it. */}
+                        {snapshot.source.author && <p className="[overflow-wrap:anywhere] type-small text-muted">Shared by {snapshot.source.author}</p>}
+                        {banner && <Notice tone="info" title={banner} />}
                     </div>
-                    <p className="min-w-0 type-mono-xs text-faint [overflow-wrap:anywhere]">
-                        Read-only copy{when ? ` · ${when}` : ''} · activity trail {snapshot.include_trail ? 'included' : 'not included'}
-                    </p>
-                    {/* FR-007: the author's name is here only when they chose to show it. */}
-                    {snapshot.source.author && <p className="min-w-0 type-small text-muted [overflow-wrap:anywhere]">Shared by {snapshot.source.author}</p>}
-                    {banner && <Notice tone="info" title={banner} />}
                 </div>
             </header>
             <main aria-label="Shared conversation" className="flex min-w-0 flex-1 flex-col px-24 py-24">
@@ -144,8 +148,10 @@ export function SnapshotView({ snapshot, banner }: { snapshot: Snapshot; banner?
                 </div>
             </main>
             <footer className="border-t border-border-strong">
-                <div className="mx-auto w-full min-w-0 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl px-24 py-16">
-                    <p className="type-small text-muted">{READ_ONLY_LINE}</p>
+                <div className="px-24 py-16">
+                    <div className="mx-auto w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl">
+                        <p className="[overflow-wrap:anywhere] type-small text-muted">{READ_ONLY_LINE}</p>
+                    </div>
                 </div>
             </footer>
         </div>
