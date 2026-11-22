@@ -4,6 +4,7 @@ import {
     groupHeading,
     groupWorkers,
     splitDelivery,
+    stopReasonText,
     workerCounts,
     workerElapsed,
     workerMeta,
@@ -90,6 +91,33 @@ describe('workerElapsed', () => {
         expect(
             workerElapsed({ started_at: '2026-11-14T10:00:00Z', ended_at: null }, Date.parse('2026-11-14T10:10:00Z'))
         ).toBe('10:00')
+    })
+})
+
+describe('consultations', () => {
+    it('reads a consultation update beside a worker one', () => {
+        const text = [
+            '[Consultation update] c_8k2m1x0q — researcher, consultation 1 of 2 "Find the reports"',
+            'state: asking',
+            'question: eu or us?',
+            'reply with reply_consultation(id="c_8k2m1x0q", text=...)',
+            '',
+            '[Subagent update] s_1a2b3c4d — task 1 of 1 "tools"',
+            'state: answered',
+            'result: done',
+        ].join('\n')
+        const { scripts, workers } = splitDelivery(text)
+        expect(scripts).toBe('')
+        expect(workers).toHaveLength(2)
+        expect(workers[0]).toMatchObject({ handle: 'c_8k2m1x0q', agent: 'researcher', position: 1, size: 2, state: 'asking', body: 'question: eu or us?' })
+        expect(workers[1]).toMatchObject({ handle: 's_1a2b3c4d', state: 'answered' })
+        expect(workers[1].agent).toBeUndefined()
+    })
+
+    it('words a consultation group and a deleted consultee', () => {
+        const g = { id: 'g_1', startedAt: '2026-11-14T09:00:00Z', size: 2, script: null, workers: [] }
+        expect(groupHeading(g, Date.parse('2026-11-14T09:01:12Z'), 'consultations')).toBe('2 consulted · asked 1:12 ago')
+        expect(stopReasonText('consultee_deleted', 'talos')).toBe('the consulted agent was deleted')
     })
 })
 

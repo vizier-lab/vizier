@@ -10,6 +10,7 @@ import { test } from 'vitest'
 import assert from 'node:assert/strict'
 
 import {
+  orderTurnsBySent,
   appendClientCall,
   appendLiveEvent,
   applyClientOutcome,
@@ -826,4 +827,33 @@ test('page versions belong to the turn that drew them, in order', () => {
     [1, 2]
   )
   assert.ok(turns[0].blocks.every((b) => b.kind !== 'trail' || b.events.every((e) => e.id !== turns[0].pages[0].uid)))
+})
+
+// Spec 055: the thread in the order messages were sent, each turn whole.
+const sentTurn = (key: string, sent?: string): Turn =>
+  ({
+    key,
+    request: sent
+      ? ({ uid: `r-${key}`, timestamp: sent, content: { Request: { timestamp: sent, user: '', content: { chat: key } } } } as unknown as ChatMessage)
+      : undefined,
+    blocks: [],
+    live: false,
+    clientCalls: [],
+    questions: [],
+    pages: [],
+  }) as Turn
+
+test('orderTurnsBySent places a message stored late by when it was sent, with its whole turn', () => {
+  const arrived = [sentTurn('typed', '2026-11-21T10:00:05Z'), sentTurn('spoken', '2026-11-21T10:00:02Z')]
+  assert.deepEqual(orderTurnsBySent(arrived).map((t) => t.key), ['spoken', 'typed'])
+})
+
+test('orderTurnsBySent keeps a turn with no message after the one before it', () => {
+  const arrived = [sentTurn('a', '2026-11-21T10:00:01Z'), sentTurn('task'), sentTurn('b', '2026-11-21T10:00:03Z')]
+  assert.deepEqual(orderTurnsBySent(arrived).map((t) => t.key), ['a', 'task', 'b'])
+})
+
+test('orderTurnsBySent is stable for equal times', () => {
+  const at = '2026-11-21T10:00:01Z'
+  assert.deepEqual(orderTurnsBySent([sentTurn('x', at), sentTurn('y', at)]).map((t) => t.key), ['x', 'y'])
 })

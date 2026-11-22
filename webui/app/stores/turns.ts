@@ -8,7 +8,8 @@ import {
     topicDetachedScripts,
     topicSubagents,
 } from '../api/endpoints/chat'
-import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierRequestContent } from '../api/frames'
+import { forwardLiveVoiceFrame } from '../lib/liveVoice/control'
+import { classifyFrame, type ChatMessage, type ModelOverride, type QuestionAnswerPayload, type VizierAttachment, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, reduce, type Action, type TopicState } from '../lib/frames'
 import { modelOverridePayload } from '../lib/modelOverride'
 import { handleClientCall } from '../lib/clientTools'
@@ -63,6 +64,16 @@ type TurnStore = {
     react: (agentId: string, topicId: string, uid: string, emoji: string, action: 'added' | 'removed') => void
     loadOlder: (agentId: string, topicId: string) => Promise<void>
     dispatch: (agentId: string, topicId: string, action: Action) => void
+    /**
+     * Draw a turn this tab did not start — a live voice utterance — in the thread, so the
+     * conversation shows it while it is said rather than after a refresh. The stored request
+     * replaces it later; calling twice with the same id adds nothing.
+     */
+    adoptTurn: (agentId: string, topicId: string, id: string, text: string, audio?: VizierAttachment) => void
+    /** Take back a drawn live voice utterance that was never sent. */
+    dropAdopted: (agentId: string, topicId: string, id: string) => void
+    /** Re-reads the newest page, so a drawn stand-in gives way to what the server stored. */
+    refreshHistory: (agentId: string, topicId: string) => Promise<void>
 }
 
 let nextId = 1
@@ -155,6 +166,22 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
         dispatch,
 
+        refreshHistory,
+
+        adoptTurn: (agentId, topicId, id, text, audio) => {
+            const key = topicKey(agentId, topicId)
+            // Only into a topic this page is drawing: an utterance from another conversation has
+            // no thread here to appear in.
+            if (!get().topics[key]) return
+            update(key, (s) => reduce(s, { type: 'adopt', id, text, audio, now: new Date().toISOString() }))
+        },
+
+        dropAdopted: (agentId, topicId, id) => {
+            const key = topicKey(agentId, topicId)
+            if (!get().topics[key]) return
+            update(key, (s) => reduce(s, { type: 'unadopt', id }))
+        },
+
         open: async (agentId, topicId, channel = CHANNEL) => {
             const key = topicKey(agentId, topicId)
             if (get().meta[key]?.loaded) return
@@ -190,6 +217,8 @@ export const useTurns = create<TurnStore>()((set, get) => {
 
             useConnection.getState().open(agentId, topicId, {
                 onFrame: (raw) => {
+                    // A live voice frame is the session's, not the transcript's.
+                    if (forwardLiveVoiceFrame(agentId, topicId, raw)) return
                     const frame = classifyFrame(raw)
                     if (!frame) return
                     // An agent's reply arrived (a streamed step or an error is not one).

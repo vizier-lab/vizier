@@ -6,7 +6,6 @@ import { useAgents } from '../../stores/agents'
 import { useNav } from '../../stores/nav'
 import { useNotifications } from '../../stores/notifications'
 import { useSession } from '../../stores/session'
-import { useWorkspaces } from '../../stores/workspaces'
 
 /**
  * The phone's menu (spec 056): the app, not the agent. Home, Chat, Settings and Theme, and the
@@ -21,7 +20,6 @@ export function MobileNavDrawer() {
     const agents = useAgents((s) => s.agents)
     const { user, signOut } = useSession()
     const resetNotifications = useNotifications((s) => s.reset)
-    const resetWorkspaces = useWorkspaces((s) => s.reset)
     const canSwitch = useAppearance((s) => hasBothVariants(s.paint))
     const toggleMode = useAppearance((s) => s.toggleMode)
 
@@ -52,7 +50,6 @@ export function MobileNavDrawer() {
                         setOpen(false)
                         signOut()
                         resetNotifications()
-                        resetWorkspaces()
                         navigate('/login')
                     }}
                 />

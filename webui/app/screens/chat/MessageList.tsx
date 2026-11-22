@@ -4,7 +4,6 @@ import {
     BackgroundReportCard,
     ChatGreeting,
     CheckpointDivider,
-    CommandNote,
     HandoverSummary,
     JumpToLatest,
     LoadMore,
@@ -35,11 +34,11 @@ import { parseDelivery } from '../../lib/detached'
 import { splitDelivery } from '../../lib/subagents'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
-import { blockDurationMs, groupHistory, lastBlockOf, outcomeDurationMs } from '../../lib/trail'
+import { blockDurationMs, groupHistory, lastBlockOf, orderTurnsBySent, outcomeDurationMs } from '../../lib/trail'
 import { personName } from '../../lib/tasks'
 import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
-import { ReplyMedia } from './ReplyMedia'
+import { PendingAudio, ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
 import { DeliveryRow, Trail, WorkerUpdateRow } from './Trail'
 import { DetachedSource } from './detachedSource'
@@ -49,6 +48,10 @@ import { PlanCard } from './client/PlanCard'
 import { currentPrompt, markTime, promptIndex, waitingUid, withWaiting, type PromptMark } from '../../lib/prompts'
 
 type Props = {
+    /** A live voice call is running here (spec 055): its newest spoken reply draws as a waiting player. */
+    liveCall?: boolean
+    /** The call is speaking the newest reply now, so the reply's card plays along. */
+    liveSpeaking?: boolean
     /** The conversation, so a delivered script's row can read its record (spec 058). */
     topicId?: string
     state: TopicState
@@ -121,10 +124,10 @@ function inParts(turn: Turn) {
     return turn.blocks.length > 1
 }
 
-export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
+export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, greeting, hasOlder, bottomInset = 0, insetRight = 0, onScrollbarWidth, loadingOlder, onLoadOlder, onReact, error, clientCalls, questions, pages, byPlatformName, emptyAction, onBuildPlan, buildingPlan, prompts, onLoadThrough }: Props) {
     const { entries } = state
     const me = useSession((s) => s.user)
-    const turns = useMemo(() => groupHistory(entries), [entries])
+    const turns = useMemo(() => orderTurnsBySent(groupHistory(entries)), [entries])
     const prices = usePrices()
     const scroller = useRef<HTMLDivElement>(null)
     // The scroller as state too, so the scroll-bar measurement starts when the element attaches,
@@ -178,7 +181,6 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
     const personMessage = (e: ChatMessage) => {
         const request = e.content.Request!
         const content = request.content
-        const skill = (request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
         const mentioned = (request.metadata as { mentions?: string[] } | undefined)?.mentions
         const attachments = requestAttachments(content, request.attachments)
         const spoken = isAudioRequest(content)
@@ -191,11 +193,19 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 name={byPlatformName && request.user ? personName(request.user) : 'You'}
                 seed={request.user || me?.username}
                 time={time(request.timestamp)}
-                skill={skill}
-                attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
+                attachments={
+                    attachments.length ? (
+                        <ReplyMedia
+                            attachments={attachments}
+                            transcript={spoken ? text : undefined}
+                            // A drawn voice message with no text yet is still being recognised.
+                            transcribing={spoken && !text && e.uid.startsWith('live-')}
+                        />
+                    ) : undefined
+                }
             >
                 {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                {!spoken && text !== '' && <Markdown size="document">{mentionsAsCode(text, mentioned)}</Markdown>}
+                {!spoken && text !== '' && <Markdown size="document" slashWords>{mentionsAsCode(text, mentioned)}</Markdown>}
             </UserMessage>
         )
     }
@@ -206,6 +216,16 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
         const text = content ? replyText(content) : null
         const attachments = replyAttachments(content, outcome?.content.Response?.attachments)
         const spoken = isAudioReply(content)
+        // A live voice reply whose recording is not kept yet: the same card from the start, waiting
+        // for its player, instead of text that turns into a card when the speaking ends.
+        const said = turn.request?.content.Request
+        const waitingForAudio =
+            !!liveCall &&
+            !spoken &&
+            !!text &&
+            turns[turns.length - 1]?.key === turn.key &&
+            !!said &&
+            (said.spoken === true || 'audio_chat' in said.content)
         const stats = content ? replyStats(content) : undefined
         if (stats?.provider && stats.model) prices.load(stats.provider, stats.model)
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
@@ -239,9 +259,10 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                         }
                     >
                         <div className="flex flex-col gap-16">
-                            {/* A spoken reply's transcript sits behind "Show transcript" in its player. */}
-                            {text != null && text !== '' && !spoken && <Markdown>{text}</Markdown>}
-                            <ReplyMedia attachments={attachments} transcript={text} />
+                            {/* A spoken reply's transcript is open in its player, read along as it is heard. */}
+                            {text != null && text !== '' && !spoken && !waitingForAudio && <Markdown>{text}</Markdown>}
+                            {waitingForAudio && text && <PendingAudio transcript={text} speaking={liveSpeaking} />}
+                            <ReplyMedia attachments={attachments} transcript={text} openTranscript />
                         </div>
                     </AgentReply>
                 )}
@@ -286,6 +307,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     failed={i === lastTrail && failed}
                     aborted={i === lastTrail && turn.aborted}
                     agentName={agent.name}
+                    agentId={agent.id}
                 />
             )
         })
@@ -395,10 +417,16 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
             const kind = lobotomyAt(entries, e) ? 'lobotomy' : 'checkpoint'
             arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} kind={kind} />, `cp-${e.uid}`)
         }
-        // A command the person ran: `/checkpoint` and `/lobotomy` are written out, since the
-        // divider alone does not say one was asked for. An abort already has its StoppedNote.
+        // A command the person ran: `/checkpoint` and `/lobotomy` are drawn as the message they
+        // typed, since the divider alone does not say one was asked for. An abort already has its
+        // StoppedNote.
         if (c.Command && c.Command !== 'abort' && isCommand(c.Command)) {
-            arrive(<CommandNote key={`cmd-${e.uid}`} command={c.Command} meta={time(e.timestamp)} />, `cmd-${e.uid}`)
+            arrive(
+                <UserMessage key={`cmd-${e.uid}`} seed={me?.username} time={time(e.timestamp)}>
+                    <Markdown size="document" slashWords>{`/${c.Command}`}</Markdown>
+                </UserMessage>,
+                `cmd-${e.uid}`
+            )
         }
     }
 
@@ -433,7 +461,7 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                 seed={me?.username}
                 attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
             >
-                <Markdown size="document">{q.text}</Markdown>
+                <Markdown size="document" slashWords>{q.text}</Markdown>
             </UserMessage>,
             `q-${q.id}`
         )
@@ -555,7 +583,8 @@ export function MessageList({ state, agent, topicId, greeting, hasOlder, bottomI
                     measureSoon()
                 }}
             >
-                <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20">
+                {/* max-w-3xl: the messages sit well inside the composer deck, which is narrower than the composer. */}
+                <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-20">
                     {hasOlder && <LoadMore look="auto" label="Load older" loading={loadingOlder} onLoad={onLoadOlder} />}
                     {items.length === 0 && !running ? (
                         <div className="my-auto flex flex-col items-center gap-20">

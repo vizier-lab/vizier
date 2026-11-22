@@ -93,6 +93,15 @@ export type AgentDetail = {
     tts_settings?: Record<string, unknown> | null
     stt: boolean
     stt_settings?: Record<string, unknown> | null
+    /** On only when the agent's own switch is on and it has both a recogniser and a voice
+     * (spec 055 FR-004). */
+    live_voice?: boolean
+    /** Which half is missing when `live_voice` is false (spec 055 FR-004). Absent on a server
+     * older than the field, and `null` when the switch is off or nothing is missing — so it is
+     * never a readiness signal: read `live_voice` for that. */
+    live_voice_missing?: 'recognizer' | 'voice' | null
+    /** How long a silence ends the utterance (G1). Absent on a server older than the field. */
+    live_voice_end_of_utterance_ms?: number
     read_image: boolean
     read_image_settings?: ReadImageSettings | null
     image_gen: boolean
@@ -135,7 +144,23 @@ export type AgentInput = {
         read_image_settings?: ReadImageSettings | null
         image_gen?: boolean
         image_gen_settings?: Record<string, unknown> | null
+        /**
+         * The live conversation's own switch (spec 055 T041). Absent means "leave it as it is" —
+         * the server keeps what is stored — so a page that never showed the switch cannot end a
+         * session by saving.
+         */
+        live_voice?: LiveVoiceInput
     }
+}
+
+/** `tools.live_voice` on the way in. */
+export type LiveVoiceInput = {
+    enabled: boolean
+    settings?: {
+        idle_stop_seconds?: number
+        max_utterance_seconds?: number
+        end_of_utterance_ms?: number
+    } | null
 }
 
 /** A saved agent, with anything about its model worth knowing. */

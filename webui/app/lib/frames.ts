@@ -95,6 +95,14 @@ export type Action =
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
     | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string; queue?: boolean }
+    /**
+     * A turn nobody in this tab started, drawn in the thread the moment it is heard (a live voice
+     * utterance). It is a stand-in like `send`'s: the stored request replaces it through
+     * `coveredByStored`, so a later history read leaves one entry and not two.
+     */
+    | { type: 'adopt'; id: string; text: string; now?: string; audio?: VizierAttachment }
+    /** A drawn live voice utterance that was never sent (too short, not understood): it goes. */
+    | { type: 'unadopt'; id: string }
     | { type: 'dequeue' }
     /** The server stored a request this page was drawing as waiting. */
     | { type: 'sent'; request: VizierRequestContent; timestamp?: string }
@@ -290,12 +298,19 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     const standIn = frame.entry.content.Request
                         ? state.entries.findIndex((e) => isLive(e) && e.content.Request && coveredByStored(e, [frame.entry]))
                         : -1
+                    // A stored command replaces the copy drawn when it was typed. Matched by name
+                    // alone: the server stores it when it runs, which can be well after it was typed.
+                    const command = frame.entry.content.Command
                     const base =
                         standIn >= 0 && !state.entries.some((e) => e.uid === frame.entry.uid)
                             ? state.entries.map((e, i) => (i === standIn ? frame.entry : e))
                             : frame.entry.content.Request
                               ? state.entries.filter((e) => !(isLive(e) && e.content.Request && coveredByStored(e, [frame.entry])))
-                              : state.entries
+                              : command !== undefined
+                                ? withoutStandIn(state.entries, (e) => isLive(e) && e.content.Command === command)
+                                : frame.entry.content.Checkpoint !== undefined
+                                  ? withoutStandIn(state.entries, (e) => isLive(e) && e.content.Checkpoint !== undefined)
+                                  : state.entries
                     return {
                         ...state,
                         phase: busy ? 'working' : state.phase,
@@ -440,6 +455,50 @@ export function reduce(state: TopicState, action: Action): TopicState {
             }
         }
 
+        case 'adopt': {
+            // A live voice turn is submitted by the server, so this tab never sees a `send` and
+            // the thread stayed empty until a refresh read it back. Drawn as soon as it is heard:
+            // a voice message with its recording, its text filled in by a second `adopt` when the
+            // transcript arrives. The stored request replaces it (`coveredByStored`).
+            const now = action.now ?? new Date(0).toISOString()
+            const uid = `live-req-${action.id}`
+            const existing = state.entries.find((e) => e.uid === uid)
+            if (existing) {
+                const request = existing.content.Request
+                if (!request) return state
+                const content =
+                    'audio_chat' in request.content
+                        ? { audio_chat: [request.content.audio_chat[0], action.text || null] as [VizierAttachment, string | null] }
+                        : { chat: action.text }
+                return {
+                    ...state,
+                    entries: state.entries.map((e) =>
+                        e.uid === uid ? { ...e, content: { ...e.content, Request: { ...request, content } } } : e
+                    ),
+                }
+            }
+            const entry = requestEntry(state, action.id, action.text, now)
+            if (action.audio && entry.content.Request) {
+                entry.content.Request.content = { audio_chat: [action.audio, action.text || null] }
+            }
+            return {
+                ...state,
+                // The agent is working on it from here, as after a typed send: the activity trail,
+                // not the call row, says so (spec 055). A turn already running keeps its phase.
+                phase: state.phase === 'idle' ? 'thinking' : state.phase,
+                error: null,
+                entries: mergeEntries(state.entries, [entry]),
+            }
+        }
+
+        case 'unadopt': {
+            const uid = `live-req-${action.id}`
+            if (!state.entries.some((e) => e.uid === uid)) return state
+            const entries = state.entries.filter((e) => e.uid !== uid)
+            const runs = entries.some((e) => e.uid.startsWith('live-req-'))
+            return { ...state, entries, phase: !runs && state.phase === 'thinking' ? 'idle' : state.phase }
+        }
+
         case 'dequeue': {
             // A queued message is not held here: it went to the agent when it was sent, and the
             // agent queues it. This only clears the drawing's wait once the server has stored
@@ -486,6 +545,12 @@ export function reduce(state: TopicState, action: Action): TopicState {
     }
 }
 
+/** The entries without the first one `matches` picks out. */
+function withoutStandIn(entries: ChatMessage[], matches: (entry: ChatMessage) => boolean): ChatMessage[] {
+    const at = entries.findIndex(matches)
+    return at < 0 ? entries : entries.filter((_, i) => i !== at)
+}
+
 /** How far apart a stand-in request and its stored entry can be stamped: the client stamps both within moments, and two real messages are never this close. */
 const STAND_IN_WINDOW_MS = 2_000
 
@@ -515,8 +580,11 @@ function coveredByStored(entry: ChatMessage, stored: ChatMessage[]): boolean {
     if (entry.content.Command !== undefined) {
         // The person's abort is drawn the moment it is pressed; the server stores a `Command`
         // entry of its own a moment later, and that one replaces the drawn copy.
+        // A command is stored when it runs, which can be well after it was typed (behind a turn).
         return stored.some(
-            (s) => s.content.Command === entry.content.Command && stampedNear(s.timestamp, entry.timestamp)
+            (s) =>
+                s.content.Command === entry.content.Command &&
+                Date.parse(s.timestamp ?? '') > Date.parse(entry.timestamp ?? '') - STAND_IN_WINDOW_MS
         )
     }
     return entry.content.Checkpoint !== undefined && stored.some((s) => s.content.Checkpoint !== undefined)

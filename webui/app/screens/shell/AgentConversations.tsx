@@ -33,9 +33,13 @@ export function AgentConversations({ agentId }: { agentId: string }) {
         return () => clearTimeout(id)
     }, [sessionQuery])
 
-    const { items, total } = useSessions(agentId, `${pathname}#${listVersion}`, shown, sessionSearch)
-
     const turns = useTurns((s) => s.topics)
+    // A conversation made out of turn (an agent's `webui_create_conversation`) reaches this view as
+    // a `resync`; that is the cue to look at the list now instead of on the next slow poll.
+    const staleTick = useNotifications((s) => s.staleTick)
+
+    const { items, total } = useSessions(agentId, `${pathname}#${listVersion}#${staleTick}`, shown, sessionSearch)
+
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
     const chats = useNotifications((s) => s.chats)
 
@@ -51,7 +55,8 @@ export function AgentConversations({ agentId }: { agentId: string }) {
                 label: g.label,
                 items: g.items.map((c) => ({
                     key: `${c.channel}#${c.latest_topic}`,
-                    title: conversationTitle(c.title, c.latest_topic),
+                    // A consultation another agent sent (spec 064): "⇄ Asked by Support".
+                    title: c.kind === 'consultation' ? `⇄  ${c.title}` : conversationTitle(c.title, c.latest_topic),
                     time: sidebarTime(c.last_activity),
                     live: c.kind === 'webui' && isLive(c.latest_topic),
                     unread: unreadAt(chats, conversationHref(agentId, c)),

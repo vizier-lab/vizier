@@ -59,6 +59,16 @@ describe('a command the person ran', () => {
         expect(html).toContain('text-live-text')
     })
 
+    it('draws a skill as the message typed, with the /word highlighted and no chip', () => {
+        const html = draw([
+            entry('req', {
+                Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: '/code-review the queue' }, metadata: { invoked_skill: 'code-review' } },
+            } as ChatMessage['content']),
+        ])
+        expect(html).toContain('<span class="text-live-text">/code-review</span>')
+        expect(html).toContain(' the queue')
+    })
+
     it('does not repeat /abort, which the StoppedNote already names', () => {
         const html = draw([
             entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'hi' } } }),

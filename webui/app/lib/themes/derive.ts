@@ -78,6 +78,8 @@ export function derive(keys: Keys): Record<Role, Hex> {
         'bg/surface': surface,
         'bg/raised': toward(0.1),
         'bg/pressed': toward(0.16),
+        // Behind the composer: one step toward the text, like bg/raised, in both themes.
+        'bg/deck': toward(0.1),
         'line/border': toward(0.12),
         'line/border-strong': toward(0.2),
         'line/focus': ensureContrast(away(0.15), content, 3),

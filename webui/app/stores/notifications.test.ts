@@ -259,6 +259,16 @@ describe('the notifications store', () => {
         await vi.waitFor(() => expect(useNotifications.getState().items.map((i) => i.id)).toEqual([2]))
     })
 
+    it('bumps a tick on a resync, so a listing view looks again now', async () => {
+        list.mockResolvedValue(page([]))
+        const before = useNotifications.getState().staleTick
+        useNotifications.getState().receive({ type: 'resync' })
+        expect(useNotifications.getState().staleTick).toBe(before + 1)
+        // A sign-out drops the previous person's cue with the rest of the state.
+        useNotifications.getState().reset()
+        expect(useNotifications.getState().staleTick).toBe(0)
+    })
+
     it('opens on Unread, and a sign-out returns it there', () => {
         useNotifications.getState().setFilter('all')
         useNotifications.getState().reset()

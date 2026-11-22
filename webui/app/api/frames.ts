@@ -1,7 +1,10 @@
 // The wire types of a chat topic: requests, replies, history entries, detached scripts, client tools and
 // the frames the socket carries (specs/024-webui-rewrite/contracts/websocket.md). Hand-typed:
 // the socket protocol is not in the OpenAPI document. Carried over from the previous WebUI,
-// plus the `Recall` entry and the `session_file` frame.
+// plus the `Recall` entry, the `session_file` frame, and the live voice frames of
+// specs/055-live-voice.
+
+import { decodeServerFrame, type ServerFrame } from '../lib/liveVoice/frames'
 
 
 // ============================================================================
@@ -67,7 +70,7 @@ export interface DetachedScriptDetail extends DetachedScriptSnapshot {
 
 export type SubagentState = 'running' | 'asking' | 'answered' | 'failed' | 'timed_out' | 'stopped'
 
-export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted'
+export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted' | 'consultee_deleted'
 
 /** The list route's rows and the `subagent` frame. The detail route sends the same shape, uncut. */
 export interface SubagentSnapshot {
@@ -92,6 +95,10 @@ export interface SubagentSnapshot {
   /** The main agent has the newest outcome. */
   handed_over: boolean
   updated_at: string
+  /** A consultation's consulted agent (spec 064); absent for a temporary worker. */
+  consultee?: string
+  /** Follow-ups sent to a consultation after an answer; absent when none. */
+  follow_ups?: number
 }
 
 /** A pre-058 background report, kept so old conversations still draw (#82). */
@@ -296,6 +303,8 @@ export interface VizierRequestMessage {
   queue?: boolean
   // Set by the server only: the running turn read this message at a round boundary (spec 062).
   mid_turn?: boolean
+  // Set by the server only: said in a live voice call (spec 055).
+  spoken?: boolean
 }
 
 // VizierAttachment - matches backend VizierAttachment
@@ -645,6 +654,7 @@ export type Frame =
     | { kind: 'question_set'; update: QuestionSetUpdate }
     | { kind: 'sensitive_ask'; ask: SensitiveAsk }
     | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
+    | { kind: 'live_voice'; frame: ServerFrame }
     | { kind: 'ui_page_verified'; pageId: string; version: number; verification: unknown }
     | { kind: 'ui_page_state'; pageId: string; state: unknown; stateSeq: number }
     | { kind: 'ui_verify'; requestId: string; pageId: string; version: number; observeMs: number }
@@ -681,6 +691,11 @@ export function classifyFrame(raw: unknown): Frame | null {
     if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
         const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
         return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
+    }
+    if ('live_voice' in raw) {
+        const frame = decodeServerFrame(raw)
+        // An older payload under the same key is ignored rather than half-rendered.
+        if (frame) return { kind: 'live_voice', frame }
     }
     if ('ui_page_verified' in raw && isObj(raw.ui_page_verified)) {
         const v = (raw as unknown as UiPageVerifiedFrame).ui_page_verified

@@ -4,10 +4,10 @@ import { ROLES, ROLE_VAR, ROLE_VARS } from './roles'
 import { isComplete, parseTokens, VIZIER_DARK, VIZIER_LIGHT, VIZIER_TOKENS_CSS } from './vizier'
 
 describe('tokens.css and the roles', () => {
-    it('has exactly 50 roles', () => {
-        expect(ROLES).toHaveLength(50)
-        expect(new Set(ROLES).size).toBe(50)
-        expect(new Set(Object.values(ROLE_VAR)).size).toBe(50)
+    it('has exactly 51 roles', () => {
+        expect(ROLES).toHaveLength(51)
+        expect(new Set(ROLES).size).toBe(51)
+        expect(new Set(Object.values(ROLE_VAR)).size).toBe(51)
     })
 
     // A new colour token that isn't a role would silently escape every scheme.
