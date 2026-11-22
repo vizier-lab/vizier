@@ -1,8 +1,9 @@
 // Saved history -> snapshot v1 (contracts/snapshot-format.md). Everything that must not leave is
 // decided here: the kinds table (kinds.ts) says what is in, redact.ts and paths.ts clean what is kept,
 // and every removal is counted so the preview and the stored `removals` agree.
-import { topicFiles, topicHistory } from '../../api/endpoints/chat'
+import { CHANNEL, topicFiles, topicHistory, uiFrameTicket } from '../../api/endpoints/chat'
 import type { ChatMessage, SessionFileRecord, VizierAttachment } from '../../api/frames'
+import { transport } from '../../api/transport'
 import { included, entryDisposition, UI_RENDER } from './kinds'
 import { SHARE_LIMITS, SNAPSHOT_FORMAT_VERSION } from './limits'
 import { MediaBuilder, rewriteSpecFiles, specFileNames, type MediaDeps, defaultMediaDeps } from './media'
@@ -39,7 +40,15 @@ export interface SerializeOptions {
     now?: number
     generator?: string
     media?: MediaDeps
+    /**
+     * How a page's document is read for a `page` part (spec 063). Left out, the endpoint is used;
+     * tests pass a function of their own so no network is involved. `null` means it could not be read.
+     */
+    pageHtml?: PageHtmlFetcher
 }
+
+/** Reads one version of an agent page as a whole document (its own frame), or `null`. */
+export type PageHtmlFetcher = (page: { pageId: string; version: number; title: string }) => Promise<string | null>
 
 export interface SerializeResult {
     snapshot: Snapshot
@@ -91,7 +100,7 @@ const ms = (iso: unknown): number => {
 function endsTurn(e: ChatMessage): boolean {
     const c = e.content
     if (c.Response) return typeof c.Response.content === 'object' ? ['message', 'audio_reply', 'error'].some((k) => k in (c.Response?.content as object)) : c.Response.content === 'empty' || c.Response.content === 'abort'
-    if (c.QuestionSet || c.Command || c.Checkpoint !== undefined) return true
+    if (c.QuestionSet || c.Command || c.Checkpoint !== undefined || c.UiPage) return true
     if (c.ClientToolCall) return c.ClientToolCall.name === UI_RENDER
     return false
 }
@@ -119,6 +128,14 @@ export async function serializeEntries(allEntries: readonly ChatMessage[], opts:
     const cut = completedLength(allEntries, opts.turnInProgress)
     const entries = allEntries.slice(0, cut)
     const turnInProgress = cut < allEntries.length || opts.turnInProgress === true
+    // Only the last version of a page is carried: the ones before it were drafts the agent replaced.
+    const latestPages = new Map<string, number>()
+    for (const e of entries) {
+        const p = e.content.UiPage
+        if (!p || typeof p.page_id !== 'string') continue
+        const v = typeof p.version === 'number' && Number.isFinite(p.version) ? p.version : 0
+        if (v >= (latestPages.get(p.page_id) ?? -1)) latestPages.set(p.page_id, v)
+    }
     let omittedTrail = 0
     let truncated = 0
 
@@ -199,6 +216,9 @@ export async function serializeEntries(allEntries: readonly ChatMessage[], opts:
             text(turn, entry.content.AssistantMessage ?? '')
         } else if (kind === 'QuestionSet') {
             turn.parts.push(questionPart(entry.content.QuestionSet!, counts))
+        } else if (kind === 'UiPage') {
+            const page = entry.content.UiPage!
+            if (latestPages.get(page.page_id) === page.version) await pagePart(turn, page, opts, counts)
         } else if (kind === 'ClientToolCall') {
             const call = entry.content.ClientToolCall!
             if (call.name === UI_RENDER) await uiPart(turn, call, media, counts)
@@ -300,6 +320,36 @@ function cleanAnswer(v: string | string[] | boolean, counts: Removals): string |
     return typeof v === 'string' ? cleanText(v, counts) : Array.isArray(v) ? v.map((s) => cleanText(s, counts)) : v
 }
 
+/**
+ * One page the agent drew (spec 063) as a `page` part: the document as the frame served it, its own
+ * stylesheet and runtime inlined, so the copy runs with no server. Earlier versions never reach here.
+ */
+async function pagePart(turn: Turn, page: NonNullable<ChatMessage['content']['UiPage']>, opts: SerializeOptions, counts: Removals) {
+    const title = cleanText(typeof page.title === 'string' ? page.title : '', counts).slice(0, SHARE_LIMITS.titleLength)
+    const name = title ? `Interactive page “${title}”` : 'An interactive page'
+    let html: string | null = null
+    if (opts.pageHtml) {
+        try {
+            html = await opts.pageHtml({ pageId: page.page_id, version: page.version, title })
+        } catch {
+            html = null
+        }
+    }
+    if (typeof html !== 'string' || html.trim() === '') {
+        turn.parts.push({ kind: 'placeholder', reason: 'missing', label: cleanText(`${name} could not be included`, counts) })
+        return
+    }
+    // A page's text is cleaned like any other (FR-011): a key written into its script is a key.
+    const cleaned = cleanText(html, counts)
+    if (byteLength(cleaned) > SHARE_LIMITS.pageBytes) {
+        turn.parts.push({ kind: 'placeholder', reason: 'oversized', label: cleanText(`${name} (too large to include)`, counts) })
+        return
+    }
+    const part: Part = { kind: 'page', title, html: cleaned }
+    if (typeof page.version === 'number' && Number.isFinite(page.version)) part.version = page.version
+    turn.parts.push(part)
+}
+
 async function uiPart(turn: Turn, call: NonNullable<ChatMessage['content']['ClientToolCall']>, media: MediaBuilder, counts: Removals) {
     const args = call.arguments as { title?: unknown; spec?: unknown }
     const title = typeof args?.title === 'string' ? cleanText(args.title, counts).slice(0, SHARE_LIMITS.titleLength) : ''
@@ -363,14 +413,42 @@ export async function readAllFiles(agentId: string, topicId: string): Promise<Se
 export interface ConversationInput extends Omit<SerializeOptions, 'files'> {
     agentId: string
     topicId: string
+    /** The topic's channel; the WebUI's own unless the conversation lives in another. */
+    channel?: string
     /** For tests and previews built from data already in hand. */
     reader?: HistoryReader
     files?: readonly SessionFileRecord[]
+}
+
+/**
+ * The page endpoint's own reader: a frame ticket (ten minutes, this version only) gives the whole
+ * document with the kit inlined; a page that has no frame falls back to its source text.
+ */
+export function defaultPageHtml(agentId: string, topicId: string, channel: string = CHANNEL): PageHtmlFetcher {
+    return async ({ pageId, version }) => {
+        try {
+            const ticket = await uiFrameTicket(agentId, topicId, pageId, version, channel)
+            const res = await transport.fetchFile(ticket.path)
+            if (res.ok) return await res.text()
+        } catch {
+            /* the page may be too old to have a frame: read its source instead */
+        }
+        try {
+            const res = await transport.fetchFile(
+                `/agents/${encodeURIComponent(agentId)}/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topicId)}/pages/${encodeURIComponent(pageId)}/versions/${version}`
+            )
+            if (res.ok) return await res.text()
+        } catch {
+            /* nothing to read */
+        }
+        return null
+    }
 }
 
 /** Reads the whole saved conversation and its files and builds the snapshot. */
 export async function serializeConversation(input: ConversationInput): Promise<SerializeResult> {
     const entries = await readAllHistory(input.reader ?? apiHistoryReader(input.agentId, input.topicId))
     const files = input.files ?? (await readAllFiles(input.agentId, input.topicId))
-    return serializeEntries(entries, { ...input, files })
+    const pageHtml = input.pageHtml ?? defaultPageHtml(input.agentId, input.topicId, input.channel)
+    return serializeEntries(entries, { ...input, files, pageHtml })
 }

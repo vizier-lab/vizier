@@ -8,6 +8,7 @@ import { loadConversation } from '../lib/share/testing'
 import { mediaFiles, mediaSrc } from './media'
 import { OFFLINE_BANNER, offlineBanner } from './Neutral'
 import { READ_ONLY_LINE, SnapshotView } from './SnapshotView'
+import { PAGE_CSP, pageDocument } from './SharedPage'
 import { createStateStore } from '@json-render/core'
 
 const PNG = loadConversation().pngBase64
@@ -107,6 +108,43 @@ describe('SnapshotView', () => {
 
     it('fetches nothing remote', () => {
         expect(html).not.toMatch(/(?:src|href)="https?:/)
+    })
+})
+
+describe('an HTML page in a copy (spec 063)', () => {
+    const page = {
+        kind: 'page',
+        title: 'Chess',
+        version: 3,
+        html: '<!doctype html><html><head><title>x</title></head><body><div id="board">♞</div><script>top.document.body.innerHTML="pwned"</script></body></html>',
+    }
+    const html = draw(snap({}, [page]))
+
+    it('draws it in a frame of its own, never as markup of this document', () => {
+        expect(html).toContain('data-testid="shared-page"')
+        const frame = /<iframe[^>]*>/.exec(html)?.[0] ?? ''
+        expect(frame).toContain('sandbox="allow-scripts"')
+        expect(frame).not.toContain('allow-same-origin')
+        // Server rendering keeps the prop's own spelling; the DOM sets the attribute.
+        expect(frame).toMatch(/referrerpolicy="no-referrer"/i)
+        expect(frame).toMatch(/srcdoc="/i)
+        // The hostile script of the page is inside the frame's document, never in this page.
+        const outside = html.replace(/srcdoc="[^"]*"/i, '')
+        expect(outside).not.toContain('top.document.body')
+        expect(outside).not.toContain('<div id="board">')
+    })
+
+    it('carries our policy inside the frame, which the frame cannot widen', () => {
+        expect(pageDocument(page.html)).toContain(PAGE_CSP)
+        expect(pageDocument(page.html)).toMatch(/^<!doctype html><html><head><meta http-equiv="Content-Security-Policy"/i)
+        expect(PAGE_CSP).toContain("default-src 'none'")
+        expect(PAGE_CSP).toContain("connect-src 'none'")
+        expect(PAGE_CSP).not.toContain('https:')
+    })
+
+    it('names the page and its version', () => {
+        expect(html).toContain('Chess')
+        expect(html).toContain('v3')
     })
 })
 

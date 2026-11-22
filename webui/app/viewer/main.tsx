@@ -2,6 +2,9 @@
 // embedded snapshot, validates it as hostile input and draws it. It imports nothing from `routes/`
 // or `api/`: the offline file has no server to talk to, and the bundle should not carry a client.
 import { createRoot } from 'react-dom/client'
+// The copy wears the design system's own stylesheet, inlined into the one file: without it, the
+// exported conversation is bare HTML (`app/root.tsx` imports the same file for the app).
+import '../app.css'
 import { parseSnapshot } from '../lib/share/schema'
 import { DAMAGED, NeutralNotice, offlineBanner } from './Neutral'
 import { SnapshotView } from './SnapshotView'

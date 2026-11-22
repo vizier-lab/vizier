@@ -77,7 +77,7 @@ export function buildPreview(result: SerializeResult, opts?: PreviewOptions): Pr
         trailEntries += turn.trail?.length ?? 0
         for (const p of turn.parts) {
             if (p.kind === 'text') messages++
-            else if (p.kind === 'ui') pages++
+            else if (p.kind === 'ui' || p.kind === 'page') pages++
             else if (p.kind === 'question') questions++
         }
     }

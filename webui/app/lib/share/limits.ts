@@ -24,6 +24,12 @@ export const SHARE_LIMITS = {
     textBytes: 256 * 1024,
     /** A `ui` part's spec, in bytes of JSON. */
     specBytes: LIMITS.specBytes,
+    /**
+     * A `page` part's document, in UTF-8 bytes (spec 063's HTML page). It carries the page's own
+     * markup and, because it is a document of its own, the kit's stylesheet and runtime it needs to
+     * run offline; a kit-heavy page (`<vz-*` elements) is about 1.2 MiB, hence the room.
+     */
+    pageBytes: 2 * 1024 * 1024,
     /** JSON nesting allowed in a spec, state or tool arguments read from a snapshot. */
     jsonDepth: 64,
     /** A tool result kept in the trail is cut to this many characters. */

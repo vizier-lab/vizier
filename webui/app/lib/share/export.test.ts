@@ -121,6 +121,42 @@ describe('buildOfflineHtml: replacement patterns in content are literal', () => 
     }
 })
 
+describe('buildOfflineHtml: an HTML page is carried whole and cannot break out', () => {
+    const template = '<html><head><title>Vizier</title></head><body><div id="root"></div><!-- VIZIER_SNAPSHOT_MARKER --></body></html>'
+    const base: Snapshot = {
+        format_version: 1,
+        generator: 'test',
+        created_at: 1,
+        title: 'Chess',
+        source: { agent_name: 'Atlas' },
+        include_trail: false,
+        turns: [],
+        media: {},
+        rehydration: null,
+    }
+
+    it('keeps the page document in the file, escaped so it cannot close the tag', () => {
+        const pageHtml = '<!doctype html><html><head></head><body><script>alert("x")</script></body></html>'
+        const snap: Snapshot = { ...base, turns: [{ id: 't1', role: 'agent', at: 1, parts: [{ kind: 'page', title: 'Chess', html: pageHtml, version: 2 }] }] }
+        const html = buildOfflineHtml(template, snap)
+        expect(html.split('id="vizier-snapshot"').length).toBe(2)
+        // The page is inside the JSON tag, and `<` there is an escape: no second script element.
+        expect(html).toContain('\\u003cscript\\u003ealert')
+        expect(html.match(/<\/script>/gi)?.length).toBe(1)
+        const body = /<script type="application\/json" id="vizier-snapshot">([\s\S]*?)<\/script>/.exec(html)![1]
+        const back = JSON.parse(body) as Snapshot
+        expect(back.turns[0].parts[0]).toEqual({ kind: 'page', title: 'Chess', html: pageHtml, version: 2 })
+    })
+
+    it('a page that tries to close the JSON tag stays data', () => {
+        const hostile = '</script><script>alert(1)</script>'
+        const snap: Snapshot = { ...base, turns: [{ id: 't1', role: 'agent', at: 1, parts: [{ kind: 'page', title: 'x', html: hostile }] }] }
+        const html = buildOfflineHtml(template, snap)
+        expect(html).not.toContain('</script><script>alert(1)')
+        expect(html.match(/<\/script>/gi)?.length).toBe(1)
+    })
+})
+
 describe('exportFileName: reserved names and separators', () => {
     const date = new Date(2026, 10, 8)
     const tail = '-20261108.vizier.html'

@@ -11,6 +11,12 @@ export type PlaceholderReason = 'oversized' | 'missing' | 'unsupported' | 'left_
 export interface TextPart { kind: 'text'; markdown: string }
 export interface MediaPart { kind: 'media'; key: string; alt?: string }
 export interface UiPart { kind: 'ui'; title: string; spec: Record<string, unknown>; state?: unknown }
+/**
+ * A page the agent drew in HTML (spec 063). `html` is a whole document, kept as text: the viewer
+ * puts it in a `srcdoc` frame with `sandbox="allow-scripts"` and a policy of our own, so it can
+ * neither reach this origin nor load anything from the network. It is never markup in this page.
+ */
+export interface PagePart { kind: 'page'; title: string; html: string; version?: number }
 export interface QuestionItem {
     id: string
     prompt: string
@@ -21,7 +27,7 @@ export interface QuestionItem {
 }
 export interface QuestionPart { kind: 'question'; title?: string; description?: string; state?: string; items: QuestionItem[] }
 export interface PlaceholderPart { kind: 'placeholder'; reason: PlaceholderReason; label: string }
-export type Part = TextPart | MediaPart | UiPart | QuestionPart | PlaceholderPart
+export type Part = TextPart | MediaPart | UiPart | PagePart | QuestionPart | PlaceholderPart
 
 export interface TrailEntry { kind: 'tool_call'; name: string; arguments: unknown; result?: string; ok?: boolean }
 export interface Turn { id: string; role: 'person' | 'agent'; at: number; parts: Part[]; trail?: TrailEntry[] }
@@ -116,6 +122,13 @@ const ItemSchema = z.object({
         .catch(undefined),
     answer: AnswerSchema.optional().catch(undefined),
 })
+/** A page's document, hostile: a string, and no bigger than SHARE_LIMITS.pageBytes. */
+const PageSchema = z.object({
+    kind: z.literal('page'),
+    title: optionalText(SHARE_LIMITS.titleLength).catch(undefined),
+    html: z.string(),
+    version: z.number().int().min(1).max(1_000_000).optional().catch(undefined),
+})
 const QuestionSchema = z.object({
     kind: z.literal('question'),
     title: optionalText(1000).catch(undefined),
@@ -162,6 +175,18 @@ function parsePart(raw: unknown, notes: string[]): Part {
         }
         const part: UiPart = { kind: 'ui', title, spec }
         if (r.data.state !== undefined) part.state = cleanJson(r.data.state)
+        return part
+    }
+    if (kind === 'page') {
+        const r = PageSchema.safeParse(raw)
+        if (!r.success || typeof r.data.html !== 'string') return placeholder('unsupported', 'An interactive page that cannot be shown')
+        const title = (r.data.title ?? '').slice(0, SHARE_LIMITS.titleLength)
+        if (byteLength(r.data.html) > SHARE_LIMITS.pageBytes) {
+            notes.push('interactive page too large')
+            return placeholder('oversized', title ? `Interactive page “${title}” (too large to show)` : 'An interactive page too large to show')
+        }
+        const part: PagePart = { kind: 'page', title, html: r.data.html }
+        if (r.data.version !== undefined) part.version = r.data.version
         return part
     }
     if (kind === 'question') {

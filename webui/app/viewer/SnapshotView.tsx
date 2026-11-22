@@ -8,6 +8,7 @@ import { ActivityTrail, AgentHeader, AgentReply, Notice, TrailCall, UserMessage 
 import { useMemo } from 'react'
 import type { Part, Snapshot, Turn } from '../lib/share/schema'
 import { mediaFiles, mediaSrc } from './media'
+import { SharedPage } from './SharedPage'
 import { SharedUi } from './SharedUi'
 import { ViewerMarkdown } from './ViewerMarkdown'
 
@@ -39,6 +40,8 @@ function PartView({ part, snapshot, files, size = 'reply' }: { part: Part; snaps
         }
         case 'ui':
             return <SharedUi part={part} files={files} />
+        case 'page':
+            return <SharedPage part={part} />
         case 'question':
             return (
                 <div className="flex flex-col gap-8 rounded-md border border-border-strong px-12 py-8" aria-label="Question (read only)">
@@ -114,23 +117,23 @@ export function SnapshotView({ snapshot, banner }: { snapshot: Snapshot; banner?
     const agent = snapshot.source.agent_name || 'Agent'
     const when = dateText(snapshot.created_at)
     return (
-        <div className="flex min-h-screen w-full flex-col bg-ground text-fg" data-testid="snapshot-view">
+        <div className="flex min-h-screen w-full min-w-0 flex-col overflow-x-clip bg-ground text-fg" data-testid="snapshot-view">
             <header className="border-b border-border-strong">
-                <div className="mx-auto flex w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-8 px-24 py-16">
-                    <div className="flex items-baseline justify-between gap-16">
-                        <h1 className="min-w-0 type-heading [overflow-wrap:anywhere] text-fg">{snapshot.title || 'Shared conversation'}</h1>
+                <div className="mx-auto flex w-full min-w-0 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-8 px-24 py-16">
+                    <div className="flex min-w-0 items-baseline justify-between gap-16">
+                        <h1 className="min-w-0 flex-1 type-heading [overflow-wrap:anywhere] text-fg">{snapshot.title || 'Shared conversation'}</h1>
                         <span className="shrink-0 type-mono-xs text-faint">Shared snapshot</span>
                     </div>
-                    <p className="type-mono-xs text-faint">
+                    <p className="min-w-0 type-mono-xs text-faint [overflow-wrap:anywhere]">
                         Read-only copy{when ? ` · ${when}` : ''} · activity trail {snapshot.include_trail ? 'included' : 'not included'}
                     </p>
                     {/* FR-007: the author's name is here only when they chose to show it. */}
-                    {snapshot.source.author && <p className="type-small text-muted">Shared by {snapshot.source.author}</p>}
+                    {snapshot.source.author && <p className="min-w-0 type-small text-muted [overflow-wrap:anywhere]">Shared by {snapshot.source.author}</p>}
                     {banner && <Notice tone="info" title={banner} />}
                 </div>
             </header>
             <main aria-label="Shared conversation" className="flex min-w-0 flex-1 flex-col px-24 py-24">
-                <div className="mx-auto flex w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-20">
+                <div className="mx-auto flex w-full min-w-0 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl flex-col gap-20">
                     {snapshot.turns.map((turn) =>
                         turn.role === 'person' ? (
                             <PersonTurn key={turn.id} turn={turn} snapshot={snapshot} files={files} />
@@ -141,7 +144,7 @@ export function SnapshotView({ snapshot, banner }: { snapshot: Snapshot; banner?
                 </div>
             </main>
             <footer className="border-t border-border-strong">
-                <div className="mx-auto w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl px-24 py-16">
+                <div className="mx-auto w-full min-w-0 max-w-4xl xl:max-w-5xl 2xl:max-w-6xl px-24 py-16">
                     <p className="type-small text-muted">{READ_ONLY_LINE}</p>
                 </div>
             </footer>
