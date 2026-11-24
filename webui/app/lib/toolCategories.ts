@@ -124,6 +124,7 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     telegram_react_message: 'telegram',
     telegram_get_message_by_id: 'telegram',
     webui_send_message: 'webui',
+    webui_create_conversation: 'webui',
     webui_list_topics: 'webui',
     shell_exec: 'shell',
     list_integration_kinds: 'integrations',
