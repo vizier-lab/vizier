@@ -59,7 +59,7 @@ jobs:
 
       - name: Build WebUI and Vizier
         run: |
-          # The WebUI builds on the design submodule, which has its own dependencies (fonts).
+          # The WebUI builds on design/, which has its own dependencies (fonts).
           (cd design && npm ci)
           npm ci --prefix webui
           npm run build --prefix webui

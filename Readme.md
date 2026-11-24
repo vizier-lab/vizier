@@ -204,11 +204,11 @@ just test-scripts
 
 Tracing and metrics are exported over OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see [Observability](docs/src/configuration/observability.md).
 
-> **Build gotcha:** the WebUI (`webui/`), its component library (`design/`) and the website (`landing/`) are git submodules. Clone with `--recurse-submodules`, or run `git submodule update --init --recursive`. `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists; if `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first. `landing/` is not part of the binary build. `legacy/` holds the previous WebUI for reference; it is never built, served or packaged.
+> **Build gotcha:** the website (`landing/`) and the test model (`dummyplug/`) are git submodules; the WebUI (`webui/`) and its component library (`design/`) are folders of this repository. Clone with `--recurse-submodules`, or run `git submodule update --init --recursive`. `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists; if `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first. `landing/` is not part of the binary build. `legacy/` holds the previous WebUI for reference; it is never built, served or packaged.
 
-### Design library, WebUI and landing submodules
+### Design library, WebUI and landing
 
-`design/` is a git submodule: [vizier-lab/design](https://github.com/vizier-lab/design), the UI component library with a Storybook catalogue that is the source of truth for the design. `webui/` is a submodule too: [vizier-lab/webui](https://github.com/vizier-lab/webui), the WebUI, built from that library (`"@vizier/design": "file:../design"`). `landing/` is [vizier-lab/landing](https://github.com/vizier-lab/landing), the website (Astro + Starlight). It reads `docs/` and links `design/` from this checkout, so docs and design stay in one place.
+`design/` is the UI component library, with a Storybook catalogue that is the source of truth for the design. `webui/` is the WebUI, built from that library (`"@vizier/design": "file:../design"`). Both are folders of this repository (they were the separate `vizier-lab/design` and `vizier-lab/webui` repositories until 2026-11-25), so a change that spans the server, the WebUI and a component is one pull request. `landing/` is a submodule, [vizier-lab/landing](https://github.com/vizier-lab/landing), the website (Astro + Starlight). It reads `docs/` and links `design/` from this checkout, so docs and design stay in one place.
 
 ```sh
 git clone --recurse-submodules https://github.com/vizier-lab/vizier.git   # new clone
@@ -216,13 +216,6 @@ git submodule update --init --recursive                                    # exi
 
 cd design && npm install && npm run storybook   # catalogue on http://localhost:6006
 just landing                                   # website on http://localhost:4321
-```
-
-To move vizier to a newer library commit, bump the pin like any other change:
-
-```sh
-cd design && git pull origin main && cd ..
-git add design && git commit -m "chore: bump design library"
 ```
 
 ### Project structure
@@ -250,8 +243,8 @@ crates/
   vizier-http/      axum: REST, WebSocket, JWT/API-key auth, OpenAPI, the embedded WebUI
   vizier/           the `vizier` binary: run / shutdown / onboard / skill / agent, the command socket
   vizier-derive/    #[derive(MarkdownDoc)] for frontmatter+body documents
-webui/              submodule: vizier-lab/webui (React Router v7 + React 19 + Tailwind v4); built output embedded by vizier-http
-design/             submodule: vizier-lab/design, the UI library + Storybook catalogue
+webui/              the WebUI (React Router v7 + React 19 + Tailwind v4); built output embedded by vizier-http
+design/             the UI library + Storybook catalogue
 landing/            submodule: vizier-lab/landing, the website (landing page, blog, docs)
 legacy/             the previous WebUI, kept for reference; never built or served
 skills/             skill registry (installed with `vizier skill install <slug>`)

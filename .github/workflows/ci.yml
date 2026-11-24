@@ -41,6 +41,7 @@ jobs:
       flags: ${{ steps.plan.outputs.flags }}
       roles: ${{ steps.plan.outputs.roles }}
       app: ${{ steps.filter.outputs.app }}
+      web: ${{ steps.plan.outputs.web }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -108,8 +109,8 @@ jobs:
             app:
               - 'app/**'
               - 'crates/**'
-              - 'webui'
-              - 'design'
+              - 'webui/**'
+              - 'design/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
@@ -119,6 +120,13 @@ jobs:
             utoipa:
               - 'crates/vizier-core/src/schema/**'
               - 'crates/vizier-core/src/service/**'
+            # The WebUI and the component library it is built on, in this repository since they
+            # stopped being submodules. A change to either runs the `web` job.
+            web:
+              - 'design/**'
+              - 'webui/**'
+              - 'scripts/*.test.mjs'
+              - 'crates/vizier-core/assets/ui-kit/**'
       - name: Plan
         id: plan
         env:
@@ -142,6 +150,7 @@ jobs:
           FLAG_addon_documents: ${{ steps.filter.outputs.addon-documents }}
           FLAG_telemetry: ${{ steps.filter.outputs.telemetry }}
           FLAG_utoipa: ${{ steps.filter.outputs.utoipa }}
+          WEB: ${{ steps.filter.outputs.web }}
         run: |
           set -euo pipefail
           full=false
@@ -153,6 +162,8 @@ jobs:
           if [ "$full" = true ] || [ "$CORE" = true ] || [ "$HTTP" = true ] || [ "$BIN" = true ] || [ "$FLEET" = true ]; then rust=true; fi
           core=false
           if [ "$full" = true ] || [ "$CORE" = true ]; then core=true; fi
+          web=false
+          if [ "$full" = true ] || [ "$WEB" = true ]; then web=true; fi
           # One matrix entry per flag, each built and tested alone. Keep in step with the
           # [features] table of crates/vizier-core/Cargo.toml (the policy job checks `full`).
           flags=()
@@ -173,6 +184,7 @@ jobs:
           {
             echo "rust=$rust"
             echo "core=$core"
+            echo "web=$web"
             echo "flags=[${list}]"
             echo "roles=[${rlist}]"
           } >> "$GITHUB_OUTPUT"
@@ -612,7 +624,7 @@ jobs:
 
   # The desktop app (specs/038-desktop-app-edition). Builds the WebUI because the app embeds it.
   # The `changes` job decides whether anything the app is built from changed, so a server-only
-  # PR never starts these runners (or checks out the submodules).
+  # PR never starts these runners.
   app:
     name: app (${{ matrix.os }})
     needs: changes
@@ -676,12 +688,61 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+  # The WebUI and the design system (`webui/`, `design/`): typecheck, unit tests and a production
+  # build of the WebUI and the Storybook, so a frontend change is checked in the same PR as the
+  # server change it goes with. The other jobs stub the WebUI and never build it.
+  # Not blocking yet: the token lints (master carries raw values in both packages) and design's
+  # own vitest suite (Storybook story checks in Playwright, with failures on master too).
+  web:
+    name: web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
+      - name: Install
+        run: |
+          (cd design && npm ci --no-audit --no-fund)
+          (cd webui && npm ci --no-audit --no-fund)
+      - name: design typecheck
+        working-directory: design
+        run: npm run typecheck
+      - name: design token lint (report only)
+        working-directory: design
+        continue-on-error: true
+        run: npm run lint:tokens
+      - name: webui typecheck
+        working-directory: webui
+        run: npm run typecheck
+      - name: webui token lint (report only)
+        working-directory: webui
+        continue-on-error: true
+        run: npm run lint:tokens
+      - name: webui tests
+        working-directory: webui
+        run: npm test
+      - name: webui build
+        working-directory: webui
+        run: npm run build
+      - name: Script tests
+        run: node --test scripts/*.test.mjs
+      - name: Storybook builds
+        working-directory: design
+        run: npm run build-storybook -- --quiet
+
   # The one required status. Jobs a change cannot affect are skipped, and a skipped job passes;
   # a failed or cancelled one fails the gate. Branch protection requires only this job.
   gate:
     name: gate
     if: always()
-    needs: [changes, rust, clippy, core-minimal, flag, role, managed-storage, policy, app]
+    needs: [changes, rust, clippy, core-minimal, flag, role, managed-storage, policy, app, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

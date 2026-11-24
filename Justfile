@@ -9,6 +9,7 @@ install:
   cargo fetch
   @echo -e "\n\\e[1;32mDone\\e[0m"
   @echo -e "\n\\e[1;34minstalling webui dependencies\\e[0m\n"
+  # landing/ and dummyplug/ are submodules; design/ and webui/ are plain folders of this repo.
   git submodule update --init --recursive
   cd design && npm i
   cd webui && npm i
@@ -101,7 +102,6 @@ release:
 catalogue-update:
   python3 -I scripts/catalogue_update.py
 
-# Unit tests for the submodule PR linking/cascade automation.
 # Branch and dirty state of the workspace and every submodule.
 status:
   @git status -sb
@@ -140,7 +140,7 @@ commit message:
     echo -e "\e[1;32mworkspace committed\e[0m"
   fi
 
-# Push the current branch of every submodule, then the workspace (design -> webui -> vizier order, so pins never point at unpushed commits).
+# Push the current branch of every submodule (landing, dummyplug), then the workspace, so pins never point at unpushed commits.
 # A submodule on a detached HEAD is skipped.
 push:
   #!/usr/bin/env bash
@@ -302,10 +302,19 @@ lint:
   cargo clippy --workspace
 
 typecheck:
+  cd design && npm run typecheck
   cd webui && npm run typecheck
 
-# Pre-PR gate: clippy, cargo tests and the WebUI typecheck.
-check: lint test typecheck
+# The WebUI and design checks the CI `web` job runs: typecheck and vitest, plus the token lints,
+# which only report (both packages carry raw values on master).
+web-check: typecheck
+  -cd design && npm run lint:tokens
+  -cd webui && npm run lint:tokens
+  cd webui && npm test
+  node --test scripts/*.test.mjs
+
+# Pre-PR gate: clippy, cargo tests and the WebUI and design checks.
+check: lint test web-check
 
 # Regenerate webui/app/api/schema.d.ts from a running server (default http://localhost:9999, override with VIZIER_URL).
 openapi:
@@ -363,7 +372,6 @@ install-app:
 install-app:
   if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) { cargo install tauri-cli --version '^2' --locked }
   cd app; cargo fetch
-  git submodule update --init
   cd design; npm ci
   cd webui; npm ci
 

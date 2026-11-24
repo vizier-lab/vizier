@@ -116,8 +116,8 @@ just install   # submodules, npm install in design/, webui/, landing/ and dummyp
 cargo run -- run
 ```
 
-`just install` is not optional: `design/`, `webui/`, `landing/` and `dummyplug/` are git
-submodules, and `crates/vizier-http/build.rs` embeds the built WebUI. With no `webui/node_modules/`
+`just install` is not optional: `landing/` and `dummyplug/` are git submodules, `design/` and
+`webui/` need their npm dependencies, and `crates/vizier-http/build.rs` embeds the built WebUI. With no `webui/node_modules/`
 and no pre-built `webui/build/client/`, the build stops with a message saying so.
 
 Then open http://localhost:9999, create the first user, add a provider key under
@@ -146,8 +146,9 @@ cargo run -- run            # the API and WebUI on :9999
 cd webui && npm run dev     # the WebUI on :5173, proxying /api to :9999
 ```
 
-A component change is made in `design/` first (with a story), then used in `webui/`, then vizier's
-submodule pins are bumped. Commit order is design → webui → vizier.
+`design/` (the component library and its Storybook) and `webui/` are folders of this repository,
+so a change that touches the engine, the WebUI and a component is one branch and one pull request.
+A component is still made in `design/` first (with a story), then used in `webui/`.
 
 ## Making a change
 
@@ -161,13 +162,13 @@ submodule pins are bumped. Commit order is design → webui → vizier.
   specify → plan → tasks → implement flow.
 - Everything else uses a descriptive prefix: `fix/…`, `feat/…`, `docs/…`, `chore/…`.
 
-Contributing from a fork: fork the repository you are changing. Rust code and docs live in this
-one; `design/`, `webui/`, `landing/` and `dummyplug/` are separate repositories, so open the pull
-request there and reference it from an issue here — a maintainer will bump the pin.
+Contributing from a fork: fork the repository you are changing. Rust code, docs, the WebUI and the
+design system live in this one; `landing/` and `dummyplug/` are separate repositories, so open the
+pull request there and reference it from an issue here — a maintainer will bump the pin.
 
 ### Commits and pull request titles
 
-Conventional commits, in the workspace and in every submodule, and for pull request titles too — a
+Conventional commits, in the workspace and in every submodule (`landing`, `dummyplug`), and for pull request titles too — a
 squash merge makes the title the commit:
 
 ```
@@ -188,7 +189,7 @@ number in parentheses when the commit belongs to one. `CHANGELOG.md` is generate
 
 ### Across the submodules
 
-Cross-repo git goes through the Justfile, not hand-rolled per-submodule commands:
+`landing/` and `dummyplug/` are the remaining submodules. Cross-repo git goes through the Justfile, not hand-rolled per-submodule commands:
 
 ```sh
 just checkout <branch>      # create or switch the branch everywhere
@@ -213,12 +214,13 @@ Run what CI runs:
 cargo clippy --workspace --all-targets -- -D warnings -A clippy::style -A clippy::complexity -A clippy::perf
 cargo test --workspace
 cargo test -p vizier-core --no-default-features   # the engine with no optional features
-cd webui && npm run typecheck
+just web-check                                    # design/ and webui/: typecheck, token lint, vitest
 ```
 
 The clippy flags are CI's: any rustc warning, and clippy's correctness and suspicious lints, fail
 the build; style, complexity and perf stay advisory. `just check` runs clippy, the workspace tests
-and the WebUI typecheck without those flags.
+and `just web-check` without those flags. CI's `web` job runs `just web-check`'s steps plus a
+production build of the WebUI and of the Storybook whenever `design/` or `webui/` changes.
 
 For interface work, also run the tests and the catalogue:
 

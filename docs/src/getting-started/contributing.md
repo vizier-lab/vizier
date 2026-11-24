@@ -1,12 +1,13 @@
 # Building from Source
 
-Vizier is one Rust binary that embeds its WebUI. The WebUI and the component library it is built from live in their own repositories, which a vizier checkout pulls in as git submodules:
+Vizier is one Rust binary that embeds its WebUI. The WebUI and the component library it is built from live in this repository; the website and the test model are git submodules:
 
 | Path | Repository | What it is |
 |------|------------|------------|
-| `webui/` | `vizier-lab/webui` | The WebUI (React Router, built to `webui/build/client/`) |
-| `design/` | `vizier-lab/design` | The component library and its Storybook catalogue |
-| `landing/` | `vizier-lab/landing` | The website: landing page, blog and docs (Astro + Starlight) |
+| `webui/` | (this repository) | The WebUI (React Router, built to `webui/build/client/`) |
+| `design/` | (this repository) | The component library and its Storybook catalogue |
+| `landing/` | `vizier-lab/landing` (submodule) | The website: landing page, blog and docs (Astro + Starlight) |
+| `dummyplug/` | `vizier-lab/dummyplug` (submodule) | The offline test model server |
 | `legacy/` | (this repository) | The previous WebUI, kept for reference. It is never built, served or packaged |
 
 ## First build
@@ -43,7 +44,7 @@ Open a new terminal afterwards so `PATH` and `LIBCLANG_PATH` are picked up. The 
 ```powershell
 git clone --recurse-submodules https://github.com/vizier-lab/vizier.git
 cd vizier
-just install-app   # tauri-cli, cargo fetch, submodules, npm ci in design/ and webui/
+just install-app   # tauri-cli, cargo fetch, npm ci in design/ and webui/
 just app-dev       # the app in a window with hot reload
 just app-build     # the installer: app\target\release\bundle\nsis\Vizier_<version>_x64-setup.exe
 just app-test
@@ -102,9 +103,9 @@ in `landing/src/content/blog/`. The site is deployed to www.vizier.rs from the
 release dispatches a deploy with the release tag.
 
 The design system's Storybook catalogue is published with the same site, at
-[www.vizier.rs/design](https://www.vizier.rs/design). A push to `design` master
-dispatches a landing deploy that rebuilds the catalogue from that commit, so the
-catalogue tracks the current design rather than vizier's submodule pin.
+[www.vizier.rs/design](https://www.vizier.rs/design). A push to vizier master
+that touches `design/` dispatches a landing deploy, which builds the catalogue
+from vizier's `design/` at that ref.
 
 ## Working on the WebUI
 
@@ -113,7 +114,7 @@ just run                    # vizier on :9999
 cd webui && npm run dev     # the WebUI on http://localhost:5173, proxying /api to :9999
 ```
 
-A change that needs a new or changed component is made in `design/` first. Commit it there, then commit the screen in `webui/`, then commit vizier with both submodule pins bumped.
+A change that needs a new or changed component is made in `design/` first (with a story), then used in `webui/`. Both are folders of this repository, so the component, the screen and any server change go in one branch and one pull request. `just web-check` runs what the CI `web` job runs.
 
 ## Testing without a model: dummyplug
 

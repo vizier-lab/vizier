@@ -11,12 +11,12 @@ catalogue.
 ## Start
 
 ```sh
-git clone https://github.com/vizier-lab/design.git && cd design
+git clone https://github.com/vizier-lab/vizier.git && cd vizier/design
 npm install
 npm run storybook        # http://localhost:6006
 ```
 
-Inside a vizier checkout the library lives at `design/` as a git submodule.
+The library is the `design/` folder of the vizier repository (it was the separate `vizier-lab/design` repository, now archived, until 2026-11-25).
 
 ## Scripts
 
@@ -46,7 +46,7 @@ and skips. Running that workflow by hand republishes the current `master`.
 
 ## Using the library
 
-The package is TypeScript source with no build step. Depend on it by path; inside vizier that is the `design/` submodule:
+The package is TypeScript source with no build step. Depend on it by path; inside vizier that is `../design` from `webui/`:
 
 ```json
 "dependencies": { "@vizier/design": "file:../design" }
@@ -103,7 +103,7 @@ Every entry starts with the `needs-review` tag. To review one (say **Components/
 4. Tab through the Default story: a 2px focus ring at a 2px offset; text fields focus emerald.
 5. Check the **Accessibility** panel.
 
-To approve, change `tags: ["needs-review"]` to `["approved"]` in the story file and commit; then rerun `node scripts/inventory-checklist.mjs`. To ask for changes, open an issue on [vizier-lab/design](https://github.com/vizier-lab/design/issues) that links the story's URL, and leave the tag as it is. Filter the sidebar by `needs-review` to see what is left. A component is approved only after the components it is built from.
+To approve, change `tags: ["needs-review"]` to `["approved"]` in the story file and commit; then rerun `node scripts/inventory-checklist.mjs`. To ask for changes, open an issue on [vizier-lab/vizier](https://github.com/vizier-lab/vizier/issues) that links the story's URL, and leave the tag as it is. Filter the sidebar by `needs-review` to see what is left. A component is approved only after the components it is built from.
 
 ## Inventory checklist
 

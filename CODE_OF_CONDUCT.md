@@ -71,8 +71,8 @@ This is an agent framework, so this comes up more than it would elsewhere.
 ## Scope
 
 This code applies in every space the project runs: this repository and its issues, pull requests,
-discussions and reviews, and the same in its submodule repositories (`design`, `webui`, `landing`,
-`dummyplug`). It also applies when you are representing the project elsewhere — speaking about it at
+discussions and reviews, and the same in its submodule repositories (`landing`,
+`dummyplug`) and the archived `design` and `webui` repositories. It also applies when you are representing the project elsewhere — speaking about it at
 an event, posting as a maintainer, or acting on its behalf in another community.
 
 It does not govern your own Vizier deployment, or a conversation you have with an agent you host. That

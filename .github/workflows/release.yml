@@ -230,7 +230,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           ref: ${{ inputs.dry_run && github.ref || format('v{0}', needs.prepare-release.outputs.version) }}
 
       - name: Setup Rust
@@ -330,7 +329,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           ref: ${{ inputs.dry_run && github.ref || format('v{0}', needs.prepare-release.outputs.version) }}
 
       - name: Setup Rust

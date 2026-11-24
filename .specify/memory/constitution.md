@@ -1,11 +1,16 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.1.0 → 2.2.0
+Version change: 2.2.0 → 2.3.0
 Modified principles: none
 Added sections: none
 Removed sections: none
 Modified sections:
+  - Development Workflow & Quality Gates — `design/` and `webui/` are folders
+    of this repository, no longer submodules: a UI change is one branch and
+    one pull request, and the matching-branch rule covers only `landing` and
+    `dummyplug`. WebUI changes also pass the CI `web` job (`just web-check`).
+(2.2.0:)
   - Development Workflow & Quality Gates — one rule: design before UI code,
     in whatever medium is available (FigCraft preferred, never required;
     a dummy .html or ASCII mockup is acceptable). Agents MUST NOT stall or
@@ -163,13 +168,14 @@ instead of each module reinventing its own convention.
   location instead of copied.
 - **`cargo clippy` and `cargo test` MUST pass** before a change is
   considered done; there is no separate `just lint`/`just test` — use these
-  directly. WebUI changes MUST pass `cd webui && npm run typecheck`.
+  directly. WebUI and design changes MUST pass `just web-check` (the CI
+  `web` job: typecheck, token lint and tests of `design/` and `webui/`).
 - **Conventional commits everywhere**: every commit message AND every pull
   request title MUST be in conventional-commit format — the types of
   Conventional Commits v1.0.0 (`feat:`, `fix:`, `build:`, `chore:`, `ci:`,
   `docs:`, `style:`, `refactor:`, `perf:`, `test:`), optionally with a
   `(scope)` and/or `!` before the colon, in the workspace and in every
-  submodule. `[**breaking**]` is not a commit type: it is how `git-cliff`
+  submodule (`landing`, `dummyplug`). `[**breaking**]` is not a commit type: it is how `git-cliff`
   renders a breaking commit in the changelog, and a breaking change is marked
   `type!:` in the subject or a `BREAKING CHANGE:` footer. The changelog is
   generated from history via `git-cliff`, and a squash-merged PR title becomes
@@ -177,15 +183,19 @@ instead of each module reinventing its own convention.
   the same rule; a `[Spec Kit] ...` style prefix is not allowed.
 - **Matching submodule branches, driven by `just`**: every spec branch
   (`NNN-short-name`) MUST exist under the same name in the workspace and in
-  every submodule (`design`, `webui`, `landing`, `dummyplug`), so a feature
-  that spans repos is one branch name everywhere and its PRs can be linked.
+  every submodule (`landing`, `dummyplug`), so a feature that spans repos is
+  one branch name everywhere and its PRs can be linked. `design/` and
+  `webui/` are plain folders of this repository (they were submodules until
+  2026-11-25), so a change to the engine, the WebUI and the design system is
+  one branch and one pull request, and has no pin to bump.
   Cross-repo git interaction MUST go through the Justfile recipes, not
   hand-rolled per-submodule git: `just checkout <branch>` (create or switch
   everywhere), `just status`, `just pull`, `just commit "<message>"`,
   `just push` (submodules first, then the workspace, so pins never point at
   unpushed commits), `just branch-rm`, `just worktree`. If a needed
   interaction has no recipe, add one to the Justfile instead of repeating
-  the raw commands. Commit order across repos is design → webui → vizier.
+  the raw commands. Within one change, a component is still built in
+  `design/` (with a story) before `webui/` uses it.
 - **Manual verification for runtime-affecting changes**: since the
   automated test suite is sparse, changes to process startup, storage
   migrations, or the build pipeline (`build.rs`, `Cross.toml`, `Dockerfile`)
@@ -268,4 +278,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 2.2.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-06
+**Version**: 2.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-25

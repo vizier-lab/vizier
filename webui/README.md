@@ -2,11 +2,11 @@
 
 The Vizier WebUI: a React Router 7 single-page app on the `@vizier/design` component library. Vizier embeds its build (`build/client/`) in the binary and serves it.
 
-It builds **inside a vizier checkout**: it depends on `../design`, the component library submodule. Cloning it on its own won't install.
+It is the `webui/` folder of the vizier repository and depends on `../design`, the component library beside it.
 
 ```sh
 git clone --recurse-submodules https://github.com/vizier-lab/vizier.git
-cd vizier && just install      # submodules, npm i in design/ and webui/, cargo fetch
+cd vizier && just install      # submodules (landing, dummyplug), npm i in design/ and webui/, cargo fetch
 ```
 
 ## Develop
@@ -35,4 +35,4 @@ Screens compose library components only, with token utilities and no arbitrary v
 
 ## Commit order
 
-A change that needs a new library component goes in three commits, in this order: `design/`, then `webui/`, then a vizier commit that bumps both submodule pins.
+A change that needs a new library component is made in `design/` first (with a story), then used here. Both are in the vizier repository, so they go in one branch and one pull request with any server change; `just web-check` runs what CI's `web` job runs.

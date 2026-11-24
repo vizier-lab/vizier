@@ -35,8 +35,7 @@ fn main() {
         // No node_modules and no pre-built files: nothing to embed.
         panic!(
             "webui/build/client not found and node_modules not available. \
-             The WebUI and its component library are git submodules: run \
-             'git submodule update --init --recursive' and then 'just install', \
+             Run 'just install' (npm install in design/ and webui/), \
              or ensure pre-built files are included."
         );
     };
