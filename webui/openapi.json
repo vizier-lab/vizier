@@ -8933,6 +8933,238 @@
         }
       }
     },
+    "/shares": {
+      "get": {
+        "tags": [
+          "api::v1::shares"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "before_created_at",
+            "in": "query",
+            "description": "Keyset pagination: created_at timestamp",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "before_share_id",
+            "in": "query",
+            "description": "Keyset pagination: share_id tie-breaker",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max items to return (≤ 100, default 50)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "description": "List all shares across instance (requires admin)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "description": "Filter for active (unrevoked) shares only",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of shares",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_ShareListItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "all=true requires admin permission"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::shares"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created. The link is `url_path` on this instance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_CreatedShare"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid shape, format version, title or people"
+          },
+          "401": {
+            "description": "Missing or invalid credentials"
+          },
+          "403": {
+            "description": "Needs `owned_agents:share_conversations` for an agent the caller owns, or `all_agents:share_conversations`"
+          },
+          "413": {
+            "description": "The body is over 5 MiB"
+          },
+          "422": {
+            "description": "`trail_mismatch`: `include_trail` is false but the document holds trail parts; `secret_detected`: the text holds a PEM private key or a vendor-prefixed token (last-resort backstop, not redaction)"
+          },
+          "429": {
+            "description": "10 creates an hour (with `retry_after_secs`), or 200 active shares"
+          },
+          "503": {
+            "description": "Storage is unavailable"
+          }
+        }
+      }
+    },
+    "/shares/people": {
+      "get": {
+        "tags": [
+          "api::v1::shares"
+        ],
+        "operationId": "search_people",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Prefix match on username (≥ 2 characters)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching people",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_PersonMatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Query too short"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Requires share permission"
+          }
+        }
+      }
+    },
+    "/shares/{share_id}": {
+      "get": {
+        "tags": [
+          "api::v1::shares"
+        ],
+        "operationId": "read",
+        "parameters": [
+          {
+            "name": "share_id",
+            "in": "path",
+            "description": "21 URL-safe characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The snapshot. Public shares: `Cache-Control: public, max-age=300, s-maxage=300` and `ETag`; others `private, no-store`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ShareView"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "`If-None-Match` matches a public share"
+          },
+          "401": {
+            "description": "`sign_in_required`: no session, and the share is not an active public one (or does not exist; the same body)"
+          },
+          "404": {
+            "description": "`share_unavailable`: signed in, and the share is unknown, revoked, or not for this person (one body)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::shares"
+        ],
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "share_id",
+            "in": "path",
+            "description": "21 URL-safe characters",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked (or already revoked)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Unknown share or not authorized to revoke"
+          }
+        }
+      }
+    },
     "/status": {
       "get": {
         "tags": [
@@ -9162,6 +9394,8 @@
               "silent_read_initiative_chance",
               "tts",
               "stt",
+              "live_voice",
+              "live_voice_end_of_utterance_ms",
               "read_image",
               "image_gen"
             ],
@@ -9256,6 +9490,23 @@
                     "type": "null"
                   }
                 ]
+              },
+              "live_voice": {
+                "type": "boolean",
+                "description": "Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**\nit has a usable recogniser and voice. Additive: an older client ignores it."
+              },
+              "live_voice_end_of_utterance_ms": {
+                "type": "integer",
+                "format": "int32",
+                "description": "How long a silence ends the utterance, from the agent's live voice settings (G1).\n\nIt travels to the client because the client is where the gate runs: the value used to be\nhardcoded in the browser, so the setting was never read by anything.",
+                "minimum": 0
+              },
+              "live_voice_missing": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Which half of a session is missing, named only while the switch is on (FR-004).\n\n`null` when the switch is off, and when nothing is missing. The pill is drawn for every\nagent whose switch is off — the default — and naming a machine there would send a person to\nthe second step while the first (turning the switch on) is still undone.\n\nBecause it is `null` for both, a client **must not** read readiness from it: `null` does not\nmean \"ready\", only \"nothing to name\". Readiness is [`Self::live_voice`], which is false while\nthe switch is off; deciding `missing == null` is enough would offer a start button to every\nagent that never turned the feature on."
               },
               "max_tokens": {
                 "type": [
@@ -10434,6 +10685,47 @@
               },
               "worktree": {
                 "$ref": "#/components/schemas/WorktreeSummary"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_CreatedShare": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "share_id",
+              "url_path",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unix milliseconds."
+              },
+              "share_id": {
+                "type": "string"
+              },
+              "url_path": {
+                "type": "string",
+                "description": "`/share/<id>`, relative to the instance's address."
               }
             }
           },
@@ -12509,6 +12801,60 @@
           }
         }
       },
+      "APIResponse_ShareView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience\nkind is not among them (FR-030): a reader is not told who else can read.",
+            "required": [
+              "share_id",
+              "title",
+              "created_at",
+              "include_trail",
+              "format_version",
+              "snapshot"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "format_version": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "include_trail": {
+                "type": "boolean"
+              },
+              "share_id": {
+                "type": "string"
+              },
+              "snapshot": {
+                "type": "object",
+                "description": "The stored document, as stored."
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_SignInResponse": {
         "type": "object",
         "required": [
@@ -13321,6 +13667,16 @@
                 "created_at"
               ],
               "properties": {
+                "capabilities": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "What the key may do; absent for a key that carries its owner's permissions."
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time"
@@ -14174,6 +14530,44 @@
           }
         }
       },
+      "APIResponse_Vec_PersonMatch": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A matching user for naming in `specific` audience (`GET /shares/people?q=`).\nReturns only `user_id` and `username` (no email or role leaks).",
+              "required": [
+                "user_id",
+                "username"
+              ],
+              "properties": {
+                "user_id": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_ProfileEntryResponse": {
         "type": "object",
         "required": [
@@ -14929,6 +15323,101 @@
           }
         }
       },
+      "APIResponse_Vec_ShareListItem": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A share item in a list (`GET /shares`).",
+              "required": [
+                "share_id",
+                "agent_id",
+                "agent_name",
+                "topic_id",
+                "audience",
+                "people_count",
+                "include_trail",
+                "size_bytes",
+                "created_at"
+              ],
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "agent_name": {
+                  "type": "string"
+                },
+                "audience": {
+                  "$ref": "#/components/schemas/Audience"
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "creator_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "include_trail": {
+                  "type": "boolean"
+                },
+                "people_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "removals": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "revoked_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "share_id": {
+                  "type": "string"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Withheld (absent) in the administrator's list for a share whose audience does not\ninclude the administrator (FR-043): the title comes from the conversation."
+                },
+                "topic_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_SubagentSnapshot": {
         "type": "object",
         "required": [
@@ -15492,6 +15981,8 @@
           "silent_read_initiative_chance",
           "tts",
           "stt",
+          "live_voice",
+          "live_voice_end_of_utterance_ms",
           "read_image",
           "image_gen"
         ],
@@ -15586,6 +16077,23 @@
                 "type": "null"
               }
             ]
+          },
+          "live_voice": {
+            "type": "boolean",
+            "description": "Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**\nit has a usable recogniser and voice. Additive: an older client ignores it."
+          },
+          "live_voice_end_of_utterance_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a silence ends the utterance, from the agent's live voice settings (G1).\n\nIt travels to the client because the client is where the gate runs: the value used to be\nhardcoded in the browser, so the setting was never read by anything.",
+            "minimum": 0
+          },
+          "live_voice_missing": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which half of a session is missing, named only while the switch is on (FR-004).\n\n`null` when the switch is off, and when nothing is missing. The pill is drawn for every\nagent whose switch is off — the default — and naming a machine there would send a person to\nthe second step while the first (turning the switch on) is still undone.\n\nBecause it is `null` for both, a client **must not** read readiness from it: `null` does not\nmean \"ready\", only \"nothing to name\". Readiness is [`Self::live_voice`], which is false while\nthe switch is off; deciding `missing == null` is enough would offer a start button to every\nagent that never turned the feature on."
           },
           "max_tokens": {
             "type": [
@@ -15981,6 +16489,16 @@
           "created_at"
         ],
         "properties": {
+          "capabilities": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "What the key may do; absent for a key that carries its owner's permissions."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -16419,6 +16937,15 @@
             "type": "boolean"
           }
         }
+      },
+      "Audience": {
+        "type": "string",
+        "description": "Who may open a share. Fixed at creation (there is no update).\n\nNothing outside [`Audience::allows`] and [`Audience::cache_policy`] branches on the variant\n(constitution II); the name used on the wire and in storage comes from one table.",
+        "enum": [
+          "specific",
+          "signed_in",
+          "public"
+        ]
       },
       "BranchHolder": {
         "type": "object",
@@ -17654,6 +18181,17 @@
               }
             ]
           },
+          "live_voice": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LiveVoiceInput",
+                "description": "Its own switch, and never turned on by the speech tools (FR-003). `None` on an update means\n\"leave it as it is\", which is what keeps saving an agent from silently ending the session."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "read_image": {
             "type": [
               "boolean",
@@ -17726,6 +18264,16 @@
           "name"
         ],
         "properties": {
+          "capabilities": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Where the key may go (T109, FR-062). Absent, the default and what the API keys page sends,\nmakes a key that reaches everything its owner can, as every key did before scopes existed.\n`[\"live_voice\"]` makes a key that acts as its owner but reaches only the chat socket, for\nlive voice frames: the key a third-party voice client is handed. Unknown names are refused."
+          },
           "expires_in_days": {
             "type": [
               "integer",
@@ -17899,6 +18447,56 @@
           }
         }
       },
+      "CreateShareRequest": {
+        "type": "object",
+        "description": "Documentation twin of the `POST /shares` body (the service reads the raw bytes itself).",
+        "required": [
+          "agent_id",
+          "topic_id",
+          "title",
+          "audience",
+          "snapshot"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "include_trail": {
+            "type": "boolean"
+          },
+          "people": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Required (1 to 50 existing people) when the audience is `specific`; absent otherwise."
+          },
+          "removals": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Counts by kind of what was left out (`credentials`, `paths`, `recall`, `reasoning`, `media`)."
+          },
+          "snapshot": {
+            "type": "object",
+            "description": "The document of `contracts/snapshot-format.md`, format version 1."
+          },
+          "title": {
+            "type": "string",
+            "description": "At most 120 characters."
+          },
+          "topic_id": {
+            "type": "string"
+          }
+        }
+      },
       "CreateTaskRequest": {
         "type": "object",
         "required": [
@@ -17966,6 +18564,28 @@
           },
           "worktree": {
             "$ref": "#/components/schemas/WorktreeSummary"
+          }
+        }
+      },
+      "CreatedShare": {
+        "type": "object",
+        "required": [
+          "share_id",
+          "url_path",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds."
+          },
+          "share_id": {
+            "type": "string"
+          },
+          "url_path": {
+            "type": "string",
+            "description": "`/share/<id>`, relative to the instance's address."
           }
         }
       },
@@ -19974,6 +20594,21 @@
           }
         }
       },
+      "LiveVoiceInput": {
+        "type": "object",
+        "description": "The live voice block a person may send when saving an agent (T041, FR-003).\n\nWithout this the session could never be turned on: `into_config` used to hard-code\n`enabled: false`, so every API call was ignored and `agent_detail` reported `live_voice: false`\nno matter what anyone asked for.\n\n`settings` is the same [`LiveVoiceSettings`] the config stores: the call's timings. The\nrecogniser and voice are always the agent's own `stt` / `tts`.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object"
+          }
+        }
+      },
       "LocalShellConfig": {
         "type": "object",
         "required": [
@@ -21171,6 +21806,22 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "PersonMatch": {
+        "type": "object",
+        "description": "A matching user for naming in `specific` audience (`GET /shares/people?q=`).\nReturns only `user_id` and `username` (no email or role leaks).",
+        "required": [
+          "user_id",
+          "username"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
           }
         }
       },
@@ -23499,6 +24150,114 @@
           }
         }
       },
+      "ShareListItem": {
+        "type": "object",
+        "description": "A share item in a list (`GET /shares`).",
+        "required": [
+          "share_id",
+          "agent_id",
+          "agent_name",
+          "topic_id",
+          "audience",
+          "people_count",
+          "include_trail",
+          "size_bytes",
+          "created_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "creator_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "include_trail": {
+            "type": "boolean"
+          },
+          "people_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "removals": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "revoked_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "share_id": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Withheld (absent) in the administrator's list for a share whose audience does not\ninclude the administrator (FR-043): the title comes from the conversation."
+          },
+          "topic_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ShareView": {
+        "type": "object",
+        "description": "A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience\nkind is not among them (FR-030): a reader is not told who else can read.",
+        "required": [
+          "share_id",
+          "title",
+          "created_at",
+          "include_trail",
+          "format_version",
+          "snapshot"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "format_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "include_trail": {
+            "type": "boolean"
+          },
+          "share_id": {
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "object",
+            "description": "The stored document, as stored."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "ShellConfig": {
         "oneOf": [
           {
@@ -25131,7 +25890,7 @@
             "items": {
               "$ref": "#/components/schemas/String"
             },
-            "description": "The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):\nempty for anything a person or the scheduler started, the consulting turn's chain plus\nthe consulting agent for a consultation. Its length is the consultation depth, which\noffers the consultation tools only below `consultations.max_depth`; a target already in\nit is refused. Serialised with the durable turn row; never taken from a client."
+            "description": "The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):\nempty for anything a person or the scheduler started, the consulting turn's chain plus\nthe consulting agent for a consultation. Its length is the consultation depth, which\noffers the consultation tools only below `MAX_CONSULTATION_DEPTH`; a target already in\nit is refused. Serialised with the durable turn row; never taken from a client."
           },
           "content": {
             "$ref": "#/components/schemas/VizierRequestContent"
@@ -25196,6 +25955,10 @@
               "null"
             ],
             "description": "The slug of the task this request is a scheduled run of.\n\nSet by the scheduler and by nothing else, which is what makes it safe where the\nrequest content kind is not: the dream cycle sends `Unattended` too and must not be\nattributed to the scheduler. `Default` leaves it `None` for every other construction\nsite, so no interactive turn's frontmatter changes."
+          },
+          "spoken": {
+            "type": "boolean",
+            "description": "The request came from speech in a live voice session (`specs/055-live-voice` FR-011).\n\n`#[serde(default)]` so a stored request from before this feature loads as `false`, and a\ntyped turn is unchanged: the only thing it changes is the note the turn is given about how\nits answer will be heard (FR-017). It is never set by the client — the session sets it."
           },
           "subagent_depth": {
             "type": "integer",

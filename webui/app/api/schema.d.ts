@@ -1837,6 +1837,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_people"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read"];
+        put?: never;
+        post?: never;
+        delete: operations["revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/status": {
         parameters: {
             query?: never;
@@ -1952,8 +2000,32 @@ export interface components {
                 image_gen: boolean;
                 image_gen_settings?: components["schemas"]["ImageGenToolSettings"] | null;
                 indexer?: components["schemas"]["IndexerConfig"] | null;
-                /** Whether this agent can hold a live voice session (spec 055 FR-004). */
+                /**
+                 * @description Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
+                 *     it has a usable recogniser and voice. Additive: an older client ignores it.
+                 */
                 live_voice: boolean;
+                /**
+                 * Format: int32
+                 * @description How long a silence ends the utterance, from the agent's live voice settings (G1).
+                 *
+                 *     It travels to the client because the client is where the gate runs: the value used to be
+                 *     hardcoded in the browser, so the setting was never read by anything.
+                 */
+                live_voice_end_of_utterance_ms: number;
+                /**
+                 * @description Which half of a session is missing, named only while the switch is on (FR-004).
+                 *
+                 *     `null` when the switch is off, and when nothing is missing. The pill is drawn for every
+                 *     agent whose switch is off — the default — and naming a machine there would send a person to
+                 *     the second step while the first (turning the switch on) is still undone.
+                 *
+                 *     Because it is `null` for both, a client **must not** read readiness from it: `null` does not
+                 *     mean "ready", only "nothing to name". Readiness is [`Self::live_voice`], which is false while
+                 *     the switch is off; deciding `missing == null` is enough would offer a start button to every
+                 *     agent that never turned the feature on.
+                 */
+                live_voice_missing?: string | null;
                 /** Format: int64 */
                 max_tokens?: number | null;
                 model: string;
@@ -2262,6 +2334,21 @@ export interface components {
                 channel_id: string;
                 topic: string;
                 worktree: components["schemas"]["WorktreeSummary"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_CreatedShare: {
+            data?: {
+                /**
+                 * Format: int64
+                 * @description Unix milliseconds.
+                 */
+                created_at: number;
+                share_id: string;
+                /** @description `/share/<id>`, relative to the instance's address. */
+                url_path: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2821,6 +2908,26 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_ShareView: {
+            /**
+             * @description A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience
+             *     kind is not among them (FR-030): a reader is not told who else can read.
+             */
+            data?: {
+                /** Format: int64 */
+                created_at: number;
+                /** Format: int64 */
+                format_version: number;
+                include_trail: boolean;
+                share_id: string;
+                /** @description The stored document, as stored. */
+                snapshot: Record<string, never>;
+                title: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_SignInResponse: {
             /**
              * @description One answer to `POST /{id}/sso/sign-in` (contracts §3): a fresh code to type, the pending state
@@ -3040,6 +3147,8 @@ export interface components {
         };
         APIResponse_Vec_ApiKeyResponse: {
             data?: {
+                /** @description What the key may do; absent for a key that carries its owner's permissions. */
+                capabilities?: string[] | null;
                 /** Format: date-time */
                 created_at: string;
                 /** Format: date-time */
@@ -3255,6 +3364,15 @@ export interface components {
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_PersonMatch: {
+            data?: {
+                user_id: string;
+                username: string;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -3480,6 +3598,33 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_ShareListItem: {
+            data?: {
+                agent_id: string;
+                agent_name: string;
+                audience: components["schemas"]["Audience"];
+                /** Format: int64 */
+                created_at: number;
+                creator_name?: string | null;
+                include_trail: boolean;
+                people_count: number;
+                removals?: Record<string, never> | null;
+                /** Format: int64 */
+                revoked_at?: number | null;
+                share_id: string;
+                /** Format: int64 */
+                size_bytes: number;
+                /**
+                 * @description Withheld (absent) in the administrator's list for a share whose audience does not
+                 *     include the administrator (FR-043): the title comes from the conversation.
+                 */
+                title?: string | null;
+                topic_id: string;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_SubagentSnapshot: {
             data?: (components["schemas"]["SubagentSummary"] & {
                 group: string;
@@ -3640,8 +3785,32 @@ export interface components {
             image_gen: boolean;
             image_gen_settings?: components["schemas"]["ImageGenToolSettings"] | null;
             indexer?: components["schemas"]["IndexerConfig"] | null;
-            /** Whether this agent can hold a live voice session (spec 055 FR-004). */
+            /**
+             * @description Whether this agent can hold a live voice conversation (FR-004): the switch is on **and**
+             *     it has a usable recogniser and voice. Additive: an older client ignores it.
+             */
             live_voice: boolean;
+            /**
+             * Format: int32
+             * @description How long a silence ends the utterance, from the agent's live voice settings (G1).
+             *
+             *     It travels to the client because the client is where the gate runs: the value used to be
+             *     hardcoded in the browser, so the setting was never read by anything.
+             */
+            live_voice_end_of_utterance_ms: number;
+            /**
+             * @description Which half of a session is missing, named only while the switch is on (FR-004).
+             *
+             *     `null` when the switch is off, and when nothing is missing. The pill is drawn for every
+             *     agent whose switch is off — the default — and naming a machine there would send a person to
+             *     the second step while the first (turning the switch on) is still undone.
+             *
+             *     Because it is `null` for both, a client **must not** read readiness from it: `null` does not
+             *     mean "ready", only "nothing to name". Readiness is [`Self::live_voice`], which is false while
+             *     the switch is off; deciding `missing == null` is enough would offer a start button to every
+             *     agent that never turned the feature on.
+             */
+            live_voice_missing?: string | null;
             /** Format: int64 */
             max_tokens?: number | null;
             model: string;
@@ -3759,6 +3928,8 @@ export interface components {
          */
         AnswerValue: string | string[] | boolean;
         ApiKeyResponse: {
+            /** @description What the key may do; absent for a key that carries its owner's permissions. */
+            capabilities?: string[] | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -3886,6 +4057,14 @@ export interface components {
         AttachmentBody: {
             attached: boolean;
         };
+        /**
+         * @description Who may open a share. Fixed at creation (there is no update).
+         *
+         *     Nothing outside [`Audience::allows`] and [`Audience::cache_policy`] branches on the variant
+         *     (constitution II); the name used on the wire and in storage comes from one table.
+         * @enum {string}
+         */
+        Audience: "specific" | "signed_in" | "public";
         BranchHolder: {
             name: string;
             /** @description `None` for the project's own folder. */
@@ -4232,6 +4411,7 @@ export interface components {
             http_client?: boolean | null;
             image_gen?: boolean | null;
             image_gen_settings?: components["schemas"]["ImageGenToolSettings"] | null;
+            live_voice?: components["schemas"]["LiveVoiceInput"] | null;
             read_image?: boolean | null;
             read_image_settings?: components["schemas"]["ReadImageToolSettings"] | null;
             shell?: components["schemas"]["ShellConfig"] | null;
@@ -4242,6 +4422,13 @@ export interface components {
             tts_settings?: components["schemas"]["TtsToolSettings"] | null;
         };
         CreateApiKeyRequest: {
+            /**
+             * @description Where the key may go (T109, FR-062). Absent, the default and what the API keys page sends,
+             *     makes a key that reaches everything its owner can, as every key did before scopes existed.
+             *     `["live_voice"]` makes a key that acts as its owner but reaches only the chat socket, for
+             *     live voice frames: the key a third-party voice client is handed. Unknown names are refused.
+             */
+            capabilities?: string[] | null;
             /** Format: int64 */
             expires_in_days?: number | null;
             name: string;
@@ -4288,6 +4475,21 @@ export interface components {
             title: string;
             topic: string;
         };
+        /** @description Documentation twin of the `POST /shares` body (the service reads the raw bytes itself). */
+        CreateShareRequest: {
+            agent_id: string;
+            audience: components["schemas"]["Audience"];
+            include_trail?: boolean;
+            /** @description Required (1 to 50 existing people) when the audience is `specific`; absent otherwise. */
+            people?: string[] | null;
+            /** @description Counts by kind of what was left out (`credentials`, `paths`, `recall`, `reasoning`, `media`). */
+            removals?: Record<string, never> | null;
+            /** @description The document of `contracts/snapshot-format.md`, format version 1. */
+            snapshot: Record<string, never>;
+            /** @description At most 120 characters. */
+            title: string;
+            topic_id: string;
+        };
         CreateTaskRequest: {
             instruction: string;
             /** @description Whether the task is switched on. Omitted means on, which is what both routes always did. */
@@ -4305,6 +4507,16 @@ export interface components {
             channel_id: string;
             topic: string;
             worktree: components["schemas"]["WorktreeSummary"];
+        };
+        CreatedShare: {
+            /**
+             * Format: int64
+             * @description Unix milliseconds.
+             */
+            created_at: number;
+            share_id: string;
+            /** @description `/share/<id>`, relative to the instance's address. */
+            url_path: string;
         };
         /**
          * @description A credential field a provider's connect form asks for.
@@ -4890,6 +5102,20 @@ export interface components {
             /** @description The output limit is the person's, not the paired model's. */
             output: boolean;
         };
+        /**
+         * @description The live voice block a person may send when saving an agent (T041, FR-003).
+         *
+         *     Without this the session could never be turned on: `into_config` used to hard-code
+         *     `enabled: false`, so every API call was ignored and `agent_detail` reported `live_voice: false`
+         *     no matter what anyone asked for.
+         *
+         *     `settings` is the same [`LiveVoiceSettings`] the config stores: the call's timings. The
+         *     recogniser and voice are always the agent's own `stt` / `tts`.
+         */
+        LiveVoiceInput: {
+            enabled: boolean;
+            settings?: Record<string, never>;
+        };
         LocalShellConfig: {
             env?: {
                 [key: string]: string;
@@ -5239,6 +5465,14 @@ export interface components {
             cost_usd?: number | null;
             /** Format: int64 */
             tokens: number;
+        };
+        /**
+         * @description A matching user for naming in `specific` audience (`GET /shares/people?q=`).
+         *     Returns only `user_id` and `username` (no email or role leaks).
+         */
+        PersonMatch: {
+            user_id: string;
+            username: string;
         };
         PlatformMessageId: {
             /** Format: int64 */
@@ -5980,6 +6214,44 @@ export interface components {
         SetupStates: {
             setups: components["schemas"]["SetupState"][];
         };
+        /** @description A share item in a list (`GET /shares`). */
+        ShareListItem: {
+            agent_id: string;
+            agent_name: string;
+            audience: components["schemas"]["Audience"];
+            /** Format: int64 */
+            created_at: number;
+            creator_name?: string | null;
+            include_trail: boolean;
+            people_count: number;
+            removals?: Record<string, never> | null;
+            /** Format: int64 */
+            revoked_at?: number | null;
+            share_id: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /**
+             * @description Withheld (absent) in the administrator's list for a share whose audience does not
+             *     include the administrator (FR-043): the title comes from the conversation.
+             */
+            title?: string | null;
+            topic_id: string;
+        };
+        /**
+         * @description A share as `GET /shares/{id}` returns it. No field depends on who asks, and the audience
+         *     kind is not among them (FR-030): a reader is not told who else can read.
+         */
+        ShareView: {
+            /** Format: int64 */
+            created_at: number;
+            /** Format: int64 */
+            format_version: number;
+            include_trail: boolean;
+            share_id: string;
+            /** @description The stored document, as stored. */
+            snapshot: Record<string, never>;
+            title: string;
+        };
         ShellConfig: (components["schemas"]["DockerShellConfig"] & {
             /** @enum {string} */
             environment: "docker";
@@ -6509,7 +6781,7 @@ export interface components {
              * @description The consulting agents above this turn, oldest first (`specs/064-consult-agents` D8):
              *     empty for anything a person or the scheduler started, the consulting turn's chain plus
              *     the consulting agent for a consultation. Its length is the consultation depth, which
-             *     offers the consultation tools only below `consultations.max_depth`; a target already in
+             *     offers the consultation tools only below `MAX_CONSULTATION_DEPTH`; a target already in
              *     it is refused. Serialised with the durable turn row; never taken from a client.
              */
             consultation_chain?: components["schemas"]["String"][];
@@ -6546,6 +6818,14 @@ export interface components {
              *     site, so no interactive turn's frontmatter changes.
              */
             scheduled_task?: string | null;
+            /**
+             * @description The request came from speech in a live voice session (`specs/055-live-voice` FR-011).
+             *
+             *     `#[serde(default)]` so a stored request from before this feature loads as `false`, and a
+             *     typed turn is unchanged: the only thing it changes is the note the turn is given about how
+             *     its answer will be heard (FR-017). It is never set by the client — the session sets it.
+             */
+            spoken?: boolean;
             /**
              * Format: int32
              * @description How many subagent hops led to this turn (spec 059): 0 for the main agent, the hiring
@@ -12805,6 +13085,247 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_TestResult"];
                 };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: {
+                /** @description Keyset pagination: created_at timestamp */
+                before_created_at?: number;
+                /** @description Keyset pagination: share_id tie-breaker */
+                before_share_id?: string;
+                /** @description Max items to return (≤ 100, default 50) */
+                limit?: number;
+                /** @description List all shares across instance (requires admin) */
+                all?: boolean;
+                /** @description Filter for active (unrevoked) shares only */
+                active?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of shares */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_ShareListItem"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description all=true requires admin permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. The link is `url_path` on this instance */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CreatedShare"];
+                };
+            };
+            /** @description Invalid shape, format version, title or people */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Needs `owned_agents:share_conversations` for an agent the caller owns, or `all_agents:share_conversations` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body is over 5 MiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `trail_mismatch`: `include_trail` is false but the document holds trail parts; `secret_detected`: the text holds a PEM private key or a vendor-prefixed token (last-resort backstop, not redaction) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 10 creates an hour (with `retry_after_secs`), or 200 active shares */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Storage is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    search_people: {
+        parameters: {
+            query: {
+                /** @description Prefix match on username (≥ 2 characters) */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching people */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_PersonMatch"];
+                };
+            };
+            /** @description Query too short */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires share permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 21 URL-safe characters */
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The snapshot. Public shares: `Cache-Control: public, max-age=300, s-maxage=300` and `ETag`; others `private, no-store` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ShareView"];
+                };
+            };
+            /** @description `If-None-Match` matches a public share */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `sign_in_required`: no session, and the share is not an active public one (or does not exist; the same body) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `share_unavailable`: signed in, and the share is unknown, revoked, or not for this person (one body) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 21 URL-safe characters */
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (or already revoked) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown share or not authorized to revoke */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1,0 +1,141 @@
+import { describe, expect, it } from 'vitest'
+import { newCounts } from './redact'
+import { stripPaths } from './paths'
+
+const run = (s: string) => {
+    const counts = newCounts()
+    return { text: stripPaths(s, counts), count: counts.paths }
+}
+
+describe('stripPaths: removes the directory part, keeps the base name', () => {
+    it.each([
+        ['open /home/alice/x now', 'open x now'],
+        ['at /root/.vizier/config.toml.', 'at config.toml.'],
+        ['(/Users/bob/Library/notes.txt)', '(notes.txt)'],
+        ['C:\\Users\\alice\\Documents\\report.pdf', 'report.pdf'],
+        ['C:/Users/alice/Documents/report.pdf', 'report.pdf'],
+        ['\\\\fileserver\\share\\dept\\budget.xlsx', 'budget.xlsx'],
+        ['file:///home/alice/pics/cat.png', 'cat.png'],
+        ['file:///C:/Users/alice/pics/cat.png', 'cat.png'],
+        ['cd ~/projects/vizier/src', 'cd src'],
+        ['in /tmp/build-1/out.log, then', 'in out.log, then'],
+    ])('%s', (input, expected) => {
+        const { text, count } = run(input)
+        expect(text).toBe(expected)
+        expect(count).toBe(1)
+    })
+
+    it('handles a path with spaces in a directory and unicode in the name', () => {
+        const { text, count } = run('see /home/alice/My Documents/résumé 2026/café.md ok')
+        expect(text).toBe('see café.md ok')
+        expect(count).toBe(1)
+    })
+    it('handles a quoted path with spaces in the name', () => {
+        expect(run('open "/home/alice/My Documents/final report.pdf" please').text).toBe('open "final report.pdf" please')
+        expect(run("open 'C:\\Users\\alice\\My Files\\final report.pdf'").text).toBe("open 'final report.pdf'")
+    })
+    it('handles JSON-escaped Windows paths', () => {
+        const json = JSON.stringify({ p: 'C:\\Users\\alice\\.vizier\\db.sqlite', u: '\\\\srv\\share\\a.txt' })
+        const { text, count } = run(json)
+        expect(count).toBe(2)
+        expect(JSON.parse(text)).toEqual({ p: 'db.sqlite', u: 'a.txt' })
+    })
+    it('removes a path inside a code block', () => {
+        const { text } = run('```sh\ncat /home/alice/.vizier/secrets.env\n```')
+        expect(text).toBe('```sh\ncat secrets.env\n```')
+    })
+    it('counts each path', () => {
+        expect(run('/home/a/x /home/b/y C:\\Users\\c\\z').count).toBe(3)
+    })
+    it('is idempotent', () => {
+        const once = run('/home/alice/x and C:\\Users\\a\\b').text
+        expect(run(once)).toEqual({ text: once, count: 0 })
+    })
+})
+
+describe('stripPaths: leaves alone', () => {
+    const keep = [
+        'edit src/main.rs and ./lib/util.ts and ../docs/readme.md',
+        'workspace file notes/todo.md',
+        'https://example.com/home/alice/page',
+        'http://localhost:3000/Users/list?x=/root/a',
+        'mailto:bob@example.com',
+        'use and/or either/or 1/2 and 3/4',
+        'the /api/v1/shares endpoint',
+        'a date 2026/11/08 and ratio 16/9',
+        'file name report.pdf only',
+        'visit www.example.com/tmp/file',
+    ]
+    it.each(keep)('keeps %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+    it('does not alter markdown links to URLs', () => {
+        const s = '[doc](https://example.com/root/docs/x.md) and ![img](https://cdn.example.com/home/a.png)'
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+})
+
+describe('stripPaths: more roots, home directories and Windows forms (D10)', () => {
+    it.each([
+        ['/proc/1/environ', 'environ'],
+        ['/sys/class/net/eth0/address', 'address'],
+        ['/dev/shm/x.sock', 'x.sock'],
+        ['/run/secrets/db_pass', 'db_pass'],
+        ['/data/app/store.db', 'store.db'],
+        ['/app/server/main.py', 'main.py'],
+        ['/Library/Application Support/x/y.plist', 'y.plist'],
+        ['/Applications/Vizier.app/Contents/Info.plist', 'Info.plist'],
+        ['~alice/docs/a.txt', 'a.txt'],
+        ['$HOME/proj/a.txt', 'a.txt'],
+        ['${HOME}/proj/b.txt', 'b.txt'],
+        ['%USERPROFILE%\\Docs\\a.txt', 'a.txt'],
+        ['%APPDATA%\\Vizier\\cfg.json', 'cfg.json'],
+        ['\\\\?\\C:\\Users\\alice\\a.txt', 'a.txt'],
+        ['\\\\?\\UNC\\srv\\share\\a.txt', 'a.txt'],
+        ['\\\\.\\pipe\\vizier-ipc', 'vizier-ipc'],
+        ['cat /proc/self/environ | tr', 'cat environ | tr'],
+    ])('%s', (input, expected) => {
+        const { text, count } = run(input)
+        expect(text).toBe(expected)
+        expect(count).toBe(1)
+    })
+
+    it.each([
+        ['/home/alice', '~'],
+        ['cd /home/alice && ls', 'cd ~ && ls'],
+        ['/home/alice/', '~/'],
+        ['see /home/alice.', 'see ~.'],
+        ['/Users/bob', '~'],
+        ['C:\\Users\\alice', '~'],
+        ['C:/Users/alice/', '~/'],
+        ['file:///home/alice', '~'],
+        ['file:///C:/Users/alice', '~'],
+    ])('a bare home directory never leaks the user name: %s', (input, expected) => {
+        const { text, count } = run(input)
+        expect(text).toBe(expected)
+        expect(text).not.toMatch(/alice|bob/)
+        expect(count).toBe(1)
+    })
+
+    it('does not leak the user name through any form of the same home directory', () => {
+        for (const p of ['/home/alice', '/home/alice/', '/home/alice/x.txt', 'file:///home/alice', '"/home/alice"', '~alice/x.txt', 'C:\\Users\\alice\\x', '\\\\?\\C:\\Users\\alice\\x']) {
+            expect(run(p).text, p).not.toContain('alice')
+        }
+    })
+
+    it.each(['> /dev/null', '2>/dev/null', 'cat /dev/stdin', 'dd if=/dev/zero', 'read /dev/urandom'])('leaves a pseudo-device alone: %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+
+    it.each([
+        'GET /api/data and /api/app/list',
+        'open https://example.com/home/alice/page',
+        'the ~5 minutes it takes, ~approximately',
+        'use $HOME or %PATH% as variables',
+        'the data and app folders',
+        'a/b/c relative',
+        'price is $5/month',
+    ])('keeps %s', (s) => {
+        expect(run(s)).toEqual({ text: s, count: 0 })
+    })
+})

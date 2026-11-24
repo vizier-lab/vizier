@@ -1,5 +1,5 @@
 import { transport } from './transport'
-export { ApiError, TOKEN_KEY, API_BASE, getToken, setToken, setUnauthorizedHandler } from './transport/common'
+export { ApiError, TOKEN_KEY, API_BASE, getToken, setToken, setUnauthorizedHandler, redirectToLogin } from './transport/common'
 
 /** Sends a request and unwraps the `APIResponse` envelope. */
 export function request<T>(method: string, path: string, body?: unknown, init?: { signal?: AbortSignal; raw?: boolean }): Promise<T> {

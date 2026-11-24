@@ -1,0 +1,30 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "Hostile",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "text",
+     "markdown": "<img src=x onerror=alert(1)> <svg onload=alert(1)>"
+    },
+    {
+     "kind": "media",
+     "key": "m1",
+     "alt": "\"><img src=x onerror=alert(1)>"
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "rehydration": null
+}

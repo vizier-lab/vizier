@@ -1,0 +1,31 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "Hostile",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "hologram",
+     "data": "<script>1</script>"
+    },
+    {
+     "kind": "text",
+     "markdown": "kept",
+     "extra": "dropped"
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "rehydration": null,
+ "surprise": "dropped"
+}

@@ -13,17 +13,21 @@ type Entry = { at: number; value: ToolContext; pending?: Promise<ToolContext> }
 const cache = new Map<string, Entry>()
 
 async function load(agentId: string): Promise<ToolContext> {
-    const [functions, mcp] = await Promise.all([
-        listFunctions(agentId).catch(() => null),
-        listIntegrations(agentId, 'mcp').catch(() => null),
-    ])
-    const names = new Map<string, string>()
-    for (const category of functions?.categories ?? []) {
-        for (const tool of category.tools) names.set(tool.call_as || tool.name, category.name)
-    }
-    return {
-        functions: names,
-        mcpServers: (mcp?.items ?? []).filter((item) => item.family === 'mcp').map((item) => item.name),
+    try {
+        const [functions, mcp] = await Promise.all([
+            Promise.resolve().then(() => listFunctions(agentId)).catch(() => null),
+            Promise.resolve().then(() => listIntegrations(agentId, 'mcp')).catch(() => null),
+        ])
+        const names = new Map<string, string>()
+        for (const category of functions?.categories ?? []) {
+            for (const tool of category.tools) names.set(tool.call_as || tool.name, category.name)
+        }
+        return {
+            functions: names,
+            mcpServers: (mcp?.items ?? []).filter((item) => item.family === 'mcp').map((item) => item.name),
+        }
+    } catch {
+        return EMPTY_CONTEXT
     }
 }
 

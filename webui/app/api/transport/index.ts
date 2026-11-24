@@ -37,3 +37,14 @@ export const transport: Transport = {
     notify: (n) => current.notify(n),
     pickFolder: () => current.pickFolder(),
 }
+
+let cachedTemplate: string | null = null
+
+export async function fetchViewerTemplate(): Promise<string> {
+    if (cachedTemplate) return cachedTemplate
+    const res = await fetch('/viewer-template.html')
+    if (!res.ok) throw new Error(`Failed to load viewer template: ${res.status}`)
+    const text = await res.text()
+    cachedTemplate = text
+    return text
+}

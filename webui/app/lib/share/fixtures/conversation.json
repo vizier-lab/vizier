@@ -1,0 +1,507 @@
+{
+  "agent_id": "agent-1",
+  "topic_id": "topic-1",
+  "agent_name": "Ada",
+  "pngBase64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "entries": [
+    {
+      "uid": "u1",
+      "seq": 1,
+      "timestamp": "2026-11-01T10:01:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Request": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "user": "alice",
+          "content": {
+            "chat": "Hi! My key is sk-proj-Ab3dEf7hIj1kLm5nOp9qRs2tUv4wXy6z. Notes are in /home/alice/.vizier/notes.md. Look at the photo."
+          },
+          "attachments": [
+            {
+              "filename": "photo.png",
+              "content": {
+                "artifact": {
+                  "agent_id": "agent-1",
+                  "artifact_id": "a1"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uid": "u2",
+      "seq": 2,
+      "timestamp": "2026-11-01T10:02:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Recall": {
+          "origin": "auto",
+          "passages": [
+            {
+              "bundle": "b",
+              "path": "p",
+              "ordinal": 0,
+              "score": 0.9,
+              "text": "RECALL-MARKER a remembered passage"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uid": "u3",
+      "seq": 3,
+      "timestamp": "2026-11-01T10:03:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Response": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "content": {
+            "thinking": "REASONING-MARKER the user pasted a key"
+          }
+        }
+      }
+    },
+    {
+      "uid": "u4",
+      "seq": 4,
+      "timestamp": "2026-11-01T10:04:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "ToolCall": {
+          "call_id": "c1",
+          "name": "shell_exec",
+          "arguments": {
+            "command": "cat C:\\Users\\alice\\Documents\\.env",
+            "env": {
+              "API_KEY": "sk-ant-api03-Zy9xWv8uTs7rQp6oNm5lKj4iHg3fEd2c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "uid": "u5",
+      "seq": 5,
+      "timestamp": "2026-11-01T10:05:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "ToolResult": {
+          "call_id": "c1",
+          "content": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAuthorization: Bearer q8Zr7Yx6Wv5Ut4Ss3Rr2Qq1Pp0OoNnMmLlKkJj\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAfakefakefakefakefakefakefakefake0123456789\nabcdefghijklmnopqrstuvwxyz0123456789ABCD\n-----END RSA PRIVATE KEY-----\nkey AIzaSyD3mo9KfakeFakeFakeFake1234567890ab"
+        }
+      }
+    },
+    {
+      "uid": "u6",
+      "seq": 6,
+      "timestamp": "2026-11-01T10:06:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "AssistantMessage": "Let me check that for you."
+      }
+    },
+    {
+      "uid": "u7",
+      "seq": 7,
+      "timestamp": "2026-11-01T10:07:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "SensitiveAsk": {
+          "ask_id": "ask1",
+          "purpose": "SENSITIVE-MARKER the database password",
+          "label": "DB",
+          "state": "answered"
+        }
+      }
+    },
+    {
+      "uid": "u8",
+      "seq": 8,
+      "timestamp": "2026-11-01T10:08:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "QuestionSet": {
+          "set_id": "q1",
+          "title": "Which one?",
+          "questions": [
+            {
+              "id": "a",
+              "prompt": "Pick a colour",
+              "type": "choice",
+              "options": [
+                {
+                  "label": "Red",
+                  "value": "red"
+                },
+                {
+                  "label": "Blue",
+                  "value": "blue"
+                }
+              ]
+            },
+            {
+              "id": "b",
+              "prompt": "Sure?",
+              "type": "confirm"
+            }
+          ],
+          "state": "answered",
+          "answers": [
+            {
+              "question_id": "a",
+              "state": "answered",
+              "value": "red",
+              "label": "Red"
+            },
+            {
+              "question_id": "b",
+              "state": "answered",
+              "value": true
+            }
+          ],
+          "answerer": "ANSWERER-MARKER"
+        }
+      }
+    },
+    {
+      "uid": "u9",
+      "seq": 9,
+      "timestamp": "2026-11-01T10:09:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Request": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "user": "alice",
+          "content": {
+            "question_answer": {
+              "set_id": "q1",
+              "answers": [],
+              "declined": false,
+              "text": "Colour: Red",
+              "answerer": "ANSWERER-MARKER"
+            }
+          }
+        }
+      }
+    },
+    {
+      "uid": "u10",
+      "seq": 10,
+      "timestamp": "2026-11-01T10:10:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Request": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "user": "alice",
+          "content": {
+            "chat": "Draw it. Token ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8 and xoxb-test0123456789-mocktoken and sk_test_fake_sample_mock_dummy_not_a_key."
+          }
+        }
+      }
+    },
+    {
+      "uid": "u11",
+      "seq": 11,
+      "timestamp": "2026-11-01T10:11:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "ClientToolCall": {
+          "name": "ui_components",
+          "category": "ui",
+          "tool": "components",
+          "arguments": {
+            "names": [
+              "Image"
+            ],
+            "note": "read /home/alice/.vizier/secrets"
+          },
+          "outcome": {
+            "status": "ok",
+            "result": "catalogue text"
+          }
+        }
+      }
+    },
+    {
+      "uid": "u12",
+      "seq": 12,
+      "timestamp": "2026-11-01T10:12:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "ClientToolCall": {
+          "name": "ui_render",
+          "category": "ui",
+          "tool": "render",
+          "arguments": {
+            "title": "Dashboard",
+            "spec": {
+              "root": "page",
+              "elements": {
+                "page": {
+                  "type": "Stack",
+                  "props": {},
+                  "children": [
+                    "pic",
+                    "scene",
+                    "canvas",
+                    "note"
+                  ]
+                },
+                "pic": {
+                  "type": "Image",
+                  "props": {
+                    "file": "chart.png",
+                    "alt": "A chart"
+                  }
+                },
+                "scene": {
+                  "type": "Scene3D",
+                  "props": {
+                    "height": 240,
+                    "objects": [
+                      {
+                        "kind": "box",
+                        "size": [
+                          1,
+                          1,
+                          1
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "canvas": {
+                  "type": "Canvas2D",
+                  "props": {
+                    "width": 300,
+                    "height": 200,
+                    "shapes": [
+                      {
+                        "kind": "rect",
+                        "x": 0,
+                        "y": 0,
+                        "w": 10,
+                        "h": 10
+                      },
+                      {
+                        "kind": "image",
+                        "file": "photo.png",
+                        "x": 0,
+                        "y": 0
+                      }
+                    ]
+                  }
+                },
+                "note": {
+                  "type": "Text",
+                  "props": {
+                    "text": "Saved from /home/alice/.vizier/notes.md"
+                  }
+                }
+              },
+              "state": {
+                "count": 1
+              }
+            }
+          },
+          "outcome": {
+            "status": "ok",
+            "result": "rendered"
+          },
+          "state": {
+            "count": 7
+          }
+        }
+      }
+    },
+    {
+      "uid": "u13",
+      "seq": 13,
+      "timestamp": "2026-11-01T10:13:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Checkpoint": "CHECKPOINT-MARKER handover text"
+      }
+    },
+    {
+      "uid": "u14",
+      "seq": 14,
+      "timestamp": "2026-11-01T10:14:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Command": "/clear COMMAND-MARKER"
+      }
+    },
+    {
+      "uid": "u15",
+      "seq": 15,
+      "timestamp": "2026-11-01T10:15:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Request": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "user": "alice",
+          "content": {
+            "chat": "Thanks. Commit 3f786850e387550fdab836ed7e6dc881de23001b and id 123e4567-e89b-12d3-a456-426614174000 are fine; a token is a unit of text."
+          }
+        }
+      }
+    },
+    {
+      "uid": "u16",
+      "seq": 16,
+      "timestamp": "2026-11-01T10:16:00.000Z",
+      "vizier_session": {
+        "agent_id": "agent-1",
+        "channel": "vizier-webui",
+        "topic": "topic-1"
+      },
+      "content": {
+        "Response": {
+          "timestamp": "2026-11-01T10:00:00.000Z",
+          "content": {
+            "message": {
+              "content": "Done. Your jwt was eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTl9.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk. See C:\\Users\\alice\\Documents\\.env and /home/alice/.vizier/notes.md and `/home/alice/.vizier/secrets`."
+            }
+          },
+          "attachments": [
+            {
+              "filename": "chart.png",
+              "content": {
+                "artifact": {
+                  "agent_id": "agent-1",
+                  "artifact_id": "a2"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "files": [
+    {
+      "id": "f0",
+      "session_slug": "s",
+      "agent_id": "agent-1",
+      "filename": "photo.png",
+      "mime_type": "image/png",
+      "size": 70,
+      "file_id": "file-0",
+      "added_at": "2026-11-01T10:00:00.000Z",
+      "sender": "alice",
+      "history_uid": null
+    },
+    {
+      "id": "f1",
+      "session_slug": "s",
+      "agent_id": "agent-1",
+      "filename": "chart.png",
+      "mime_type": "image/png",
+      "size": 70,
+      "file_id": "file-1",
+      "added_at": "2026-11-01T10:00:00.000Z",
+      "sender": "alice",
+      "history_uid": null
+    }
+  ],
+  "seeds": {
+    "secrets": [
+      "sk-proj-Ab3dEf7hIj1kLm5nOp9qRs2tUv4wXy6z",
+      "sk-ant-api03-Zy9xWv8uTs7rQp6oNm5lKj4iHg3fEd2c",
+      "AIzaSyD3mo9KfakeFakeFakeFake1234567890ab",
+      "AKIAIOSFODNN7EXAMPLE",
+      "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+      "xoxb-test0123456789-mocktoken",
+      "sk_test_fake_sample_mock_dummy_not_a_key",
+      "q8Zr7Yx6Wv5Ut4Ss3Rr2Qq1Pp0OoNnMmLlKkJj",
+      "MIIEowIBAAKCAQEAfakefakefakefakefakefakefakefake0123456789",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsImV4cCI6OTk5OTk5OTl9.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    ],
+    "paths": [
+      "/home/alice",
+      "C:\\Users\\alice"
+    ],
+    "recall": [
+      "RECALL-MARKER"
+    ],
+    "reasoning": [
+      "REASONING-MARKER"
+    ],
+    "sensitive": [
+      "SENSITIVE-MARKER"
+    ],
+    "checkpoint": [
+      "CHECKPOINT-MARKER"
+    ],
+    "command": [
+      "COMMAND-MARKER"
+    ],
+    "answerer": [
+      "ANSWERER-MARKER"
+    ]
+  }
+}
