@@ -95,6 +95,7 @@ function historyEvent(entry: ChatMessage): TrailEvent | null {
       intent: asString(args.intent),
       code: asString(args.code),
       report: null,
+      callId: call.call_id,
     }
   }
 
