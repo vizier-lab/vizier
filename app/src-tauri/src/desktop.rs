@@ -105,13 +105,21 @@ pub fn safe_filename(name: &str) -> String {
 
 /// Streams a GET of `/api/v1{path}` to `dest` (the save dialog's choice).
 pub async fn save_file(engine: &Engine, path: &str, dest: &Path) -> Result<(), String> {
-    let reply = ipc::asset(engine, "GET", &format!("/api/v1{path}"), None)
+    // The WebUI's transport sends the path with `/api/v1` already on it; adding it again asked
+    // the engine for `/api/v1/api/v1/...`, which is a 404.
+    let path = api_path(path);
+    let reply = ipc::asset(engine, "GET", &path, None)
         .await
         .map_err(|e| e.message)?;
     if !(200..300).contains(&reply.status) {
         return Err(format!("the file could not be read (status {})", reply.status));
     }
     tokio::fs::write(dest, reply.body).await.map_err(|e| e.to_string())
+}
+
+/// A file path under the API, whether or not it already starts with `/api/v1`.
+fn api_path(path: &str) -> String {
+    if path.starts_with("/api/v1/") { path.to_string() } else { format!("/api/v1{path}") }
 }
 
 /// Saves to a temp file for the default app to open; returns where it went.
@@ -126,6 +134,12 @@ pub async fn open_file_path(engine: &Engine, path: &str, filename: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_paths_get_the_api_prefix_once() {
+        assert_eq!(api_path("/api/v1/files/abc"), "/api/v1/files/abc");
+        assert_eq!(api_path("/files/abc"), "/api/v1/files/abc");
+    }
 
     #[test]
     fn deep_links() {
