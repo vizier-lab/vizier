@@ -74,6 +74,23 @@ async function uiLogin(page: Page, who: { username: string; password?: string })
 
 const topicId = (tag: string) => `${tag}-${RUN}-${Math.floor(Math.random() * 10_000)}`
 
+/** Topics seeded through the API, per person: one chat turn each, so provenance has a conversation. */
+const seeded = new Set<string>()
+
+/**
+ * FR-002/FR-003: a share names a conversation that exists and belongs to the caller. The API-driven
+ * tests post documents without typing, so they open the conversation first with one real turn.
+ */
+async function ensureTopic(who: Person, topic: string): Promise<void> {
+    const key = `${who.username}/${who.agent}/${topic}`
+    if (seeded.has(key)) return
+    const r = await api('POST', `/agents/${who.agent}/chat`, who.token, { channel_id: 'vizier-webui', topic_id: topic, content: 'seed' })
+    expect(r.status, `seed chat ${r.text.slice(0, 200)}`).toBeLessThan(300)
+    const detail = await api('GET', `/agents/${who.agent}/channel/vizier-webui/topic/${topic}/detail`, who.token)
+    expect(detail.status, `seeded topic ${detail.text.slice(0, 200)}`).toBe(200)
+    seeded.add(key)
+}
+
 // -- Chat helpers (browser side) ---------------------------------------------------------------
 
 const footers = (page: Page) => page.getByText(/dummyplug\/dummyplug/)
@@ -354,7 +371,9 @@ function hostileSnapshot(title: string, parts: unknown[], extra: Record<string, 
     return { format_version: 1, generator: 'e2e', created_at: 1790000000000, title, source: { agent_name: 'Ada' }, include_trail: false, turns: [{ id: 't1', role: 'agent', at: 1, parts }], media: {}, rehydration: null, ...extra }
 }
 async function postSnapshot(who: Person, snapshot: any, over: Record<string, unknown> = {}): Promise<string> {
-    const r = await api('POST', '/shares', who.token, { agent_id: who.agent, topic_id: 'hostile', title: String(snapshot.title ?? 'x').slice(0, 120), audience: 'public', include_trail: !!snapshot.include_trail, removals: NO_REMOVALS, snapshot, ...over })
+    const topic = typeof over.topic_id === 'string' ? over.topic_id : 'hostile'
+    await ensureTopic(who, topic)
+    const r = await api('POST', '/shares', who.token, { agent_id: who.agent, topic_id: topic, title: String(snapshot.title ?? 'x').slice(0, 120), audience: 'public', include_trail: !!snapshot.include_trail, removals: NO_REMOVALS, snapshot, ...over })
     expect(r.status, `POST /shares ${r.text.slice(0, 200)}`).toBe(201)
     return r.data.share_id
 }
@@ -833,6 +852,7 @@ test.describe('Titles and unicode', () => {
     test('TP-14b: a lone surrogate is refused or shown harmlessly', async ({ browser }) => {
         const owner = await person('sharer', 'surr')
         const doc = hostileSnapshot('Lone', [{ kind: 'text', markdown: 'before \ud800 after \udc00 end' }])
+        await ensureTopic(owner, 'surr')
         const r = await api('POST', '/shares', owner.token, { agent_id: owner.agent, topic_id: 'surr', title: 'Lone', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: doc })
         console.log('TP-14b POST status', r.status)
         expect([201, 400, 422]).toContain(r.status)
@@ -884,6 +904,7 @@ test.describe('Hostile content', () => {
         for (const name of ['script-tag.json', 'onerror.json']) {
             if (name === 'onerror.json') {
                 // Its media part points at a key that is not in `media`: the server refuses it (FR-051); the viewer's own handling of it is run as a file in TP-74.
+                await ensureTopic(g1, 'hostile')
                 const r = await api('POST', '/shares', g1.token, { agent_id: g1.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture(name) })
                 expect([r.status, r.json?.message]).toEqual([400, 'The snapshot points at a media item that is not there'])
                 continue
@@ -928,6 +949,7 @@ test.describe('Hostile content', () => {
 
     test('TP-43: SVG with script or text/html as media: the server refuses it (the viewer\'s placeholders are run on the same file in TP-74)', async () => {
         // The server refuses a media type that is not png/jpeg/webp/gif (FR-051).
+        await ensureTopic(g1, 'hostile')
         const r = await api('POST', '/shares', g1.token, { agent_id: g1.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture('svg-media.json') })
         expect([r.status, r.json?.message]).toEqual([400, 'A media item has a type that is not allowed'])
     })
@@ -988,6 +1010,7 @@ test.describe('Hostile content', () => {
 
     test('TP-46: 10,000 nested objects, a 300 KB string, an unknown kind and U+2028 are placeholders or text, never a crash', async ({ browser }) => {
         for (const name of ['deep-nesting.json', 'huge-string.json', 'unknown-kind.json', 'separators.json']) {
+            await ensureTopic(g2, 'hostile')
             const r = await api('POST', '/shares', g2.token, { agent_id: g2.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture(name) })
             console.log(`TP-46 ${name}: POST ${r.status}`)
             if (r.status !== 201) continue
@@ -1001,6 +1024,7 @@ test.describe('Hostile content', () => {
             await clean(v)
         }
         // a document from a later version is refused by the server, so there is no link to open
+        await ensureTopic(g2, 'hostile')
         const future = await api('POST', '/shares', g2.token, { agent_id: g2.agent, topic_id: 'hostile', title: 'Hostile', audience: 'public', include_trail: false, removals: NO_REMOVALS, snapshot: fixture('future-version.json') })
         expect(future.status).toBe(400)
     })
