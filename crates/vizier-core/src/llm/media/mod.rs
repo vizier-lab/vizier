@@ -3,6 +3,7 @@
 
 pub mod bedrock;
 pub mod cohere;
+pub mod dummyplug;
 pub mod gemini;
 pub mod huggingface;
 pub mod hyperbolic;

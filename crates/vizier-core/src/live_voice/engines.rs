@@ -61,12 +61,17 @@ impl LiveVoiceEngines for CascadeEngines {
         filename: &str,
         language: Option<&str>,
     ) -> Result<String> {
-        let text = self.stt.transcribe(wav, filename, language).await?;
+        // The caller scopes the call to its conversation (spec 065 FR-008).
+        let scope = crate::agents::agent::model::usage::media_scope();
+        let text = self.stt.transcribe(wav, filename, language, &scope).await?;
         Ok(text.trim().to_string())
     }
 
     async fn speak(&self, text: &str) -> Result<Vec<u8>> {
-        self.tts.generate_speech(text, &self.voice, self.speed).await
+        let scope = crate::agents::agent::model::usage::media_scope();
+        self.tts
+            .generate_speech(text, &self.voice, self.speed, &scope)
+            .await
     }
 }
 

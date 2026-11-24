@@ -93,7 +93,7 @@ pub async fn counts(
     let mut pricer = Pricer::with_entries(&deps.catalogue, saved_entries(&deps.storage).await);
     let cost_today_usd: f64 = groups
         .iter()
-        .filter_map(|g| pricer.cost(&g.provider, &g.model, &g.tokens))
+        .filter_map(|g| pricer.group_cost(g))
         .sum::<f64>()
         .max(0.0);
 
@@ -278,7 +278,7 @@ pub async fn activity(
                 Scheduled => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
                 Background | Consultation => kinds.background += n,
-                Compaction | Vision | Other => {}
+                Compaction | Vision | Other | Indexing => {}
             }
         }
         Some(kinds)

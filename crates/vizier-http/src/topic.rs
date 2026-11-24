@@ -1241,8 +1241,18 @@ impl TopicConnection {
                 None
             }
         };
-        let text = match engines
-            .transcribe(&utterance.wav(), &utterance.filename(), session.language().as_deref())
+        // The utterance is recorded in the call's conversation (spec 065 FR-008).
+        let scope =
+            vizier_core::agents::agent::model::usage::UsageScope::media(Some(session.session.clone()));
+        let text = match vizier_core::agents::agent::model::usage::MEDIA_SCOPE
+            .scope(
+                scope,
+                engines.transcribe(
+                    &utterance.wav(),
+                    &utterance.filename(),
+                    session.language().as_deref(),
+                ),
+            )
             .await
         {
             Ok(text) => text,

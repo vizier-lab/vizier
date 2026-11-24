@@ -505,7 +505,7 @@ impl LiveVoiceSession {
             chars = current.text.chars().count(),
             "live voice segment synthesis started"
         );
-        let mut pending = Some(synthesise(engines, &current.text));
+        let mut pending = Some(synthesise(engines, &current.text, &self.session));
         // Which segment the reply stopped on, counted from one: the number a person reporting
         // "it stopped after the second answer" can be matched against.
         let mut segment = 0u32;
@@ -589,7 +589,7 @@ impl LiveVoiceSession {
                         chars = next.text.chars().count(),
                         "live voice segment synthesis started"
                     );
-                    pending = Some(synthesise(engines, &next.text));
+                    pending = Some(synthesise(engines, &next.text, &self.session));
                     current = next;
                 }
                 None => break,
@@ -1160,10 +1160,15 @@ impl LiveVoiceSessions {
 fn synthesise(
     engines: &SharedEngines,
     text: &str,
+    session: &VizierSession,
 ) -> tokio::task::JoinHandle<crate::Result<Vec<u8>>> {
     let engines = engines.clone();
     let text = text.to_string();
-    tokio::spawn(async move { engines.speak(&text).await })
+    // The call's speech is recorded in its conversation (spec 065 FR-008).
+    let scope = crate::agents::agent::model::usage::UsageScope::media(Some(session.clone()));
+    tokio::spawn(crate::agents::agent::model::usage::MEDIA_SCOPE.scope(scope, async move {
+        engines.speak(&text).await
+    }))
 }
 
 /// Stop a synthesis nobody is waiting for. An interrupted reply must not keep a provider busy.

@@ -68,7 +68,7 @@ impl VizierTool for TtsGenerate {
         let voice = &self.voice;
         let speed = self.speed;
 
-        let audio_bytes = self.tts.generate_speech(&args.text, voice, speed).await?;
+        let audio_bytes = self.tts.generate_speech(&args.text, voice, speed, &crate::agents::agent::model::usage::media_scope()).await?;
 
         let filename = args
             .filename

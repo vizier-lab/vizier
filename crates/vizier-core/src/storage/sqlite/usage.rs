@@ -9,7 +9,7 @@ use crate::{
     agents::agent::model::usage::TurnId,
     schema::{
         metrics::TokenCounts,
-        usage::{UsageActivity, UsageEvent},
+        usage::{MediaUnits, UsageActivity, UsageEvent, UsageKind},
     },
     storage::{
         sqlite::SqlStorage,
@@ -22,8 +22,10 @@ use crate::{
 
 const INSERT: &str = "INSERT INTO usage_event (agent_id, at, activity, channel, topic, place, turn_id, \
      round, provider, model, served_model, input_tokens, cached_input_tokens, \
-     cache_creation_input_tokens, output_tokens, duration_ms, legacy) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
+     cache_creation_input_tokens, output_tokens, duration_ms, legacy, kind, variant, images, \
+     characters, audio_ms, measured, local, call_id) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, \
+     ?20, ?21, ?22, ?23, ?24, ?25)";
 
 /// An event is part of a failed turn iff its turn is in `usage_failed_turn` (research R3).
 const FAILED: &str = "(e.turn_id IS NOT NULL AND e.turn_id IN \
@@ -31,7 +33,8 @@ const FAILED: &str = "(e.turn_id IS NOT NULL AND e.turn_id IN \
 
 const EVENT_COLUMNS: &str = "e.agent_id, e.at, e.activity, e.channel, e.topic, e.place, e.turn_id, \
      e.round, e.provider, e.model, e.served_model, e.input_tokens, e.cached_input_tokens, \
-     e.cache_creation_input_tokens, e.output_tokens, e.duration_ms, e.legacy";
+     e.cache_creation_input_tokens, e.output_tokens, e.duration_ms, e.legacy, e.kind, e.variant, \
+     e.images, e.characters, e.audio_ms, e.measured, e.local, e.call_id";
 
 fn millis_to_utc(ms: i64) -> Timestamp {
     Local.timestamp_millis_opt(ms).single().unwrap_or_default()
@@ -58,6 +61,14 @@ fn insert(conn: &Connection, e: &UsageEvent) -> sql::Result<usize> {
             e.tokens.output as i64,
             e.duration_ms as i64,
             e.legacy,
+            e.kind.as_str(),
+            e.variant,
+            e.units.images as i64,
+            e.units.characters as i64,
+            e.units.audio_ms as i64,
+            e.measured,
+            e.local,
+            e.call_id,
         ],
     )
 }
@@ -74,6 +85,10 @@ fn filter(q: &UsageQuery) -> (String, Vec<Box<dyn ToSql>>) {
     if let Some(activity) = q.activity {
         params.push(Box::new(activity.as_str()));
         sql.push_str(&format!(" AND e.activity = ?{}", params.len()));
+    }
+    if let Some(kind) = q.kind {
+        params.push(Box::new(kind.as_str()));
+        sql.push_str(&format!(" AND e.kind = ?{}", params.len()));
     }
     if let Some((channel, topic)) = &q.conversation {
         params.push(Box::new(channel.clone()));
@@ -111,6 +126,19 @@ fn event_from_row(row: &Row, offset: usize) -> sql::Result<UsageEvent> {
         },
         duration_ms: get_u64(15)?,
         legacy: row.get(offset + 16)?,
+        kind: row
+            .get::<_, String>(offset + 17)?
+            .parse()
+            .unwrap_or_default(),
+        variant: row.get(offset + 18)?,
+        units: MediaUnits {
+            images: get_u64(19)?,
+            characters: get_u64(20)?,
+            audio_ms: get_u64(21)?,
+        },
+        measured: row.get(offset + 22)?,
+        local: row.get(offset + 23)?,
+        call_id: row.get(offset + 24)?,
     })
 }
 
@@ -214,8 +242,9 @@ impl UsageStorage for SqlStorage {
                 (e.turn_id IS NOT NULL AND e.turn_id IN \
                     (SELECT f.turn_id FROM usage_failed_turn f WHERE f.agent_id = e.agent_id)) AS failed, \
                 SUM(e.input_tokens), SUM(e.cached_input_tokens), SUM(e.cache_creation_input_tokens), \
-                SUM(e.output_tokens), COUNT(*), COUNT(DISTINCT e.turn_id), MAX(e.at) \
-             FROM usage_event e WHERE {where_sql} GROUP BY 1, 2, 3"
+                SUM(e.output_tokens), COUNT(*), COUNT(DISTINCT e.turn_id), MAX(e.at), \
+                e.kind, e.variant, e.local, SUM(e.images), SUM(e.characters), SUM(e.audio_ms) \
+             FROM usage_event e WHERE {where_sql} GROUP BY 1, 2, 3, 11, 12, 13"
         ))?;
         let rows = stmt
             .query_map(params_from_iter(params.iter()), |row| {
@@ -239,6 +268,14 @@ impl UsageStorage for SqlStorage {
                     calls: u(7)?,
                     turns: u(8)?,
                     last_at: millis_to_utc(row.get(9)?),
+                    kind: row.get::<_, String>(10)?.parse().unwrap_or_default(),
+                    variant: row.get(11)?,
+                    local: row.get(12)?,
+                    units: MediaUnits {
+                        images: u(13)?,
+                        characters: u(14)?,
+                        audio_ms: u(15)?,
+                    },
                 })
             })?
             .collect::<sql::Result<Vec<_>>>()?;
@@ -292,14 +329,21 @@ impl UsageStorage for SqlStorage {
                 ["NULL", "e.activity", "NULL", "NULL", "e.channel", "e.topic"],
                 "2, 5, 6",
             ),
+            // Every group already carries its kind (column 17); these add nothing, or the day.
+            UsageGrouping::Kind => (["NULL", "NULL", "NULL", "NULL", "NULL", "NULL"], "17"),
+            UsageGrouping::Detail => (
+                [day.as_str(), "e.activity", "e.served_model", "e.place", "e.channel", "e.topic"],
+                "1, 2, 3, 4, 5, 6",
+            ),
         };
         let (where_sql, params) = filter(q);
         let sql = format!(
             "SELECT {}, {}, {}, {}, {}, {}, e.provider, e.model, {FAILED} AS failed, \
              SUM(e.input_tokens), SUM(e.cached_input_tokens), SUM(e.cache_creation_input_tokens), \
-             SUM(e.output_tokens), COUNT(*), COUNT(DISTINCT e.turn_id), MAX(e.at) \
+             SUM(e.output_tokens), COUNT(*), COUNT(DISTINCT e.turn_id), MAX(e.at), \
+             e.kind, e.variant, e.local, SUM(e.images), SUM(e.characters), SUM(e.audio_ms) \
              FROM usage_event e WHERE {where_sql} \
-             GROUP BY {group_by}, 7, 8, 9",
+             GROUP BY {group_by}, 7, 8, 9, 17, 18, 19",
             keys[0], keys[1], keys[2], keys[3], keys[4], keys[5],
         );
 
@@ -328,6 +372,14 @@ impl UsageStorage for SqlStorage {
                     calls: u(13)?,
                     turns: u(14)?,
                     last_at: millis_to_utc(row.get(15)?),
+                    kind: row.get::<_, String>(16)?.parse().unwrap_or_default(),
+                    variant: row.get(17)?,
+                    local: row.get(18)?,
+                    units: MediaUnits {
+                        images: u(19)?,
+                        characters: u(20)?,
+                        audio_ms: u(21)?,
+                    },
                 })
             })?
             .collect::<sql::Result<Vec<_>>>()?;
@@ -433,6 +485,28 @@ impl UsageStorage for SqlStorage {
         tx.commit()?;
         Ok(())
     }
+
+    async fn media_calls(&self, agent_id: &str, call_ids: &[String]) -> Result<Vec<UsageEvent>> {
+        if call_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let marks = (0..call_ids.len())
+            .map(|i| format!("?{}", i + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut params: Vec<Box<dyn ToSql>> = vec![Box::new(agent_id.to_string())];
+        params.extend(call_ids.iter().map(|c| Box::new(c.clone()) as Box<dyn ToSql>));
+        let conn = self.conn.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {EVENT_COLUMNS} FROM usage_event e \
+             WHERE e.agent_id = ?1 AND e.kind <> 'text' AND e.call_id IN ({marks}) \
+             ORDER BY e.at"
+        ))?;
+        let rows = stmt
+            .query_map(params_from_iter(params.iter()), |row| event_from_row(row, 0))?
+            .collect::<sql::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
@@ -492,6 +566,12 @@ mod tests {
             },
             duration_ms: 5,
             legacy: false,
+            kind: UsageKind::Text,
+            variant: None,
+            units: MediaUnits::default(),
+            measured: false,
+            local: false,
+            call_id: None,
         }
     }
 
@@ -501,6 +581,7 @@ mod tests {
             start: at(0),
             end: at(10 * DAY),
             activity: None,
+            kind: None,
             conversation: None,
         }
     }
@@ -523,6 +604,7 @@ mod tests {
             start: at(midnight - DAY),
             end: at(midnight + 2 * DAY),
             activity: None,
+            kind: None,
             conversation: None,
         };
         let by_day = s.usage_groups(&q, UsageGrouping::Day).await.unwrap();

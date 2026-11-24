@@ -35,6 +35,7 @@
 - [Functions](./configuration/custom-tools.md)
 - [MCP Servers](./configuration/mcp.md)
 - [Voice, Images & Embeddings](./configuration/tools-embedding.md)
+- [Usage and Spend](./configuration/usage.md)
 - [Live Voice](./configuration/live-voice.md)
 - [Agent Secrets](./configuration/secrets.md)
 - [Artifacts](./configuration/artifacts.md)

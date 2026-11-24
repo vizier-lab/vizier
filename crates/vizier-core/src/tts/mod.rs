@@ -6,15 +6,37 @@ use std::sync::Arc;
 
 use crate::dependencies::VizierDependencies;
 use crate::llm::media::{self, hyperbolic::HyperbolicTts, openai_shaped::{OpenAiTts, XaiTts}};
+use crate::agents::agent::model::usage::UsageScope;
 use crate::schema::agent::{TtsProvider, TtsToolSettings};
+use crate::schema::usage::{MediaUnits, UsageKind};
+use crate::usage::record::{MediaMeter, Measured, Reported, pcm_duration_ms, wav_duration_ms};
 use crate::{Result, VizierError};
+
+/// Synthesized speech and what the provider said it used (spec 065).
+pub struct Speech {
+    pub audio: Vec<u8>,
+    pub reported: Reported,
+}
 
 #[async_trait::async_trait]
 pub trait VizierTtsModel: Send + Sync {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>>;
+
+    /// [`Self::generate_speech`] with the provider's own usage figures (spec 065 research R3).
+    async fn generate_speech_reported(&self, text: &str, voice: &str, speed: f32) -> Result<Speech> {
+        Ok(Speech {
+            audio: self.generate_speech(text, voice, speed).await?,
+            reported: Reported::default(),
+        })
+    }
 }
 
-pub struct VizierTts(Arc<dyn VizierTtsModel>);
+pub struct VizierTts {
+    model: Arc<dyn VizierTtsModel>,
+    meter: MediaMeter,
+    /// The raw PCM rate when the model answers in PCM (Gemini speech), for its length.
+    pcm_rate: Option<u32>,
+}
 
 /// The model a setting resolves to: what it names, or the provider's documented default.
 fn resolved_model(settings: &TtsToolSettings) -> String {
@@ -49,7 +71,18 @@ impl VizierTts {
         let model = resolved_model(settings);
         // Decided before the model is moved into the endpoint below.
         let gemini_pcm = gemini_pcm_rate(&model);
+        let meter = MediaMeter::new(
+            agent_id,
+            provider
+                .credentials()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| crate::usage::record::provider_name(provider)),
+            model.clone(),
+            provider.credentials().is_none(),
+            deps.storage.clone(),
+        );
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
+            (TtsProvider::Dummyplug, _) => Arc::new(media::dummyplug::DummyplugTts),
             #[cfg(feature = "provider-media")]
             (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
                 model,
@@ -85,14 +118,43 @@ impl VizierTts {
                 response_format: None,
                 pcm_rate: gemini_pcm,
             }),
-            (_, None) => unreachable!("only kokoro needs no credentials"),
+            (_, None) => unreachable!("only kokoro and dummyplug need no credentials"),
         };
 
-        Ok(Self(model))
+        Ok(Self {
+            model,
+            meter,
+            pcm_rate: gemini_pcm,
+        })
     }
 
-    pub async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
-        self.0.generate_speech(text, voice, speed).await
+    pub async fn generate_speech(
+        &self,
+        text: &str,
+        voice: &str,
+        speed: f32,
+        scope: &UsageScope,
+    ) -> Result<Vec<u8>> {
+        let started = std::time::Instant::now();
+        let out = self.model.generate_speech_reported(text, voice, speed).await?;
+        let audio_ms = wav_duration_ms(&out.audio)
+            .or_else(|| self.pcm_rate.map(|rate| pcm_duration_ms(out.audio.len(), rate)))
+            .unwrap_or(0);
+        self.meter.record(
+            scope,
+            UsageKind::Speech,
+            out.reported,
+            Measured {
+                units: MediaUnits {
+                    characters: text.chars().count() as u64,
+                    audio_ms,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            started.elapsed(),
+        );
+        Ok(out.audio)
     }
 }
 

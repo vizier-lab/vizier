@@ -86,6 +86,15 @@ pub struct OpenAiStt(pub Endpoint);
 #[async_trait::async_trait]
 impl VizierSttModel for OpenAiStt {
     async fn transcribe(&self, audio: &[u8], filename: &str, language: Option<&str>) -> Result<String> {
+        Ok(self.transcribe_reported(audio, filename, language).await?.text)
+    }
+
+    async fn transcribe_reported(
+        &self,
+        audio: &[u8],
+        filename: &str,
+        language: Option<&str>,
+    ) -> Result<crate::stt::Transcript> {
         let mut form = reqwest::multipart::Form::new()
             .text("model", self.0.model.clone())
             .part(
@@ -103,10 +112,15 @@ impl VizierSttModel for OpenAiStt {
         if let Some(e) = crate::llm::dialect::error_in_body(&body) {
             return Err(VizierError(format!("transcription: {e}")));
         }
-        body.get("text")
+        let text = body
+            .get("text")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| VizierError(format!("transcription: no text in {body}")))
+            .ok_or_else(|| VizierError(format!("transcription: no text in {body}")))?;
+        Ok(crate::stt::Transcript {
+            text,
+            reported: crate::usage::record::Reported::from_openai_usage(&body),
+        })
     }
 }
 
@@ -487,6 +501,16 @@ impl VizierImageGenModel for OpenAiImages {
         size: Option<&str>,
         references: &[ReferenceImage],
     ) -> Result<(Vec<u8>, String)> {
+        let out = self.generate_reported(prompt, size, references).await?;
+        Ok((out.bytes, out.mime))
+    }
+
+    async fn generate_reported(
+        &self,
+        prompt: &str,
+        size: Option<&str>,
+        references: &[ReferenceImage],
+    ) -> Result<crate::image_generation::GeneratedImage> {
         let (path, body) = image_request(self.api, &self.endpoint.model, prompt, size, references)?;
         let req = self
             .endpoint
@@ -496,6 +520,12 @@ impl VizierImageGenModel for OpenAiImages {
         let reply = http::send_json(req.json(&body))
             .await
             .map_err(|e| err("image generation", e))?;
+        let reported = crate::usage::record::Reported::from_openai_usage(&reply);
+        let image = |bytes: Vec<u8>, mime: String| crate::image_generation::GeneratedImage {
+            bytes,
+            mime,
+            reported: reported.clone(),
+        };
         let first = reply
             .pointer("/data/0")
             .ok_or_else(|| VizierError("image generation: missing image data".into()))?;
@@ -504,7 +534,7 @@ impl VizierImageGenModel for OpenAiImages {
                 .decode(b64)
                 .map_err(|e| VizierError(format!("image generation: {e}")))?;
             let mime = media_type_of(first, &bytes);
-            return Ok((bytes, mime));
+            return Ok(image(bytes, mime));
         }
         if let Some(url) = first.get("url").and_then(Value::as_str) {
             let image = http::send(self.endpoint.http.get(url))
@@ -517,7 +547,11 @@ impl VizierImageGenModel for OpenAiImages {
                 .filter(|m| m.starts_with("image/"))
                 .unwrap_or("image/png")
                 .to_string();
-            return Ok((image.body, mime));
+            return Ok(crate::image_generation::GeneratedImage {
+                bytes: image.body,
+                mime,
+                reported,
+            });
         }
         Err(VizierError("image generation: missing image data".into()))
     }
@@ -575,8 +609,15 @@ impl VizierEmbeddingModel for OpenAiEmbeddings {
     }
 
     async fn embed_texts(&self, documents: Vec<String>) -> anyhow::Result<Vec<Vec<f64>>> {
+        Ok(self.embed_texts_reported(documents).await?.0)
+    }
+
+    async fn embed_texts_reported(
+        &self,
+        documents: Vec<String>,
+    ) -> anyhow::Result<(Vec<Vec<f64>>, crate::usage::record::Reported)> {
         if documents.is_empty() {
-            return Ok(vec![]);
+            return Ok((vec![], Default::default()));
         }
         let mut body = json!({"model": self.endpoint.model, "input": documents});
         if let Some(dims) = self.dimensions {
@@ -594,7 +635,20 @@ impl VizierEmbeddingModel for OpenAiEmbeddings {
             .get("data")
             .and_then(Value::as_array)
             .ok_or_else(|| anyhow::anyhow!("embeddings: no data in the response"))?;
-        order_by_index(data, documents.len()).map_err(|e| anyhow::anyhow!("embeddings: {e}"))
+        let vectors =
+            order_by_index(data, documents.len()).map_err(|e| anyhow::anyhow!("embeddings: {e}"))?;
+        Ok((vectors, crate::usage::record::Reported::from_openai_usage(&reply)))
+    }
+
+    async fn embed_text_reported(
+        &self,
+        text: &str,
+    ) -> anyhow::Result<(Vec<f64>, crate::usage::record::Reported)> {
+        let (mut all, reported) = self.embed_texts_reported(vec![text.to_string()]).await?;
+        let vector = all
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("embeddings: no vector returned"))?;
+        Ok((vector, reported))
     }
 }
 

@@ -35,6 +35,9 @@ pub struct RouterBridge {
     cancelled: watch::Sender<bool>,
     /// Told the records so far after every nested call (a detached script's progress).
     progress: Option<super::ProgressFn>,
+    /// The media scope of the call that built the bridge: the sandbox runs nested calls on its
+    /// own thread, where the task-local is gone, so each call is put back under it (spec 065 R2).
+    media: crate::agents::agent::model::usage::UsageScope,
 }
 
 impl RouterBridge {
@@ -44,6 +47,7 @@ impl RouterBridge {
         // (`specs/061-agent-custom-tools` R9).
         ctx.custom.script_router = Some(router.clone());
         Self {
+            media: crate::agents::agent::model::usage::media_scope(),
             router,
             ctx,
             tool_timeout,
@@ -88,7 +92,12 @@ impl RouterBridge {
         let target = self.entry(&tool).await.map(|entry| entry.target.clone());
         let call_id = std::sync::Mutex::new(None);
         let nested = std::sync::Mutex::new(vec![]);
-        let result = self.dispatch_to(tool, arguments, target, &call_id, &nested).await;
+        let result = crate::agents::agent::model::usage::MEDIA_SCOPE
+            .scope(
+                self.media.clone(),
+                self.dispatch_to(tool, arguments, target, &call_id, &nested),
+            )
+            .await;
         (
             call_id.into_inner().unwrap_or_default(),
             nested.into_inner().unwrap_or_default(),
