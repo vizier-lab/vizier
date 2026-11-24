@@ -1,0 +1,25 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "</script><script>alert(1)</script>",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "text",
+     "markdown": "</script><script>alert(1)</script> <!--<script> -->     &amp;"
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "rehydration": null
+}

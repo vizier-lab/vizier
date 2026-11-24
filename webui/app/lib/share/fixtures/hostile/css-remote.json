@@ -1,0 +1,41 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "Hostile",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "ui",
+     "title": "css",
+     "spec": {
+      "root": "a",
+      "elements": {
+       "a": {
+        "type": "Text",
+        "props": {
+         "text": "x",
+         "style": "background:url(http://evil.example/x.png)"
+        }
+       }
+      }
+     }
+    },
+    {
+     "kind": "text",
+     "markdown": "<style>@import url(http://evil.example/a.css)</style>"
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "rehydration": null
+}

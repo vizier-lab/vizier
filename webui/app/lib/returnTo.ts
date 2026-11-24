@@ -14,8 +14,10 @@ export function useHere(): ReturnState {
 
 /** Where "back" leads: the page that sent us here, if it sent a path of this app, else `fallback`. */
 export function useReturnTo(fallback: string): string {
-    const from = (useLocation().state as ReturnState | null)?.from
-    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : fallback
+    const location = useLocation()
+    const searchParam = new URLSearchParams(location.search).get('returnTo')
+    const candidate = searchParam ?? (location.state as ReturnState | null)?.from
+    return typeof candidate === 'string' && candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : fallback
 }
 
 /** The state to pass on when moving between detail pages (view → edit → saved), so the way back survives. */

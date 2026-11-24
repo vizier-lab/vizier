@@ -1,0 +1,52 @@
+{
+ "format_version": 1,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "Hostile",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": [
+  {
+   "id": "t1",
+   "role": "agent",
+   "at": 1,
+   "parts": [
+    {
+     "kind": "media",
+     "key": "m1",
+     "alt": "svg"
+    },
+    {
+     "kind": "media",
+     "key": "m2",
+     "alt": "html"
+    },
+    {
+     "kind": "media",
+     "key": "m3",
+     "alt": "fine"
+    }
+   ]
+  }
+ ],
+ "media": {
+  "m1": {
+   "mime": "image/svg+xml",
+   "bytes": 60,
+   "data": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxzY3JpcHQ+YWxlcnQoMSk8L3NjcmlwdD48L3N2Zz4="
+  },
+  "m2": {
+   "mime": "text/html",
+   "bytes": 20,
+   "data": "PHNjcmlwdD4xPC9zY3JpcHQ+"
+  },
+  "m3": {
+   "mime": "image/png",
+   "bytes": 70,
+   "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+  }
+ },
+ "rehydration": null
+}

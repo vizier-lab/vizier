@@ -61,6 +61,13 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Sharing',
+        items: [
+            { permission: 'owned_agents:share_conversations', label: 'Share conversations with agents they own' },
+            { permission: 'all_agents:share_conversations', label: 'Share conversations with any agent they can see' },
+        ],
+    },
+    {
         title: 'Account',
         items: [
             { permission: 'settings:password', label: 'Change their own password' },

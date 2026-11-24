@@ -2,11 +2,13 @@ import { Button, Notice, TextField, motionDurations, motionEases } from '@vizier
 import { useEffect, useState, type FormEvent } from 'react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
+import { useReturnTo } from '../lib/returnTo'
 import { useSession } from '../stores/session'
 
 export default function Login() {
     const login = useSession((s) => s.login)
     const navigate = useNavigate()
+    const returnTo = useReturnTo('/')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState<string | null>(null)
@@ -30,7 +32,7 @@ export default function Login() {
         setError(null)
         try {
             await login(username, password)
-            navigate('/', { replace: true })
+            navigate(returnTo, { replace: true })
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Sign-in failed')
         } finally {

@@ -42,6 +42,7 @@ export default function SettingsLayout() {
     const navigate = useNavigate()
     const mobile = useMobile()
     const can = useSession((s) => s.can)
+    const canShare = can('owned_agents:share_conversations') || can('all_agents:share_conversations')
     const active = (pathname.split('/')[2] as SettingsPage | undefined) ?? 'profile'
     const admin = can('settings:providers') || can('users:manage') || can('roles:manage')
     // A phone has no room for a second rail beside the content: the pages become one list above it.
@@ -51,7 +52,12 @@ export default function SettingsLayout() {
                 <div className="border-b border-border bg-sidebar px-16 py-12">
                     <Select
                         aria-label="Settings page"
-                        options={[...ACCOUNT, ...(admin ? ADMIN : []), ...(transport.authMode === 'desktop' ? [{ value: 'desktop' as SettingsPage, label: 'Desktop' }] : [])]}
+                        options={[
+                            ...ACCOUNT,
+                            ...(canShare ? [{ value: 'shares' as SettingsPage, label: 'My shares' }] : []),
+                            ...(admin ? ADMIN : []),
+                            ...(transport.authMode === 'desktop' ? [{ value: 'desktop' as SettingsPage, label: 'Desktop' }] : []),
+                        ]}
                         value={active}
                         onChange={(page) => navigate(`/settings/${page}`)}
                     />

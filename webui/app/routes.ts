@@ -7,6 +7,9 @@ export default [
         route('onboarding', 'routes/onboarding.tsx'),
     ]),
 
+    // Public, read only: a shared conversation. No sign-in gate, no app shell.
+    layout('layouts/ShareLayout.tsx', [route('share/:shareId', 'routes/share.tsx')]),
+
     // Signed in
     layout('layouts/RequireAuth.tsx', [
         layout('layouts/AppShell.tsx', [
@@ -52,6 +55,7 @@ export default [
                 route('settings/password', 'routes/redirect-password.tsx'),
                 route('settings/desktop', 'routes/settings-desktop.tsx'),
                 route('settings/api-keys', 'routes/settings-api-keys.tsx'),
+                route('settings/shares', 'routes/settings-shares.tsx'),
                 route('settings/providers', 'routes/settings-providers.tsx'),
                 route('settings/providers/add', 'routes/settings-providers-add.tsx'),
                 route('settings/users', 'routes/settings-users.tsx'),
