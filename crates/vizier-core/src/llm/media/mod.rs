@@ -8,6 +8,7 @@ pub mod huggingface;
 pub mod hyperbolic;
 pub mod ollama;
 pub mod openai_shaped;
+pub mod venice;
 
 pub use openai_shaped::Endpoint;
 
@@ -32,11 +33,25 @@ pub fn media_base_url(id: &ProviderId) -> &'static str {
         "xai" => "https://api.x.ai/v1",
         "hyperbolic" => hyperbolic::HYPERBOLIC_BASE_URL,
         "togetherai" => "https://api.together.xyz/v1",
+        "venice" => "https://api.venice.ai/api/v1",
         "voyageai" => "https://api.voyageai.com/v1",
         "cohere" => cohere::COHERE_EMBED_BASE_URL,
         "github-copilot" => crate::llm::auth::COPILOT_API_BASE_URL,
         "ollama" => "http://localhost:11434",
         _ => "",
+    }
+}
+
+/// The image's real type from its magic bytes; never a default guess (FR-030).
+pub(crate) fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 

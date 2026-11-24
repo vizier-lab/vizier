@@ -55,6 +55,8 @@ API: `GET|POST /api/v1/providers/custom`, `PUT|DELETE /api/v1/providers/custom/{
 
 Every other provider comes from the catalogue.
 
+Venice (`venice`, `VENICE_API_KEY`) is one of them: chat goes through its OpenAI-compatible API at `https://api.venice.ai/api/v1`, and the same key serves image generation.
+
 ## Amazon Bedrock
 
 Amazon Bedrock is a catalogue provider (`amazon-bedrock`, **Amazon Bedrock**) for chat, memory embeddings and image generation. One connection supplies all three capabilities; changing it (keys or region) affects every Bedrock agent and no agent on another provider. Speech is not offered: Bedrock has no batch text-to-speech or speech-to-text API, so use Amazon Polly and Amazon Transcribe directly, or the existing TTS/STT providers.

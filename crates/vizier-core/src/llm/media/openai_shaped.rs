@@ -310,10 +310,17 @@ pub enum ImageSizing {
 pub enum ImageApi {
     Generations(ImageSizing),
     OpenRouter,
+    /// Venice's OpenAI-compatible `/images/generations`: `size` from a fixed list (omitted for
+    /// its own default), always base64. It takes no reference images; `venice::VeniceImages`
+    /// sends those to Venice's own edit and generate endpoints instead.
+    Venice,
+    /// Together's `/images/generations`: pixel `width`/`height` and `response_format: "base64"`
+    /// (not `b64_json`); its reference fields take URLs only, so references are refused.
+    Together,
 }
 
-/// `POST {base}/images/generations` (OpenAI, xAI) or `{base}/images` (OpenRouter), decoding
-/// `b64_json` (or fetching `url`).
+/// `POST {base}/images/generations` (OpenAI, xAI, Venice, Together) or `{base}/images`
+/// (OpenRouter), decoding `b64_json` (or fetching `url`).
 pub struct OpenAiImages {
     pub endpoint: Endpoint,
     pub api: ImageApi,
@@ -367,8 +374,35 @@ fn image_request(
             }
             "/images"
         }
+        ImageApi::Venice => {
+            // Venice's default is `auto` (1024x1024); rig's 256x256 text default would shrink
+            // every image, so a size is sent only when one was asked for.
+            body["response_format"] = json!("b64_json");
+            // Venice's filter is off: this endpoint has no `safe_mode` (sending it is a 400),
+            // and `low` is its lowest moderation.
+            body["moderation"] = json!("low");
+            if let Some(size) = size {
+                body["size"] = json!(size);
+            }
+            "/images/generations"
+        }
+        ImageApi::Together => {
+            body["response_format"] = json!("base64");
+            // Together defaults to 1024x1024; pixels are sent only for a size that parses.
+            if let Some((w, h)) = size.and_then(parse_dimensions) {
+                body["width"] = json!(w);
+                body["height"] = json!(h);
+            }
+            "/images/generations"
+        }
     };
     Ok((path, body))
+}
+
+/// `"WxH"` as pixels, or `None` when it is not two whole numbers.
+fn parse_dimensions(size: &str) -> Option<(u32, u32)> {
+    let (w, h) = size.split_once('x')?;
+    Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
 }
 
 /// The edit request for one API variant, given at least one reference image.
@@ -405,6 +439,15 @@ fn edit_request(
             }
             "/images"
         }
+        ImageApi::Venice | ImageApi::Together => {
+            // Venice's references never reach this endpoint (`venice::VeniceImages` routes
+            // them); Together's reference fields take URLs only.
+            let name = if api == ImageApi::Venice { "Venice" } else { "Together AI" };
+            return Err(VizierError(format!(
+                "image generation: {name} does not accept reference images here; \
+                 describe the change in the prompt instead"
+            )));
+        }
         ImageApi::Generations(ImageSizing::AspectRatio(_)) => {
             // xAI's edit call takes one source image and, by default, keeps its aspect ratio;
             // forcing the text call's ratio would defeat an edit, and the endpoint documents
@@ -424,12 +467,14 @@ fn edit_request(
     Ok((path, body))
 }
 
-/// The media type of a base64 image reply: what the provider says, else PNG as before.
-fn media_type_of(first: &Value) -> String {
+/// The media type of a base64 image reply: what the provider says, else what the bytes are
+/// (Together answers JPEG by default), else PNG as before.
+fn media_type_of(first: &Value, bytes: &[u8]) -> String {
     first
         .get("media_type")
         .and_then(Value::as_str)
         .filter(|m| m.starts_with("image/"))
+        .or_else(|| crate::llm::media::sniff_image(bytes))
         .unwrap_or("image/png")
         .to_string()
 }
@@ -458,7 +503,8 @@ impl VizierImageGenModel for OpenAiImages {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| VizierError(format!("image generation: {e}")))?;
-            return Ok((bytes, media_type_of(first)));
+            let mime = media_type_of(first, &bytes);
+            return Ok((bytes, mime));
         }
         if let Some(url) = first.get("url").and_then(Value::as_str) {
             let image = http::send(self.endpoint.http.get(url))
@@ -707,10 +753,63 @@ mod tests {
 
     #[test]
     fn a_base64_image_keeps_the_media_type_it_reports() {
-        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/webp"})), "image/webp");
-        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/svg+xml"})), "image/svg+xml");
-        assert_eq!(media_type_of(&json!({"b64_json": "x"})), "image/png");
-        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "text/plain"})), "image/png");
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/webp"}), b""), "image/webp");
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/svg+xml"}), b""), "image/svg+xml");
+        assert_eq!(media_type_of(&json!({"b64_json": "x"}), b""), "image/png");
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "text/plain"}), b""), "image/png");
+    }
+
+    /// With no `media_type`, the bytes decide: Together's default output is JPEG.
+    #[test]
+    fn an_unlabelled_base64_image_is_typed_by_its_bytes() {
+        assert_eq!(media_type_of(&json!({"b64_json": "x"}), &[0xff, 0xd8, 0xff, 0]), "image/jpeg");
+        assert_eq!(media_type_of(&json!({"b64_json": "x"}), b"RIFF1234WEBP"), "image/webp");
+        // A stated type still wins over the bytes.
+        assert_eq!(
+            media_type_of(&json!({"media_type": "image/png"}), &[0xff, 0xd8, 0xff, 0]),
+            "image/png"
+        );
+    }
+
+    #[test]
+    fn venice_asks_for_base64_and_sends_a_size_only_when_asked() {
+        let (path, body) = image_request(ImageApi::Venice, "venice-sd35", "a fox", None, &[]).unwrap();
+        assert_eq!(path, "/images/generations");
+        assert_eq!(
+            body,
+            json!({"model": "venice-sd35", "prompt": "a fox", "response_format": "b64_json", "moderation": "low"})
+        );
+        assert!(body.get("safe_mode").is_none(), "this endpoint refuses safe_mode: {body}");
+        let (_, sized) =
+            image_request(ImageApi::Venice, "venice-sd35", "a fox", Some("1024x1792"), &[]).unwrap();
+        assert_eq!(sized["size"], json!("1024x1792"));
+    }
+
+    #[test]
+    fn together_sends_pixels_and_names_base64_its_own_way() {
+        let model = "black-forest-labs/FLUX.1-schnell";
+        let (path, body) = image_request(ImageApi::Together, model, "a fox", None, &[]).unwrap();
+        assert_eq!(path, "/images/generations");
+        assert_eq!(body, json!({"model": model, "prompt": "a fox", "response_format": "base64"}));
+
+        let (_, sized) =
+            image_request(ImageApi::Together, model, "a fox", Some("1280x720"), &[]).unwrap();
+        assert_eq!(sized["width"], json!(1280));
+        assert_eq!(sized["height"], json!(720));
+        assert!(sized.get("size").is_none(), "{sized}");
+
+        // A size that is not WxH is left to Together's default rather than sent.
+        let (_, odd) = image_request(ImageApi::Together, model, "a fox", Some("2K"), &[]).unwrap();
+        assert!(odd.get("width").is_none(), "{odd}");
+    }
+
+    #[test]
+    fn venice_and_together_refuse_reference_images() {
+        for (api, name) in [(ImageApi::Venice, "Venice"), (ImageApi::Together, "Together AI")] {
+            let error = image_request(api, "m", "make it blue", None, &[one_reference()]).unwrap_err();
+            assert!(error.0.contains(name), "{error:?}");
+            assert!(error.0.contains("reference images"), "{error:?}");
+        }
     }
 
     /// Research R5: a model without speed control must not reject an unset speed, so the field

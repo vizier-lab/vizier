@@ -27,6 +27,7 @@ impl ProviderId {
     pub const MISTRAL: ProviderId = ProviderId::new_static("mistral");
     pub const XAI: ProviderId = ProviderId::new_static("xai");
     pub const TOGETHERAI: ProviderId = ProviderId::new_static("togetherai");
+    pub const VENICE: ProviderId = ProviderId::new_static("venice");
     pub const COHERE: ProviderId = ProviderId::new_static("cohere");
     pub const HUGGINGFACE: ProviderId = ProviderId::new_static("huggingface");
     pub const GITHUB_COPILOT: ProviderId = ProviderId::new_static("github-copilot");
