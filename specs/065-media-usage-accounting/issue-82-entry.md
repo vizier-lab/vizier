@@ -1,4 +1,4 @@
-Draft checklist entry for issue #82 (compatibility code to remove before 1.0.0). Not posted.
+Checklist entry for issue #82 (compatibility code to remove before 1.0.0). Posted 2026-11-25: https://github.com/vizier-lab/vizier/issues/82#issuecomment-7140833681
 
 ---
 

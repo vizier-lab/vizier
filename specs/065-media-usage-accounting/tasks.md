@@ -21,7 +21,7 @@ listed with it.
 ## Phase 1: Setup
 
 - [X] T001 Create the matching submodule branches with `just checkout 065-media-usage-accounting` (design, webui, landing, dummyplug), then confirm with `just status`
-- [ ] T002 Add a checklist entry to issue #82 naming the `usage_event` `add_column_if_missing` calls added in T005 and the `usage.media_accounting_since` marker (T010), and what reads them (`gh issue comment 82`); the `gh` call posts publicly, so ask the user before posting
+- [X] T002 Add a checklist entry to issue #82 naming the `usage_event` `add_column_if_missing` calls added in T005 and the `usage.media_accounting_since` marker (T010), and what reads them (`gh issue comment 82`); the `gh` call posts publicly, so ask the user before posting — posted: https://github.com/vizier-lab/vizier/issues/82#issuecomment-7140833681
 
 ---
 
