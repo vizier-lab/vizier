@@ -7,6 +7,7 @@ use crate::llm::media::{
     huggingface::HuggingFaceImages,
     hyperbolic::HyperbolicImages,
     openai_shaped::{ImageApi, ImageSizing, OpenAiImages},
+    venice::VeniceImages,
 };
 use crate::schema::agent::{ImageGenProvider, ImageGenToolSettings};
 use crate::Result;
@@ -60,10 +61,7 @@ impl VizierImageGen {
             ImageGenProvider::Huggingface => Arc::new(HuggingFaceImages(endpoint)),
             ImageGenProvider::Hyperbolic => Arc::new(HyperbolicImages(endpoint)),
             ImageGenProvider::Bedrock => Arc::new(BedrockImages::new(endpoint)?),
-            ImageGenProvider::Venice => Arc::new(OpenAiImages {
-                endpoint,
-                api: ImageApi::Venice,
-            }),
+            ImageGenProvider::Venice => Arc::new(VeniceImages(endpoint)),
             ImageGenProvider::Together => Arc::new(OpenAiImages {
                 endpoint,
                 api: ImageApi::Together,

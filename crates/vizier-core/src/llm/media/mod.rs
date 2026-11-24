@@ -8,6 +8,7 @@ pub mod huggingface;
 pub mod hyperbolic;
 pub mod ollama;
 pub mod openai_shaped;
+pub mod venice;
 
 pub use openai_shaped::Endpoint;
 

@@ -311,7 +311,8 @@ pub enum ImageApi {
     Generations(ImageSizing),
     OpenRouter,
     /// Venice's OpenAI-compatible `/images/generations`: `size` from a fixed list (omitted for
-    /// its own default), always base64, and no reference images.
+    /// its own default), always base64. It takes no reference images; `venice::VeniceImages`
+    /// sends those to Venice's own edit and generate endpoints instead.
     Venice,
     /// Together's `/images/generations`: pixel `width`/`height` and `response_format: "base64"`
     /// (not `b64_json`); its reference fields take URLs only, so references are refused.
@@ -377,6 +378,9 @@ fn image_request(
             // Venice's default is `auto` (1024x1024); rig's 256x256 text default would shrink
             // every image, so a size is sent only when one was asked for.
             body["response_format"] = json!("b64_json");
+            // Venice's filter is off: this endpoint has no `safe_mode` (sending it is a 400),
+            // and `low` is its lowest moderation.
+            body["moderation"] = json!("low");
             if let Some(size) = size {
                 body["size"] = json!(size);
             }
@@ -436,6 +440,8 @@ fn edit_request(
             "/images"
         }
         ImageApi::Venice | ImageApi::Together => {
+            // Venice's references never reach this endpoint (`venice::VeniceImages` routes
+            // them); Together's reference fields take URLs only.
             let name = if api == ImageApi::Venice { "Venice" } else { "Together AI" };
             return Err(VizierError(format!(
                 "image generation: {name} does not accept reference images here; \
@@ -771,8 +777,9 @@ mod tests {
         assert_eq!(path, "/images/generations");
         assert_eq!(
             body,
-            json!({"model": "venice-sd35", "prompt": "a fox", "response_format": "b64_json"})
+            json!({"model": "venice-sd35", "prompt": "a fox", "response_format": "b64_json", "moderation": "low"})
         );
+        assert!(body.get("safe_mode").is_none(), "this endpoint refuses safe_mode: {body}");
         let (_, sized) =
             image_request(ImageApi::Venice, "venice-sd35", "a fox", Some("1024x1792"), &[]).unwrap();
         assert_eq!(sized["size"], json!("1024x1792"));
