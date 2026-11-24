@@ -129,6 +129,8 @@ describe('media providers', () => {
         for (const provider of IMAGE_GEN_PROVIDERS) expect(IMAGE_GEN_DEFAULT_MODELS[provider], `image ${provider}`).toBeTruthy()
         expect(IMAGE_GEN_PROVIDERS).toContain('bedrock')
         expect(IMAGE_GEN_DEFAULT_MODELS.bedrock).toBe('amazon.nova-canvas-v1:0')
+        expect(IMAGE_GEN_DEFAULT_MODELS.venice).toBe('venice-sd35')
+        expect(IMAGE_GEN_DEFAULT_MODELS.together).toBe('black-forest-labs/FLUX.1-schnell')
     })
 
     it('gives every text-to-speech provider a default model and voice', () => {

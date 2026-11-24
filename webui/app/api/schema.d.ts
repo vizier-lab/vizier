@@ -4718,7 +4718,7 @@ export interface components {
             since_seq?: number | null;
         };
         /** @enum {string} */
-        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock";
+        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock" | "venice" | "together";
         ImageGenToolSettings: {
             /** @default null */
             model: string | null;

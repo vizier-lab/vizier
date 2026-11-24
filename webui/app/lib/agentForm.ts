@@ -51,7 +51,7 @@ export type AgentForm = {
 
 export const TTS_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'xai', 'hyperbolic', 'kokoro']
 export const STT_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'groq', 'mistral', 'huggingface', 'gemini', 'whisper']
-export const IMAGE_GEN_PROVIDERS = ['openai', 'openrouter', 'xai', 'huggingface', 'hyperbolic', 'bedrock']
+export const IMAGE_GEN_PROVIDERS = ['openai', 'openrouter', 'xai', 'huggingface', 'hyperbolic', 'bedrock', 'venice', 'together']
 /** What each provider uses when the model is left empty (mirrors the server's defaults). */
 export const STT_DEFAULT_MODELS: Record<string, string> = {
     openai: 'whisper-1',
@@ -70,6 +70,8 @@ export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
     huggingface: 'stabilityai/stable-diffusion-xl-base-1.0',
     hyperbolic: 'SDXL1.0-base',
     bedrock: 'amazon.nova-canvas-v1:0',
+    venice: 'venice-sd35',
+    together: 'black-forest-labs/FLUX.1-schnell',
 }
 export const TTS_DEFAULT_MODELS: Record<string, string> = {
     openai: 'tts-1',
