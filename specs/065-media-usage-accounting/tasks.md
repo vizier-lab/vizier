@@ -149,7 +149,7 @@ listed with it.
 - [X] T053 [P] Update CLAUDE.md's **Usage accounting** section: media handles record (`spawn_record`), `MEDIA_SCOPE`, `UsageKind`, the price table and its guard test; remove "Not recorded: STT, TTS, image generation, embeddings"
 - [ ] T054 Seed 100k completion and 500k embedding rows on one agent and time the 90-day report (SC-005, < 2 s); add an index only if it misses
 - [ ] T055 Run quickstart step 11 (upgrade from a pre-065 workspace: chat figures unchanged, `media_accounting_since` set) with `just run`
-- [ ] T056 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features` and `--no-default-features --features provider-media` (never `cargo fmt`)
+- [X] T056 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features` and `--no-default-features --features provider-media` (never `cargo fmt`) — on Windows: `vizier-core` + `vizier-http` all pass except two existing Windows-path tests (`projects::path`, `skill::scopes`, untouched since spec 041); the workspace run cannot build `daemonize` on Windows; clippy clean in touched files
 
 ---
 
