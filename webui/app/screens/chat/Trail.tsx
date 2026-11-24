@@ -24,9 +24,43 @@ import { detachedReport, type DeliveredScript } from '../../lib/detached'
 import { DetachedSource } from './detachedSource'
 import { callItems, describeRun, EMPTY_CONTEXT, kindOf, toolRowLabel, type ToolContext } from '../../lib/toolIcons'
 import { useToolContext } from '../../lib/useToolContext'
+import { usageCalls, type MediaCall } from '../../api/endpoints/usage'
+import { mediaCallLine } from '../../lib/usage'
 
 /** The agent's own tools, for naming the calls on its trail (and in a delivered script's record). */
 const Tools = createContext<ToolContext>(EMPTY_CONTEXT)
+/** The agent whose trail this is, for reading a step's media usage. */
+const AgentOf = createContext<string | undefined>(undefined)
+
+/**
+ * The media calls one script made, with their cost (spec 065 Story 4). Mounted only when the
+ * step is opened, so it is asked for then; nothing is drawn when the step made none, or when the
+ * usage cannot be read.
+ */
+function StepCost({ callId }: { callId?: string }) {
+    const agentId = useContext(AgentOf)
+    const [calls, setCalls] = useState<MediaCall[]>([])
+    useEffect(() => {
+        if (!agentId || !callId) return
+        let live = true
+        usageCalls(agentId, [callId])
+            .then((r) => live && setCalls(r.calls[callId] ?? []))
+            .catch(() => {})
+        return () => {
+            live = false
+        }
+    }, [agentId, callId])
+    if (calls.length === 0) return null
+    return (
+        <ul aria-label="Media usage" className="flex flex-col gap-2">
+            {calls.map((c, i) => (
+                <li key={i} className="type-mono-xs text-faint">
+                    {mediaCallLine(c)}
+                </li>
+            ))}
+        </ul>
+    )
+}
 import type { WorkerUpdate } from '../../lib/subagents'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
@@ -268,11 +302,14 @@ function Event({ event, live, compact }: { event: TrailEvent; live: boolean; com
                             Stopped before it finished.
                         </Notice>
                     ) : event.report || event.code ? (
-                        <Run
-                            report={event.report}
-                            code={event.code}
-                            intent={null}
-                        />
+                        <>
+                            <Run
+                                report={event.report}
+                                code={event.code}
+                                intent={null}
+                            />
+                            <StepCost callId={event.callId} />
+                        </>
                     ) : null}
                 </TrailCall>
             )
@@ -329,6 +366,7 @@ export function Trail({
 
     return (
         <Tools.Provider value={tools}>
+        <AgentOf.Provider value={agentId}>
         <ActivityTrail
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
@@ -377,6 +415,7 @@ export function Trail({
                 return <Event key={e.id} event={e} live={live || !!turnRunning} compact={mobile} />
             })}
         </ActivityTrail>
+        </AgentOf.Provider>
         </Tools.Provider>
     )
 }

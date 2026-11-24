@@ -410,6 +410,8 @@ export type TrailEvent =
       /** Set when the run was detached (spec 058): its handle, `d_…`. It has no report here;
        * the result arrives later as a delivery. */
       detachedId?: string
+      /** The saved call's id, which its media usage records name (spec 065). */
+      callId?: string
     }
   // A detached script that finished while the turn ran (spec 058): its delivery, one event per
   // script, at the round it reached the agent. `body` is the delivered text, shown when the

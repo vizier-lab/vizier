@@ -1,4 +1,5 @@
-import type { Activity, Breakdown, DailyUsage } from '../api/endpoints/usage'
+import type { Activity, Breakdown, DailyUsage, MediaCall, PriceSource, Units, UsageKind } from '../api/endpoints/usage'
+import { abbreviate, cost, count } from './format'
 
 export type Range = '7' | '30' | 'custom'
 
@@ -11,6 +12,57 @@ export const ACTIVITY_LABEL: Record<Activity, string> = {
     compaction: 'Compaction',
     vision: 'Vision',
     other: 'Other',
+    consultation: 'Consultations',
+    indexing: 'Indexing',
+}
+
+export const KIND_LABEL: Record<UsageKind, string> = {
+    text: 'Text',
+    image: 'Images',
+    speech: 'Speech',
+    transcription: 'Transcription',
+    embedding: 'Embeddings',
+}
+
+/** "2.5 h", "4 min", "38 s": a length of audio. */
+export function audioLength(seconds: number): string {
+    if (seconds >= 3600) return `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')} h`
+    if (seconds >= 60) return `${Math.round(seconds / 60)} min`
+    return `${Math.round(seconds * 10) / 10} s`
+}
+
+/** A media amount in its own words: "233 images", "140k chars · 2.5 h audio", "41M tokens". */
+export function formatUnits(units?: Units | null): string | undefined {
+    if (!units) return undefined
+    const parts: string[] = []
+    if (units.images != null) parts.push(`${count(units.images)} image${units.images === 1 ? '' : 's'}`)
+    if (units.characters != null) parts.push(`${abbreviate(units.characters)} chars`)
+    if (units.audio_seconds != null) parts.push(`${audioLength(units.audio_seconds)} audio`)
+    if (units.tokens != null) parts.push(`${abbreviate(units.tokens)} embedding tokens`)
+    return parts.length ? parts.join(' · ') : undefined
+}
+
+/** How a priced figure is labelled: free for a local model, a note for the shipped table. */
+export function priceNote(source?: PriceSource): string | undefined {
+    if (source === 'local') return 'free · local'
+    if (source === 'table') return "estimated from Vizier's price table"
+    if (source === 'none') return 'unpriced'
+    return undefined
+}
+
+/** One line for a chat step's media call: "openai / gpt-image-1 · 1 image (1024x1024) · ~$0.17". */
+export function mediaCallLine(call: MediaCall): string {
+    const amount = formatUnits(call.units)
+    const variant = call.variant ? ` (${call.variant})` : ''
+    const price = call.local ? 'free · local' : call.cost_usd != null ? cost(call.cost_usd) : 'unpriced'
+    return [`${call.provider} / ${call.model}`, amount ? `${amount}${variant}` : KIND_LABEL[call.kind], price].join(' · ')
+}
+
+/** Unpriced media amounts, in their own words, for the "not in the estimate" note. */
+export function unpricedMedia(units?: Partial<Record<UsageKind, Units>>): string | undefined {
+    if (!units) return undefined
+    const parts = Object.values(units).map(formatUnits).filter((p): p is string => !!p)
+    return parts.length ? parts.join(', ') : undefined
 }
 
 export const SERIES_COLOURS = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5'] as const
