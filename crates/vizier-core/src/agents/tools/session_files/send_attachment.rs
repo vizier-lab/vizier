@@ -74,8 +74,9 @@ impl VizierTool for SendAttachment {
             )));
         };
 
+        let filename = artifact.attachment_filename();
         ctx.pending_attachments.lock().await.push(VizierAttachment {
-            filename: artifact.name.clone(),
+            filename: filename.clone(),
             content: VizierAttachmentContent::Artifact {
                 agent_id: artifact.agent_id.clone(),
                 artifact_id: artifact.id.clone(),
@@ -84,7 +85,7 @@ impl VizierTool for SendAttachment {
         });
 
         Ok(SendAttachmentOutput {
-            filename: artifact.name,
+            filename,
             status: "sent".into(),
         })
     }

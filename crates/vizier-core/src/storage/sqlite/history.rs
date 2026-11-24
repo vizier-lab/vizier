@@ -144,7 +144,9 @@ pub(super) fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<Se
 
 /// Fill `available` on every artifact attachment of a page (`specs/035-add-artifacts` §6).
 /// Read-time only; the stored JSON never carries it. One indexed artifact lookup per
-/// attachment, on the connection the history read already holds.
+/// attachment, on the connection the history read already holds. The same lookup gives a
+/// name saved without an extension the artifact's (`schema::artifact::attachment_filename`),
+/// so replies sent before that rule draw as their type too.
 pub(super) fn fill_artifact_availability(
     conn: &sql::Connection,
     entries: &mut [SessionHistory],
@@ -157,15 +159,21 @@ pub(super) fn fill_artifact_availability(
                 available,
             } = &mut attachment.content
             {
-                let exists = conn
+                let row = conn
                     .query_row(
-                        "SELECT content_file FROM artifact WHERE agent_id = ?1 AND id = ?2",
+                        "SELECT mime_type, source_filename FROM artifact WHERE agent_id = ?1 AND id = ?2",
                         params![agent_id.as_str(), artifact_id.as_str()],
-                        |row| row.get::<_, String>(0),
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
                     )
-                    .optional()?
-                    .is_some();
-                *available = Some(exists);
+                    .optional()?;
+                *available = Some(row.is_some());
+                if let Some((mime_type, source_filename)) = row {
+                    attachment.filename = crate::schema::artifact::attachment_filename(
+                        &attachment.filename,
+                        &mime_type,
+                        source_filename.as_deref(),
+                    );
+                }
             }
         }
     }

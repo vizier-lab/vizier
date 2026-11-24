@@ -141,6 +141,92 @@ impl Artifact {
             source_filename: self.source_filename.clone(),
         }
     }
+
+    /// The file name an attachment of this artifact carries (see [`attachment_filename`]).
+    pub fn attachment_filename(&self) -> String {
+        attachment_filename(&self.name, &self.mime_type, self.source_filename.as_deref())
+    }
+}
+
+/// The name an artifact goes out under as an attachment. An artifact's name is free text
+/// (`bahan_sample` as well as `photo.png`), but every reader of an attachment (the WebUI's
+/// image/audio/video split, a download's name, Discord and Telegram) types it by its
+/// extension. A name without one gets the extension of the file it was promoted from, or else
+/// one for its MIME type; a name that has one is left alone.
+pub fn attachment_filename(name: &str, mime_type: &str, source_filename: Option<&str>) -> String {
+    if extension_of(name).is_some() {
+        return name.to_string();
+    }
+    let ext = source_filename
+        .and_then(extension_of)
+        .map(str::to_ascii_lowercase)
+        .or_else(|| extension_for_mime(mime_type).map(str::to_string));
+    match ext {
+        Some(ext) => format!("{name}.{ext}"),
+        None => name.to_string(),
+    }
+}
+
+/// A usable extension: 1 to 5 ASCII alphanumerics after the last dot, not a leading dot.
+fn extension_of(name: &str) -> Option<&str> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    (!stem.is_empty() && (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .then_some(ext)
+}
+
+/// The usual extension for a MIME type; `None` for `application/octet-stream` or one unknown.
+fn extension_for_mime(mime: &str) -> Option<&'static str> {
+    let base = mime.split(';').next().unwrap_or(mime).trim().to_ascii_lowercase();
+    // The common ones by hand: mime_guess lists extensions alphabetically (`jfif` before `jpg`).
+    let known = match base.as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/svg+xml" => "svg",
+        "audio/mpeg" => "mp3",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/ogg" => "ogg",
+        "video/mp4" => "mp4",
+        "text/plain" => "txt",
+        "text/markdown" => "md",
+        "text/csv" => "csv",
+        "application/json" => "json",
+        "application/pdf" => "pdf",
+        "" | "application/octet-stream" => return None,
+        _ => return mime_guess::get_mime_extensions_str(&base).and_then(|e| e.first().copied()),
+    };
+    Some(known)
+}
+
+#[cfg(test)]
+mod attachment_filename_tests {
+    use super::attachment_filename;
+
+    #[test]
+    fn a_name_with_an_extension_is_kept() {
+        assert_eq!(attachment_filename("photo.png", "image/jpeg", None), "photo.png");
+    }
+
+    #[test]
+    fn a_bare_name_takes_the_source_files_extension() {
+        assert_eq!(
+            attachment_filename("bahan_sample_offcanon", "image/webp", Some("img_01.WEBP")),
+            "bahan_sample_offcanon.webp"
+        );
+    }
+
+    #[test]
+    fn a_bare_name_without_a_source_takes_one_from_its_type() {
+        assert_eq!(attachment_filename("sample", "image/jpeg", None), "sample.jpg");
+        assert_eq!(attachment_filename("notes", "text/markdown; charset=utf-8", None), "notes.md");
+    }
+
+    #[test]
+    fn an_unknown_type_leaves_the_name_alone() {
+        assert_eq!(attachment_filename("blob", "application/octet-stream", None), "blob");
+        assert_eq!(attachment_filename("v1.final draft", "", None), "v1.final draft");
+    }
 }
 
 /// Where an artifact came from: the promoting conversation and the session file that supplied
