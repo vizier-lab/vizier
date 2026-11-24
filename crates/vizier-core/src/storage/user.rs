@@ -25,6 +25,8 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "owned_agents:manage_functions",
     "all_agents:projects",
     "owned_agents:projects",
+    "all_agents:share_conversations",
+    "owned_agents:share_conversations",
     "all_agents:show_discord_chats",
     "owned_agents:show_discord_chats",
     "all_agents:show_telegram_chats",
@@ -193,6 +195,12 @@ mod tests {
     }
 
     /// Spec 064: Workspaces were removed with their permissions.
+    #[test]
+    fn the_share_permissions_are_pinned() {
+        assert!(AVAILABLE_PERMISSIONS.contains(&"all_agents:share_conversations"));
+        assert!(AVAILABLE_PERMISSIONS.contains(&"owned_agents:share_conversations"));
+    }
+
     #[test]
     fn the_workspace_permissions_are_gone() {
         assert!(!AVAILABLE_PERMISSIONS.contains(&"workspaces:create"));

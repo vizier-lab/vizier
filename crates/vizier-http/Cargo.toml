@@ -30,6 +30,7 @@ croner.workspace = true
 duration-string.workspace = true
 flume.workspace = true
 futures.workspace = true
+ipnet.workspace = true
 jsonwebtoken.workspace = true
 mime_guess.workspace = true
 parking_lot.workspace = true

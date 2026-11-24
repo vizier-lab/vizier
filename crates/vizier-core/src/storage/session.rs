@@ -91,6 +91,16 @@ pub trait SessionStorage {
         chanel: VizierChannelId,
         topic: TopicId,
     ) -> Result<()>;
+
+    /// Finds all session details by agent id and topic id regardless of channel.
+    async fn find_sessions_by_topic(
+        &self,
+        agent_id: &str,
+        topic: &str,
+    ) -> Result<Vec<VizierSessionDetail>> {
+        let list = self.get_session_list(agent_id.to_string(), None).await?;
+        Ok(list.into_iter().filter(|s| s.topic.as_deref() == Some(topic)).collect())
+    }
 }
 
 #[async_trait::async_trait]
@@ -157,5 +167,13 @@ impl SessionStorage for VizierStorage {
         topic: TopicId,
     ) -> Result<()> {
         self.0.delete_session(agent_id, chanel, topic).await
+    }
+
+    async fn find_sessions_by_topic(
+        &self,
+        agent_id: &str,
+        topic: &str,
+    ) -> Result<Vec<VizierSessionDetail>> {
+        self.0.find_sessions_by_topic(agent_id, topic).await
     }
 }

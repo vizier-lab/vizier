@@ -41,6 +41,7 @@
 - [Office Addon](./configuration/office-addon.md)
 - [Consultations](./configuration/consultations.md)
 - [Questions and Sensitive Input](./configuration/questions.md)
+- [Sharing Conversations](./configuration/sharing.md)
 - [Time](./configuration/time.md)
 - [Color Themes](./configuration/themes.md)
 
@@ -49,6 +50,7 @@
 - [REST API](./api-integration/rest-api.md)
 - [Client Tools](./api-integration/client-tools.md)
 - [Generative UI](./api-integration/generative-ui.md)
+- [Shared Chat API](./api-integration/shares.md)
 - [Examples](./api-integration/examples.md)
 - [Building on vizier-core](./api-integration/building-on-vizier-core.md)
 
