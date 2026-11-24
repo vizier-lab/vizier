@@ -83,7 +83,7 @@ Cloud providers use the credentials you saved under **Settings → Providers** (
 | `openai` | up to 16 | Sent to `/images/edits`, which only `gpt-image-*` models serve; `dall-e-3` cannot edit |
 | `xai` | one | Sent to `/images/edits`; the output keeps the source image's aspect ratio |
 | `bedrock` | up to 5 | Sent as an `IMAGE_VARIATION` task; PNG and JPEG only |
-| `venice` | up to the model's limit (16 at most) | With an edit model (`…-edit`, such as `nano-banana-2-edit` or `seedream-v5-5-edit`): one image goes to `/image/edit`, several to `/image/multi-edit` with the first as the base. With any other model the images become `style_references` on `/image/generate`, which only `krea-v2-large`, `krea-v2-medium`, `luma-uni-1` and `luma-uni-1-max` accept; the others return Venice's error |
+| `venice` | up to the model's limit (16 at most) | With an edit model (`edit` in its name, such as `qwen-edit-uncensored`, `nano-banana-2-edit` or `seedream-v5-5-edit`): one image goes to `/image/edit`, several to `/image/multi-edit` with the first as the base. With any other model the images become `style_references` on `/image/generate`, which only `krea-v2-large`, `krea-v2-medium`, `luma-uni-1` and `luma-uni-1-max` accept; the others return Venice's error |
 | `huggingface`, `hyperbolic`, `together` | none | The call fails with a clear error rather than ignoring the images |
 
 A reference whose stored media type is not `image/*` is refused before any provider call.

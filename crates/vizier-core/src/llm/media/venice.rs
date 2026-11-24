@@ -31,9 +31,24 @@ enum Route {
     Generate(Value),
 }
 
-/// Venice names its edit models `<model>-edit`; they are the ones that take source images.
+/// Venice's edit models (its `inpaint` list) are the ones that take source images. Every one
+/// has `edit` as a dash-separated part of its id and no generation model does; most end in
+/// `-edit`, but `qwen-edit-uncensored` does not, so a suffix test sent it to `/image/generate`
+/// as a style-reference model, where Venice answered `404 … did you mean qwen-image-2`.
 fn is_edit_model(model: &str) -> bool {
-    model.ends_with("-edit")
+    model.split('-').any(|part| part.eq_ignore_ascii_case("edit"))
+}
+
+/// An edit model has nothing to work on without a source image, and Venice's text endpoint
+/// does not know it: it answers `404 … not found, did you mean …` with generation models,
+/// which reads as a misspelt id. Say what is actually missing instead.
+fn needs_no_source(model: &str) -> Result<()> {
+    if is_edit_model(model) {
+        return Err(VizierError(format!(
+            "image generation: `{model}` is a Venice edit model and needs `reference_images`              (the image to edit). Pass the source image, or configure a text-to-image model              (one without `edit` in its name) for generating from a prompt alone."
+        )));
+    }
+    Ok(())
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -104,6 +119,7 @@ impl VizierImageGenModel for VeniceImages {
         references: &[ReferenceImage],
     ) -> Result<(Vec<u8>, String)> {
         if references.is_empty() {
+            needs_no_source(&self.0.model)?;
             let text = OpenAiImages {
                 endpoint: self.0.clone(),
                 api: ImageApi::Venice,
@@ -216,6 +232,28 @@ mod tests {
         assert_eq!(body["safe_mode"], json!(false));
         assert_eq!(body["width"], json!(1280));
         assert_eq!(body["height"], json!(720));
+    }
+
+    #[test]
+    fn edit_models_are_told_apart_by_their_edit_segment() {
+        for id in ["nano-banana-2-edit", "seedream-v5-5-edit", "qwen-edit-uncensored", "firered-image-edit"] {
+            assert!(is_edit_model(id), "{id}");
+        }
+        for id in ["qwen-image-2-pro", "lustify-sdxl", "venice-sd35", "krea-v2-large", "credited-model"] {
+            assert!(!is_edit_model(id), "{id}");
+        }
+        // The uncensored Qwen edit model goes to the edit endpoint, not to style references.
+        assert!(matches!(
+            route("qwen-edit-uncensored", "p", None, &[png(&[1])]),
+            Route::Edit("/image/edit", _)
+        ));
+    }
+
+    #[test]
+    fn an_edit_model_without_a_source_image_is_refused_before_any_call() {
+        let error = needs_no_source("qwen-edit-uncensored").unwrap_err().0;
+        assert!(error.contains("edit model") && error.contains("reference_images"), "{error}");
+        assert!(needs_no_source("lustify-sdxl").is_ok());
     }
 
     #[test]
