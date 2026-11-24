@@ -65,5 +65,5 @@ that belongs to no agent.
 
 ## Before the upgrade
 
-Media calls made before this version were never recorded. Days before media accounting started
-are marked on the chart, and the page does not claim they had no media spend.
+Media calls made before this version were never recorded, so a range that starts earlier shows no
+media spend for those days. The report's `media_accounting_since` says when recording began.
