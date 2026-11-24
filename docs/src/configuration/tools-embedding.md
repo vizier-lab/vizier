@@ -70,8 +70,10 @@ Cloud providers use the credentials you saved under **Settings → Providers** (
 | `huggingface` | `stabilityai/stable-diffusion-xl-base-1.0` | `huggingface` key |
 | `hyperbolic` | `SDXL1.0-base` | `hyperbolic` key |
 | `bedrock` | `amazon.nova-canvas-v1:0` | `amazon-bedrock` connection (access key pair + region) |
+| `venice` | `venice-sd35` | `venice` key |
+| `together` | `black-forest-labs/FLUX.1-schnell` | `togetherai` key |
 
-`size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. Bedrock receives explicit `WxH` pixels (default `1024x1024`; Nova Canvas accepts 320–4096 per side, multiples of 16, aspect 1:4–4:1, under 4,194,304 pixels; Titan Image Generator V2 follows its own size table) and surfaces the provider's refusal for an unsupported size. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
+`size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. Bedrock receives explicit `WxH` pixels (default `1024x1024`; Nova Canvas accepts 320–4096 per side, multiples of 16, aspect 1:4–4:1, under 4,194,304 pixels; Titan Image Generator V2 follows its own size table) and surfaces the provider's refusal for an unsupported size. Venice takes `size` from its own list (`256x256`, `512x512`, `1024x1024`, `1536x1024`, `1024x1536`, `1792x1024`, `1024x1792`) and uses 1024x1024 when it is empty. Together receives `WxH` as pixel `width`/`height` (default 1024x1024); a size that is not `WxH` is left to Together's default. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
 
 `reference_images` is optional: a list of session image filenames that turns the call into an image-to-image edit or style transfer. An image the user sent, one from `read_image_file`, or a previous `image_generate` result all work, and order is meaningful (the first image is the primary subject). Support by provider:
 
@@ -81,7 +83,7 @@ Cloud providers use the credentials you saved under **Settings → Providers** (
 | `openai` | up to 16 | Sent to `/images/edits`, which only `gpt-image-*` models serve; `dall-e-3` cannot edit |
 | `xai` | one | Sent to `/images/edits`; the output keeps the source image's aspect ratio |
 | `bedrock` | up to 5 | Sent as an `IMAGE_VARIATION` task; PNG and JPEG only |
-| `huggingface`, `hyperbolic` | none | The call fails with a clear error rather than ignoring the images |
+| `huggingface`, `hyperbolic`, `venice`, `together` | none | The call fails with a clear error rather than ignoring the images |
 
 A reference whose stored media type is not `image/*` is refused before any provider call.
 

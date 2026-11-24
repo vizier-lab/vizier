@@ -383,6 +383,7 @@ pub const vizier_core::config::provider::ProviderId::OPENAI: vizier_core::config
 pub const vizier_core::config::provider::ProviderId::OPENCODE_GO: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::OPENROUTER: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::TOGETHERAI: vizier_core::config::provider::ProviderId
+pub const vizier_core::config::provider::ProviderId::VENICE: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::VOYAGEAI: vizier_core::config::provider::ProviderId
 pub const vizier_core::config::provider::ProviderId::XAI: vizier_core::config::provider::ProviderId
 pub fn vizier_core::config::provider::ProviderId::as_str(&self) -> &str
@@ -1919,6 +1920,8 @@ pub vizier_core::schema::agent::ImageGenProvider::Huggingface
 pub vizier_core::schema::agent::ImageGenProvider::Hyperbolic
 pub vizier_core::schema::agent::ImageGenProvider::Openai
 pub vizier_core::schema::agent::ImageGenProvider::Openrouter
+pub vizier_core::schema::agent::ImageGenProvider::Together
+pub vizier_core::schema::agent::ImageGenProvider::Venice
 pub vizier_core::schema::agent::ImageGenProvider::Xai
 impl vizier_core::schema::agent::ImageGenProvider
 pub fn vizier_core::schema::agent::ImageGenProvider::credentials(&self) -> core::option::Option<vizier_core::config::provider::ProviderId>
@@ -6249,6 +6252,8 @@ pub vizier_core::schema::ImageGenProvider::Huggingface
 pub vizier_core::schema::ImageGenProvider::Hyperbolic
 pub vizier_core::schema::ImageGenProvider::Openai
 pub vizier_core::schema::ImageGenProvider::Openrouter
+pub vizier_core::schema::ImageGenProvider::Together
+pub vizier_core::schema::ImageGenProvider::Venice
 pub vizier_core::schema::ImageGenProvider::Xai
 impl vizier_core::schema::agent::ImageGenProvider
 pub fn vizier_core::schema::agent::ImageGenProvider::credentials(&self) -> core::option::Option<vizier_core::config::provider::ProviderId>

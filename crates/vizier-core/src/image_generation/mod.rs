@@ -60,6 +60,14 @@ impl VizierImageGen {
             ImageGenProvider::Huggingface => Arc::new(HuggingFaceImages(endpoint)),
             ImageGenProvider::Hyperbolic => Arc::new(HyperbolicImages(endpoint)),
             ImageGenProvider::Bedrock => Arc::new(BedrockImages::new(endpoint)?),
+            ImageGenProvider::Venice => Arc::new(OpenAiImages {
+                endpoint,
+                api: ImageApi::Venice,
+            }),
+            ImageGenProvider::Together => Arc::new(OpenAiImages {
+                endpoint,
+                api: ImageApi::Together,
+            }),
         };
 
         Ok(Self(model))

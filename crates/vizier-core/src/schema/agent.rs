@@ -470,6 +470,9 @@ pub enum ImageGenProvider {
     Huggingface,
     Hyperbolic,
     Bedrock,
+    Venice,
+    /// Together AI; spelled `together` like the embedding provider.
+    Together,
 }
 
 impl ImageGenProvider {
@@ -482,6 +485,8 @@ impl ImageGenProvider {
             Self::Huggingface => ProviderId::HUGGINGFACE,
             Self::Hyperbolic => ProviderId::HYPERBOLIC,
             Self::Bedrock => ProviderId::AMAZON_BEDROCK,
+            Self::Venice => ProviderId::VENICE,
+            Self::Together => ProviderId::TOGETHERAI,
         })
     }
 
@@ -493,6 +498,9 @@ impl ImageGenProvider {
             Self::Huggingface => "stabilityai/stable-diffusion-xl-base-1.0",
             Self::Hyperbolic => "SDXL1.0-base",
             Self::Bedrock => crate::llm::media::bedrock::DEFAULT_IMAGE_MODEL,
+            // The model Venice marks `eliza-default` in its public image list.
+            Self::Venice => "venice-sd35",
+            Self::Together => "black-forest-labs/FLUX.1-schnell",
         }
     }
 }
@@ -608,6 +616,27 @@ mod media_provider_tests {
         let json = serde_json::to_string(&image).unwrap();
         assert!(json.contains(r#""provider":"openrouter""#), "{json}");
         assert_eq!(serde_json::from_str::<SttProvider>(r#""openai""#).unwrap(), SttProvider::Openai);
+    }
+
+    /// Venice and Together use their providers' saved keys and serialize as `venice` and
+    /// `together` (the embedding provider's spelling).
+    #[test]
+    fn venice_and_together_generate_images_with_their_own_keys() {
+        assert_eq!(ImageGenProvider::Venice.credentials(), Some(ProviderId::VENICE));
+        assert_eq!(ImageGenProvider::Together.credentials(), Some(ProviderId::TOGETHERAI));
+        assert_eq!(ImageGenProvider::Venice.default_model(), "venice-sd35");
+        assert_eq!(
+            ImageGenProvider::Together.default_model(),
+            "black-forest-labs/FLUX.1-schnell"
+        );
+        assert_eq!(
+            serde_json::from_str::<ImageGenProvider>(r#""venice""#).unwrap(),
+            ImageGenProvider::Venice
+        );
+        assert_eq!(
+            serde_json::from_str::<ImageGenProvider>(r#""together""#).unwrap(),
+            ImageGenProvider::Together
+        );
     }
 
     /// FR-040: a stored agent without the block behaves exactly as it does today, and a partial

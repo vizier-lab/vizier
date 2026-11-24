@@ -10,7 +10,7 @@ use crate::VizierError;
 use crate::embedding::VizierEmbeddingModel;
 use crate::image_generation::{ReferenceImage, VizierImageGenModel};
 use crate::llm::bedrock::{model_path, parse_inference_profile_arn};
-use crate::llm::media::Endpoint;
+use crate::llm::media::{Endpoint, sniff_image};
 
 /// The documented default when an agent leaves the embedding model empty.
 pub const DEFAULT_EMBEDDING_MODEL: &str = "amazon.titan-embed-text-v2:0";
@@ -271,19 +271,6 @@ fn parse_size(size: Option<&str>) -> Result<(u32, u32)> {
             "image generation: invalid size {size:?}; use WxH, e.g. 1024x1024"
         ))
     })
-}
-
-/// The image's real type from its magic bytes; never a default guess (FR-030).
-fn sniff_image(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
-        Some("image/png")
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        Some("image/jpeg")
-    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else {
-        None
-    }
 }
 
 /// The request body shared by both families.

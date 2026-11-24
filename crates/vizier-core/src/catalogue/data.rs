@@ -352,7 +352,9 @@ pub fn dialect_for_npm(npm: &str, shape: Option<&str>) -> Option<DialectKind> {
         | "@ai-sdk/cerebras"
         | "@ai-sdk/perplexity"
         | "@ai-sdk/cohere"
-        | "@ai-sdk/azure" => Some(DialectKind::OpenAiChat),
+        | "@ai-sdk/azure"
+        // Venice's own AI SDK package wraps its OpenAI-compatible chat API.
+        | "venice-ai-sdk-provider" => Some(DialectKind::OpenAiChat),
         "@ai-sdk/openai" => Some(DialectKind::OpenAiResponses),
         "@ai-sdk/anthropic" => Some(DialectKind::Anthropic),
         "@ai-sdk/google" => Some(DialectKind::Gemini),
@@ -400,6 +402,7 @@ pub fn default_base_url(id: &ProviderId) -> Option<&'static str> {
         "cerebras" => "https://api.cerebras.ai/v1",
         "deepinfra" => "https://api.deepinfra.com/v1/openai",
         "cohere" => "https://api.cohere.ai/compatibility/v1",
+        "venice" => "https://api.venice.ai/api/v1",
         _ => return None,
     })
 }
@@ -521,6 +524,20 @@ mod tests {
         let d = data();
         assert_eq!(d.providers[&id("local")].kind, ProviderKind::Local);
         assert_eq!(d.providers[&id("acme")].kind, ProviderKind::Cloud);
+    }
+
+    /// The catalogue lists Venice with its own SDK package and no `api`; both are filled here,
+    /// or its models read as unusable.
+    #[test]
+    fn venice_speaks_openai_chat_at_its_own_root() {
+        assert_eq!(
+            dialect_for_npm("venice-ai-sdk-provider", None),
+            Some(DialectKind::OpenAiChat)
+        );
+        assert_eq!(
+            default_base_url(&id("venice")),
+            Some("https://api.venice.ai/api/v1")
+        );
     }
 
     #[test]
