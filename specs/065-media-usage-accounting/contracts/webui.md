@@ -60,6 +60,6 @@ has no entry for the step. Uses the design's existing muted metadata text style.
 
 ## design/ components
 
-- `UsageBreakdownRow` gains an optional `units` line.
-- `FilterChips` (existing Activity chips) reused for Kind; no new component.
-- `TrailStep` details gain an optional `meta` list slot (if it does not exist already).
+- `BarList` (the breakdown rows) gains an optional `units` line per row.
+- `FilterTabs` (the existing Activity filter) reused for Kind; no new component.
+- `TrailCall` details gain an optional `meta` list slot (if it does not exist already).
