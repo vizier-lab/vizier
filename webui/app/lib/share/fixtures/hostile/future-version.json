@@ -1,0 +1,13 @@
+{
+ "format_version": 2,
+ "generator": "test",
+ "created_at": 1790000000000,
+ "title": "Hostile",
+ "source": {
+  "agent_name": "Ada"
+ },
+ "include_trail": false,
+ "turns": "whatever",
+ "media": {},
+ "rehydration": null
+}

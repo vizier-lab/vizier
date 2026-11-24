@@ -1,0 +1,168 @@
+// What both transports share: the error type, the saved token, and how a response becomes a result.
+
+export class ApiError extends Error {
+    constructor(
+        public status: number,
+        public code: string | undefined,
+        message: string,
+        public data?: unknown
+    ) {
+        super(message)
+    }
+}
+
+export type Envelope<T> = { status: number; message?: string | null; data?: T | null; code?: string }
+
+export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'offline'
+
+export interface TopicOptions {
+    onFrame: (data: unknown) => void
+    onState: (state: ConnectionState) => void
+    /** Fired on every open; `reopened` is true after a drop, when history must be re-read. */
+    onOpen: (reopened: boolean) => void
+}
+
+export interface TopicHandle {
+    readonly isOpen: boolean
+    send(frame: object): boolean
+    retryNow(): void
+    close(): void
+}
+
+/** The inbox stream (`GET /inbox/stream`, `inbox_open`): pushed frames, nothing sent back. */
+export type InboxOptions = TopicOptions
+
+export interface InboxHandle {
+    readonly isOpen: boolean
+    retryNow(): void
+    close(): void
+}
+
+export type AuthMode = 'http' | 'desktop'
+
+export type DesktopState = {
+    state: 'starting' | 'locked' | 'needs_owner' | 'choose_owner' | 'ready' | 'degraded' | 'failed'
+    detail?: unknown
+}
+
+export type DesktopSettings = {
+    close_to_tray: boolean
+    web_access: { enabled: boolean; allow_network: boolean; port: number }
+    updates: { check_on_start: boolean }
+    workspace?: string
+}
+
+export type UpdateInfo = { available: boolean; version?: string; notes?: string }
+
+export interface DesktopShell {
+    state(): Promise<DesktopState>
+    onState(fn: (s: DesktopState) => void): Promise<() => void>
+    onNavigate(fn: (href: string) => void): Promise<() => void>
+    onWebAccess(fn: (s: { running: boolean; url?: string; error?: string }) => void): Promise<() => void>
+    ready(): Promise<void>
+    setupOwner(username: string, password?: string): Promise<void>
+    chooseOwner(userId: string): Promise<void>
+    openWorkspace(path?: string): Promise<void>
+    /** The native folder picker; `null` when the person cancels. */
+    pickFolder(): Promise<string | null>
+    restart(): Promise<void>
+    settingsGet(): Promise<DesktopSettings>
+    settingsSet(settings: DesktopSettings): Promise<DesktopSettings>
+    /** Paint the window frame (the title bar) in this appearance's shell colour. */
+    /** `frame` is the scheme's frame colour, for a title bar the OS lets us paint. */
+    theme(appearance: 'dark' | 'light', frame?: string): Promise<void>
+    updateCheck(): Promise<UpdateInfo>
+    onUpdate(fn: (u: UpdateInfo) => void): Promise<() => void>
+    updateInstall(): Promise<void>
+}
+
+export interface RequestInit2 {
+    signal?: AbortSignal
+    raw?: boolean
+}
+
+export interface Transport {
+    authMode: AuthMode
+    request<T>(method: string, path: string, body?: unknown, init?: RequestInit2): Promise<T>
+    upload<T>(path: string, form: FormData): Promise<T>
+    fetchFile(path: string, init?: { range?: [number, number]; signal?: AbortSignal }): Promise<Response>
+    assetUrl(path: string): string
+    /** A URL for an iframe that must carry no credential: an agent page's frame ticket
+     * (specs/063-html-generative-ui research R7a). The page's script can read its own URL. */
+    frameUrl(path: string): string
+    saveFile(path: string, filename: string): Promise<void>
+    /** Saves text made here, not fetched from a server path. Cancelling a save dialog is not an error. */
+    saveText(text: string, filename: string): Promise<void>
+    openFile(path: string, filename: string): Promise<void>
+    openTopic(t: { agentId: string; channelId: string; topicId: string }, opts: TopicOptions): TopicHandle
+    /** One live connection for notifications and setup status; reconnects with the topic backoff. */
+    openInbox(opts: InboxOptions): InboxHandle
+    notify(n: { title: string; body: string; href: string }): Promise<void>
+    /** The native folder picker in the desktop app; the browser has none and resolves `null`. */
+    pickFolder(): Promise<string | null>
+    desktop?: DesktopShell
+}
+
+export const TOKEN_KEY = 'auth_token'
+
+export function getToken(): string | null {
+    try {
+        return localStorage.getItem(TOKEN_KEY)
+    } catch {
+        return null
+    }
+}
+
+export function setToken(token: string | null) {
+    try {
+        if (token) localStorage.setItem(TOKEN_KEY, token)
+        else localStorage.removeItem(TOKEN_KEY)
+    } catch {
+        /* storage blocked: the session lasts until reload */
+    }
+}
+
+/**
+ * Where a 401 sends the person. `/share/*` is exempt: that page renders its own neutral
+ * "sign in" button carrying `returnTo=/share/<id>`, and a hard redirect to a bare `/login` would
+ * lose the link they came for. `/login` itself never redirects to itself.
+ */
+export function loginRedirectFor(pathname: string): string | null {
+    if (pathname === '/login' || pathname.startsWith('/share/')) return null
+    return '/login'
+}
+
+/** Clears nothing itself: sends the browser to the login page unless the current page handles 401 on its own. */
+export function redirectToLogin(pathname: string = location.pathname, assign: (url: string) => void = (u) => location.assign(u)) {
+    const to = loginRedirectFor(pathname)
+    if (to) assign(to)
+}
+
+let onUnauthorized: () => void = () => {
+    setToken(null)
+    redirectToLogin()
+}
+
+/** The session store installs its own handler so a 401 also clears the stored user. */
+export function setUnauthorizedHandler(fn: () => void) {
+    onUnauthorized = fn
+}
+
+/** Turns a status and parsed envelope into the result or the `ApiError`, the same for every transport. */
+export function settle<T>(status: number, json: Envelope<T> | undefined | null, path: string, raw?: boolean): T {
+    const body = json ?? undefined
+    if (status === 401 && path !== '/auth/login') {
+        onUnauthorized()
+        throw new ApiError(401, 'unauthorized', body?.message ?? 'Signed out')
+    }
+    if (status < 200 || status >= 300) {
+        const data = body?.data as { code?: string } | undefined
+        throw new ApiError(status, body?.code ?? data?.code, body?.message ?? `HTTP ${status}`, body?.data)
+    }
+    return (raw ? (body as unknown as T) : (body?.data as T)) ?? (undefined as T)
+}
+
+export const API_BASE = '/api/v1'
+
+/** A path the server returned (`/api/v1/catalogue/logos/x.svg`) or one relative to the API. */
+export const relativeToApi = (path: string) => (path.startsWith(`${API_BASE}/`) ? path.slice(API_BASE.length) : path)

@@ -1,0 +1,147 @@
+/**
+ * Records the microphone as a 16 kHz mono 16-bit WAV.
+ *
+ * `MediaRecorder` can only produce what the browser picks (Opus in WebM or Ogg, AAC in MP4),
+ * and the local Whisper model reads PCM. Capturing PCM ourselves gives every browser the same
+ * file, and WAV is the one format the server decodes without a codec.
+ */
+
+export const WAV_SAMPLE_RATE = 16_000
+
+/**
+ * The capture worklet (`public/`). Served from our own origin, never a `blob:` URL: the desktop
+ * app's CSP allows scripts from 'self' only, so a blob worklet fails to load there.
+ */
+export const WORKLET_URL = '/vizier-capture-worklet.js'
+
+/** One level per 60 ms of audio: a waveform bar per moment, as the composer draws it. */
+export const LEVEL_WINDOW = WAV_SAMPLE_RATE * 0.06
+
+/** The same scale live voice's meter uses: ordinary speech (0.10–0.15 RMS) reads as about half. */
+const LEVEL_GAIN = 4
+
+/**
+ * Turns the microphone's blocks into levels, 0 to 1, one per `LEVEL_WINDOW` samples. Pure, so the
+ * windowing is tested without a microphone.
+ */
+export class LevelMeter {
+    private sum = 0
+    private count = 0
+
+    constructor(private readonly window = LEVEL_WINDOW) {}
+
+    /** The levels this block completes (often none, sometimes one). */
+    push(block: Float32Array): number[] {
+        const out: number[] = []
+        for (let i = 0; i < block.length; i++) {
+            this.sum += block[i] * block[i]
+            this.count += 1
+            if (this.count >= this.window) {
+                out.push(Math.min(1, Math.sqrt(this.sum / this.count) * LEVEL_GAIN))
+                this.sum = 0
+                this.count = 0
+            }
+        }
+        return out
+    }
+}
+
+export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+    const buffer = new ArrayBuffer(44 + samples.length * 2)
+    const view = new DataView(buffer)
+    const text = (offset: number, value: string) => {
+        for (let i = 0; i < value.length; i++) {
+            view.setUint8(offset + i, value.charCodeAt(i))
+        }
+    }
+
+    text(0, 'RIFF')
+    view.setUint32(4, 36 + samples.length * 2, true)
+    text(8, 'WAVE')
+    text(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true) // PCM
+    view.setUint16(22, 1, true) // mono
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    text(36, 'data')
+    view.setUint32(40, samples.length * 2, true)
+
+    for (let i = 0; i < samples.length; i++) {
+        const s = Math.max(-1, Math.min(1, samples[i]))
+        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+    }
+    return new Blob([buffer], { type: 'audio/wav' })
+}
+
+export class WavRecorder {
+    state: 'recording' | 'inactive' = 'recording'
+    onstop: ((blob: Blob) => void) | null = null
+    /** Each new level of the microphone while recording, 0 to 1, every 60 ms. */
+    onlevel: ((level: number) => void) | null = null
+
+    private constructor(
+        private readonly stream: MediaStream,
+        private readonly context: AudioContext,
+        private readonly node: AudioWorkletNode,
+        private readonly blocks: Float32Array[]
+    ) {}
+
+    static async start(stream: MediaStream): Promise<WavRecorder> {
+        // The context resamples the microphone to 16 kHz for us.
+        const context = new AudioContext({ sampleRate: WAV_SAMPLE_RATE })
+        try {
+            await context.audioWorklet.addModule(WORKLET_URL)
+
+            const blocks: Float32Array[] = []
+            const meter = new LevelMeter()
+            const node = new AudioWorkletNode(context, 'vizier-capture')
+            const recorder = new WavRecorder(stream, context, node, blocks)
+            node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+                blocks.push(e.data)
+                for (const level of meter.push(e.data)) recorder.onlevel?.(level)
+            }
+
+            context.createMediaStreamSource(stream).connect(node)
+            // A worklet only runs while it reaches the destination; it outputs silence.
+            node.connect(context.destination)
+            return recorder
+        } catch (e) {
+            void context.close()
+            throw e
+        }
+    }
+
+    /** Stops without producing a recording: the microphone is released and `onstop` never fires. */
+    cancel() {
+        if (this.state !== 'recording') return
+        this.state = 'inactive'
+        this.node.disconnect()
+        this.stream.getTracks().forEach((t) => t.stop())
+        void this.context.close()
+    }
+
+    /** Stops and returns the recording (also handed to `onstop`). */
+    stop(): Blob | null {
+        if (this.state !== 'recording') return null
+        this.state = 'inactive'
+        this.node.disconnect()
+        this.stream.getTracks().forEach((t) => t.stop())
+
+        const length = this.blocks.reduce((n, b) => n + b.length, 0)
+        const samples = new Float32Array(length)
+        let at = 0
+        for (const block of this.blocks) {
+            samples.set(block, at)
+            at += block.length
+        }
+
+        const rate = this.context.sampleRate
+        void this.context.close()
+        const blob = encodeWav(samples, rate)
+        this.onstop?.(blob)
+        return blob
+    }
+}

@@ -1,0 +1,686 @@
+import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
+import { DeleteWorktreeDialog } from '../screens/projects/DeleteWorktreeDialog'
+import { IconButton, Notice } from '@vizier/design'
+import { nanoid } from 'nanoid'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router'
+import { agentState, getAgent } from '../api/endpoints/agents'
+import { CHANNEL, listTopics, restartAgent } from '../api/endpoints/chat'
+import { createProjectSession, projectChannel } from '../api/endpoints/projects'
+import type { Topic, Turn } from '../api/frames'
+import type { ClientCallView } from '../api/frames'
+import { emptyTopic } from '../lib/frames'
+import { greeting } from '../lib/greetings'
+import { requestText } from '../lib/messages'
+import { ConversationHeader } from '../screens/chat/ConversationHeader'
+import { BranchChip } from '../screens/chat/BranchChip'
+import { ChangesSection } from '../screens/chat/ChangesSection'
+import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
+import { renderClientCalls } from '../screens/chat/ClientCalls'
+import { renderQuestions } from '../screens/chat/Questions'
+import { renderPages } from '../screens/chat/UiPages'
+import { SensitiveAskDialog } from '../components/questions/SensitiveAskDialog'
+import { Composer } from '../screens/chat/Composer'
+import { SideChatPanel } from '../screens/chat/SideChatPanel'
+import { ErrorNotice } from '../screens/chat/ErrorNotice'
+import { MessageList } from '../screens/chat/MessageList'
+import { ChatStatusStrip } from '../screens/chat/ChatStatusStrip'
+import { useLiveVoice } from '../screens/chat/useLiveVoice'
+import { LiveCallRow } from '../screens/chat/LiveCallRow'
+import { ModelOverridePicker } from '../screens/chat/ModelOverridePicker'
+import { readModelOverride, writeModelOverride } from '../lib/modelOverride'
+import type { ModelOverride } from '../api/frames'
+import {
+    OpenProjectButton,
+    ProjectsRefused,
+    shouldOfferOpenProject,
+} from '../screens/projects/ProjectsSection'
+import { lastTopic, rememberTopic } from '../lib/remember'
+import { useAgents } from '../stores/agents'
+import { topicKey, useConnection } from '../stores/connection'
+import { useSession } from '../stores/session'
+import { projectKey, useProjects } from '../stores/projects'
+import { toast } from '../stores/toasts'
+import { canManageArtifacts, canUseProjects } from '../lib/access'
+import { useTurns } from '../stores/turns'
+import { conversationTitle } from '../lib/conversations'
+
+const EMPTY = emptyTopic()
+
+export default function Chat() {
+    const { agentId = '', topicId, projectId } = useParams()
+    const navigate = useNavigate()
+    // A project session is the same screen on the project's own channel (spec 040).
+    const channel = projectId ? projectChannel(projectId) : CHANNEL
+    const project = useProjects((s) =>
+        projectId ? (s.byAgent[agentId] ?? []).find((p) => p.id === projectId) : undefined
+    )
+    const refreshProjects = useProjects((s) => s.refresh)
+    const insertSession = useProjects((s) => s.insertSession)
+    const loadProjectSessions = useProjects((s) => s.loadSessions)
+    const setProjectMode = useProjects((s) => s.setMode)
+    const [buildingPlan, setBuildingPlan] = useState(false)
+    // A project chat's title as the project list has it, for a chat the topics list hasn't seen yet.
+    const projectSessionTitle = useProjects((s) =>
+        projectId && topicId
+            ? (s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)?.title
+            : undefined
+    )
+    // The worktree this chat lives in, if any: deleting the chat then deletes the worktree too.
+    const chatWorktree = useProjects((s) =>
+        projectId && topicId
+            ? ((s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)
+                  ?.worktree ?? null)
+            : null
+    )
+    const gitSummary = useProjects((s) =>
+        projectId && topicId ? s.git[`${projectKey(agentId, projectId)}/${topicId}`] : undefined
+    )
+    const gitAvailable = !!gitSummary?.available
+    const refreshGit = useProjects((s) => s.refreshGit)
+    const projectMode = useProjects((s) =>
+        projectId && topicId
+            ? (s.sessions[projectKey(agentId, projectId)] ?? []).find((x) => x.topic === topicId)?.mode
+            : undefined
+    )
+    useEffect(() => {
+        if (projectId && !project) void refreshProjects(agentId)
+    }, [agentId, projectId, project, refreshProjects])
+    // The chat's saved mode and git header come from the project endpoints, per chat.
+    useEffect(() => {
+        if (!projectId) return
+        void loadProjectSessions(agentId, projectId)
+        if (topicId) void refreshGit(agentId, projectId, topicId)
+    }, [agentId, projectId, topicId, loadProjectSessions, refreshGit])
+    const agents = useAgents((s) => s.agents)
+    const health = useAgents((s) => s.health[agentId])
+    const setup = useAgents((s) => s.setups[agentId])
+    const samples = useAgents((s) => s.samples[agentId])
+    const agent = agents.find((a) => a.agent_id === agentId)
+    const agentName = agent?.name ?? agentId
+
+    // The mic needs the agent's Speech-to-Text and "Ask for a spoken reply" its Text-to-Speech;
+    // each is offered only once the agent is known to have it.
+    // A live voice call needs the agent's switch plus both halves (spec 055 FR-004): `live_voice`.
+    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean; liveVoice: boolean; endOfUtteranceMs?: number }>()
+    useEffect(() => {
+        let alive = true
+        setVoice(undefined)
+        getAgent(agentId)
+            .then((detail) => {
+                if (alive)
+                    setVoice({
+                        stt: detail.stt,
+                        tts: detail.tts,
+                        liveVoice: detail.live_voice ?? false,
+                        endOfUtteranceMs: detail.live_voice_end_of_utterance_ms,
+                    })
+            })
+            .catch(() => {
+                /* offer both: the config read is not worth an error on the composer. A call is not
+                   offered on a guess: it needs the server's word that the agent can hold one. */
+                if (alive) setVoice({ stt: true, tts: true, liveVoice: false })
+            })
+        return () => {
+            alive = false
+        }
+    }, [agentId])
+
+
+    const call = useLiveVoice({ agentId, topicId, endOfUtteranceMs: voice?.endOfUtteranceMs })
+
+    const [topics, setTopics] = useState<Topic[]>([])
+    const userId = useSession((s) => s.user?.user_id)
+    const canOverrideModel = useSession((s) => s.user?.permissions.includes('model_override') ?? false)
+    const preferenceKey = useMemo(() => userId && topicId ? {
+        userId,
+        agentId,
+        channelId: channel,
+        topicId,
+    } : null, [userId, agentId, channel, topicId])
+    const [modelOverride, setModelOverride] = useState<ModelOverride | null>(null)
+    const [modelChoiceAvailable, setModelChoiceAvailable] = useState(true)
+    useEffect(() => {
+        setModelOverride(preferenceKey ? readModelOverride(preferenceKey) : null)
+    }, [preferenceKey])
+    const changeModelOverride = useCallback((choice: ModelOverride | null) => {
+        setModelOverride(choice)
+        if (preferenceKey) writeModelOverride(preferenceKey, choice)
+    }, [preferenceKey])
+    // A project's changes open in their own dialog, behind the status strip's count.
+    const [changesOpen, setChangesOpen] = useState(false)
+    // Stable, so the panel's Escape listener is not re-bound on every render.
+    const closeSideChat = useCallback(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [])
+    const composerBox = useRef<HTMLDivElement>(null)
+    // The message list's scroll bar narrows its column; the composer below it does not scroll.
+    const [scrollbarWidth, setScrollbarWidth] = useState(0)
+    const [composerHeight, setComposerHeight] = useState(120)
+    useEffect(() => {
+        const el = composerBox.current
+        if (!el) return
+        const ro = new ResizeObserver(() => setComposerHeight(el.offsetHeight))
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
+    // `/btw` panel. The id changes per invocation, so a second /btw while it is open starts fresh.
+    const [sideChat, setSideChat] = useState<{ open: boolean; id: string; question?: string }>({ open: false, id: '' })
+    // A side chat belongs to the conversation it was opened on.
+    useEffect(() => setSideChat((s) => (s.open ? { ...s, open: false } : s)), [agentId, topicId])
+
+    // No topic in the URL: the one this person last had open, else the latest, else a fresh one.
+    useEffect(() => {
+        let alive = true
+        const remembered = userId ? lastTopic(userId, agentId) : null
+        if (!topicId && remembered)
+            navigate(`/${agentId}/chat/${remembered}`, { replace: true })
+        listTopics(agentId, channel)
+            .then((list) => {
+                if (!alive) return
+                setTopics(list ?? [])
+                if (!topicId && !remembered)
+                    navigate(
+                        `/${agentId}/chat/${list?.[0]?.topic_id ?? nanoid(10)}`,
+                        { replace: true }
+                    )
+            })
+            .catch(() => {
+                if (alive && !topicId && !remembered)
+                    navigate(`/${agentId}/chat/${nanoid(10)}`, {
+                        replace: true,
+                    })
+            })
+        return () => {
+            alive = false
+        }
+    }, [agentId, channel, topicId === undefined]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (userId && topicId) rememberTopic(userId, agentId, topicId)
+    }, [userId, agentId, topicId])
+
+    const open = useTurns((s) => s.open)
+    const close = useTurns((s) => s.close)
+    useEffect(() => {
+        if (!topicId) return
+        void open(agentId, topicId, channel)
+        return () => close(agentId, topicId)
+    }, [agentId, topicId, channel, open, close])
+
+    const key = topicKey(agentId, topicId ?? '')
+    const opening = useMemo(() => greeting(), [key])
+    const state = useTurns((s) => s.topics[key]) ?? EMPTY
+    // A finished turn may have changed files, so the header's count is re-read with it.
+    useEffect(() => {
+        if (projectId && topicId && state.phase === 'idle') void refreshGit(agentId, projectId, topicId)
+    }, [projectId, topicId, state.phase, refreshGit])
+
+    const meta = useTurns((s) => s.meta[key])
+    const prompts = useTurns((s) => s.prompts[key])
+    const connection = useConnection((s) => s.state[key]) ?? 'connecting'
+    const {
+        send,
+        sendAudio,
+        command,
+        loadOlder,
+        loadThrough,
+        react,
+        clientEvent,
+        saveClientState,
+        answerQuestions,
+        answerSensitive,
+        dispatch,
+    } = useTurns.getState()
+
+    // "Back online" shows for a moment after a drop.
+    const wasDown = useRef(false)
+    const [reconnected, setReconnected] = useState(false)
+    useEffect(() => {
+        if (connection === 'reconnecting' || connection === 'offline')
+            wasDown.current = true
+        else if (connection === 'open' && wasDown.current) {
+            wasDown.current = false
+            setReconnected(true)
+            const t = setTimeout(() => setReconnected(false), 3000)
+            return () => clearTimeout(t)
+        }
+    }, [connection])
+
+    const scripts = useMemo(() => Object.values(state.scripts), [state.scripts])
+    const workers = useMemo(() => Object.values(state.workers), [state.workers])
+
+    const lastRequestText = () => {
+        for (let i = state.entries.length - 1; i >= 0; i--) {
+            const r = state.entries[i].content.Request
+            if (r && !('unattended' in r.content)) return requestText(r.content)
+        }
+        return ''
+    }
+
+    const clientContext = (call: ClientCallView) => ({
+        callId: call.callId,
+        agentId,
+        topicId: topicId ?? '',
+        sendEvent: (text: string, data?: unknown) =>
+            clientEvent(agentId, topicId ?? '', text, data, call.callId),
+        saveState: (s: unknown) =>
+            saveClientState(agentId, topicId ?? '', call.callId, s),
+    })
+
+    const modelName = health?.model?.model
+    const failed = health?.state === 'failed'
+    const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
+    const title = conversationTitle(
+        state.title || topics[topicIndex]?.title || projectSessionTitle,
+        topicId
+    )
+
+    // Deleting the conversation on screen: the server refuses while a turn runs in it.
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    // The two sit at the end of the topic row at every width. They keep their border on a phone
+    // too: a bare icon read as an unlabelled decoration the reviewer could not tell was a button.
+    const deleteConversation = topicId ? (
+        <IconButton
+            icon="trash"
+            aria-label="Delete conversation"
+            onClick={() => setDeleting({ topic: topicId, title })}
+        />
+    ) : null
+
+    // The same fresh topic the picker's "New conversation" opens, one click from the header. In
+    // a project it is a new project session, created server-side so it is listed immediately.
+    const newConversation = (
+        <IconButton
+            icon="plus"
+            aria-label={projectId ? 'New project session' : 'New conversation'}
+            onClick={() => {
+                if (!projectId) {
+                    navigate(`/${agentId}/chat/${nanoid(10)}`)
+                    return
+                }
+                void createProjectSession(agentId, projectId)
+                    .then((session) => {
+                        insertSession(agentId, projectId, {
+                            topic: session.topic,
+                            title: session.title,
+                            is_thinking: false,
+                            last_activity: null,
+                        })
+                        navigate(`/${agentId}/projects/${projectId}/chat/${session.topic}`)
+                    })
+                    .catch((e) =>
+                        toast.error(
+                            "Couldn't start a session",
+                            e instanceof Error ? e.message : undefined
+                        )
+                    )
+            }}
+        />
+    )
+
+    // What the agent is still working on, what it left behind and what it changed all live in the status strip under the composer.
+    const changes =
+        projectId && topicId && gitAvailable
+            ? {
+                  count: gitSummary?.changed ?? 0,
+                  open: () => setChangesOpen(true),
+              }
+            : undefined
+
+    // A direct project URL without the permission shows the refused state, never empty
+    // read-only content (FR-018). Kept after every hook so the hook order never changes.
+    if (projectId && agent && !canUseProjects(agent)) return <ProjectsRefused />
+
+    return (
+        <div data-chat-area className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <ConversationHeader
+                    agentId={agentId}
+                    title={title}
+                    meta={
+                        project
+                            ? `${project.name} · ${project.folder}`
+                            : topicIndex >= 0
+                              ? `webui · topic ${topicIndex + 1} of ${topics.length}`
+                              : 'webui · new topic'
+                    }
+                    current={{ topic: topicId }}
+                    agentName={agentName}
+                    share={
+                        topicId
+                            ? { topicId, agent, agentName, empty: state.entries.length === 0 && state.phase === 'idle' }
+                            : undefined
+                    }
+                    status={{
+                        // This topic's turn, not any of the agent's, decides running.
+                        state:
+                            !failed && state.phase !== 'idle'
+                                ? 'running'
+                                : agentState(health && { ...health, live: false }),
+                        detail: state.phase !== 'idle' ? 'replying' : undefined,
+                    }}
+                    mobileTrailing={
+                        <>
+                            {deleteConversation}
+                            {newConversation}
+                        </>
+                    }
+                    liveTopics={topics
+                        .filter((t) => t.is_thinking)
+                        .map((t) => t.topic_id)}
+                    trailing={
+                        <>
+                            {projectId && topicId && (
+                                <BranchChip
+                                    agentId={agentId}
+                                    projectId={projectId}
+                                    topicId={topicId}
+                                />
+                            )}
+                            {deleteConversation}
+                            {newConversation}
+                        </>
+                    }
+                />
+
+                <AgentStateBanner
+                    agentName={agentName}
+                    health={health}
+                    setup={setup}
+                    samples={samples}
+                    connection={connection}
+                    reconnected={reconnected}
+                    queued={state.queued.length}
+                    onRetryNow={() =>
+                        void restartAgent(agentId).catch((e) =>
+                            toast.error("Couldn't restart the agent", e.message)
+                        )
+                    }
+                    onReconnect={() =>
+                        useConnection.getState().retry(agentId, topicId ?? '')
+                    }
+                    configHref={`/${agentId}/config`}
+                />
+
+                {project && !project.available && (
+                    <Notice
+                        tone="failed"
+                        title="The project folder is unavailable"
+                        className="mx-24 mt-8"
+                    >
+                        History stays readable; commands are refused until the folder is restored.
+                    </Notice>
+                )}
+
+                {/* The conversation runs the full width and the details card floats over its right
+                    edge, so the messages' scroll bar sits at the panel's edge, not beside the card. */}
+                <div className="relative flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                <MessageList
+                    liveCall={!!call.state && call.state !== 'ended' && call.state !== 'failed'}
+                    liveSpeaking={call.speaking}
+                    topicId={topicId}
+                    bottomInset={composerHeight}
+                    onScrollbarWidth={setScrollbarWidth}
+                    state={state}
+                    agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
+                    greeting={opening}
+                    hasOlder={!!meta?.loaded && !meta.exhausted}
+                    loadingOlder={!!meta?.loadingOlder}
+                    onLoadOlder={() => void loadOlder(agentId, topicId ?? '')}
+                    prompts={prompts}
+                    onLoadThrough={(mark) => loadThrough(agentId, topicId ?? '', mark)}
+                    onReact={(uid, emoji, action) =>
+                        react(agentId, topicId ?? '', uid, emoji, action)
+                    }
+                    buildingPlan={buildingPlan}
+                    onBuildPlan={() => {
+                        if (!projectId || !topicId) return
+                        setBuildingPlan(true)
+                        void setProjectMode(agentId, projectId, topicId, 'build')
+                            .then(() => send(agentId, topicId, 'Build the plan.'))
+                            .catch((error) =>
+                                toast.error(
+                                    "Couldn't switch to Build",
+                                    error instanceof Error ? error.message : undefined
+                                )
+                            )
+                            .finally(() => setBuildingPlan(false))
+                    }}
+                    clientCalls={(turn: Turn, running) =>
+                        renderClientCalls(turn, running, clientContext)
+                    }
+                    questions={(turn: Turn) =>
+                        renderQuestions(turn, state.refusals, (answer) =>
+                            answerQuestions(agentId, topicId ?? '', answer)
+                        )
+                    }
+                    pages={(turn: Turn) =>
+                        renderPages(turn, {
+                            agentId,
+                            topicId: topicId ?? '',
+                            channel,
+                            pageStates: state.pageStates,
+                        })
+                    }
+                    emptyAction={
+                        shouldOfferOpenProject(projectId) ? (
+                            <OpenProjectButton agentId={agentId} />
+                        ) : undefined
+                    }
+                    error={
+                        state.error && (
+                            <ErrorNotice
+                                kind={state.error.kind}
+                                message={state.error.message}
+                                agentName={agentName}
+                                onRetry={() => {
+                                    const text = lastRequestText()
+                                    if (text) send(agentId, topicId ?? '', text)
+                                }}
+                                configHref={`/${agentId}/config`}
+                                providersHref="/settings/providers"
+                                healthHref={`/${agentId}/config`}
+                            />
+                        )
+                    }
+                />
+
+                {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
+                <div
+                    ref={composerBox}
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+                >
+                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
+                    {/* Padded like the message list, scroll bar included, so the composer lines up with the messages' column. */}
+                    <div
+                        className="pointer-events-auto relative pt-24 pb-16 pl-24 pr-[calc(24px+var(--scrollbar))] max-lg:pt-16 max-lg:pb-12 max-lg:pl-12 max-lg:pr-[calc(12px+var(--scrollbar))]"
+                        style={{ '--scrollbar': `${scrollbarWidth}px` } as CSSProperties}
+                    >
+                    {/* The composer stays max-w-4xl plus its own 28px; the messages are narrower (max-w-3xl), inside the deck. */}
+                    <div className="mx-auto w-full max-w-[calc(var(--container-4xl)+28px)]">
+                    {/* The composer and its back panel: the status strip and the model picker ride the
+                        panel's lip, an open item (or a /btw aside) grows it upward into a sheet. */}
+                    <ChatStatusStrip
+                        agentId={agentId}
+                        topicId={topicId ?? ''}
+                        scripts={scripts}
+                        workers={workers}
+                        agentName={agentName}
+                        channel={channel}
+                        files={state.files}
+                        canPromote={agent ? canManageArtifacts(agent) : false}
+                        onFilesCleared={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
+                        changes={changes}
+                        lsp={projectId && project ? { projectId, enabled: project.lsp_enabled } : undefined}
+                        trailing={
+                            canOverrideModel && userId && topicId ? (
+                                <ModelOverridePicker
+                                    defaultModel={health?.model ?? null}
+                                    value={modelOverride}
+                                    onChange={changeModelOverride}
+                                    onAvailabilityChange={setModelChoiceAvailable}
+                                />
+                            ) : undefined
+                        }
+                        aside={
+                            sideChat.open
+                                ? {
+                                      label: '/btw',
+                                      onClose: closeSideChat,
+                                      content: (
+                                          <SideChatPanel
+                                              key={sideChat.id}
+                                              embedded
+                                              open={sideChat.open}
+                                              onClose={closeSideChat}
+                                              agentId={agentId}
+                                              agentName={agentName}
+                                              modelName={modelName}
+                                              channelId={channel}
+                                              topicId={topicId ?? ''}
+                                              question={sideChat.question}
+                                          />
+                                      ),
+                                  }
+                                : null
+                        }
+                    >
+                        <Composer
+                            lifted
+                            onTalk={voice?.liveVoice && topicId && !call.state ? call.start : undefined}
+                            call={
+                                call.state && (
+                                    <LiveCallRow
+                                        aria-label="Live voice"
+                                        role="group"
+                                        state={call.state}
+                                        elapsedSeconds={call.elapsedSeconds}
+                                        reason={call.reason}
+                                        onEnd={call.end}
+                                        onRestart={call.start}
+                                        onDismiss={call.dismiss}
+                                    />
+                                )
+                            }
+                            agentId={agentId}
+                            agentName={agentName}
+                            project={
+                                projectId
+                                    ? {
+                                          id: projectId,
+                                          mode: projectMode ?? 'plan',
+                                          shell: project?.shell_enabled,
+                                      }
+                                    : undefined
+                            }
+                            topicId={topicId}
+                            onModeChange={(mode) => {
+                                if (!projectId || !topicId) return
+                                void setProjectMode(agentId, projectId, topicId, mode).catch(
+                                    (error) =>
+                                        toast.error(
+                                            "Couldn't change the mode",
+                                            error instanceof Error ? error.message : undefined
+                                        )
+                                )
+                            }}
+                            sttEnabled={voice?.stt ?? false}
+                            ttsEnabled={voice?.tts ?? false}
+                            busy={state.phase !== 'idle'}
+                            disabledReason={
+                                failed
+                                    ? `${agentName} can't answer until it restarts`
+                                    : connection === 'offline'
+                                      ? "You're offline"
+                                      : canOverrideModel && modelOverride && channel === CHANNEL && !modelChoiceAvailable
+                                        ? 'The selected model is unavailable. Choose another model or Agent default.'
+                                        : undefined
+                            }
+                            context={
+                                state.context
+                                    ? { ...state.context, detail: modelName }
+                                    : null
+                            }
+                            onSend={(text, attachments, spoken, mentions, queue) =>
+                                send(
+                                    agentId,
+                                    topicId ?? '',
+                                    text,
+                                    attachments,
+                                    spoken,
+                                    mentions,
+                                    canOverrideModel && channel && userId ? modelOverride : null,
+                                    queue
+                                )
+                            }
+                            onSendAudio={(attachment) =>
+                                sendAudio(
+                                    agentId,
+                                    topicId ?? '',
+                                    attachment,
+                                    canOverrideModel && channel && userId ? modelOverride : null
+                                )
+                            }
+                            onCommand={(c) => command(agentId, topicId ?? '', c)}
+                            onStop={() => command(agentId, topicId ?? '', 'abort')}
+                            onSideChat={(question) =>
+                                setSideChat({ open: true, id: nanoid(), question })
+                            }
+                        />
+                    </ChatStatusStrip>
+                    </div>
+                    </div>
+                </div>
+                </div>
+                </div>
+            </div>
+
+            {chatWorktree && projectId && topicId ? (
+                <DeleteWorktreeDialog
+                    agentId={agentId}
+                    projectId={projectId}
+                    worktree={
+                        deleting
+                            ? { id: chatWorktree.id, name: chatWorktree.name, topic: topicId }
+                            : null
+                    }
+                    onClose={() => setDeleting(null)}
+                    onDeleted={() => {
+                        setDeleting(null)
+                        void loadProjectSessions(agentId, projectId)
+                        void refreshProjects(agentId)
+                        navigate(`/${agentId}/projects/${projectId}`)
+                    }}
+                />
+            ) : (
+                <DeleteConversation
+                    agentId={agentId}
+                    channel={channel}
+                    target={deleting}
+                    onClose={() => setDeleting(null)}
+                    onDeleted={() =>
+                        navigate(
+                            projectId
+                                ? `/${agentId}/projects/${projectId}`
+                                : `/${agentId}/chat/${nanoid(10)}`
+                        )
+                    }
+                />
+            )}
+            <SensitiveAskDialog
+                ask={Object.values(state.asks)[0] ?? null}
+                onAnswer={(askId, value) => answerSensitive(agentId, topicId ?? '', askId, value)}
+            />
+            {projectId && topicId && (
+                <ChangesSection
+                    agentId={agentId}
+                    projectId={projectId}
+                    topicId={topicId}
+                    open={changesOpen}
+                    onClose={() => setChangesOpen(false)}
+                    refreshKey={`${state.phase}:${state.entries.length}`}
+                />
+            )}
+        </div>
+    )
+}

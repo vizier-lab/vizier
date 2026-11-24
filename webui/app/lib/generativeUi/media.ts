@@ -1,0 +1,52 @@
+// Session files by name: how an interface refers to a file of its conversation (research R12).
+// Nothing about a file is stored in the interface but its name; the record, and the address it is
+// served from, are looked up when the interface is drawn.
+import type { SessionFileRecord } from '../../api/frames'
+import { transport } from '../../api/transport'
+
+export const IMAGE_MIME = /^image\//
+
+/** The only `data:` address `fileUrl` returns as is: a raster image from the allow-list, base64. */
+const SNAPSHOT_IMAGE = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]*={0,2}$/
+
+/** The file called `name`; of several with that name, the newest. */
+export function findFile(files: readonly SessionFileRecord[], name: string): SessionFileRecord | undefined {
+    return files.filter((f) => f.filename === name).sort((a, b) => (a.added_at < b.added_at ? 1 : a.added_at > b.added_at ? -1 : 0))[0]
+}
+
+/** Where a file is served from, as the transport addresses it for elements that cannot send headers. */
+export function fileUrl(file: SessionFileRecord): string {
+    // A shared copy carries its images inside the document: the viewer builds a `data:` address
+    // from the snapshot's media map (raster allow-list, base64 only) and puts it in `file_id`.
+    if (SNAPSHOT_IMAGE.test(file.file_id)) return file.file_id
+    return transport.assetUrl(`/files/${encodeURIComponent(file.file_id)}`)
+}
+
+/** "forecast.png (image/png), report.pdf (application/pdf)" for an error that lists what exists. */
+export function availableFiles(files: readonly SessionFileRecord[]): string {
+    if (files.length === 0) return 'This conversation has no files yet.'
+    const seen = new Set<string>()
+    const list = files.filter((f) => !seen.has(f.filename) && seen.add(f.filename)).map((f) => `${f.filename} (${f.mime_type})`)
+    return `Available: ${list.slice(0, 20).join(', ')}${list.length > 20 ? `, and ${list.length - 20} more` : ''}.`
+}
+
+/** The names of files a spec's elements refer to, with the path of each reference. */
+export function fileReferences(elements: Record<string, { type?: string; props?: Record<string, unknown> }>): { path: string; name: string }[] {
+    const out: { path: string; name: string }[] = []
+    const literal = (value: unknown): value is string => typeof value === 'string'
+    for (const [key, element] of Object.entries(elements)) {
+        const props = element?.props ?? {}
+        const at = (prop: string) => `elements.${key}.props.${prop}`
+        for (const prop of ['file', 'poster'] as const) if (literal(props[prop])) out.push({ path: at(prop), name: props[prop] as string })
+        if (Array.isArray(props.files)) props.files.forEach((name, i) => literal(name) && out.push({ path: `${at('files')}[${i}]`, name }))
+        // Canvas2D image shapes.
+        if (element?.type === 'Canvas2D' && Array.isArray(props.shapes)) {
+            props.shapes.forEach((shape, i) => {
+                if (shape && typeof shape === 'object' && (shape as { kind?: string }).kind === 'image' && literal((shape as { file?: unknown }).file)) {
+                    out.push({ path: `${at('shapes')}[${i}].file`, name: (shape as { file: string }).file })
+                }
+            })
+        }
+    }
+    return out
+}

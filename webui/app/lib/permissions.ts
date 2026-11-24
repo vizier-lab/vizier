@@ -1,0 +1,98 @@
+/** How the permissions a role can hold read to a person, grouped as the Roles page shows them. */
+export const PERMISSION_GROUPS: { title: string; items: { permission: string; label: string }[] }[] = [
+    {
+        title: 'Agents',
+        items: [
+            { permission: 'all_agents:view', label: 'See every agent' },
+            { permission: 'owned_agents:view', label: 'See agents they own or that are shared with them' },
+            { permission: 'all_agents:create', label: 'Create agents' },
+            { permission: 'all_agents:edit', label: 'Edit any agent' },
+            { permission: 'owned_agents:edit', label: 'Edit agents they own' },
+            { permission: 'all_agents:delete', label: 'Delete any agent' },
+            { permission: 'owned_agents:delete', label: 'Delete agents they own' },
+            { permission: 'agents:shell_config', label: 'Set up an agent’s shell' },
+        ],
+    },
+    {
+        title: 'Secrets',
+        items: [
+            { permission: 'all_agents:secret', label: 'Manage every agent’s secrets' },
+            { permission: 'owned_agents:secret', label: 'Manage secrets of agents they own' },
+        ],
+    },
+    {
+        title: 'Functions',
+        items: [
+            { permission: 'all_agents:manage_functions', label: 'Edit, switch off and delete every agent’s functions' },
+            { permission: 'owned_agents:manage_functions', label: 'Edit, switch off and delete functions of agents they own' },
+        ],
+    },
+    {
+        title: 'Projects',
+        items: [
+            { permission: 'all_agents:projects', label: 'Use and manage projects for every agent' },
+            { permission: 'owned_agents:projects', label: 'Use projects for agents they own' },
+        ],
+    },
+    {
+        title: 'Integrations',
+        items: [
+            { permission: 'all_agents:integrations:manage', label: 'Manage every agent’s integrations' },
+            { permission: 'owned_agents:integrations:manage', label: 'Manage integrations of agents they own' },
+        ],
+    },
+    {
+        title: 'Artifacts',
+        items: [
+            { permission: 'all_agents:view_artifacts', label: 'See every agent’s artifacts' },
+            { permission: 'owned_agents:view_artifacts', label: 'See artifacts of agents they own' },
+            { permission: 'all_agents:manage_artifacts', label: 'Promote and delete every agent’s artifacts' },
+            { permission: 'owned_agents:manage_artifacts', label: 'Promote and delete artifacts of agents they own' },
+        ],
+    },
+    {
+        title: 'Chat',
+        items: [
+            { permission: 'model_override', label: 'Choose a model for chat' },
+            { permission: 'all_agents:show_discord_chats', label: 'See every agent’s Discord chats' },
+            { permission: 'owned_agents:show_discord_chats', label: 'See Discord chats of agents they own' },
+            { permission: 'all_agents:show_telegram_chats', label: 'See every agent’s Telegram chats' },
+            { permission: 'owned_agents:show_telegram_chats', label: 'See Telegram chats of agents they own' },
+        ],
+    },
+    {
+        title: 'Sharing',
+        items: [
+            { permission: 'owned_agents:share_conversations', label: 'Share conversations with agents they own' },
+            { permission: 'all_agents:share_conversations', label: 'Share conversations with any agent they can see' },
+        ],
+    },
+    {
+        title: 'Account',
+        items: [
+            { permission: 'settings:password', label: 'Change their own password' },
+            { permission: 'settings:api_keys', label: 'Create API keys' },
+        ],
+    },
+    {
+        title: 'Administration',
+        items: [
+            { permission: 'users:manage', label: 'Manage users' },
+            { permission: 'roles:manage', label: 'Manage roles' },
+            { permission: 'settings:providers', label: 'Manage providers' },
+        ],
+    },
+]
+
+/** The group a permission not in the table above lands in, with its name as its label. */
+export function groupsFor(available: string[]) {
+    const known = new Set(PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.permission)))
+    const extra = available.filter((p) => !known.has(p))
+    const groups = PERMISSION_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => available.includes(i.permission)) })).filter((g) => g.items.length)
+    return extra.length ? [...groups, { title: 'Other', items: extra.map((permission) => ({ permission, label: permission })) }] : groups
+}
+
+/** "all permissions", "4 permissions", "1 permission". */
+export function permissionCount(n: number, total: number): string {
+    return n >= total && total > 0 ? 'all permissions' : `${n} permission${n === 1 ? '' : 's'}`
+}

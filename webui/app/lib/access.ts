@@ -1,0 +1,100 @@
+import { useSession } from '../stores/session'
+
+export const PERMISSIONS = {
+    providers: 'settings:providers',
+    users: 'users:manage',
+    roles: 'roles:manage',
+    createAgent: 'all_agents:create',
+    shellConfig: 'agents:shell_config',
+} as const
+
+/** Whether the current person may manage integrations on `agent`. */
+export function canManageIntegrations(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:integrations:manage') ||
+        (can('owned_agents:integrations:manage') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may manage the secrets of `agent`. Mirrors the server rule. */
+export function canManageSecrets(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:secret') ||
+        (can('owned_agents:secret') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may edit, switch off, roll back or delete `agent`'s functions and
+ * rename their categories. Mirrors `custom_tools/access.rs`; seeing them needs only the agent. */
+export function canManageFunctions(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:manage_functions') ||
+        (can('owned_agents:manage_functions') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may see `agent`'s artifact gallery and content. Mirrors
+ * `src/artifacts/access.rs`: manage implies view, owned requires ownership. */
+export function canViewArtifacts(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:view_artifacts') ||
+        can('all_agents:manage_artifacts') ||
+        ((can('owned_agents:view_artifacts') || can('owned_agents:manage_artifacts')) &&
+            agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may promote or delete `agent`'s artifacts. */
+export function canManageArtifacts(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:manage_artifacts') ||
+        (can('owned_agents:manage_artifacts') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may see and use `agent`'s projects. Mirrors
+ * `crates/vizier-core/src/projects/access.rs`: view + one project permission. The server is
+ * still the authority for a direct URL. */
+export function canUseProjects(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    // A listed agent is one the person can already view; the project permission decides the rest.
+    return (
+        can('all_agents:projects') ||
+        (can('owned_agents:projects') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may rename, remove or toggle `project`: its owner or the
+ * whole-workspace permission. */
+export function canManageProject(project: { owner_id: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return project.owner_id === user.user_id || can('all_agents:projects')
+}
+
+export function canViewUsage(): boolean {
+    return useSession.getState().user != null
+}
+
+export function useCan(permission: string): boolean {
+    return useSession((s) => s.user?.permissions.includes(permission) ?? false)
+}
+
+/** Whether the current person may share conversations of `agent`: the owned or the all-agents
+ * permission (`owned_agents:` needs ownership). Hides the Share button; the server decides. */
+export function canShareConversations(agent: { owner_id?: string } | undefined): boolean {
+    const { user, can } = useSession.getState()
+    if (!user || !agent) return false
+    return can('all_agents:share_conversations') || (can('owned_agents:share_conversations') && agent.owner_id === user.user_id)
+}

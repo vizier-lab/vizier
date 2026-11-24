@@ -1,0 +1,487 @@
+import { describe, expect, it } from 'vitest'
+import type { ChatMessage, Frame, WebSocketResponse } from '../api/frames'
+import { emptyTopic, reduce, sentToQueue, storedText, type Action, type TopicState } from './frames'
+import { groupHistory, openTurn, turnEvents } from './trail'
+
+const session = { agent_id: 'plug', channel: 'webui', topic: 't' }
+const frame = (f: Frame): Action => ({ type: 'frame', frame: f })
+const response = (content: WebSocketResponse['content'], extra: Partial<WebSocketResponse> = {}): Action =>
+    frame({ kind: 'response', response: { timestamp: '2026-10-23T10:00:00Z', content, ...extra } })
+const entry = (uid: string, content: ChatMessage['content'], timestamp = '2026-10-23T10:00:00Z'): ChatMessage => ({
+    uid, timestamp, vizier_session: session, content,
+})
+const run = (state: TopicState, ...actions: Action[]) => actions.reduce(reduce, state)
+const start = () => emptyTopic(session)
+
+const request = (uid = 'r1') => entry(uid, { Request: { timestamp: 't', user: 'me', content: { chat: 'hi' } } })
+const call = (uid: string, id: string) =>
+    entry(uid, { ToolCall: { call_id: id, name: 'execute_python', arguments: { intent: 'x', code: 'y' } } })
+const result = (uid: string, id: string) => entry(uid, { ToolResult: { call_id: id, content: '{"ok":true}' } })
+
+describe('turn state machine', () => {
+    it('goes Sent → Thinking → Working → Answered', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'hello' })
+        expect(s.phase).toBe('thinking')
+        expect(s.entries).toHaveLength(1)
+
+        s = run(s, response('thinking_start'), response({ tool_choice: { name: 'execute_python', args: {} } }))
+        expect(s.phase).toBe('working')
+        expect(s.label).toBe('execute_python')
+
+        s = run(s, response({ message: { content: 'done', stats: { current_context_size: 21000, context_window: 200000 } as never } }, { history_uid: 'rep1' }))
+        expect(s.phase).toBe('idle')
+        expect(s.label).toBeNull()
+        expect(s.context).toEqual({ used: 21000, window: 200000 })
+        expect(s.entries.at(-1)?.uid).toBe('rep1')
+    })
+
+    // spec 062: a waiting message says what will happen to it, and the stored request (the text
+    // without `/queue`) still ends the wait.
+    it('marks a message sent with Ctrl+Enter or /queue as queued, and matches it without the command', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'steer me', now: '2026-10-23T10:00:05Z' })
+        s = run(s, { type: 'send', id: '3', text: 'flagged', queue: true, now: '2026-10-23T10:00:06Z' })
+        s = run(s, { type: 'send', id: '4', text: '/queue later please', now: '2026-10-23T10:00:07Z' })
+        expect(s.queued.map((q) => [q.text, !!q.queue])).toEqual([
+            ['steer me', false],
+            ['flagged', true],
+            ['/queue later please', true],
+        ])
+        s = run(s, { type: 'sent', request: { chat: 'later please' }, timestamp: '2030-01-01T00:00:00Z' })
+        expect(s.queued.map((q) => q.text)).toEqual(['steer me', 'flagged'])
+    })
+
+    it('reads /queue the way the server does', () => {
+        expect(storedText('/queue check the logs')).toBe('check the logs')
+        expect(storedText('/QUEUE@bot  check')).toBe('check')
+        expect(storedText('/queueing is fun')).toBe('/queueing is fun')
+        expect(storedText('plain')).toBe('plain')
+        expect(sentToQueue('plain')).toBe(false)
+        expect(sentToQueue('plain', true)).toBe(true)
+        expect(sentToQueue('/queue x')).toBe(true)
+    })
+
+    it('clears a waiting message once the stored request arrives', () => {
+        // It was sent when it was typed and queued at the agent; the server storing it is the
+        // only thing that ends the wait.
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'second', now: '2026-10-23T10:00:05Z' })
+        expect(s.queued.map((q) => q.text)).toEqual(['second'])
+        // Nothing here sends it: the turn ending is not a trigger, and `nextQueued` is gone.
+        s = run(s, response({ message: { content: 'ok' } }, { history_uid: 'a' }))
+        expect(s.queued.map((q) => q.text)).toEqual(['second'])
+        s = run(s, { type: 'sent', request: { chat: 'second' }, timestamp: '2026-10-23T10:00:05Z' })
+        expect(s.queued).toEqual([])
+    })
+
+    it('clears a waiting message when a history read finds it stored', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'), { type: 'send', id: '2', text: 'second', now: '2026-10-23T10:00:05Z' })
+        s = run(s, {
+            type: 'history',
+            entries: [entry('r-second', { Request: { timestamp: '2026-10-23T10:00:05Z', user: 'me', content: { chat: 'second' } } })],
+        })
+        expect(s.queued).toEqual([])
+    })
+
+    it('draws a command where it was run, without ending the turn', () => {
+        const s = run(start(), response('thinking_start'), { type: 'command', command: 'checkpoint', now: '2026-10-23T10:00:05Z' })
+        // The turn is still running: the checkpoint is written inside it, and its reply ends it.
+        expect(s.phase).not.toBe('idle')
+        expect(s.entries.at(-1)?.content.Command).toBe('checkpoint')
+    })
+
+    it('replaces the drawn command with the stored one when it arrives over the socket', () => {
+        let s = run(start(), { type: 'command', command: 'checkpoint', now: '2026-10-23T10:00:05Z' })
+        // Stored when it ran, which can be long after it was typed.
+        s = run(s, frame({ kind: 'history_entry', entry: entry('cmd', { Command: 'checkpoint' }, '2026-10-23T10:00:30Z') }))
+        expect(s.entries.filter((e) => e.content.Command === 'checkpoint').map((e) => e.uid)).toEqual(['cmd'])
+    })
+
+    it('holds a message sent while busy, so the page can show it waiting', () => {
+        // It has already gone to the agent, which queues it there; the drawing waits for the
+        // server to store it, so it is not lost when the page is left and reopened.
+        let s = run(start(), { type: 'send', id: '1', text: 'first' }, response('thinking_start'))
+        s = run(s, { type: 'send', id: '2', text: 'second' })
+        expect(s.queued.map((q) => q.text)).toEqual(['second'])
+        // The server storing it is what clears the wait: nothing here sends it.
+        s = run(s, { type: 'history', entries: [entry('r-second', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'second' } } })] })
+        expect(s.queued).toEqual([])
+    })
+
+    it('ends the turn on a checkpoint, which is what a dream leaves behind', () => {
+        // A pre-dream checkpoint is sent by the scheduler, so its reply reaches this socket
+        // with nothing else to close the turn: without this branch the trail stays live.
+        const s = run(start(), response('thinking_start'), response({ checkpoint: { handover: 'the summary' } }))
+        expect(s.phase).toBe('idle')
+        expect(s.entries.some((e) => e.content.Checkpoint !== undefined)).toBe(true)
+    })
+
+    it('drops the queue on abort', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'a' }, response('thinking_start'), { type: 'send', id: '2', text: 'b' })
+        s = run(s, { type: 'abort' })
+        expect(s.queued).toEqual([])
+        expect(s.phase).toBe('idle')
+        expect(s.stopped).toBe(true)
+        s = run(s, { type: 'send', id: '3', text: 'c' })
+        expect(s.stopped).toBe(false)
+    })
+
+    it('keeps an error for its Notice and goes idle', () => {
+        const s = run(start(), response('thinking_start'), response({ error: { kind: 'rate_limited', message: 'slow down' } }))
+        expect(s.phase).toBe('idle')
+        expect(s.error).toEqual({ kind: 'rate_limited', message: 'slow down' })
+    })
+
+    it('marks a resumed reply', () => {
+        const s = run(start(), response('thinking_start'), response({ message: { content: 'back' } }, { resumed: true, history_uid: 'x' }))
+        expect(s.resumed).toBe(true)
+    })
+})
+
+describe('abort boundary', () => {
+    // The server stores the abort as a `Command` entry, which is where `groupHistory` ends the
+    // turn and where its trail renders. Live, nothing carried it, so the trail was drawn at the
+    // end of the list — below the message sent next, where only a reload put it right.
+    it('draws the abort where it happened, above the message sent next', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'one', now: '2026-10-23T10:00:00.000Z' })
+        s = run(s, frame({ kind: 'history_entry', entry: call('c1', 'k1') }))
+        s = run(s, { type: 'abort', now: '2026-10-23T10:00:05.000Z' })
+        s = run(s, { type: 'send', id: '2', text: 'two', now: '2026-10-23T10:00:07.000Z' })
+
+        expect(s.entries.map((e) => e.content.Command ?? e.uid)).toEqual(['live-req-1', 'c1', 'abort', 'live-req-2'])
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(2)
+        // The stopped turn keeps its work, and the trail is drawn at the abort: above the next message.
+        expect(turnEvents(turns[0])).toHaveLength(1)
+        expect(turns[0].aborted).toBe(true)
+        expect(turns[0].anchorUid).toBe(s.entries[2].uid)
+        expect(turns[1].request?.uid).toBe('live-req-2')
+        expect(openTurn(turns)?.key).toBe(turns[1].key)
+    })
+
+    it('draws no second abort once the stored command arrives', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: 'one', now: at })
+        s = run(s, { type: 'abort', now: '2026-10-23T10:00:05.000Z' })
+        s = run(s, {
+            type: 'history',
+            entries: [
+                entry('r1', { Request: { timestamp: at, user: 'me', content: { chat: 'one' } } }),
+                entry('cmd1', { Command: 'abort' }, '2026-10-23T10:00:05.010Z'),
+            ],
+        })
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'cmd1'])
+    })
+})
+
+describe('history and reopening', () => {
+    // A read started when one turn ended can land after the next turn's reply. The page it
+    // brings predates that reply, and must not be used to put the reply above its message.
+    it('keeps a reply below its message when an earlier page read lands late', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(
+            start(),
+            { type: 'send', id: '1', text: 'one', now: at },
+            response({ message: { content: 'first' } }, { history_uid: 'a1', timestamp: '2026-10-23T10:00:09Z' }),
+            { type: 'send', id: '2', text: 'two', now: '2026-10-23T10:00:20.000Z' },
+            response({ message: { content: 'second' } }, { history_uid: 'a2', timestamp: '2026-10-23T10:00:29Z' })
+        )
+        s = run(s, {
+            type: 'history',
+            entries: [
+                entry('r1', { Request: { timestamp: at, user: 'me', content: { chat: 'one' } } }),
+                entry('a1', {
+                    Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'first' } } },
+                }),
+            ],
+        })
+
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'a1', 'live-req-2', 'a2'])
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(2)
+        expect(turns[1].request?.uid).toBe('live-req-2')
+        expect(turns[1].outcome?.uid).toBe('a2')
+    })
+
+    it('shows a turn in progress after a reopen, with no duplicate steps', () => {
+        // The page loads history that already holds the request and one step...
+        let s = run(start(), { type: 'history', entries: [request(), call('c1', 'k1')] }, { type: 'busy', thinking: true })
+        expect(s.phase).toBe('working')
+        // ...then the same step is pushed again, and a new one.
+        s = run(s, frame({ kind: 'history_entry', entry: call('c1', 'k1') }), frame({ kind: 'history_entry', entry: result('r1x', 'k1') }))
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'c1', 'r1x'])
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(1)
+        expect(openTurn(turns)).toBeDefined()
+        expect(turnEvents(turns[0])).toHaveLength(1)
+    })
+
+    it('reads the context ring from the newest stored reply when a topic is opened', () => {
+        const reply = (uid: string, used: number) =>
+            entry(uid, { Response: { timestamp: 't', content: { message: { content: 'x', stats: { current_context_size: used, context_window: 1000 } as never } } } })
+        const s = run(start(), { type: 'history', entries: [reply('a', 100), reply('b', 400)] })
+        expect(s.context).toEqual({ used: 400, window: 1000 })
+        // A live reading is never replaced by what was stored.
+        expect(run(s, { type: 'history', entries: [reply('a', 100)] }).context).toEqual({ used: 400, window: 1000 })
+    })
+
+    it('treats steps of a turn nobody here started as work in progress', () => {
+        const s = run(start(), frame({ kind: 'history_entry', entry: call('c1', 'k1') }))
+        expect(s.phase).toBe('working')
+    })
+
+    // A voice message or a generative-UI event is stored as something other than the `chat`
+    // text its stand-in showed; the stand-in used to survive and land below the reply.
+    it('drops the stand-in for a request stored in another shape, keeping the order', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: '', now: at }, response({ message: { content: 'yo' } }, { history_uid: 'a1', timestamp: '2026-10-23T10:00:09Z' }))
+        const stored = [
+            entry('r1', { Request: { timestamp: '2026-10-23T10:00:00.040Z', user: 'me', content: { audio_chat: [{ filename: 'v.wav', content: { local: '/f' } }, 'hi'] } } }),
+            entry('a1', { Response: { timestamp: '2026-10-23T10:00:09Z', content: { message: { content: 'yo' } } } }),
+        ]
+        s = run(s, { type: 'history', entries: stored })
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'a1'])
+    })
+
+    it('swaps a stand-in for the stored request the moment it is pushed', () => {
+        const at = '2026-10-23T10:00:00.000Z'
+        let s = run(start(), { type: 'send', id: '1', text: '', now: at })
+        s = run(s, frame({ kind: 'history_entry', entry: entry('r1', { Request: { timestamp: at, user: 'me', content: { audio_chat: [{ filename: 'v.wav', content: { local: '/f' } }, 'hi'] } } }) }))
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1'])
+    })
+
+    it('replaces the stand-ins drawn while the turn ran once history is read back', () => {
+        let s = run(start(), { type: 'send', id: '1', text: 'hi' }, response({ message: { content: 'yo' } }))
+        expect(s.entries.every((e) => e.uid.startsWith('live-'))).toBe(true)
+        const stored = [
+            entry('r1', { Request: { timestamp: 't', user: 'me', content: { chat: 'hi' } } }),
+            entry('a1', { Response: { timestamp: '2026-10-23T10:00:00Z', content: { message: { content: 'yo' } } } }),
+        ]
+        s = run(s, { type: 'history', entries: stored })
+        expect(s.entries.map((e) => e.uid)).toEqual(['r1', 'a1'])
+    })
+})
+
+describe('side frames', () => {
+    it('keeps detached scripts by id and replaces a changed one', () => {
+        const script = (state: string, calls: number) =>
+            ({ id: 'd_1', intent: 'check', state, tool_call_count: calls, delivered: false }) as never
+        const s = run(
+            start(),
+            frame({ kind: 'detached_script', script: script('running', 0) }),
+            frame({ kind: 'detached_script', script: script('running', 2) }),
+            frame({ kind: 'detached_script', script: script('succeeded', 2) }),
+        )
+        expect(Object.keys(s.scripts)).toEqual(['d_1'])
+        expect(s.scripts.d_1.state).toBe('succeeded')
+        expect(s.scripts.d_1.tool_call_count).toBe(2)
+    })
+
+    it('replaces the scripts with a fresh read', () => {
+        const script = (id: string) => ({ id, intent: id, state: 'running' }) as never
+        let s = run(start(), frame({ kind: 'detached_script', script: script('d_old') }))
+        s = run(s, { type: 'scripts', scripts: [script('d_a'), script('d_b')] })
+        expect(Object.keys(s.scripts)).toEqual(['d_a', 'd_b'])
+    })
+
+    it('prepends a new session file and replaces a relabelled one', () => {
+        const file = (id: string, sender: string) => ({ id, filename: id, sender }) as never
+        let s = run(start(), frame({ kind: 'session_file', file: file('a', 'plug') }), frame({ kind: 'session_file', file: file('b', 'plug') }))
+        expect(s.files.map((f) => f.id)).toEqual(['b', 'a'])
+        s = run(s, frame({ kind: 'session_file', file: file('a', 'me') }))
+        expect(s.files.map((f) => f.id)).toEqual(['a', 'b'])
+        expect(s.files[0].sender).toBe('me')
+    })
+
+    it('sets reactions on the entry they name', () => {
+        const s = run(
+            start(),
+            { type: 'history', entries: [entry('a1', { Response: { timestamp: 't', content: { message: { content: 'yo' } } } })] },
+            frame({ kind: 'reactions', messageUid: 'a1', reactions: [{ user_id: 'u', emoji: '👍' } as never] })
+        )
+        expect(s.entries[0].reactions).toHaveLength(1)
+    })
+})
+
+describe('paging history', () => {
+    it('puts an older page above what is held, in stored order', () => {
+        const a = entry('a', { AssistantMessage: 'a' }), b = entry('b', { AssistantMessage: 'b' })
+        const c = entry('c', { AssistantMessage: 'c' }), d = entry('d', { AssistantMessage: 'd' })
+        let s = run(start(), { type: 'history', entries: [c, d] })
+        s = run(s, { type: 'history', entries: [a, b], position: 'older' })
+        expect(s.entries.map((e) => e.uid)).toEqual(['a', 'b', 'c', 'd'])
+    })
+
+    it('replaces only the newest page when it is re-read, keeping older entries above it', () => {
+        const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((u) => entry(u, { AssistantMessage: u }))
+        let s = run(start(), { type: 'history', entries: [a, b, c] })
+        s = run(s, { type: 'history', entries: [b, c, d] })
+        expect(s.entries.map((e) => e.uid)).toEqual(['a', 'b', 'c', 'd'])
+    })
+})
+
+
+describe('questions the agent asked (spec 042)', () => {
+    const set = (state: 'pending' | 'answered' = 'pending') =>
+        entry('h-q', {
+            QuestionSet: {
+                set_id: 'set-1',
+                questions: [{ id: 'db', prompt: 'Database', type: 'choice', options: [{ value: 'pg', label: 'PostgreSQL' }] }],
+                state,
+            },
+        })
+
+    it('draws a pending card from a history entry and groups it into the turn that asked', () => {
+        const s = run(start(), frame({ kind: 'history_entry', entry: request() }), frame({ kind: 'history_entry', entry: set() }))
+        const turns = groupHistory(s.entries)
+        expect(turns).toHaveLength(1)
+        expect(turns[0].questions.map((e) => e.content.QuestionSet?.set_id)).toEqual(['set-1'])
+        // The card is part of the open turn, so it renders live.
+        expect(openTurn(turns)?.questions).toHaveLength(1)
+    })
+
+    it('closes the card on a question_set frame, from any socket, leaving the rest of the entry alone', () => {
+        let s = run(start(), frame({ kind: 'history_entry', entry: set() }))
+        s = run(
+            s,
+            frame({
+                kind: 'question_set',
+                update: { set_id: 'set-1', state: 'answered', answers: [{ question_id: 'db', state: 'answered', value: 'pg' }], answerer: 'alice' },
+            })
+        )
+        const card = s.entries[0].content.QuestionSet
+        expect(card?.state).toBe('answered')
+        expect(card?.answerer).toBe('alice')
+        expect(card?.answers).toEqual([{ question_id: 'db', state: 'answered', value: 'pg' }])
+        expect(card?.questions).toHaveLength(1)
+        // An update for another set changes nothing.
+        const same = run(s, frame({ kind: 'question_set', update: { set_id: 'other', state: 'declined' } }))
+        expect(same.entries[0].content.QuestionSet?.state).toBe('answered')
+    })
+
+    it('keeps the fields and names the question when an answer is refused, and forgets it once the set closes', () => {
+        let s = run(start(), frame({ kind: 'history_entry', entry: set() }))
+        s = run(s, frame({ kind: 'client', frame: { client_error: { code: 'invalid_answer', message: 'not offered', set_id: 'set-1', question_id: 'db', rule: 'value_not_offered' } } }))
+        expect(s.refusals['set-1']).toEqual({ code: 'invalid_answer', message: 'not offered', questionId: 'db' })
+        s = run(s, frame({ kind: 'question_set', update: { set_id: 'set-1', state: 'answered' } }))
+        expect(s.refusals['set-1']).toBeUndefined()
+    })
+
+    it('opens a sensitive ask on every socket and closes it on the first answer anywhere', () => {
+        const ask = { ask_id: 'a1', purpose: 'to push', protected: true, min_bytes: 8, max_bytes: 65536 }
+        let s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        expect(Object.keys(s.asks)).toEqual(['a1'])
+        // Replayed on reconnect: the same ask, not a second dialog.
+        s = run(s, frame({ kind: 'sensitive_ask', ask }))
+        expect(Object.keys(s.asks)).toEqual(['a1'])
+        s = run(s, frame({ kind: 'sensitive_ask_closed', askId: 'a1', outcome: 'provided' }))
+        expect(s.asks).toEqual({})
+    })
+
+    it('drops a dialog the server says is no longer open', () => {
+        const ask = { ask_id: 'a1', purpose: 'p', protected: true, min_bytes: 8, max_bytes: 10 }
+        let s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        s = run(s, frame({ kind: 'client', frame: { client_error: { code: 'sensitive_ask_not_open', message: 'closed', call_id: 'a1' } } }))
+        expect(s.asks).toEqual({})
+    })
+
+    it('never holds a sensitive value: the ask carries a purpose only', () => {
+        const ask = { ask_id: 'a1', purpose: 'p', protected: true, min_bytes: 8, max_bytes: 10 }
+        const s = run(start(), frame({ kind: 'sensitive_ask', ask }))
+        expect(JSON.stringify(s)).not.toContain('value')
+    })
+})
+
+/**
+ * Chunk T — a live voice turn is submitted by the server, so this tab never sends it. Without a
+ * drawn stand-in the thread stayed empty until a refresh read it back.
+ */
+describe('a turn this tab did not send (live voice)', () => {
+    it('is drawn the moment it is heard', () => {
+        const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo apa kabar' })
+        expect(s.entries).toHaveLength(1)
+        expect(s.entries[0].content.Request?.content).toEqual({ chat: 'halo apa kabar' })
+        expect(s.entries[0].uid).toBe('live-req-t-1')
+        // It is a stand-in, not history: the stored request replaces it later.
+        expect(s.entries[0].serverUid).toBe(false)
+    })
+
+    it('is drawn once, however many times the transcript repeats', () => {
+        const s = run(
+            start(),
+            { type: 'adopt', id: 't-1', text: 'halo' },
+            { type: 'adopt', id: 't-1', text: 'halo' }
+        )
+        expect(s.entries).toHaveLength(1)
+    })
+
+    it('gives way to the stored request, so a refresh leaves one entry and not two', () => {
+        const drawn = run(start(), { type: 'adopt', id: 't-1', text: 'halo apa kabar' })
+        // The server stored the same words: same content, so `coveredByStored` matches.
+        const stored = entry('s-1', { Request: { timestamp: '2026-10-23T10:00:05Z', user: 'me', content: { chat: 'halo apa kabar' } } })
+        const after = run(drawn, { type: 'history', entries: [stored] })
+        expect(after.entries).toHaveLength(1)
+        expect(after.entries[0].uid).toBe('s-1')
+        expect(after.entries.some((e) => e.uid === 'live-req-t-1')).toBe(false)
+    })
+
+    it('shows the agent working, as a typed send does, and queues nothing', () => {
+        const s = run(start(), { type: 'adopt', id: 't-1', text: 'halo' })
+        expect(s.phase, 'the activity trail says the agent is on it, not the call row').toBe('thinking')
+        expect(s.queued).toEqual([])
+    })
+
+    it('draws the recording first, and fills the transcript in when it arrives', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const drawn = heard.entries.find((e) => e.uid === 'live-req-u-1')!.content.Request!.content
+        expect(drawn).toEqual({ audio_chat: [audio, null] })
+
+        const said = run(heard, { type: 'adopt', id: 'u-1', text: 'halo' })
+        const entries = said.entries.filter((e) => e.uid === 'live-req-u-1')
+        expect(entries, 'the transcript fills the same bubble, it does not add one').toHaveLength(1)
+        expect(entries[0].content.Request!.content).toEqual({ audio_chat: [audio, 'halo'] })
+    })
+
+    it('takes back a recording that was never sent', () => {
+        const audio = { filename: 'u-1.wav', content: { local: '/files/u-1' } }
+        const heard = run(start(), { type: 'adopt', id: 'u-1', text: '', audio })
+        const gone = run(heard, { type: 'unadopt', id: 'u-1' })
+        expect(gone.entries.some((e) => e.uid === 'live-req-u-1')).toBe(false)
+        expect(gone.phase, 'nothing is running any more').toBe('idle')
+    })
+
+    it('leaves a turn already running as it is', () => {
+        const busy = run(start(), { type: 'send', id: '1', text: 'typed' }, response('thinking_start'))
+        const s = run(busy, { type: 'adopt', id: 't-1', text: 'spoken' })
+        expect(s.phase).toBe(busy.phase)
+    })
+
+    it('lands below a reply that was already on screen', () => {
+        const earlier = run(
+            start(),
+            { type: 'send', id: '1', text: 'first' },
+            response('thinking_start'),
+            response({ message: { content: 'an answer' } } as never)
+        )
+        const s = run(earlier, { type: 'adopt', id: 't-2', text: 'second, by voice' })
+        // Appended, not inserted: a stand-in never reorders what is already drawn.
+        expect(s.entries.at(-1)?.content.Request?.content).toEqual({ chat: 'second, by voice' })
+        expect(s.entries).toHaveLength(earlier.entries.length + 1)
+    })
+})
+
+describe('an error the conversation ended on', () => {
+    const failed = (uid = 'e1') =>
+        entry(uid, { Response: { timestamp: 't', content: { error: { kind: 'rate_limited', message: 'credit exhausted' } }, attachments: [] } } as ChatMessage['content'])
+
+    it('is shown again when the topic is reopened', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed()] })
+        expect(s.error).toEqual({ kind: 'rate_limited', message: 'credit exhausted' })
+    })
+
+    it('is not shown once something was said after it', () => {
+        const s = run(start(), { type: 'history', entries: [request(), failed(), request('r2')] })
+        expect(s.error).toBeNull()
+    })
+})

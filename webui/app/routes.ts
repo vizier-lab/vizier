@@ -1,0 +1,69 @@
+import { type RouteConfig, index, layout, route } from '@react-router/dev/routes'
+
+export default [
+    // Public
+    layout('layouts/AuthLayout.tsx', [
+        route('login', 'routes/login.tsx'),
+        route('onboarding', 'routes/onboarding.tsx'),
+    ]),
+
+    // Public, read only: a shared conversation. No sign-in gate, no app shell.
+    layout('layouts/ShareLayout.tsx', [route('share/:shareId', 'routes/share.tsx')]),
+
+    // Signed in
+    layout('layouts/RequireAuth.tsx', [
+        layout('layouts/AppShell.tsx', [
+            index('routes/home.tsx'),
+            route('agents/new', 'routes/agent-new.tsx'),
+
+            route(':agentId/chat', 'routes/chat.tsx', { id: 'chat-latest' }),
+            route(':agentId/chat/read', 'routes/chat-read.tsx'),
+            route(':agentId/chat/:topicId', 'routes/chat.tsx', { id: 'chat-topic' }),
+            route(':agentId/projects/:projectId', 'routes/projects.tsx'),
+            route(':agentId/projects/:projectId/chat/:topicId', 'routes/chat.tsx', {
+                id: 'project-chat',
+            }),
+            // One route for all three addresses (all bundles, a bundle, a document), so moving
+            // between them keeps the explorer mounted instead of rebuilding its tree.
+            route(':agentId/memory/*', 'routes/memory.tsx', { id: 'memory' }),
+            route(':agentId/artifacts', 'routes/artifacts.tsx'),
+            route(':agentId/tasks', 'routes/tasks.tsx'),
+            route(':agentId/tasks/:slug', 'routes/task.tsx'),
+            route(':agentId/tasks/:slug/edit', 'routes/task-edit.tsx'),
+            route(':agentId/skills', 'routes/skills.tsx'),
+            route(':agentId/skills/:slug', 'routes/skill.tsx'),
+            route(':agentId/skills/:slug/edit', 'routes/skill-edit.tsx'),
+            route(':agentId/functions', 'routes/functions.tsx'),
+            route(':agentId/functions/:name', 'routes/function.tsx'),
+            route(':agentId/functions/:name/edit', 'routes/function-edit.tsx'),
+            route(':agentId/dream', 'routes/agent-dream.tsx'),
+            route(':agentId/usage', 'routes/usage.tsx'),
+            route(':agentId/secrets', 'routes/secrets.tsx'),
+            route(':agentId/config', 'routes/agent-config.tsx'),
+            route(':agentId/integrations/channels', 'routes/integrations-channels.tsx'),
+            route(':agentId/integrations/addons', 'routes/integrations-addons.tsx'),
+            route(':agentId/integrations/mcp', 'routes/integrations-mcp.tsx'),
+            route(':agentId/settings', 'routes/redirect-agent-settings.tsx'),
+            // The phone's way into an agent's pages (spec 056); a wide screen goes to config.
+            route(':agentId/details', 'routes/agent-details.tsx'),
+
+            layout('layouts/SettingsLayout.tsx', [
+                route('settings', 'routes/redirect-settings.tsx'),
+                route('settings/profile', 'routes/settings-profile.tsx'),
+                route('settings/appearance', 'routes/settings-appearance.tsx'),
+                route('settings/appearance/:schemeId', 'routes/settings-appearance-edit.tsx'),
+                route('settings/password', 'routes/redirect-password.tsx'),
+                route('settings/desktop', 'routes/settings-desktop.tsx'),
+                route('settings/api-keys', 'routes/settings-api-keys.tsx'),
+                route('settings/shares', 'routes/settings-shares.tsx'),
+                route('settings/providers', 'routes/settings-providers.tsx'),
+                route('settings/providers/add', 'routes/settings-providers-add.tsx'),
+                route('settings/users', 'routes/settings-users.tsx'),
+                route('settings/roles', 'routes/settings-roles.tsx'),
+                route('settings/roles/:roleId', 'routes/settings-role.tsx'),
+            ]),
+
+            route('*', 'routes/redirect-unknown.tsx'),
+        ]),
+    ]),
+] satisfies RouteConfig

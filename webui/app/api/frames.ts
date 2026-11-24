@@ -1,0 +1,717 @@
+// The wire types of a chat topic: requests, replies, history entries, detached scripts, client tools and
+// the frames the socket carries (specs/024-webui-rewrite/contracts/websocket.md). Hand-typed:
+// the socket protocol is not in the OpenAPI document. Carried over from the previous WebUI,
+// plus the `Recall` entry, the `session_file` frame, and the live voice frames of
+// specs/055-live-voice.
+
+import { decodeServerFrame, type ServerFrame } from '../lib/liveVoice/frames'
+
+
+// ============================================================================
+// CHAT/TOPIC
+// ============================================================================
+
+export interface Topic {
+  topic_id: string
+  title?: string
+  agent_id: string
+  channel: string
+  is_thinking?: boolean
+  // Detached scripts launched from this topic that are still running (spec 058).
+  running_scripts?: number
+}
+
+// ============================================================================
+// DETACHED SCRIPTS (specs/058-detached-tool-calls/contracts/http-and-frames.md)
+// ============================================================================
+
+export type DetachedScriptState =
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'timed_out'
+  | 'cancelled'
+  | 'interrupted'
+
+/** The list route's rows and the `detached_script` frame. */
+export interface DetachedScriptSnapshot {
+  id: string
+  intent: string
+  state: DetachedScriptState
+  created_at: string
+  finished_at: string | null
+  timeout_secs: number
+  parent_id: string | null
+  delivered: boolean
+  tool_call_count: number
+}
+
+/** One nested call, as the bridge recorded it (arguments redacted, previews cut). */
+export interface DetachedToolCall {
+  seq: number
+  name: string
+  arguments: unknown
+  ok: boolean
+  error?: string | null
+  duration_ms: number
+}
+
+/** One script with its code, its calls and, once final, its report. */
+export interface DetachedScriptDetail extends DetachedScriptSnapshot {
+  code: string
+  tool_calls: DetachedToolCall[]
+  /** The `ExecutionReport` (without its calls), or why it stopped as a string. */
+  report: Record<string, unknown> | string | null
+}
+
+// ============================================================================
+// SUBAGENT WORKERS (specs/059-subagent-workers, Story 7)
+// ============================================================================
+
+export type SubagentState = 'running' | 'asking' | 'answered' | 'failed' | 'timed_out' | 'stopped'
+
+export type SubagentStopReason = 'by_agent' | 'conversation_deleted' | 'agent_deleted' | 'consultee_deleted'
+
+/** The list route's rows and the `subagent` frame. The detail route sends the same shape, uncut. */
+export interface SubagentSnapshot {
+  id: string
+  position: number
+  group_size: number
+  task: string
+  state: SubagentState
+  stop_reason: SubagentStopReason | null
+  /** The open question, only while asking. */
+  question: string | null
+  result: string | null
+  truncated: boolean
+  error: string | null
+  started_at: string
+  ended_at: string | null
+  /** The worker's own conversation topic. */
+  topic: string
+  /** The spawn that hired it. */
+  group: string
+  parent_detached_id: string | null
+  /** The main agent has the newest outcome. */
+  handed_over: boolean
+  updated_at: string
+  /** A consultation's consulted agent (spec 064); absent for a temporary worker. */
+  consultee?: string
+  /** Follow-ups sent to a consultation after an answer; absent when none. */
+  follow_ups?: number
+}
+
+/** A pre-058 background report, kept so old conversations still draw (#82). */
+export interface LegacyBackgroundReport {
+  job_id?: string
+  entries?: { prompt: string; state: string; text: string }[]
+}
+
+// VizierRequestContent - matches backend VizierRequestContent enum with serde rename_all = "snake_case"
+export type VizierRequestContent =
+  | { chat: string }
+  | { prompt: string }
+  | { silent_read: string }
+  // A machine wrote this prompt and nobody is waiting on the answer — a scheduled task run,
+  // or a dream cycle's own work. Renamed from `task`, because two of its three construction
+  // sites are the dream cycle.
+  | { unattended: string }
+  | { command: string }
+  | { audio_chat: [VizierAttachment, string | null] }
+  | { audio_prompt: [VizierAttachment, string | null] }
+  // Finished detached scripts, delivered as a turn or mid-turn (spec 058). Not a message
+  // from a person.
+  | { detached_delivery: string }
+  // A report saved before spec 058; never sent any more (#82).
+  | { background_report: LegacyBackgroundReport }
+  // A message a client sent on the person's behalf, e.g. a click in a page the agent drew.
+  // `text` is the person's bubble; `data` is for the agent only and is never shown.
+  | { client_event: ClientEventContent }
+  // The person's answer to a question set the agent asked (specs/042-agent-asking-question).
+  // `text` is the summary the conversation shows as their message.
+  | { question_answer: QuestionAnswerContent }
+
+export interface ClientEventContent {
+  text: string
+  data?: unknown
+  source_call_id?: string
+}
+
+// ============================================================================
+// QUESTIONS (specs/042-agent-asking-question/contracts/questions-wire.md)
+// ============================================================================
+
+export interface QuestionOption {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface Question {
+  id: string
+  prompt: string
+  type: 'text' | 'choice' | 'multi_choice' | 'confirm'
+  help?: string
+  optional?: boolean
+  default?: string | string[] | boolean
+  options?: QuestionOption[]
+  placeholder?: string
+  max_length?: number
+  multiline?: boolean
+  min_selections?: number
+  max_selections?: number
+  yes_label?: string
+  no_label?: string
+}
+
+export type QuestionState = 'pending' | 'answered' | 'declined' | 'withdrawn'
+
+export interface QuestionAnswerItem {
+  question_id: string
+  state: 'answered' | 'skipped'
+  value?: string | string[] | boolean
+  label?: string
+}
+
+/** A question set as a history entry carries it. `state`/`answers`/`answerer` are filled on every read. */
+export interface QuestionSetEntry {
+  set_id: string
+  title?: string
+  description?: string
+  questions: Question[]
+  submit_label?: string
+  dismiss_label?: string
+  state: QuestionState
+  answers?: QuestionAnswerItem[] | null
+  answerer?: string | null
+}
+
+export interface QuestionAnswerPayload {
+  set_id: string
+  answers: Array<{ question_id: string; state: 'answered' | 'skipped'; value?: string | string[] | boolean }>
+  declined: boolean
+}
+
+export interface QuestionAnswerContent extends QuestionAnswerPayload {
+  text?: string
+  answerer?: string | null
+}
+
+/** Server → every socket: a set's state changed (`question_set` frame). */
+export interface QuestionSetUpdate {
+  set_id: string
+  state: QuestionState
+  answers?: QuestionAnswerItem[] | null
+  answerer?: string | null
+}
+
+/** A sensitive-input ask (`sensitive_ask` frame). It carries the purpose, never a value. */
+export interface SensitiveAsk {
+  ask_id: string
+  label?: string | null
+  purpose: string
+  protected: boolean
+  min_bytes: number
+  max_bytes: number
+  expires_at?: string
+}
+
+export type SensitiveAskOutcome = 'provided' | 'declined' | 'timeout' | 'abandoned'
+
+/** A refusal of an answer, kept so the card can name the question and keep what was typed. */
+export interface QuestionRefusal {
+  code: string
+  message: string
+  questionId?: string
+}
+
+// Reaction types
+export type ReactionAction = 'added' | 'removed'
+
+export interface ReactionEntry {
+  user_id: string
+  emoji: string
+  // Display name at the time of reacting, when the channel resolved one. Unused by the WebUI.
+  user_name?: string
+}
+
+// Client → server: change one of the person's own reactions on an agent reply.
+export interface WebSocketReactionMessage {
+  reaction: { message_uid: string; emoji: string; action: ReactionAction }
+}
+
+// Server → every socket on the session: the full current set of one message, after any
+// change to it. The sender's own socket gets it too, as its acknowledgement.
+export interface WebSocketReactionsFrame {
+  reactions: { message_uid: string; reactions: ReactionEntry[] }
+}
+
+// Server → the sending socket only: a reaction that was not saved.
+export interface WebSocketReactionErrorFrame {
+  reaction_error: { message_uid: string; message: string }
+}
+
+// Python sandbox execution report (payload of a `tool_response` event for execute_python)
+export interface ToolInvocationRecord {
+  seq: number
+  name: string
+  // Present in the session record; dropped from the copy sent to the model.
+  arguments?: Record<string, unknown>
+  ok: boolean
+  error?: string | null
+  duration_ms: number
+}
+
+export interface ExecutionError {
+  kind: 'script' | 'tool' | 'limit'
+  message: string
+  // Omitted by the server for host-raised limits, which have no traceback.
+  traceback?: string
+  limit?: string | null
+}
+
+export interface ExecutionReport {
+  ok: boolean
+  result: unknown
+  stdout: string
+  error?: ExecutionError | null
+  tool_calls: ToolInvocationRecord[]
+  duration_ms: number
+}
+
+// VizierResponseContent - matches backend VizierResponseContent enum with serde rename_all = "snake_case"
+export type VizierResponseContent =
+  | 'thinking_start'
+  | { thinking: string }
+  | { tool_choice: { name: string; args: Record<string, unknown> } }
+  | { tool_response: { response: unknown } }
+  | { message: { content: string; stats?: VizierResponseStats } }
+  | { audio_reply: [VizierAttachment, string | null, VizierResponseStats | null] }
+  | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout' | 'rate_limited' | 'provider_unavailable' | 'agent_unavailable'; message: string } }
+  | 'empty'
+  | 'abort'
+  | { checkpoint: { handover: string | null } }
+
+// VizierRequest as returned by backend
+export interface VizierRequestMessage {
+  timestamp: string
+  user: string
+  content: VizierRequestContent
+  metadata?: Record<string, unknown>
+  attachments?: VizierAttachment[]
+  // Run as a new turn after the running one instead of steering it (spec 062): Ctrl/Cmd+Enter.
+  queue?: boolean
+  // Set by the server only: the running turn read this message at a round boundary (spec 062).
+  mid_turn?: boolean
+  // Set by the server only: said in a live voice call (spec 055).
+  spoken?: boolean
+}
+
+// VizierAttachment - matches backend VizierAttachment
+export interface VizierAttachment {
+  filename: string
+  content:
+    | { url: string }
+    | { bytes: number[] }
+    | { base64: string }
+    | { local: string }
+    | { artifact: { agent_id: string; artifact_id: string; available?: boolean } }
+}
+
+// Response stats from backend
+export interface VizierResponseStats {
+  input_tokens: number
+  cached_input_tokens: number
+  total_cached_input_tokens: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_tokens: number
+  duration: { secs: number; nanos: number }
+  cache_creation_input_tokens: number
+  total_cache_creation_input_tokens: number
+  current_context_size?: number
+  context_window?: number
+  // The provider and model that answered.
+  provider?: string
+  model?: string
+  // The turn-ending tool whose call was this turn's answer (spec 026).
+  ended_by_tool?: string | null
+}
+
+export interface ChatMessage {
+  uid: string
+  timestamp?: string
+  // Explicit ordering position, assigned by storage on write. Null for entries recorded
+  // before the column existed, which are not retroactively ordered.
+  seq?: number | null
+  vizier_session: {
+    agent_id: string
+    channel: string
+    topic: string
+  }
+  content: {
+    Request?: VizierRequestMessage
+    Response?: {
+      timestamp: string
+      content: VizierResponseContent
+      attachments?: VizierAttachment[]
+      // The turn was interrupted by a restart and carried on afterwards.
+      resumed?: boolean
+    }
+    // A mid-turn message: text the agent wrote alongside its tool calls.
+    AssistantMessage?: string
+    ToolCall?: { call_id: string; name: string; arguments: Record<string, unknown> }
+    ToolResult?: { call_id: string; content: string }
+    Checkpoint?: string | { handover: string | null; timestamp: string }
+    Command?: string
+    // Memory passages the turn was given or searched for (spec 024, FR-018e). Display only.
+    Recall?: { origin: RecallOrigin; passages: RecalledPassage[] }
+    // A call the agent made to a tool this client (or another) declared. The entry's uid is
+    // the call id; `outcome` and `state` are filled in by the server on every read.
+    ClientToolCall?: ClientToolCallEntry
+    // A question set the agent asked, drawn as a card in the turn (spec 042).
+    QuestionSet?: QuestionSetEntry
+    // That a value was requested and what came of it. Never the value itself.
+    SensitiveAsk?: { ask_id: string; purpose: string; label?: string | null; state: string }
+    // A version of an interactive page the agent drew (spec 063). `verification` is filled by
+    // the server on every read and updated live by `ui_page_verified`.
+    UiPage?: { page_id: string; version: number; title: string; verification?: unknown }
+  }
+  reactions?: ReactionEntry[]
+  // False for a live reply that arrived without the server's history uid (an older server):
+  // a reaction on it could not be saved, so it gets no react control.
+  serverUid?: boolean
+}
+
+// ============================================================================
+// ACTIVITY TRAIL
+// ============================================================================
+
+// One entry of what an agent did on its way to an answer, normalized so the live
+// WebSocket stream and stored history produce the same shape and render through the same
+// component. There is deliberately no variant for a tool call made by a python script:
+// nested calls never reach history and are not streamed, so neither producer can emit one.
+export type TrailEvent =
+  | { kind: 'thought'; id: string; text: string }
+  // Prose the agent wrote between tool rounds: kept inside the work it belongs to rather than
+  // drawn as a message, since it is the agent thinking out loud, not something said to anyone.
+  | { kind: 'narration'; id: string; text: string }
+  // `jobId` is set on a pre-058 `background_subagents`/`delegate_agent` call (#82) that launched a
+  // background job, read from its tool result, so the job tray can jump back to it. The
+  // retired `paralel_subtasks` name is kept for saved history.
+  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string; stopped?: boolean }
+  | {
+      kind: 'python'
+      id: string
+      intent: string | null
+      code: string | null
+      report: ExecutionReport | null
+      stopped?: boolean
+      /** Set when the run was detached (spec 058): its handle, `d_…`. It has no report here;
+       * the result arrives later as a delivery. */
+      detachedId?: string
+      /** The saved call's id, which its media usage records name (spec 065). */
+      callId?: string
+    }
+  // A detached script that finished while the turn ran (spec 058): its delivery, one event per
+  // script, at the round it reached the agent. `body` is the delivered text, shown when the
+  // script's own record cannot be read.
+  | { kind: 'delivery'; id: string; handle: string; state: string; took: string; intent: string; body: string }
+  // A worker's answer, question or failure delivered while the turn ran (spec 059), one event per
+  // worker. `body` is the delivered question, result or error.
+  | { kind: 'worker_update'; id: string; handle: string; position: number; size: number; title: string; state: string; body: string }
+
+// One part of a turn, in the order it happened: a stretch of work, or something the agent said
+// on the way (specs/053-workspace-channel/contracts/turn-rendering.md). A trail is never empty.
+export type TurnBlock =
+  | { kind: 'trail'; events: TrailEvent[]; startedAt?: string; endedAt?: string }
+  | { kind: 'message'; id: string; text: string; at?: string }
+  // A message the person sent while the turn ran, read at a round boundary (spec 062): drawn as
+  // their bubble between the trail before it and the trail after it.
+  | { kind: 'steer'; id: string; entry: ChatMessage }
+
+// One exchange: what was asked, what the agent did on the way, and what came back.
+export interface Turn {
+  key: string
+  // Absent for an agent-initiated turn — a scheduled task or a dream cycle.
+  request?: ChatMessage
+  blocks: TurnBlock[]
+  outcome?: ChatMessage
+  // The uid of the entry the turn ends at — its outcome, or the checkpoint or command that
+  // closed it. It is what the trail renders above, and it is what lets a turn closed live
+  // and the same turn reloaded from history put their trail in the same place. Absent for a
+  // turn that nothing closed, such as one interrupted by a reload.
+  anchorUid?: string
+  // True while the turn is still streaming, which is when its trail renders expanded.
+  live: boolean
+  // The client tool calls the turn made, in order. Drawn inside the turn's reply bubble.
+  clientCalls: ClientCallView[]
+  // The question sets the turn asked, in order. Drawn after the reply text they ended it with.
+  questions: ChatMessage[]
+  // The page versions the turn drew, in order (spec 063). The last is the reply; any before it
+  // (a draft that failed its check) is drawn collapsed.
+  pages: ChatMessage[]
+  // True when the person aborted the turn: no outcome, closed by an `abort` command.
+  aborted?: boolean
+}
+
+// A step of a running turn, pushed as it is saved (specs/023-persist-turn-activity).
+export interface HistoryEntryFrame {
+  history_entry: ChatMessage
+}
+
+export interface ModelOverride {
+  provider: string
+  model: string
+}
+
+export interface WebSocketMessage {
+  timestamp: string
+  user: string
+  content: VizierRequestContent
+  model_override?: ModelOverride
+  metadata?: Record<string, unknown>
+  attachments?: VizierAttachment[]
+  expect_audio_reply?: boolean
+  // This client's tools for the turn this request starts (client tools protocol §1).
+  client_tools?: ClientToolDeclaration[]
+  client_categories?: ClientCategoryDeclaration[]
+  // What this client renders, in its own words: shown to the turn that sends it, never stored
+  // with the request. The WebUI says it draws mermaid diagrams and LaTeX.
+  client_context?: string[]
+}
+
+// ============================================================================
+// CLIENT TOOLS (specs/019-client-tools/contracts/client-tools-protocol.md)
+// ============================================================================
+
+export type JsonSchemaObject = { type: 'object'; [key: string]: unknown }
+
+export interface ClientToolDeclaration {
+  name: string
+  category?: string
+  description: string
+  input_schema: JsonSchemaObject
+  output_schema?: Record<string, unknown>
+  timeout_secs?: number
+  // Keep a call made while no client is connected, and run it when one reconnects.
+  deferrable?: boolean
+  // A successful call is the turn's final answer: no further model round (spec 026).
+  ends_turn?: boolean
+}
+
+export interface ClientCategoryDeclaration {
+  name: string
+  description?: string
+}
+
+export type ClientCallOutcome =
+  | { status: 'pending' }
+  | { status: 'ok'; result: unknown }
+  | { status: 'error'; message: string }
+  | { status: 'disconnected' }
+  | { status: 'timeout' }
+  | { status: 'cancelled' }
+  | { status: 'interrupted' }
+  // Waiting for a client to reconnect (deferrable tools only).
+  | { status: 'deferred' }
+
+export interface ClientToolCallEntry {
+  name: string
+  category: string
+  tool: string
+  arguments: Record<string, unknown>
+  outcome?: ClientCallOutcome
+  state?: unknown
+}
+
+/** One client tool call as a turn draws it, live or from history. */
+export interface ClientCallView {
+  callId: string
+  name: string
+  category: string
+  tool: string
+  args: Record<string, unknown>
+  outcome?: ClientCallOutcome
+  state?: unknown
+  live: boolean
+}
+
+export interface ClientToolCallFrame {
+  client_tool_call: {
+    call_id: string
+    name: string
+    category: string
+    tool: string
+    arguments: Record<string, unknown>
+    // True only on the connection that declared the tool, which alone may answer.
+    answer: boolean
+    // A deferred call delivered now that a client is back.
+    deferred?: boolean
+  }
+}
+
+export interface ClientToolsResolvedFrame {
+  client_tools_resolved: {
+    protocol: number
+    tools: { category: string; tool: string; category_name: string; name: string }[]
+  }
+}
+
+export interface ClientToolOutcomeFrame {
+  client_tool_outcome: { call_id: string; outcome: ClientCallOutcome }
+}
+
+export interface ClientCallStateFrame {
+  client_call_state: { call_id: string; state: unknown }
+}
+
+export interface ClientToolCancelledFrame {
+  client_tool_cancelled: { call_id: string }
+}
+
+export interface ClientErrorFrame {
+  client_error: { code: string; message: string; call_id?: string; tool?: string; rule?: string; set_id?: string; question_id?: string }
+}
+
+export type ClientFrame =
+  | ClientToolCallFrame
+  | ClientToolsResolvedFrame
+  | ClientToolOutcomeFrame
+  | ClientCallStateFrame
+  | ClientToolCancelledFrame
+  | ClientErrorFrame
+
+// WebSocketResponse matches backend VizierResponse struct
+export interface WebSocketResponse {
+  timestamp: string
+  content: VizierResponseContent
+  attachments?: VizierAttachment[]
+  // The history uid the final frame of a turn was saved as; absent on every other frame.
+  history_uid?: string
+  // The reply to a turn that a restart interrupted and that then carried on.
+  resumed?: boolean
+}
+
+// ============================================================================
+// SPEC 024 ADDITIONS
+// ============================================================================
+
+export type RecallOrigin = 'auto' | 'search'
+
+export interface RecalledPassage {
+    bundle: string
+    path: string
+    ordinal: number
+    score: number
+    title?: string
+}
+
+/** A file saved to a topic: from a tool, or attached to a request. */
+export interface SessionFileRecord {
+    id: string
+    session_slug: string
+    agent_id: string
+    filename: string
+    mime_type: string
+    size: number
+    file_id: string
+    added_at: string
+    /** A person's username, or the agent id. */
+    sender?: string | null
+    /** The request entry the file arrived with. */
+    history_uid?: string | null
+}
+
+/** Server → every socket on the conversation: a page version's check finished (spec 063). */
+export interface UiPageVerifiedFrame {
+    ui_page_verified: { page_id: string; version: number; verification: unknown }
+}
+
+/** Server → this socket only: check a new page version off-screen and report (spec 063). */
+export interface UiVerifyFrame {
+    ui_verify: { request_id: string; page_id: string; version: number; observe_ms: number }
+}
+
+/** Server → every socket on the conversation: a page's newly saved state (spec 063). */
+export interface UiPageStateFrame {
+    ui_page_state: { page_id: string; state: unknown; state_seq: number }
+}
+
+export interface SessionFileFrame {
+    session_file: { file: SessionFileRecord }
+}
+
+/** Every frame the topic socket sends, once told apart by `classifyFrame`. */
+export type Frame =
+    | { kind: 'response'; response: WebSocketResponse }
+    | { kind: 'detached_script'; script: DetachedScriptSnapshot }
+    | { kind: 'subagent'; worker: SubagentSnapshot }
+    | { kind: 'history_entry'; entry: ChatMessage }
+    | { kind: 'reactions'; messageUid: string; reactions: ReactionEntry[] }
+    | { kind: 'reaction_error'; messageUid: string; message: string }
+    | { kind: 'session_file'; file: SessionFileRecord }
+    | { kind: 'title'; title: string }
+    | { kind: 'client'; frame: ClientFrame }
+    | { kind: 'question_set'; update: QuestionSetUpdate }
+    | { kind: 'sensitive_ask'; ask: SensitiveAsk }
+    | { kind: 'sensitive_ask_closed'; askId: string; outcome: SensitiveAskOutcome }
+    | { kind: 'live_voice'; frame: ServerFrame }
+    | { kind: 'ui_page_verified'; pageId: string; version: number; verification: unknown }
+    | { kind: 'ui_page_state'; pageId: string; state: unknown; stateSeq: number }
+    | { kind: 'ui_verify'; requestId: string; pageId: string; version: number; observeMs: number }
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+const CLIENT_KEYS = [
+    'client_tool_call',
+    'client_tools_resolved',
+    'client_tool_outcome',
+    'client_call_state',
+    'client_tool_cancelled',
+    'client_error',
+] as const
+
+/** Tells a parsed socket message apart by its top-level key; anything else is a response. */
+export function classifyFrame(raw: unknown): Frame | null {
+    if (!isObj(raw)) return null
+    if ('detached_script' in raw) return { kind: 'detached_script', script: raw.detached_script as DetachedScriptSnapshot }
+    if ('subagent' in raw && isObj(raw.subagent)) return { kind: 'subagent', worker: raw.subagent as unknown as SubagentSnapshot }
+    if ('history_entry' in raw) return { kind: 'history_entry', entry: raw.history_entry as ChatMessage }
+    if ('session_title' in raw && isObj(raw.session_title)) return { kind: 'title', title: String(raw.session_title.title) }
+    if ('session_file' in raw) return { kind: 'session_file', file: (raw as unknown as SessionFileFrame).session_file.file }
+    if ('reactions' in raw && isObj(raw.reactions)) {
+        const r = raw.reactions as { message_uid: string; reactions: ReactionEntry[] }
+        return { kind: 'reactions', messageUid: r.message_uid, reactions: r.reactions }
+    }
+    if ('reaction_error' in raw && isObj(raw.reaction_error)) {
+        const r = raw.reaction_error as { message_uid: string; message: string }
+        return { kind: 'reaction_error', messageUid: r.message_uid, message: r.message }
+    }
+    if ('question_set' in raw && isObj(raw.question_set)) return { kind: 'question_set', update: raw.question_set as unknown as QuestionSetUpdate }
+    if ('sensitive_ask' in raw && isObj(raw.sensitive_ask)) return { kind: 'sensitive_ask', ask: raw.sensitive_ask as unknown as SensitiveAsk }
+    if ('sensitive_ask_closed' in raw && isObj(raw.sensitive_ask_closed)) {
+        const closed = raw.sensitive_ask_closed as { ask_id: string; outcome: SensitiveAskOutcome }
+        return { kind: 'sensitive_ask_closed', askId: closed.ask_id, outcome: closed.outcome }
+    }
+    if ('live_voice' in raw) {
+        const frame = decodeServerFrame(raw)
+        // An older payload under the same key is ignored rather than half-rendered.
+        if (frame) return { kind: 'live_voice', frame }
+    }
+    if ('ui_page_verified' in raw && isObj(raw.ui_page_verified)) {
+        const v = (raw as unknown as UiPageVerifiedFrame).ui_page_verified
+        return { kind: 'ui_page_verified', pageId: v.page_id, version: v.version, verification: v.verification }
+    }
+    if ('ui_verify' in raw && isObj(raw.ui_verify)) {
+        const v = (raw as unknown as UiVerifyFrame).ui_verify
+        return { kind: 'ui_verify', requestId: v.request_id, pageId: v.page_id, version: v.version, observeMs: v.observe_ms }
+    }
+    if ('ui_page_state' in raw && isObj(raw.ui_page_state)) {
+        const v = (raw as unknown as UiPageStateFrame).ui_page_state
+        return { kind: 'ui_page_state', pageId: v.page_id, state: v.state, stateSeq: v.state_seq }
+    }
+    if (CLIENT_KEYS.some((k) => k in raw)) return { kind: 'client', frame: raw as unknown as ClientFrame }
+    if ('content' in raw) return { kind: 'response', response: raw as unknown as WebSocketResponse }
+    return null
+}
