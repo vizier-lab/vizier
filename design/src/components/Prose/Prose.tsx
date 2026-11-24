@@ -1,0 +1,39 @@
+import type { HTMLAttributes } from "react";
+import { cx } from "../../lib/cx";
+
+export type ProseProps = {
+  /** Reply: chat replies at reading size. Document: Core and the skill editor. */
+  size?: "reply" | "document";
+  /** Muted: prose on the trail (a thought, narration between rounds) reads quieter than a reply. */
+  tone?: "default" | "muted";
+} & HTMLAttributes<HTMLDivElement>;
+
+// Rendered markdown, styled through its elements so any renderer's output fits.
+const BASE = [
+  "[&>*+*]:mt-12",
+  // Headings take the root's colour, so a muted Prose mutes them too.
+  "[&_h1]:type-title [&_h2]:type-heading [&_h3]:type-body-strong",
+  "[&_:is(h1,h2,h3)+*]:mt-8",
+  "[&_ul]:list-disc [&_ol]:list-decimal [&_:is(ul,ol)]:pl-20 [&_li+li]:mt-4",
+  "[&_a]:text-fg [&_a]:underline [&_a]:underline-offset-2",
+  "[&_strong]:font-semibold",
+  "[&_blockquote]:border-l-2 [&_blockquote]:border-border-strong [&_blockquote]:pl-12 [&_blockquote]:text-muted",
+  "[&_:not(pre)>code]:rounded-xs [&_:not(pre)>code]:bg-raised [&_:not(pre)>code]:px-4 [&_:not(pre)>code]:type-code [&_:not(pre)>code]:text-soft",
+  // A fenced block is drawn by `CodeBlock`, which owns its frame, padding and wrapping. Styling
+  // `pre` here would draw a second frame inside the first and put the horizontal scroll back.
+  // Tables sit in a rounded frame, as in replies.
+  "[&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:overflow-hidden [&_table]:rounded-md [&_table]:border [&_table]:border-border",
+  "[&_th]:bg-surface [&_th]:px-14 [&_th]:py-8 [&_th]:text-left [&_th]:type-small [&_th]:text-muted",
+  "[&_td]:border-t [&_td]:border-border [&_td]:px-14 [&_td]:py-8 [&_td]:type-ui [&_td]:text-fg",
+  "[&_hr]:border-border",
+].join(" ");
+
+/** Rendered markdown (X49): headings, paragraphs, lists, tables, code, quotes. */
+export function Prose({ size = "reply", tone = "default", className, ...rest }: ProseProps) {
+  return (
+    <div
+      className={cx(BASE, size === "reply" ? "type-prose" : "type-body-para", tone === "muted" ? "text-muted" : "text-fg", className)}
+      {...rest}
+    />
+  );
+}

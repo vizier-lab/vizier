@@ -1,0 +1,268 @@
+/*
+ * @vizier/design: fonts, tokens, type and the Tailwind theme mapping.
+ * Import once from the app's CSS entry, then point Tailwind at the library:
+ *
+ *   @import "@vizier/design/styles.css";
+ *   @source "../node_modules/@vizier/design/src";
+ */
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+@import "./tokens/tokens.css";
+@import "./tokens/type.css";
+
+/*
+ * Utilities resolve only to tokens (FR-015). The default Tailwind colours,
+ * radii, font sizes and shadows are switched off, so `bg-red-500` or
+ * `text-sm` simply don't exist here.
+ */
+@theme {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-ground: var(--vz-ground);
+  --color-sidebar: var(--vz-sidebar);
+  --color-shell: var(--vz-shell);
+  --color-panel: var(--vz-panel);
+  --color-surface: var(--vz-surface);
+  --color-raised: var(--vz-raised);
+  --color-pressed: var(--vz-pressed);
+  --color-deck: var(--vz-deck);
+  --color-border: var(--vz-border);
+  --color-border-strong: var(--vz-border-strong);
+  --color-focus: var(--vz-focus);
+  --color-border-hover: var(--vz-border-hover);
+  --color-unlit: var(--vz-unlit);
+  --color-dot-off: var(--vz-dot-off);
+  --color-faint: var(--vz-text-faint);
+  --color-muted: var(--vz-text-muted);
+  --color-soft: var(--vz-text-soft);
+  --color-fg: var(--vz-text);
+  /* Text on the live colour (the composer deck's open pill): the white made for the green selection. */
+  --color-on-live: var(--vz-selection-text);
+  --color-ink: var(--vz-ink);
+  --color-ink-hover: var(--vz-ink-hover);
+  --color-ink-pressed: var(--vz-ink-pressed);
+  --color-live: var(--vz-live);
+  --color-live-text: var(--vz-live-text);
+  --color-rank: var(--vz-rank);
+  --color-rank-text: var(--vz-rank-text);
+  --color-rank-bg: var(--vz-rank-bg);
+  --color-failed: var(--vz-failed);
+  --color-failed-text: var(--vz-failed-text);
+  --color-failed-bg: var(--vz-failed-bg);
+  --color-live-bg: var(--vz-live-bg);
+  --color-failed-line: var(--vz-failed-line);
+  --color-retrying: var(--vz-retrying);
+  --color-retrying-bg: var(--vz-retrying-bg);
+  --color-retrying-line: var(--vz-retrying-line);
+  --color-failed-hover: var(--vz-failed-hover);
+  --color-failed-pressed: var(--vz-failed-pressed);
+  --color-graph-edge: var(--vz-graph-edge);
+  --color-graph-edge-strong: var(--vz-graph-edge-strong);
+  --color-chart-1: var(--vz-chart-1);
+  --color-chart-2: var(--vz-chart-2);
+  --color-chart-3: var(--vz-chart-3);
+  --color-chart-4: var(--vz-chart-4);
+  --color-chart-5: var(--vz-chart-5);
+  --color-code-keyword: var(--vz-code-keyword);
+  --color-code-string: var(--vz-code-string);
+  --color-code-number: var(--vz-code-number);
+  --color-code-comment: var(--vz-code-comment);
+  --color-code-function: var(--vz-code-function);
+  --color-code-punctuation: var(--vz-code-punctuation);
+  --radius-*: initial;
+  --radius-xs: var(--vz-radius-xs);
+  --radius-sm: var(--vz-radius-sm);
+  --radius-md: var(--vz-radius-md);
+  --radius-lg: var(--vz-radius-lg);
+  --radius-xl: var(--vz-radius-xl);
+  --radius-2xl: var(--vz-radius-2xl);
+  --radius-pill: var(--vz-radius-pill);
+
+  /* One spacing unit is 1px, so `h-32` is 32px. Padding, margin and gap
+     must stay on the space scale (2 4 6 8 10 12 14 16 20 24 32 48);
+     lint:tokens checks that. Other numbers are component geometry. */
+  --spacing: 1px;
+
+  --text-*: initial;
+  --font-*: initial;
+  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* DotLoader: three dots fading in turn. */
+  --animate-dot-wave: dot-wave 1.2s ease-in-out infinite;
+  @keyframes dot-wave {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+  /* dot-wave, with the brightest moment in the live colour: the same wave, tinted at its peak. */
+  --animate-dot-wave-live: dot-wave-live 1.2s ease-in-out infinite;
+  @keyframes dot-wave-live {
+    0%, 100% { background-color: var(--color-muted); opacity: 0.35; }
+    50% { background-color: var(--color-live); opacity: 1; }
+  }
+  /* Skeleton shimmer and indeterminate progress. */
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  @keyframes shimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
+  /* Entrances and state pops. One-shot (no loop), so each use pairs with
+     motion-reduce:animate-none; under reduced motion the change still
+     happens, only instantly. Distances borrow the space scale. */
+  --animate-rise-in: rise-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(var(--vz-space-6)); }
+  }
+  --animate-fade-in: fade-in var(--vz-duration-fast) var(--vz-ease-standard) both;
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+  --animate-pop-in: pop-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.94); }
+  }
+  --animate-slide-in-right: slide-in-right var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(var(--vz-space-12)); }
+  }
+  --animate-slide-down-in: slide-down-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes slide-down-in {
+    from { opacity: 0; transform: translateY(calc(-1 * var(--vz-space-6))); }
+  }
+  /* A live light breathes, so a running thing never looks switched off. */
+  --animate-live-glow: live-glow 2.4s ease-in-out infinite;
+  @keyframes live-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  /* House timing: every `transition-*` utility and its `animate-` keyframes
+     resolve to the motion tokens, so nothing hand-writes a duration. */
+  --default-transition-duration: var(--vz-duration-fast);
+  --default-transition-timing-function: var(--vz-ease-standard);
+  --ease-standard: var(--vz-ease-standard);
+  --ease-arrive: var(--vz-ease-arrive);
+
+  --shadow-*: initial;
+  --shadow-popover: var(--vz-shadow-popover);
+  --shadow-dialog: var(--vz-shadow-dialog);
+  --shadow-lift: var(--vz-shadow-lift);
+}
+
+/* iOS Safari zooms the page into any field set under 16px and leaves it zoomed. Touch screens get
+   16px fields; unlayered so the type utilities on the field do not win. */
+@media (hover: none) and (pointer: coarse) {
+  textarea,
+  select,
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]) {
+    font-size: max(16px, 1em);
+  }
+}
+
+@layer base {
+  html {
+    background: var(--vz-ground);
+    color: var(--vz-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--vz-ground);
+    color: var(--vz-text);
+  }
+
+  /* Keyboard focus: 2px ring at a 2px offset (FR-014). Text entry overrides
+     this with the live colour in its own component. */
+  :focus-visible {
+    outline: var(--vz-space-2) solid var(--vz-focus);
+    outline-offset: var(--vz-space-2);
+  }
+
+  /* Selected text is emerald with white letters, in both themes: one mark wherever
+     it is made (see the token's note for the contrast it was picked for). */
+  ::selection {
+    background: var(--vz-selection);
+    color: var(--vz-selection-text);
+  }
+
+  /* The theme cross-fade: when the view transition runs, the old and new
+     grounds dissolve into one another at house timing. */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: var(--vz-duration-slow);
+      animation-timing-function: var(--vz-ease-standard);
+    }
+  }
+
+  /* Scrollbars: every scroll container gets the same pill thumb, so nothing
+     opts in. WebKit/Blink draw it from the pseudo-elements (the transparent
+     border insets the thumb from the edge); Firefox, which has no
+     pseudo-elements, gets the standard properties. Setting those in Blink
+     would switch the pseudo-elements off, hence the @supports. */
+  ::-webkit-scrollbar {
+    width: var(--vz-scrollbar-size);
+    height: var(--vz-scrollbar-size);
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--vz-scrollbar-thumb);
+    background-clip: padding-box;
+    border: var(--vz-scrollbar-inset) solid transparent;
+    border-radius: var(--vz-radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--vz-scrollbar-thumb-hover);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--vz-scrollbar-thumb-active);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--vz-scrollbar-thumb) transparent;
+    }
+  }
+}
+
+/* Scrolls without showing a bar: tab strips and other rows whose overflow is
+   already obvious from clipped content. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* The one look of every popup, dropdown and dialog: the surface colour at 80%
+   over a blurred backdrop. Pair it with a border and `shadow-popover`/`shadow-dialog`. */
+@utility surface-float {
+  background-color: color-mix(in srgb, var(--vz-surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+
+/*
+ * Safe areas (spec 056). A phone with a notch or a home indicator reports its insets through
+ * env(); with viewport-fit=cover the page draws under them, so the top bar, the composer and
+ * every bottom sheet pad by them. Never a constant: each device reports its own.
+ */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

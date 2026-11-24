@@ -1,0 +1,48 @@
+name: Deploy Storybook
+
+# The catalogue is published at https://www.vizier.rs/design, and that site is
+# deployed whole by vizier-lab/landing. This repository does not build or host
+# anything itself: it tells landing that design moved, and landing builds the
+# Storybook from this commit and ships it with the rest of the site.
+#
+# Needs a `LANDING_DISPATCH_TOKEN` repository secret: a fine-grained PAT with
+# Contents read/write on vizier-lab/landing. Without it the job warns and stops.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - '.storybook/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-storybook.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch landing deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check dispatch token
+        id: token
+        env:
+          TOKEN: ${{ secrets.LANDING_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::LANDING_DISPATCH_TOKEN is not set; skipping the catalogue deploy"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch
+        if: steps.token.outputs.present == 'true'
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.LANDING_DISPATCH_TOKEN }}
+          repository: vizier-lab/landing
+          event-type: design-updated
+          client-payload: '{"sha":"${{ github.sha }}"}'

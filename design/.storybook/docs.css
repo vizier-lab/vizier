@@ -1,0 +1,23 @@
+/* Docs pages follow the theme switch: ground and text from the tokens. */
+.sbdocs.sbdocs-wrapper {
+  background: var(--vz-ground);
+}
+
+.sbdocs.sbdocs-content :is(h1, h2, h3, h4, p, li, td, th, strong, a):not(.sb-unstyled *) {
+  color: var(--vz-text);
+}
+
+.sbdocs.sbdocs-content :is(p, li):not(.sb-unstyled *) {
+  color: var(--vz-text-soft);
+}
+
+.sbdocs.sbdocs-content code:not(.sb-unstyled *) {
+  background: var(--vz-raised);
+  border-color: var(--vz-border);
+  color: var(--vz-text-soft);
+}
+
+.sbdocs.sbdocs-content :is(hr, table, tr, td, th):not(.sb-unstyled *) {
+  border-color: var(--vz-border);
+  background: transparent;
+}

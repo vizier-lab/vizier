@@ -1,0 +1,192 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { Attachment } from "../Attachment/Attachment";
+import { FilterTabs } from "../FilterTabs/FilterTabs";
+import { Icon } from "../../icons/Icon";
+import { Tooltip } from "../Tooltip/Tooltip";
+import { VoiceRecorder } from "../VoiceRecorder/VoiceRecorder";
+import { StateGrid, statePseudo } from "../../stories/StateGrid";
+import { cx } from "../../lib/cx";
+import { Composer } from "./Composer";
+
+const SKILLS = [
+  { name: "code-review", description: "Review a diff for bugs, then for clarity" },
+  { name: "compare-tables", description: "Turn benchmark output into a table" },
+  { name: "checkpoint", description: "Save checkpoint with handover" },
+];
+
+const CONTEXT = { used: 156000, window: 200000, detail: "claude-sonnet-5-5 · checkpoints automatically" };
+
+const meta = {
+  title: "Components/Chat/Composer",
+  component: Composer,
+  tags: ["approved"],
+  parameters: {
+    vizier: { id: "D46", replaces: null },
+    docs: { description: { component: "Enter sends, Shift+Enter breaks the line. Type / for the skill menu: ↑ ↓ move, Tab completes, Enter runs. Send stays disabled until there is text or an attachment; while the agent works it becomes Stop, and once you type, Send adds the message to the turn in progress (Ctrl+Enter or Cmd+Enter queues it as a new turn instead)." } },
+  },
+  args: { agentName: "Archivist", value: "", onValueChange: () => {}, onSend: () => {}, skills: SKILLS, context: CONTEXT },
+  decorators: [(Story) => <div className="flex min-h-260 w-720 flex-col justify-end">{Story()}</div>],
+} satisfies Meta<typeof Composer>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+/** Try it: type, or type "/". */
+export const Default: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState("");
+    const [busy, setBusy] = useState(false);
+    return <Composer {...args} value={v} onValueChange={setV} busy={busy} onSend={() => { setV(""); setBusy(true); }} onStop={() => setBusy(false)} />;
+  },
+};
+
+export const States: Story = {
+  tags: ["!autodocs"],
+  parameters: statePseudo,
+  decorators: [(Story) => <div className="w-720">{Story()}</div>],
+  render: (args) => {
+    const c = (p: Partial<React.ComponentProps<typeof Composer>> = {}) => (
+      <div className="w-640">
+        <Composer {...args} skills={[]} {...p} />
+      </div>
+    );
+    return (
+      <StateGrid
+        rows={[
+          { cells: [{ label: "Idle", node: c() }] },
+          { cells: [{ label: "Busy", node: c({ busy: true, onStop: () => {} }) }] },
+          { cells: [{ label: "Focus", pseudo: "focus-within", node: c() }] },
+          { cells: [{ label: "Filled", node: c({ value: "Compare LanceDB and sqlite-vec on our bench, then summarise" }) }] },
+          { cells: [{ label: "Recording", node: c({ recording: true }) }] },
+          { cells: [{ label: "Disabled", node: c({ disabledReason: "Reconnecting… you can send once the connection is back" }) }] },
+        ]}
+      />
+    );
+  },
+};
+
+/**
+ * While the agent works (spec 062): Enter adds the message to the turn in progress, Ctrl+Enter
+ * (Cmd+Enter on macOS) queues it as a new turn. The host shows the shortcut under the box only
+ * while busy; there is no hint on a phone, where `/queue` does the same.
+ */
+export const BusyWithHint: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState("also check the error logs");
+    const [sent, setSent] = useState<string | null>(null);
+    return (
+      <div className="flex flex-col gap-12">
+        <Composer
+          {...args}
+          value={v}
+          onValueChange={setV}
+          busy
+          onStop={() => {}}
+          onSend={(options) => {
+            setSent(options?.queue ? "queued as a new turn" : "added to the current turn");
+            setV("");
+          }}
+          hint="Enter adds to the current turn · Ctrl+Enter queues it"
+        />
+        {sent && <p className="type-small text-muted">Last message: {sent}</p>}
+      </div>
+    );
+  },
+};
+
+/** The skill menu, filtering as you type. */
+export const SkillsOpen: Story = { args: { value: "/co" } };
+
+export const WithAttachments: Story = {
+  args: {
+    value: "What changed between these two runs?",
+    attachments: (
+      <>
+        <Attachment name="bench-old.csv" detail="12 KB" onRemove={() => {}} />
+        <Attachment name="bench-new.csv" detail="9 KB" onRemove={() => {}} />
+        <Attachment name="flame.png" detail="88 KB" onRemove={() => {}} />
+      </>
+    ),
+  },
+};
+
+/** Recorded: listen back, then send or discard. */
+export const VoiceRecorded: Story = {
+  args: { voice: <VoiceRecorder mode="recorded" elapsed={12} onDiscard={() => {}} /> },
+};
+
+/**
+ * A project chat: the mode switch sits in the right group, left of Send; the spoken-reply toggle
+ * follows the mic, before the context ring that ends the left group. Both are the host's own
+ * controls, passed through `afterTools` and `beforeSend`.
+ */
+export const WithToggles: Story = {
+  render: function Render(args) {
+    const [v, setV] = useState("");
+    const [spoken, setSpoken] = useState(true);
+    const [mode, setMode] = useState<"plan" | "build">("build");
+    return (
+      <Composer
+        {...args}
+        value={v}
+        onValueChange={setV}
+        afterTools={
+          <Tooltip label="Ask for a spoken reply">
+            <button
+              type="button"
+              aria-label="Ask for a spoken reply"
+              aria-pressed={spoken}
+              onClick={() => setSpoken((s) => !s)}
+              className={cx(
+                "flex size-28 items-center justify-center rounded-sm hover:bg-raised",
+                spoken ? "text-live hover:text-live" : "text-muted hover:text-fg",
+              )}
+            >
+              <Icon name="volume-2" />
+            </button>
+          </Tooltip>
+        }
+        beforeSend={
+          <FilterTabs<"plan" | "build">
+            aria-label="Plan or Build"
+            value={mode}
+            onChange={() => setMode((m) => (m === "plan" ? "build" : "plan"))}
+            options={[
+              { value: "plan", label: "Plan", tone: "solid" },
+              { value: "build", label: "Build", tone: "live" },
+            ]}
+          />
+        }
+      />
+    );
+  },
+};
+
+/** The agent can't take messages right now. */
+/** An agent without Speech-to-Text: no mic, the rest of the tools stay put. */
+export const WithoutMic: Story = { args: { mic: false } };
+
+export const AgentUnavailable: Story = { args: { disabledReason: "Archivist can't answer until it restarts" } };
+
+/** Mobile: the token count as text. */
+export const MobileTokens: Story = { args: { context: undefined, tokenText: "21k / 200k" }, decorators: [(Story) => <div className="w-375">{Story()}</div>] };
+
+/** A project chat: typing "@" opens the file menu; ↑↓ move, Tab or Enter mention, Esc closes. */
+export const MentioningAFile: Story = {
+  args: {
+    value: "Make ps match @agent",
+    suggest: {
+      label: "Files",
+      query: "agent",
+      items: [
+        { path: "crates/vizier/src/cli/agent.rs", kind: "file" },
+        { path: "crates/vizier-core/src/agents/mod.rs", kind: "file" },
+        { path: "crates/vizier-core/src/agents/", kind: "dir" },
+      ],
+      onPick: () => {},
+      onDismiss: () => {},
+    },
+  },
+  decorators: [(Story) => <div className="flex h-240 items-end">{Story()}</div>],
+};

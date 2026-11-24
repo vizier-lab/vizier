@@ -1,0 +1,77 @@
+import type { HTMLAttributes } from "react";
+import { cx } from "../../lib/cx";
+import { HighlightMatch } from "../Picker/Picker";
+import { DeckFrame } from "../ComposerDeck/DeckFrame";
+
+export type SkillMenuItem = {
+  name: string;
+  description: string;
+  /** In a Workspace: the member agents that have it, so `/name @` offers only those. */
+  agents?: string[];
+};
+
+export type SkillMenuProps = {
+  /** Skills matching what was typed after "/". */
+  items: SkillMenuItem[];
+  query: string;
+  /** Index of the highlighted row. */
+  active: number;
+  onPick: (item: SkillMenuItem) => void;
+  /** The composer's text field controls this list via aria-activedescendant. */
+  id: string;
+} & Omit<HTMLAttributes<HTMLDivElement>, "id">;
+
+/**
+ * The slash menu above the composer (X33): built-in commands and the agent's
+ * skills, filtered as you type, in the composer deck's frame. The composer owns the keys
+ * (↑ ↓ Tab Enter).
+ */
+export function SkillMenu({ items, query, active, onPick, id, className, ...rest }: SkillMenuProps) {
+  return (
+    <DeckFrame label="Commands and skills" footer="↑↓ to move · Tab to complete · Enter to run" className={className} {...rest}>
+      {items.length === 0 ? (
+        <p id={id} role="status" className="px-8 py-8 type-small text-muted">
+          No skill matches “/{query}”. Enter sends it as a message.
+        </p>
+      ) : (
+        // One grid for every row, so the descriptions share a column instead of each row
+        // starting where its own name ends. Capped and scrolling, as the mention menu is.
+        <div
+          id={id}
+          role="listbox"
+          aria-label="Commands and skills"
+          className="grid max-h-240 grid-cols-[max-content_minmax(0,1fr)] gap-x-10 overflow-y-auto"
+        >
+          {items.map((s, i) => (
+            <div
+              key={s.name}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                onPick(s);
+              }}
+              className={cx(
+                "col-span-2 grid cursor-pointer grid-cols-subgrid items-center rounded-sm px-8 py-6",
+                // The highlighted row is live, like the deck's open pill; everything in it reads white.
+                i === active && "bg-live text-on-live [&_*]:text-on-live!",
+              )}
+            >
+              <span className="whitespace-nowrap type-code-medium text-fg">
+                /<HighlightMatch text={s.name} query={query} />
+              </span>
+              {/* A phone shows the names alone: twenty characters of clipped prose is noise. */}
+              <span className="flex min-w-0 items-baseline gap-8 max-sm:hidden">
+                <span className="min-w-0 truncate type-small text-muted">{s.description}</span>
+                {s.agents && s.agents.length > 0 && (
+                  <span className="ml-auto shrink-0 type-mono-xs text-faint">{s.agents.map((a) => `@${a}`).join(" ")}</span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </DeckFrame>
+  );
+}
