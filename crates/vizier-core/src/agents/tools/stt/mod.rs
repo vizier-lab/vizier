@@ -84,7 +84,7 @@ impl VizierTool for SttTranscribe {
 
         let text = self
             .stt
-            .transcribe(&audio_bytes, &args.filename, language)
+            .transcribe(&audio_bytes, &args.filename, language, &crate::agents::agent::model::usage::media_scope())
             .await?;
 
         Ok(SttTranscribeOutput { text })

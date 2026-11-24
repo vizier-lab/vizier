@@ -27,6 +27,11 @@ The provider traits (`VizierImageGenModel`, `VizierTtsModel`, `VizierSttModel`,
 `characters`, `audio_ms`, `served_model`) a client fills from the response when the provider
 sends them, `Reported::default()` otherwise. The handle measures whatever is missing (R4).
 
+**As built (implementation note)**: instead of changing the four return types (21 client
+implementations), each trait gained a `*_reported` method whose default wraps the plain one with
+`Reported::default()`; only clients that read usage from their response override it. Same seam, a
+smaller change (Principle I).
+
 **Rationale**: One seam per kind, at the one type every caller already goes through, means no call
 site can make an unrecorded media call — the same guarantee 018 R1 bought for completions. The
 handles already hold the provider choice; the `match` over providers stays in the four
@@ -57,6 +62,14 @@ proportion, so the embedder reads an **ambient** scope: a `tokio::task_local!` `
 `prompt_with` sets around the turn's automatic recall, and that the dream cycle sets around its
 stages. With no ambient scope (startup conversion, re-index after a model change, a person's memory
 edit over HTTP) the record has no conversation and activity **Indexing** (FR-003).
+
+**As built (implementation note)**: the tools read the ambient scope too, instead of a new
+`ToolContext` field (47 struct literals). `SessionTurns::spawn` sets the conversation for the whole
+turn task; each model tool call narrows it to its turn, round and call id; `RouterBridge` captures
+the scope when it is built and re-applies it to every nested call, because the sandbox runs them
+with `block_on` on a blocking thread where task-locals are gone; `DetachedScripts::launch` carries
+it into the spawned script; live voice scopes its own calls. The handles still take an explicit
+`&UsageScope`.
 
 **Rationale**: Explicit where the session is at hand (the compiler finds every site, 018 R1);
 ambient only for the one kind whose path has no session, and wrapped around futures, so it works

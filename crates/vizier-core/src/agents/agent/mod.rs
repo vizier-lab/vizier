@@ -150,7 +150,7 @@ impl VizierAgent {
         // Create image generation instance if enabled (used by image_generate tool)
         let image_gen = if agent_config.tools.image_gen.enabled {
             Some(Arc::new(
-                VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps)
+                VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps, &agent_id)
                     .await
                     .map_err(|e| {
                         VizierError(format!("image generation is enabled but cannot start: {e}"))
@@ -400,7 +400,9 @@ impl VizierAgent {
             });
         let speed = self.config.tools.tts.settings.speed.unwrap_or(1.0);
 
-        match tts.generate_speech(&text, &voice, speed).await {
+        // The turn's task carries its conversation as the media scope (spec 065 R2).
+        let scope = crate::agents::agent::model::usage::media_scope();
+        match tts.generate_speech(&text, &voice, speed, &scope).await {
             Ok(audio_bytes) => {
                 let filename = format!("audio_reply_{}.wav", uuid::Uuid::new_v4());
                 match self
@@ -731,7 +733,11 @@ impl VizierAgent {
                         "[Voice message - could not be loaded]".to_string()
                     }
                     Ok(audio_bytes) => {
-                        match stt.transcribe(&audio_bytes, &att.filename, language).await {
+                        let scope = crate::agents::agent::model::usage::media_scope();
+                        match stt
+                            .transcribe(&audio_bytes, &att.filename, language, &scope)
+                            .await
+                        {
                             Ok(t) if !t.is_empty() => t,
                             Ok(_) => "[Voice message]".to_string(),
                             Err(e) => {
@@ -1524,17 +1530,20 @@ impl VizierAgent {
                 let mut ctx_clone = ctx.clone();
                 ctx_clone.deadline = Some(tokio::time::Instant::now() + *self.config.tools.timeout);
                 let traced_args = args.clone();
+                // What this call's media calls are recorded under (spec 065 R2, R10).
+                let media = UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32)
+                    .for_media(Some(call_id.to_string()));
                 let mut tool_res = match traced_tool_call(
                     &function_name,
                     call_id,
                     &traced_args,
                     *self.config.tools.timeout,
                     Some(&ctx_clone.secret_redactor),
-                    async {
+                    crate::agents::agent::model::usage::MEDIA_SCOPE.scope(media, async {
                         tool_server
                             .call(function_name.clone(), args, &ctx_clone)
                             .await
-                    },
+                    }),
                 )
                 .await
                 {

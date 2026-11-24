@@ -85,7 +85,7 @@ impl VizierTool for ImageGenerate {
         )
         .await?;
 
-        let (image_bytes, mime_type) = self.image_gen.generate(&args.prompt, size, &references).await?;
+        let (image_bytes, mime_type) = self.image_gen.generate(&args.prompt, size, &references, &crate::agents::agent::model::usage::media_scope()).await?;
 
         let filename = args
             .filename

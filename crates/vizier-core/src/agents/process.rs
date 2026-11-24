@@ -850,7 +850,12 @@ impl SessionTurns {
     ) where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        let handle = self.tasks.spawn(turn);
+        // A turn's media calls (recall embeddings, spoken replies, voice messages) belong to its
+        // conversation (spec 065 R2); tool calls narrow this to their turn, round and call.
+        let scope = crate::agents::agent::model::usage::UsageScope::media(Some(session.clone()));
+        let handle = self
+            .tasks
+            .spawn(crate::agents::agent::model::usage::MEDIA_SCOPE.scope(scope, turn));
         let id = handle.id();
         self.spawned
             .insert(id, (session.clone(), response_tx, turn_ref));

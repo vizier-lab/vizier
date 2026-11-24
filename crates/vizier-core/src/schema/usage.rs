@@ -28,10 +28,13 @@ pub enum UsageActivity {
     Other,
     /// A turn of a consulted agent (`specs/064-consult-agents`).
     Consultation,
+    /// A media call made outside any conversation to keep an agent's memory or skills indexed
+    /// (`specs/065-media-usage-accounting` FR-003).
+    Indexing,
 }
 
 impl UsageActivity {
-    pub const ALL: [UsageActivity; 10] = [
+    pub const ALL: [UsageActivity; 11] = [
         Self::Chat,
         Self::Project,
         Self::Workspace,
@@ -42,6 +45,7 @@ impl UsageActivity {
         Self::Vision,
         Self::Other,
         Self::Consultation,
+        Self::Indexing,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -56,6 +60,7 @@ impl UsageActivity {
             Self::Vision => "vision",
             Self::Other => "other",
             Self::Consultation => "consultation",
+            Self::Indexing => "indexing",
         }
     }
 
@@ -71,6 +76,7 @@ impl UsageActivity {
             Self::Vision => "Vision",
             Self::Other => "Other",
             Self::Consultation => "Consultations",
+            Self::Indexing => "Indexing",
         }
     }
 
@@ -85,6 +91,75 @@ impl std::str::FromStr for UsageActivity {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::ALL.into_iter().find(|a| a.as_str() == s).ok_or(())
+    }
+}
+
+/// What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).
+/// Every completion is `Text`. Display order; append only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UsageKind {
+    #[default]
+    Text,
+    Image,
+    Speech,
+    Transcription,
+    Embedding,
+}
+
+impl UsageKind {
+    pub const ALL: [UsageKind; 5] = [
+        Self::Text,
+        Self::Image,
+        Self::Speech,
+        Self::Transcription,
+        Self::Embedding,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Image => "image",
+            Self::Speech => "speech",
+            Self::Transcription => "transcription",
+            Self::Embedding => "embedding",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Text => "Text",
+            Self::Image => "Images",
+            Self::Speech => "Speech",
+            Self::Transcription => "Transcription",
+            Self::Embedding => "Embeddings",
+        }
+    }
+}
+
+impl std::str::FromStr for UsageKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::ALL.into_iter().find(|k| k.as_str() == s).ok_or(())
+    }
+}
+
+/// A media call's amount in its kind's own unit (data-model §3). Zero is "not this unit" or, for
+/// `audio_ms`, unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MediaUnits {
+    pub images: u64,
+    pub characters: u64,
+    pub audio_ms: u64,
+}
+
+impl std::ops::AddAssign for MediaUnits {
+    fn add_assign(&mut self, rhs: Self) {
+        self.images += rhs.images;
+        self.characters += rhs.characters;
+        self.audio_ms += rhs.audio_ms;
     }
 }
 
@@ -108,6 +183,17 @@ pub struct UsageEvent {
     pub tokens: TokenCounts,
     pub duration_ms: u64,
     pub legacy: bool,
+    /// `Text` for completions (spec 065).
+    pub kind: UsageKind,
+    /// Image only: `<size>` or `<size>/<quality>`.
+    pub variant: Option<String>,
+    pub units: MediaUnits,
+    /// Some amount was measured rather than reported by the provider (research R4).
+    pub measured: bool,
+    /// The model runs on this machine; priced at zero (FR-010).
+    pub local: bool,
+    /// The `execute_python` call that made it (research R10).
+    pub call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,6 +227,9 @@ pub struct UsageSummary {
     pub failed: FailedTotals,
     /// Set only when the report is narrowed to one activity: its share of all activities' cost.
     pub share_of_all: Option<f64>,
+    /// Set only when the report is narrowed to one kind (spec 065): its share of all kinds' cost
+    /// under the same activity filter.
+    pub kind_share_of_all: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -166,6 +255,70 @@ pub struct DailyUsage {
     pub date: NaiveDate,
     /// Keyed by `UsageActivity` (snake_case).
     pub by_activity: BTreeMap<UsageActivity, DayActivity>,
+    /// Keyed by `UsageKind` (snake_case), for the day's tooltip (spec 065).
+    pub by_kind: BTreeMap<UsageKind, DayActivity>,
+}
+
+/// A media amount in its kind's own unit (spec 065 data-model §9). Only the fields of the kinds
+/// in the row are set.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct Units {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub characters: Option<u64>,
+    /// Known durations only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_seconds: Option<f64>,
+    /// Embedding input tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+}
+
+impl Units {
+    /// The amount of `kind` in `units`/`tokens`, or `None` for text.
+    pub fn of(kind: UsageKind, units: &MediaUnits, tokens: u64) -> Option<Self> {
+        let seconds = (units.audio_ms > 0).then(|| units.audio_ms as f64 / 1000.0);
+        match kind {
+            UsageKind::Text => None,
+            UsageKind::Image => Some(Self {
+                images: Some(units.images),
+                ..Default::default()
+            }),
+            UsageKind::Speech => Some(Self {
+                characters: Some(units.characters),
+                audio_seconds: seconds,
+                ..Default::default()
+            }),
+            UsageKind::Transcription => Some(Self {
+                audio_seconds: Some(units.audio_ms as f64 / 1000.0),
+                ..Default::default()
+            }),
+            UsageKind::Embedding => Some(Self {
+                tokens: Some(tokens),
+                ..Default::default()
+            }),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// Which rule priced a figure (spec 065 research R6).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PriceSource {
+    Catalogue,
+    /// Vizier's shipped media price table.
+    Table,
+    /// A model on this machine: free.
+    Local,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,6 +332,17 @@ pub struct BreakdownRow {
     pub share: Option<f64>,
     pub tokens: u64,
     pub calls: u64,
+    /// The row's media amounts, when it has media calls (spec 065).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<Units>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct KindRow {
+    #[serde(flatten)]
+    pub row: BreakdownRow,
+    pub kind: UsageKind,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +356,8 @@ pub struct ModelRow {
     pub cache_hit_rate: Option<f64>,
     pub failed_tokens: u64,
     pub priced: bool,
+    pub kind: UsageKind,
+    pub price_source: PriceSource,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -216,6 +382,8 @@ pub struct ConversationRow {
 pub struct UnpricedNote {
     pub tokens: u64,
     pub models: Vec<String>,
+    /// Unpriced media amounts, by kind (spec 065 FR-011).
+    pub units: BTreeMap<UsageKind, Units>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,10 +394,15 @@ pub struct UsageReport {
     /// failed rounds.
     pub accounting_since: Option<DateTime<Local>>,
     pub activity: Option<UsageActivity>,
+    pub kind: Option<UsageKind>,
+    /// When media calls started being recorded (spec 065 R8).
+    pub media_accounting_since: Option<DateTime<Local>>,
     pub summary: UsageSummary,
     pub previous: Option<PeriodTotals>,
     pub daily: Vec<DailyUsage>,
     pub by_activity: Vec<BreakdownRow>,
+    /// Empty when the report is narrowed to one kind.
+    pub by_kind: Vec<KindRow>,
     pub by_model: Vec<ModelRow>,
     pub by_place: Vec<BreakdownRow>,
     pub costliest: Vec<ConversationRow>,
@@ -250,6 +423,34 @@ pub struct CallRow {
     pub output_tokens: u64,
     pub cost_usd: Option<f64>,
     pub failed: bool,
+    pub kind: UsageKind,
+    pub variant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<Units>,
+    pub measured: bool,
+}
+
+/// One media record made by a tool call, priced (spec 065 R10, `GET …/usage/calls`).
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct MediaCall {
+    pub kind: UsageKind,
+    pub provider: String,
+    pub model: String,
+    pub variant: Option<String>,
+    pub units: Option<Units>,
+    pub measured: bool,
+    pub local: bool,
+    pub cost_usd: Option<f64>,
+    pub price_source: PriceSource,
+    pub at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct MediaCalls {
+    /// Keyed by `execute_python` call id; an id with no media records is absent.
+    pub calls: BTreeMap<String, Vec<MediaCall>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -293,6 +494,14 @@ pub struct ConversationUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kind_round_trips_through_its_name() {
+        for k in UsageKind::ALL {
+            assert_eq!(k.as_str().parse::<UsageKind>(), Ok(k));
+            assert_eq!(serde_json::to_value(k).unwrap(), k.as_str());
+        }
+    }
 
     #[test]
     fn activity_round_trips_through_its_name() {

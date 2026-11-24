@@ -115,6 +115,10 @@ pub fn agents() -> Router<HTTPState> {
             "/{agent_id}/usage/conversation",
             get(agent_usage_conversation),
         )
+        .route(
+            "/{agent_id}/usage/calls",
+            get(agent_usage_calls),
+        )
         .route("/{agent_id}/ping", get(ping_agent))
         .route("/{agent_id}/restart", post(restart_agent))
         .route("/{agent_id}/chat", post(agent_chat))
@@ -397,6 +401,15 @@ pub struct UsageParams {
     pub end_date: Option<String>,
     /// Narrows every figure to one activity (spec 018 FR-021).
     pub activity: Option<String>,
+    /// Narrows every figure to one kind of call: `text`, `image`, `speech`, `transcription` or
+    /// `embedding` (spec 065 FR-015). Composes with `activity`.
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, utoipa::IntoParams)]
+pub struct UsageCallsParams {
+    /// Comma-separated `execute_python` call ids (history `ToolCall.call_id`), 1–50.
+    pub ids: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::IntoParams)]
@@ -407,6 +420,7 @@ pub struct ConversationUsageParams {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub activity: Option<String>,
+    pub kind: Option<String>,
     /// Calls to return, 1–100. Default 20.
     pub limit: Option<usize>,
 }
@@ -420,7 +434,7 @@ pub struct ConversationUsageParams {
     ),
     responses(
         (status = 200, description = "Agent usage report", body = APIResponse<vizier_core::schema::usage::UsageReport>),
-        (status = 400, description = "invalid_range or unknown_activity", body = APIResponse<String>),
+        (status = 400, description = "invalid_range, unknown_activity or unknown_kind", body = APIResponse<String>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
@@ -439,8 +453,35 @@ async fn agent_usage(
             params.start_date.as_deref(),
             params.end_date.as_deref(),
             params.activity.as_deref(),
+            params.kind.as_deref(),
         )
         .await,
+        StatusCode::OK,
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/usage/calls",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        UsageCallsParams,
+    ),
+    responses(
+        (status = 200, description = "The media calls each named tool call made, priced", body = APIResponse<vizier_core::schema::usage::MediaCalls>),
+        (status = 400, description = "invalid_ids", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+async fn agent_usage_calls(
+    Path(agent_id): Path<String>,
+    Query(params): Query<UsageCallsParams>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::auth::Principal>,
+) -> axum::response::Response {
+    respond(
+        service::agents::usage_calls(&svc(&state), &user, &agent_id, params.ids.as_deref()).await,
         StatusCode::OK,
     )
 }
@@ -475,6 +516,7 @@ async fn agent_usage_conversation(
             params.start_date.as_deref(),
             params.end_date.as_deref(),
             params.activity.as_deref(),
+            params.kind.as_deref(),
             params.limit,
         )
         .await,

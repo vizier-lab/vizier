@@ -18,6 +18,8 @@ pub enum UsagePurpose {
     Handover,
     /// `read_image` on a vision model.
     Vision,
+    /// An image, speech, transcription or embedding call (`specs/065-media-usage-accounting`).
+    Media,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,6 +55,22 @@ pub struct UsageScope {
     pub purpose: UsagePurpose,
     pub turn: Option<TurnId>,
     pub round: Option<u32>,
+    /// The `execute_python` call a media call was made from (spec 065 R10).
+    pub call_id: Option<String>,
+}
+
+tokio::task_local! {
+    /// The scope an embedding reads when its caller cannot pass one: the memory and skill
+    /// indexes are reached through storage, which has no session on the path (spec 065 R2).
+    /// Set around each tool call a script makes, the turn's automatic recall and dream stages.
+    pub static MEDIA_SCOPE: UsageScope;
+}
+
+/// The ambient media scope, or one with no conversation (activity Indexing).
+pub fn media_scope() -> UsageScope {
+    MEDIA_SCOPE
+        .try_with(|s| s.clone())
+        .unwrap_or_else(|_| UsageScope::media(None))
 }
 
 impl UsageScope {
@@ -62,6 +80,27 @@ impl UsageScope {
             purpose: UsagePurpose::Turn,
             turn: Some(turn.clone()),
             round: Some(round),
+            call_id: None,
+        }
+    }
+
+    /// A media call for `session`; with none, the call is Indexing.
+    pub fn media(session: Option<VizierSession>) -> Self {
+        Self {
+            session,
+            purpose: UsagePurpose::Media,
+            turn: None,
+            round: None,
+            call_id: None,
+        }
+    }
+
+    /// The same turn and round, as a media call made from `call_id`.
+    pub fn for_media(&self, call_id: Option<String>) -> Self {
+        Self {
+            purpose: UsagePurpose::Media,
+            call_id: call_id.or_else(|| self.call_id.clone()),
+            ..self.clone()
         }
     }
 
@@ -71,6 +110,7 @@ impl UsageScope {
             purpose: UsagePurpose::Handover,
             turn: None,
             round: None,
+            call_id: None,
         }
     }
 
@@ -80,6 +120,7 @@ impl UsageScope {
             purpose: UsagePurpose::Vision,
             turn: None,
             round: None,
+            call_id: None,
         }
     }
 
@@ -89,6 +130,8 @@ impl UsageScope {
             (UsagePurpose::Vision, _) => UsageActivity::Vision,
             (UsagePurpose::Turn, Some(session)) => session.1.usage_activity(),
             (UsagePurpose::Turn, None) => UsageActivity::Other,
+            (UsagePurpose::Media, Some(session)) => session.1.usage_activity(),
+            (UsagePurpose::Media, None) => UsageActivity::Indexing,
         }
     }
 }

@@ -234,6 +234,7 @@ impl VizierDependencies {
         if let Err(e) = Self::migrate_reply_usage(&storage, &sql).await {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
         }
+        Self::mark_media_accounting_since(&storage).await;
 
         let transport = VizierTransport::durable(storage.clone()).with_blobs(blobs.clone());
         let file_manager = FileManager::new(config.workspace.clone(), blobs.clone());
@@ -458,6 +459,25 @@ impl VizierDependencies {
 
     /// When complete usage accounting started, set once [`Self::migrate_reply_usage`] has finished.
     pub const USAGE_ACCOUNTING_SINCE: &'static str = "usage.accounting_since";
+
+    /// When media calls started being recorded (`specs/065-media-usage-accounting` R8). Set once,
+    /// at the first start with media accounting; days before it lack media spend (#82).
+    pub const USAGE_MEDIA_ACCOUNTING_SINCE: &'static str = "usage.media_accounting_since";
+
+    async fn mark_media_accounting_since(storage: &VizierStorage) {
+        use crate::storage::state::StateStorage;
+        let key = Self::USAGE_MEDIA_ACCOUNTING_SINCE.to_string();
+        match storage.get_state(key.clone()).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                let now = serde_json::Value::String(crate::time::stored_now());
+                if let Err(e) = storage.save_state(key, now).await {
+                    tracing::warn!("failed to record when media usage accounting started: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to read when media usage accounting started: {e}"),
+        }
+    }
 
     /// Spec 018 (research R6): copy the usage every saved reply recorded into `usage_event`, so
     /// totals from before the upgrade are unchanged. Runs once; the state key it sets is also
@@ -1394,6 +1414,12 @@ fn reply_usage_event(history: &SessionHistory) -> Option<crate::schema::usage::U
         tokens: TokenCounts::from(stats),
         duration_ms: stats.duration.as_millis() as u64,
         legacy: true,
+        kind: crate::schema::usage::UsageKind::Text,
+        variant: None,
+        units: Default::default(),
+        measured: false,
+        local: false,
+        call_id: None,
     })
 }
 
@@ -1488,6 +1514,7 @@ mod usage_migration_tests {
             start: crate::time::epoch(),
             end: crate::time::now() + chrono::Duration::days(1),
             activity: None,
+            kind: None,
             conversation: None,
         };
         let groups = storage

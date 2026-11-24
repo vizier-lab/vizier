@@ -11,6 +11,7 @@ pub mod cache;
 pub mod data;
 pub mod guide;
 pub mod media;
+pub mod media_prices;
 pub mod refresh;
 pub mod seed;
 

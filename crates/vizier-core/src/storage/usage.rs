@@ -9,7 +9,7 @@ use crate::{
     agents::agent::model::usage::TurnId,
     schema::{
         metrics::TokenCounts,
-        usage::{UsageActivity, UsageEvent},
+        usage::{MediaUnits, UsageActivity, UsageEvent, UsageKind},
     },
     storage::VizierStorage,
 };
@@ -22,11 +22,14 @@ pub struct UsageQuery {
     pub start: Timestamp,
     pub end: Timestamp,
     pub activity: Option<UsageActivity>,
+    /// Narrows to one kind of call (spec 065 FR-015); composes with `activity`.
+    pub kind: Option<UsageKind>,
     pub conversation: Option<(String, Option<String>)>,
 }
 
 /// How [`UsageStorage::usage_groups`] groups rows. Every grouping is also split by
-/// `(provider, model)` and by failed/not failed, so the caller can price and split each group.
+/// `(provider, model)`, by failed/not failed and by kind, variant and local (spec 065), so the
+/// caller can price and split each group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageGrouping {
     /// UTC date × activity.
@@ -37,6 +40,10 @@ pub enum UsageGrouping {
     Place,
     /// `(channel, topic)` × activity.
     Conversation,
+    /// The kind only (every group carries its kind).
+    Kind,
+    /// Local date × kind, for the day tooltip.
+    DayKind,
 }
 
 /// One group's sums. Only the fields of its grouping are set.
@@ -51,6 +58,10 @@ pub struct UsageGroup {
     pub provider: String,
     pub model: String,
     pub failed: bool,
+    pub kind: UsageKind,
+    pub variant: Option<String>,
+    pub local: bool,
+    pub units: MediaUnits,
     pub tokens: TokenCounts,
     pub calls: u64,
     /// Distinct turns among the rows (0 for rows without one).
@@ -139,6 +150,9 @@ pub trait UsageStorage {
 
     /// The one-time carry-over of reply stats (research R6), one transaction per call.
     async fn insert_legacy_usage(&self, events: Vec<UsageEvent>) -> Result<()>;
+
+    /// One agent's media records made by the given `execute_python` calls (spec 065 R10).
+    async fn media_calls(&self, agent_id: &str, call_ids: &[String]) -> Result<Vec<UsageEvent>>;
 }
 
 #[async_trait::async_trait]
@@ -209,5 +223,9 @@ impl UsageStorage for VizierStorage {
 
     async fn insert_legacy_usage(&self, events: Vec<UsageEvent>) -> Result<()> {
         self.0.insert_legacy_usage(events).await
+    }
+
+    async fn media_calls(&self, agent_id: &str, call_ids: &[String]) -> Result<Vec<UsageEvent>> {
+        self.0.media_calls(agent_id, call_ids).await
     }
 }

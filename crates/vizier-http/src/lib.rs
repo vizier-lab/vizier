@@ -173,6 +173,7 @@ where
         api::v1::agents::memory::list_bundles,
         api::v1::agents::agent_usage,
         api::v1::agents::agent_usage_conversation,
+        api::v1::agents::agent_usage_calls,
         api::v1::agents::channel::list_topics,
         api::v1::agents::channel::get_topic_history,
         api::v1::agents::channel::get_topic_prompts,

@@ -1127,6 +1127,25 @@ pub fn init_usage_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    // Spec 065: media calls (images, speech, transcription, embeddings) share the table. Old rows
+    // read as completions with no media amount (#82).
+    for (column, decl) in [
+        ("kind", "TEXT NOT NULL DEFAULT 'text'"),
+        ("variant", "TEXT"),
+        ("images", "INTEGER NOT NULL DEFAULT 0"),
+        ("characters", "INTEGER NOT NULL DEFAULT 0"),
+        ("audio_ms", "INTEGER NOT NULL DEFAULT 0"),
+        ("measured", "INTEGER NOT NULL DEFAULT 0"),
+        ("local", "INTEGER NOT NULL DEFAULT 0"),
+        ("call_id", "TEXT"),
+    ] {
+        add_column_if_missing(conn, "usage_event", column, decl)?;
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS usage_event_call ON usage_event (call_id)          WHERE call_id IS NOT NULL",
+        [],
+    )?;
+
     // An HTTP place was briefly `http:{user}:{topic}`, which loses which HTTP channel it was;
     // it is `http:{channel slug}:{topic}`. Rewrites the earlier form, and matches nothing once
     // every row has the current one.

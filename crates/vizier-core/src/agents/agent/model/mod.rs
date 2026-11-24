@@ -103,14 +103,14 @@ impl VizierModel {
             },
             duration_ms: took.as_millis() as u64,
             legacy: false,
+            kind: crate::schema::usage::UsageKind::Text,
+            variant: None,
+            units: Default::default(),
+            measured: false,
+            local: false,
+            call_id: None,
         };
-        let storage = self.storage.clone();
-        tokio::spawn(async move {
-            let agent_id = event.agent_id.clone();
-            if let Err(e) = storage.record_usage(event).await {
-                tracing::warn!(agent_id = %agent_id, "failed to record model usage: {e}");
-            }
-        });
+        crate::usage::record::spawn_record(self.storage.clone(), event);
     }
 
     /// A guard for one turn's rounds; see [`TurnGuard`].

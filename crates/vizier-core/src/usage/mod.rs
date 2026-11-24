@@ -18,8 +18,9 @@ use crate::{
         provider::ProfileEntry,
         usage::{
             BreakdownRow, CallRow, ConversationRow, ConversationUsage, DailyUsage, DayActivity,
-            FailedTotals, ModelRow, NoLinkReason, PeriodTotals, UnpricedNote, UsageActivity,
-            UsageLink, UsageLinkKind, UsageRange, UsageReport, UsageSummary,
+            FailedTotals, KindRow, MediaCall, MediaCalls, MediaUnits, ModelRow, NoLinkReason,
+            PeriodTotals, PriceSource, UnpricedNote, Units, UsageActivity, UsageKind, UsageLink,
+            UsageLinkKind, UsageRange, UsageReport, UsageSummary,
         },
     },
     service::catalogue::entry_pricing,
@@ -33,6 +34,8 @@ use crate::{
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
     },
 };
+
+pub mod record;
 
 /// The most expensive conversations the report lists (FR-017).
 const COSTLIEST: usize = 10;
@@ -106,6 +109,52 @@ impl<'a> Pricer<'a> {
         c
     }
 
+    /// A group's cost, whatever its kind (spec 065 research R6).
+    pub fn group_cost(&mut self, g: &UsageGroup) -> Option<f64> {
+        self.priced(g.kind, &g.provider, &g.model, g.variant.as_deref(), g.local, &g.units, &g.tokens)
+            .0
+    }
+
+    /// One record's cost and which rule priced it. Completions keep the 018 path; a media call
+    /// is free when local, then priced from the catalogue's token price, then the shipped
+    /// table's token rates, then its unit price, else unpriced.
+    #[allow(clippy::too_many_arguments)]
+    pub fn priced(
+        &mut self,
+        kind: UsageKind,
+        provider: &str,
+        model: &str,
+        variant: Option<&str>,
+        local: bool,
+        units: &MediaUnits,
+        tokens: &TokenCounts,
+    ) -> (Option<f64>, PriceSource) {
+        if kind == UsageKind::Text {
+            return match self.cost(provider, model, tokens) {
+                Some(c) => (Some(c), PriceSource::Catalogue),
+                None => (None, PriceSource::None),
+            };
+        }
+        if local {
+            return (Some(0.0), PriceSource::Local);
+        }
+        let has_tokens = tokens.total() > 0;
+        if has_tokens && let Some(c) = self.cost(provider, model, tokens) {
+            return (Some(c), PriceSource::Catalogue);
+        }
+        let Some(entry) = crate::catalogue::media_prices::media_prices().lookup(provider, model, kind)
+        else {
+            return (None, PriceSource::None);
+        };
+        if has_tokens && let Some(rates) = &entry.tokens {
+            return (Some(estimate_cost(tokens, rates, false)), PriceSource::Table);
+        }
+        match entry.unit_cost(units, variant) {
+            Some(c) => (Some(c), PriceSource::Table),
+            None => (None, PriceSource::None),
+        }
+    }
+
     pub fn cost(&mut self, provider: &str, model: &str, tokens: &TokenCounts) -> Option<f64> {
         let outside = self.cache_outside_input(provider);
         self.price(provider, model)
@@ -142,6 +191,10 @@ pub async fn saved_entries(storage: &VizierStorage) -> HashMap<(String, String),
 #[derive(Debug, Default, Clone)]
 struct Tally {
     tokens: TokenCounts,
+    /// Media amounts, and embedding tokens, summed (spec 065).
+    media: MediaUnits,
+    embedding_tokens: u64,
+    has_media: bool,
     calls: u64,
     cost: Option<f64>,
     cached: u64,
@@ -154,9 +207,21 @@ struct Tally {
 
 impl Tally {
     fn add(&mut self, pricer: &mut Pricer, g: &UsageGroup) -> Option<f64> {
-        let cost = pricer.cost(&g.provider, &g.model, &g.tokens);
-        let (cached, whole) = pricer.cache_parts(&g.provider, &g.tokens);
+        let cost = pricer.group_cost(g);
+        // Only completions take part in the cache rate.
+        let (cached, whole) = if g.kind == UsageKind::Text {
+            pricer.cache_parts(&g.provider, &g.tokens)
+        } else {
+            (0, 0)
+        };
         self.tokens += g.tokens;
+        if g.kind != UsageKind::Text {
+            self.has_media = true;
+            self.media += g.units;
+            if g.kind == UsageKind::Embedding {
+                self.embedding_tokens += g.tokens.input;
+            }
+        }
         self.calls += g.calls;
         add_cost(&mut self.cost, cost);
         self.cached += cached;
@@ -190,7 +255,22 @@ impl Tally {
                 turns: self.failed_turns,
             },
             share_of_all: None,
+            kind_share_of_all: None,
         }
+    }
+
+    /// The media amounts of a mixed row, when it has any.
+    fn units(&self) -> Option<Units> {
+        if !self.has_media {
+            return None;
+        }
+        let u = Units {
+            images: (self.media.images > 0).then_some(self.media.images),
+            characters: (self.media.characters > 0).then_some(self.media.characters),
+            audio_seconds: (self.media.audio_ms > 0).then(|| self.media.audio_ms as f64 / 1000.0),
+            tokens: (self.embedding_tokens > 0).then_some(self.embedding_tokens),
+        };
+        (!u.is_empty()).then_some(u)
     }
 
     fn row(
@@ -208,6 +288,7 @@ impl Tally {
             share: share(self.cost, total),
             tokens: self.tokens.total(),
             calls: self.calls,
+            units: self.units(),
         }
     }
 }
@@ -269,6 +350,37 @@ pub async fn build_report(
             .await?;
         summary.share_of_all = share(all.cost, tally(&mut pricer, &everything).cost);
     }
+    if q.kind.is_some() {
+        let every_kind = UsageQuery {
+            kind: None,
+            ..q.clone()
+        };
+        let everything = storage
+            .usage_groups(&every_kind, UsageGrouping::Kind)
+            .await?;
+        summary.kind_share_of_all = share(all.cost, tally(&mut pricer, &everything).cost);
+    }
+
+    let by_kind = if q.kind.is_some() {
+        vec![]
+    } else {
+        let mut buckets: BTreeMap<UsageKind, Tally> = BTreeMap::new();
+        for g in storage.usage_groups(&q, UsageGrouping::Kind).await? {
+            buckets.entry(g.kind).or_default().add(&mut pricer, &g);
+        }
+        let mut rows: Vec<KindRow> = buckets
+            .into_iter()
+            .map(|(k, t)| {
+                let mut row = t.row(k.as_str().to_string(), k.label().to_string(), None, all.cost);
+                row.units = Units::of(k, &t.media, t.embedding_tokens);
+                KindRow { row, kind: k }
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            by_cost_then_tokens((a.row.cost_usd, a.row.tokens), (b.row.cost_usd, b.row.tokens))
+        });
+        rows
+    };
 
     let by_activity = if q.activity.is_some() {
         vec![]
@@ -319,6 +431,7 @@ pub async fn build_report(
         &mut pricer,
         &q,
         storage.usage_groups(&q, UsageGrouping::Day).await?,
+        storage.usage_groups(&q, UsageGrouping::DayKind).await?,
     );
 
     let model_groups = storage.usage_groups(&q, UsageGrouping::Model).await?;
@@ -372,6 +485,12 @@ pub async fn build_report(
         .and_then(|v| v.as_str().map(str::to_string))
         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
         .map(|d| d.with_timezone(&Local));
+    let media_accounting_since = storage
+        .get_state(crate::dependencies::VizierDependencies::USAGE_MEDIA_ACCOUNTING_SINCE.to_string())
+        .await?
+        .and_then(|v| v.as_str().map(str::to_string))
+        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+        .map(|d| d.with_timezone(&Local));
 
     Ok(UsageReport {
         range: UsageRange {
@@ -380,10 +499,13 @@ pub async fn build_report(
         },
         accounting_since,
         activity: q.activity,
+        kind: q.kind,
+        media_accounting_since,
         summary,
         previous,
         daily,
         by_activity,
+        by_kind,
         by_model,
         by_place,
         costliest,
@@ -392,25 +514,45 @@ pub async fn build_report(
 }
 
 /// One entry per date in range, empty ones included, so the chart's axis is complete.
-fn daily(pricer: &mut Pricer, q: &UsageQuery, groups: Vec<UsageGroup>) -> Vec<DailyUsage> {
-    let mut days: BTreeMap<NaiveDate, BTreeMap<UsageActivity, DayActivity>> = BTreeMap::new();
+fn daily(
+    pricer: &mut Pricer,
+    q: &UsageQuery,
+    groups: Vec<UsageGroup>,
+    kind_groups: Vec<UsageGroup>,
+) -> Vec<DailyUsage> {
+    type Cells<K> = BTreeMap<NaiveDate, BTreeMap<K, DayActivity>>;
+    let mut days: Cells<UsageActivity> = BTreeMap::new();
+    let mut kinds: Cells<UsageKind> = BTreeMap::new();
     let mut d = q.start.date_naive();
     while d <= q.end.date_naive() {
         days.insert(d, BTreeMap::new());
         d = d.succ_opt().unwrap_or(d + Duration::days(1));
     }
+    let mut put = |cell: &mut DayActivity, cost: Option<f64>, g: &UsageGroup| {
+        add_cost(&mut cell.cost_usd, cost);
+        cell.tokens += g.tokens.total();
+        cell.calls += g.calls;
+    };
     for g in groups {
         let (Some(day), Some(activity)) = (g.day, g.activity) else {
             continue;
         };
-        let cost = pricer.cost(&g.provider, &g.model, &g.tokens);
-        let cell = days.entry(day).or_default().entry(activity).or_default();
-        add_cost(&mut cell.cost_usd, cost);
-        cell.tokens += g.tokens.total();
-        cell.calls += g.calls;
+        let cost = pricer.group_cost(&g);
+        put(days.entry(day).or_default().entry(activity).or_default(), cost, &g);
+    }
+    for g in kind_groups {
+        let Some(day) = g.day else {
+            continue;
+        };
+        let cost = pricer.group_cost(&g);
+        put(kinds.entry(day).or_default().entry(g.kind).or_default(), cost, &g);
     }
     days.into_iter()
-        .map(|(date, by_activity)| DailyUsage { date, by_activity })
+        .map(|(date, by_activity)| DailyUsage {
+            date,
+            by_kind: kinds.remove(&date).unwrap_or_default(),
+            by_activity,
+        })
         .collect()
 }
 
@@ -419,12 +561,19 @@ fn by_model(
     groups: &[UsageGroup],
     total: Option<f64>,
 ) -> (Vec<ModelRow>, UnpricedNote) {
-    let mut buckets: BTreeMap<(String, String), (Tally, BTreeSet<String>)> = BTreeMap::new();
+    type Bucket = (Tally, BTreeSet<String>, PriceSource);
+    let mut buckets: BTreeMap<(String, String, UsageKind), Bucket> = BTreeMap::new();
     for g in groups {
-        let (t, served) = buckets
-            .entry((g.provider.clone(), g.model.clone()))
+        let (t, served, source) = buckets
+            .entry((g.provider.clone(), g.model.clone(), g.kind))
             .or_default();
         t.add(pricer, g);
+        let this = pricer
+            .priced(g.kind, &g.provider, &g.model, g.variant.as_deref(), g.local, &g.units, &g.tokens)
+            .1;
+        if *source == PriceSource::None {
+            *source = this;
+        }
         if let Some(s) = &g.served_model
             && s != &g.model
         {
@@ -435,26 +584,37 @@ fn by_model(
     let mut unpriced = UnpricedNote::default();
     let mut rows: Vec<ModelRow> = buckets
         .into_iter()
-        .map(|((provider, model), (t, served))| {
-            let priced = pricer.price(&provider, &model).is_some();
+        .map(|((provider, model, kind), (t, served, price_source))| {
+            let priced = price_source != PriceSource::None;
             let key = model_key(&provider, &model);
             if !priced {
-                unpriced.tokens += t.tokens.total();
-                unpriced.models.push(key.clone());
+                match Units::of(kind, &t.media, t.embedding_tokens) {
+                    Some(units) => {
+                        unpriced.units.insert(kind, merge_units(unpriced.units.get(&kind), &units));
+                    }
+                    None => unpriced.tokens += t.tokens.total(),
+                }
+                if !unpriced.models.contains(&key) {
+                    unpriced.models.push(key.clone());
+                }
             }
             let label = if provider.is_empty() && model.is_empty() {
                 "Unknown model".to_string()
             } else {
                 format!("{provider} / {model}")
             };
+            let mut row = t.row(key, label, None, total);
+            row.units = Units::of(kind, &t.media, t.embedding_tokens);
             ModelRow {
-                row: t.row(key, label, None, total),
+                row,
                 provider,
                 model,
                 served_models: served.into_iter().collect(),
                 cache_hit_rate: t.cache_hit_rate(),
                 failed_tokens: t.failed_tokens,
                 priced,
+                kind,
+                price_source,
             }
         })
         .collect();
@@ -465,6 +625,64 @@ fn by_model(
         )
     });
     (rows, unpriced)
+}
+
+/// Two amounts of one kind, added.
+fn merge_units(a: Option<&Units>, b: &Units) -> Units {
+    let add = |x: Option<u64>, y: Option<u64>| match (x, y) {
+        (None, None) => None,
+        (x, y) => Some(x.unwrap_or(0) + y.unwrap_or(0)),
+    };
+    let Some(a) = a else {
+        return b.clone();
+    };
+    Units {
+        images: add(a.images, b.images),
+        characters: add(a.characters, b.characters),
+        audio_seconds: match (a.audio_seconds, b.audio_seconds) {
+            (None, None) => None,
+            (x, y) => Some(x.unwrap_or(0.0) + y.unwrap_or(0.0)),
+        },
+        tokens: add(a.tokens, b.tokens),
+    }
+}
+
+/// The media records of `call_ids`, priced (spec 065 R10).
+pub async fn media_calls(
+    storage: &VizierStorage,
+    catalogue: &Catalogue,
+    agent_id: &str,
+    call_ids: &[String],
+) -> Result<MediaCalls> {
+    let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
+    let mut out = MediaCalls::default();
+    for e in storage.media_calls(agent_id, call_ids).await? {
+        let Some(call_id) = e.call_id.clone() else {
+            continue;
+        };
+        let (cost_usd, price_source) = pricer.priced(
+            e.kind,
+            &e.provider,
+            &e.model,
+            e.variant.as_deref(),
+            e.local,
+            &e.units,
+            &e.tokens,
+        );
+        out.calls.entry(call_id).or_default().push(MediaCall {
+            units: Units::of(e.kind, &e.units, e.tokens.input),
+            kind: e.kind,
+            provider: e.provider,
+            model: e.model,
+            variant: e.variant,
+            measured: e.measured,
+            local: e.local,
+            cost_usd,
+            price_source,
+            at: e.at,
+        });
+    }
+    Ok(out)
 }
 
 async fn costliest(
@@ -573,8 +791,21 @@ pub async fn conversation_usage(
         .into_iter()
         .map(|r| {
             let e = r.event;
+            let (cost_usd, _) = pricer.priced(
+                e.kind,
+                &e.provider,
+                &e.model,
+                e.variant.as_deref(),
+                e.local,
+                &e.units,
+                &e.tokens,
+            );
             CallRow {
-                cost_usd: pricer.cost(&e.provider, &e.model, &e.tokens),
+                cost_usd,
+                kind: e.kind,
+                variant: e.variant.clone(),
+                units: Units::of(e.kind, &e.units, e.tokens.input),
+                measured: e.measured,
                 at: e.at,
                 activity: e.activity,
                 round: e.round,
@@ -1188,6 +1419,46 @@ mod tests {
 
     /// T037: a Converse reply's usage is priced from the catalogue; a model with no price shows
     /// no invented cost, and Bedrock's embedding/image models are not chat-priced at all.
+    /// spec 065 research R6: local is free; then the catalogue's token price, then the shipped
+    /// table's token rates, then its unit price; anything else is unpriced, never zero.
+    #[test]
+    fn pricer_media_order() {
+        let c = bedrock_catalogue();
+        let mut p = Pricer::new(&c);
+        let none = MediaUnits::default();
+        let no_tokens = TokenCounts::default();
+        let tokens = |input| TokenCounts { input, ..Default::default() };
+
+        let local = p.priced(UsageKind::Speech, "kokoro", "Kokoro-82M", None, true, &none, &no_tokens);
+        assert_eq!(local, (Some(0.0), PriceSource::Local));
+
+        let catalogue = p.priced(
+            UsageKind::Embedding, "amazon-bedrock", "amazon.nova-lite-v1:0", None, false, &none, &tokens(1_000_000),
+        );
+        assert_eq!(catalogue.1, PriceSource::Catalogue);
+        assert!((catalogue.0.unwrap() - 0.06).abs() < 1e-9);
+
+        let chars = MediaUnits { characters: 1_000_000, ..Default::default() };
+        let speech = p.priced(UsageKind::Speech, "openai", "tts-1", None, false, &chars, &no_tokens);
+        assert_eq!(speech.1, PriceSource::Table);
+        assert!((speech.0.unwrap() - 15.0).abs() < 1e-9);
+
+        let minute = MediaUnits { audio_ms: 60_000, ..Default::default() };
+        let heard = p.priced(UsageKind::Transcription, "openai", "whisper-1", None, false, &minute, &no_tokens);
+        assert!((heard.0.unwrap() - 0.006).abs() < 1e-9);
+
+        // Reported tokens beat the per-minute estimate.
+        let by_tokens = p.priced(
+            UsageKind::Transcription, "openai", "gpt-4o-transcribe", None, false, &minute, &tokens(1_000_000),
+        );
+        assert_eq!(by_tokens.1, PriceSource::Table);
+        assert!((by_tokens.0.unwrap() - 2.5).abs() < 1e-9);
+
+        let image = MediaUnits { images: 3, ..Default::default() };
+        let unknown = p.priced(UsageKind::Image, "openai", "dall-e-3", Some("1024x1024"), false, &image, &no_tokens);
+        assert_eq!(unknown, (None, PriceSource::None));
+    }
+
     #[test]
     fn a_converse_reply_is_priced_from_the_catalogue() {
         let c = bedrock_catalogue();
@@ -1347,6 +1618,12 @@ mod tests {
                 },
                 duration_ms: 1,
                 legacy: false,
+                kind: crate::schema::usage::UsageKind::Text,
+                variant: None,
+                units: Default::default(),
+                measured: false,
+                local: false,
+                call_id: None,
             }
         }
 
@@ -1358,6 +1635,7 @@ mod tests {
                 start,
                 end: start + chrono::Duration::days(7) - chrono::Duration::milliseconds(1),
                 activity: None,
+                kind: None,
                 conversation: None,
             }
         }
@@ -1669,6 +1947,7 @@ mod tests {
                 start: at(0),
                 end: at(90 * DAY),
                 activity: None,
+                kind: None,
                 conversation: None,
             };
             let started = std::time::Instant::now();

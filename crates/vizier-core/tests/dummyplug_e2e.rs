@@ -2278,3 +2278,158 @@ async fn a_worker_turn_survives_its_agent_being_updated() {
     assert_eq!(row.result.as_deref(), Some("worker survived"));
     runtime.shutdown().await.unwrap();
 }
+
+// ---------------------------------------------------------------------------------------------
+// Spec 065: media usage accounting, through the real loop on the dummyplug media provider.
+
+use vizier_core::{
+    schema::{
+        agent::{
+            EmbeddingConfig, EmbeddingProvider, ImageGenProvider, IndexerConfig, SttProvider,
+            TtsProvider,
+        },
+        usage::{UsageActivity, UsageKind},
+    },
+    storage::usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
+};
+
+/// An agent whose every media tool and its embeddings run on dummyplug.
+async fn create_media_agent(runtime: &VizierRuntime, id: &str) {
+    let mut config = agent_config(id);
+    config.tools.image_gen.enabled = true;
+    config.tools.image_gen.settings.provider = ImageGenProvider::Dummyplug;
+    config.tools.tts.enabled = true;
+    config.tools.tts.settings.provider = TtsProvider::Dummyplug;
+    config.tools.stt.enabled = true;
+    config.tools.stt.settings.provider = SttProvider::Dummyplug;
+    config.embedding = Some(EmbeddingConfig {
+        provider: EmbeddingProvider::Dummyplug,
+        model: "dummyplug-embed".into(),
+    });
+    config.indexer = Some(IndexerConfig::default());
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create { agent_id: id.into(), config, resp })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+}
+
+fn media_session(topic: &str) -> VizierSession {
+    VizierSession(
+        "media".into(),
+        VizierChannelId::HTTP("e2e".into(), "harness".into()),
+        Some(topic.into()),
+    )
+}
+
+async fn usage(runtime: &VizierRuntime, kind: Option<UsageKind>, grouping: UsageGrouping) -> Vec<UsageGroup> {
+    let q = UsageQuery {
+        agent_id: "media".into(),
+        start: vizier_core::time::epoch(),
+        end: vizier_core::time::now() + chrono::Duration::days(1),
+        activity: None,
+        kind,
+        conversation: None,
+    };
+    runtime.deps().storage.usage_groups(&q, grouping).await.unwrap()
+}
+
+/// Quickstart steps 1–6 (spec 065): indexing at start, then an image, speech, a transcription
+/// and memory embeddings in one conversation, each recorded under its kind, unit and activity.
+#[tokio::test(flavor = "multi_thread")]
+async fn media_usage_is_recorded_for_every_kind() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    create_media_agent(&runtime, "media").await;
+
+    // Step 1: the identity document is indexed at start, outside any conversation.
+    eventually(30, || async {
+        usage(&runtime, Some(UsageKind::Embedding), UsageGrouping::Activity)
+            .await
+            .iter()
+            .any(|g| g.activity == Some(UsageActivity::Indexing))
+    })
+    .await;
+
+    let session = media_session("media-a");
+    // Steps 2–4: one script draws, speaks and transcribes what it spoke.
+    let reply = chat(
+        runtime.transport(),
+        &session,
+        &python(
+            "image_generate(prompt=\"a fox\", size=\"1024x1024\")\n\
+             tts_generate(text=\"hello there\", filename=\"hi.wav\")\n\
+             stt_transcribe(filename=\"hi.wav\")",
+        ),
+    )
+    .await;
+    assert!(reply.contains("dummyplug transcript"), "{reply}");
+
+    // Step 5: a memory write and a search embed in this conversation.
+    let reply = chat(
+        runtime.transport(),
+        &session,
+        &python(
+            "memory_write(bundle=\"notes\", path=\"fox\", title=\"Fox\", content=\"foxes are quick\")\n\
+             memory_search(query=\"fox\")",
+        ),
+    )
+    .await;
+    assert!(!reply.contains("Traceback"), "{reply}");
+
+    let conversation = || async {
+        let q = UsageQuery {
+            agent_id: "media".into(),
+            start: vizier_core::time::epoch(),
+            end: vizier_core::time::now() + chrono::Duration::days(1),
+            activity: None,
+            kind: None,
+            conversation: Some((session.1.to_slug(), session.2.clone())),
+        };
+        runtime.deps().storage.conversation_usage(&q, 100).await.unwrap().rows
+    };
+    eventually(30, || async {
+        let rows = conversation().await;
+        [UsageKind::Image, UsageKind::Speech, UsageKind::Transcription, UsageKind::Embedding]
+            .iter()
+            .all(|k| rows.iter().any(|r| r.event.kind == *k))
+    })
+    .await;
+
+    let rows = conversation().await;
+    let of = |k: UsageKind| rows.iter().find(|r| r.event.kind == k).unwrap().event.clone();
+    let image = of(UsageKind::Image);
+    assert_eq!(image.units.images, 1);
+    assert_eq!(image.variant.as_deref(), Some("1024x1024"));
+    assert_eq!(image.activity, UsageActivity::Chat);
+    assert!(image.local && image.measured, "dummyplug reports no image count: {image:?}");
+    assert!(image.call_id.is_some(), "made from a script: {image:?}");
+    let speech = of(UsageKind::Speech);
+    assert_eq!((speech.units.characters, speech.units.audio_ms), (11, 100));
+    let heard = of(UsageKind::Transcription);
+    assert_eq!(heard.units.audio_ms, 100);
+    assert!(heard.tokens.output > 0, "dummyplug reports transcript tokens: {heard:?}");
+    let embedded = of(UsageKind::Embedding);
+    assert_eq!(embedded.activity, UsageActivity::Chat);
+    assert!(!embedded.measured && embedded.tokens.input > 0, "{embedded:?}");
+
+    // Step 7's storage half: the image's call finds exactly its own media records.
+    let by_call = runtime
+        .deps()
+        .storage
+        .media_calls("media", &[image.call_id.clone().unwrap(), "no-such-call".into()])
+        .await
+        .unwrap();
+    assert!(by_call.iter().any(|e| e.kind == UsageKind::Image), "{by_call:?}");
+    assert!(by_call.iter().all(|e| e.call_id == image.call_id));
+
+    // Step 8's storage half: the kind filter narrows every group.
+    let images = usage(&runtime, Some(UsageKind::Image), UsageGrouping::Kind).await;
+    assert!(!images.is_empty() && images.iter().all(|g| g.kind == UsageKind::Image));
+}

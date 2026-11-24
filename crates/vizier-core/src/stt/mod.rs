@@ -6,8 +6,17 @@ use std::sync::Arc;
 
 use crate::dependencies::VizierDependencies;
 use crate::llm::media::{self, gemini::GeminiStt, huggingface::HuggingFaceStt, openai_shaped::OpenAiStt};
+use crate::agents::agent::model::usage::UsageScope;
 use crate::schema::agent::{SttProvider, SttToolSettings};
+use crate::schema::usage::{MediaUnits, UsageKind};
+use crate::usage::record::{MediaMeter, Measured, Reported, wav_duration_ms};
 use crate::Result;
+
+/// A transcript and what the provider said it used (spec 065).
+pub struct Transcript {
+    pub text: String,
+    pub reported: Reported,
+}
 
 #[async_trait::async_trait]
 pub trait VizierSttModel: Send + Sync {
@@ -17,9 +26,25 @@ pub trait VizierSttModel: Send + Sync {
         filename: &str,
         language: Option<&str>,
     ) -> Result<String>;
+
+    /// [`Self::transcribe`] with the provider's own usage figures (spec 065 research R3).
+    async fn transcribe_reported(
+        &self,
+        audio: &[u8],
+        filename: &str,
+        language: Option<&str>,
+    ) -> Result<Transcript> {
+        Ok(Transcript {
+            text: self.transcribe(audio, filename, language).await?,
+            reported: Reported::default(),
+        })
+    }
 }
 
-pub struct VizierStt(Arc<dyn VizierSttModel>);
+pub struct VizierStt {
+    model: Arc<dyn VizierSttModel>,
+    meter: MediaMeter,
+}
 
 /// The model a setting resolves to: what it names, or the provider's documented default.
 fn resolved_model(settings: &SttToolSettings) -> String {
@@ -38,7 +63,18 @@ impl VizierStt {
     ) -> Result<Self> {
         let provider = &settings.provider;
         let model = resolved_model(settings);
+        let meter = MediaMeter::new(
+            agent_id,
+            provider
+                .credentials()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| crate::usage::record::provider_name(provider)),
+            model.clone(),
+            provider.credentials().is_none(),
+            deps.storage.clone(),
+        );
         let model: Arc<dyn VizierSttModel> = match (provider, provider.credentials()) {
+            (SttProvider::Dummyplug, _) => Arc::new(media::dummyplug::DummyplugStt),
             #[cfg(feature = "provider-media")]
             (SttProvider::Whisper, _) => Arc::new(whisper::WhisperSttModel::new(
                 model,
@@ -68,10 +104,10 @@ impl VizierStt {
                 Arc::new(OpenAiStt(media::endpoint(deps, &id, model).await?))
             }
             (_, Some(id)) => Arc::new(OpenAiStt(media::endpoint(deps, &id, model).await?)),
-            (_, None) => unreachable!("only whisper needs no credentials"),
+            (_, None) => unreachable!("only whisper and dummyplug need no credentials"),
         };
 
-        Ok(Self(model))
+        Ok(Self { model, meter })
     }
 
     pub async fn transcribe(
@@ -79,8 +115,24 @@ impl VizierStt {
         audio: &[u8],
         filename: &str,
         language: Option<&str>,
+        scope: &UsageScope,
     ) -> Result<String> {
-        self.0.transcribe(audio, filename, language).await
+        let started = std::time::Instant::now();
+        let out = self.model.transcribe_reported(audio, filename, language).await?;
+        self.meter.record(
+            scope,
+            UsageKind::Transcription,
+            out.reported,
+            Measured {
+                units: MediaUnits {
+                    audio_ms: wav_duration_ms(audio).unwrap_or(0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            started.elapsed(),
+        );
+        Ok(out.text)
     }
 }
 

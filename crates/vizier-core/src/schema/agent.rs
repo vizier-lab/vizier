@@ -273,13 +273,15 @@ pub enum EmbeddingProvider {
     Cohere,
     Copilot,
     Bedrock,
+    /// The offline test provider (spec 065 research R11): local, free, deterministic.
+    Dummyplug,
 }
 
 impl EmbeddingProvider {
     /// Whose saved credentials this feature uses (data-model §8).
     pub fn credentials(&self) -> Option<ProviderId> {
         Some(match self {
-            Self::Local => return None,
+            Self::Local | Self::Dummyplug => return None,
             Self::Openrouter => ProviderId::OPENROUTER,
             Self::Ollama => ProviderId::OLLAMA,
             Self::Openai => ProviderId::OPENAI,
@@ -306,6 +308,7 @@ impl EmbeddingProvider {
             Self::Cohere => "cohere",
             Self::Copilot => "copilot",
             Self::Bedrock => "bedrock",
+            Self::Dummyplug => "dummyplug",
         }
     }
 }
@@ -344,6 +347,8 @@ pub enum TtsProvider {
     Hyperbolic,
     #[default]
     Kokoro,
+    /// The offline test provider (spec 065 research R11): local, free, deterministic.
+    Dummyplug,
 }
 
 impl TtsProvider {
@@ -355,7 +360,7 @@ impl TtsProvider {
             Self::Elevenlabs => ProviderId::ELEVENLABS,
             Self::Xai => ProviderId::XAI,
             Self::Hyperbolic => ProviderId::HYPERBOLIC,
-            Self::Kokoro => return None,
+            Self::Kokoro | Self::Dummyplug => return None,
         })
     }
 
@@ -365,7 +370,7 @@ impl TtsProvider {
             // `alloy` is an OpenAI voice; Kokoro publishes `af_alloy` (research R2).
             Self::Openrouter => "af_alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
-            Self::Xai | Self::Hyperbolic => "default",
+            Self::Xai | Self::Hyperbolic | Self::Dummyplug => "default",
             Self::Kokoro => "af",
         }
     }
@@ -379,6 +384,7 @@ impl TtsProvider {
             Self::Xai => "grok-2-tts",
             Self::Hyperbolic => "Melo-TTS",
             Self::Kokoro => "Kokoro-82M",
+            Self::Dummyplug => "dummyplug-speech",
         }
     }
 }
@@ -409,6 +415,8 @@ pub enum SttProvider {
     Gemini,
     #[default]
     Whisper,
+    /// The offline test provider (spec 065 research R11): local, free, deterministic.
+    Dummyplug,
 }
 
 impl SttProvider {
@@ -422,7 +430,7 @@ impl SttProvider {
             Self::Mistral => ProviderId::MISTRAL,
             Self::Huggingface => ProviderId::HUGGINGFACE,
             Self::Gemini => ProviderId::GOOGLE,
-            Self::Whisper => return None,
+            Self::Whisper | Self::Dummyplug => return None,
         })
     }
 
@@ -436,6 +444,7 @@ impl SttProvider {
             Self::Huggingface => "openai/whisper-large-v3",
             Self::Gemini => "gemini-1.5-flash",
             Self::Whisper => "ggml-small",
+            Self::Dummyplug => "dummyplug-transcribe",
         }
     }
 }
@@ -473,12 +482,15 @@ pub enum ImageGenProvider {
     Venice,
     /// Together AI; spelled `together` like the embedding provider.
     Together,
+    /// The offline test provider (spec 065 research R11): local, free, deterministic.
+    Dummyplug,
 }
 
 impl ImageGenProvider {
     /// Whose saved credentials this feature uses (data-model §8).
     pub fn credentials(&self) -> Option<ProviderId> {
         Some(match self {
+            Self::Dummyplug => return None,
             Self::Openai => ProviderId::OPENAI,
             Self::Openrouter => ProviderId::OPENROUTER,
             Self::Xai => ProviderId::XAI,
@@ -501,6 +513,7 @@ impl ImageGenProvider {
             // The model Venice marks `eliza-default` in its public image list.
             Self::Venice => "venice-sd35",
             Self::Together => "black-forest-labs/FLUX.1-schnell",
+            Self::Dummyplug => "dummyplug-image",
         }
     }
 }

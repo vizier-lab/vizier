@@ -181,6 +181,7 @@ async fn price_cycles(s: &Services, agent_id: &str, cycles: &mut [DreamCycle]) {
         start: from - chrono::Duration::hours(1),
         end: crate::time::now() + chrono::Duration::minutes(1),
         activity: Some(UsageActivity::Dreams),
+        kind: None,
         conversation: None,
     };
     let Ok(groups) = s.deps().storage.usage_groups(&query, UsageGrouping::Conversation).await else {
@@ -191,7 +192,7 @@ async fn price_cycles(s: &Services, agent_id: &str, cycles: &mut [DreamCycle]) {
     for cycle in cycles {
         let mut total: Option<f64> = None;
         for g in groups.iter().filter(|g| g.topic.as_deref() == Some(cycle.cycle_id.as_str())) {
-            if let Some(c) = pricer.cost(&g.provider, &g.model, &g.tokens) {
+            if let Some(c) = pricer.group_cost(g) {
                 *total.get_or_insert(0.0) += c;
             }
         }

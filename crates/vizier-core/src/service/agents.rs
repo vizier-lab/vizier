@@ -819,6 +819,7 @@ fn usage_query(
     start_date: Option<&str>,
     end_date: Option<&str>,
     activity: Option<&str>,
+    kind: Option<&str>,
 ) -> Result<crate::storage::usage::UsageQuery, ServiceError> {
     let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Local));
     let bad_range = |message: &str| with_code(400, message, "invalid_range");
@@ -844,11 +845,20 @@ fn usage_query(
         ),
         None => None,
     };
+    // Spec 065 FR-015: one kind of call, composing with the activity.
+    let kind = match kind.filter(|k| !k.is_empty()) {
+        Some(k) => Some(
+            k.parse::<crate::schema::usage::UsageKind>()
+                .map_err(|_| with_code(400, format!("unknown kind '{k}'"), "unknown_kind"))?,
+        ),
+        None => None,
+    };
     Ok(crate::storage::usage::UsageQuery {
         agent_id: agent_id.to_string(),
         start,
         end,
         activity,
+        kind,
         conversation: None,
     })
 }
@@ -874,11 +884,12 @@ pub async fn usage(
     start_date: Option<&str>,
     end_date: Option<&str>,
     activity: Option<&str>,
+    kind: Option<&str>,
 ) -> Result<crate::schema::usage::UsageReport, ServiceError> {
     if !exists(s, agent_id).await {
         return Err(not_found_lowercase());
     }
-    let q = usage_query(agent_id, start_date, end_date, activity)?;
+    let q = usage_query(agent_id, start_date, end_date, activity, kind)?;
     let deps = s.deps();
     crate::usage::build_report(&deps.storage, &deps.catalogue, &deps.integration_kinds, q)
         .await
@@ -895,6 +906,7 @@ pub async fn usage_conversation(
     start_date: Option<&str>,
     end_date: Option<&str>,
     activity: Option<&str>,
+    kind: Option<&str>,
     limit: Option<usize>,
 ) -> Result<crate::schema::usage::ConversationUsage, ServiceError> {
     if !exists(s, agent_id).await {
@@ -907,10 +919,43 @@ pub async fn usage_conversation(
     if !(1..=100).contains(&limit) {
         return Err(with_code(400, "limit must be between 1 and 100", "invalid_limit"));
     }
-    let mut q = usage_query(agent_id, start_date, end_date, activity)?;
+    let mut q = usage_query(agent_id, start_date, end_date, activity, kind)?;
     q.conversation = Some((channel, topic.filter(|t| !t.is_empty())));
     let deps = s.deps();
     crate::usage::conversation_usage(&deps.storage, &deps.catalogue, &deps.integration_kinds, q, limit)
+        .await
+        .map_err(internal)
+}
+
+/// The most call ids one `GET …/usage/calls` may name.
+pub const MAX_USAGE_CALL_IDS: usize = 50;
+
+/// The media records a chat step's `execute_python` calls made, priced (spec 065 R10).
+pub async fn usage_calls(
+    s: &Services,
+    _who: &Principal,
+    agent_id: &str,
+    ids: Option<&str>,
+) -> Result<crate::schema::usage::MediaCalls, ServiceError> {
+    if !exists(s, agent_id).await {
+        return Err(not_found_lowercase());
+    }
+    let ids: Vec<String> = ids
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    if ids.is_empty() || ids.len() > MAX_USAGE_CALL_IDS {
+        return Err(with_code(
+            400,
+            format!("ids must name 1 to {MAX_USAGE_CALL_IDS} call ids"),
+            "invalid_ids",
+        ));
+    }
+    let deps = s.deps();
+    crate::usage::media_calls(&deps.storage, &deps.catalogue, agent_id, &ids)
         .await
         .map_err(internal)
 }

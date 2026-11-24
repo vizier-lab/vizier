@@ -196,8 +196,12 @@ impl DetachedScripts {
         );
         let inner = self.inner.clone();
         let running = script.clone();
+        // The script's media calls keep the launching call's scope (spec 065 R2).
+        let media = crate::agents::agent::model::usage::media_scope();
         tokio::spawn(
-            async move { inner.run(running, task_ctx, run, stopped).await }.instrument(span),
+            crate::agents::agent::model::usage::MEDIA_SCOPE
+                .scope(media, async move { inner.run(running, task_ctx, run, stopped).await })
+                .instrument(span),
         );
         Ok(script)
     }
