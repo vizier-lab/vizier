@@ -336,7 +336,9 @@ pub async fn build_report(
 ) -> Result<UsageReport> {
     let mut pricer = Pricer::with_entries(catalogue, saved_entries(storage).await);
 
-    let activity_groups = storage.usage_groups(&q, UsageGrouping::Activity).await?;
+    // One pass for every view (spec 065 SC-005): each sums the groups by its own key and
+    // ignores the rest.
+    let activity_groups = storage.usage_groups(&q, UsageGrouping::Detail).await?;
     let all = tally(&mut pricer, &activity_groups);
     let mut summary = all.summary();
 
@@ -365,8 +367,8 @@ pub async fn build_report(
         vec![]
     } else {
         let mut buckets: BTreeMap<UsageKind, Tally> = BTreeMap::new();
-        for g in storage.usage_groups(&q, UsageGrouping::Kind).await? {
-            buckets.entry(g.kind).or_default().add(&mut pricer, &g);
+        for g in &activity_groups {
+            buckets.entry(g.kind).or_default().add(&mut pricer, g);
         }
         let mut rows: Vec<KindRow> = buckets
             .into_iter()
@@ -427,22 +429,16 @@ pub async fn build_report(
         })
     };
 
-    let daily = daily(
-        &mut pricer,
-        &q,
-        storage.usage_groups(&q, UsageGrouping::Day).await?,
-        storage.usage_groups(&q, UsageGrouping::DayKind).await?,
-    );
+    let daily = daily(&mut pricer, &q, activity_groups.clone());
 
-    let model_groups = storage.usage_groups(&q, UsageGrouping::Model).await?;
-    let (by_model, unpriced) = by_model(&mut pricer, &model_groups, all.cost);
+    let (by_model, unpriced) = by_model(&mut pricer, &activity_groups, all.cost);
 
     let mut place_buckets: BTreeMap<String, Tally> = BTreeMap::new();
-    for g in storage.usage_groups(&q, UsageGrouping::Place).await? {
+    for g in &activity_groups {
         place_buckets
             .entry(g.place.clone().unwrap_or_default())
             .or_default()
-            .add(&mut pricer, &g);
+            .add(&mut pricer, g);
     }
     // Every Discord channel and Telegram chat in range is one place, so the places name every
     // conversation the costliest list can show. The costliest places are looked up first.
@@ -473,9 +469,7 @@ pub async fn build_report(
         &names,
         &mut pricer,
         &q.agent_id,
-        storage
-            .usage_groups(&q, UsageGrouping::Conversation)
-            .await?,
+        activity_groups,
     )
     .await?;
 
@@ -514,12 +508,8 @@ pub async fn build_report(
 }
 
 /// One entry per date in range, empty ones included, so the chart's axis is complete.
-fn daily(
-    pricer: &mut Pricer,
-    q: &UsageQuery,
-    groups: Vec<UsageGroup>,
-    kind_groups: Vec<UsageGroup>,
-) -> Vec<DailyUsage> {
+/// Day groups carry their kind too, so one read fills both the activity stacks and the kind lines.
+fn daily(pricer: &mut Pricer, q: &UsageQuery, groups: Vec<UsageGroup>) -> Vec<DailyUsage> {
     type Cells<K> = BTreeMap<NaiveDate, BTreeMap<K, DayActivity>>;
     let mut days: Cells<UsageActivity> = BTreeMap::new();
     let mut kinds: Cells<UsageKind> = BTreeMap::new();
@@ -539,12 +529,6 @@ fn daily(
         };
         let cost = pricer.group_cost(&g);
         put(days.entry(day).or_default().entry(activity).or_default(), cost, &g);
-    }
-    for g in kind_groups {
-        let Some(day) = g.day else {
-            continue;
-        };
-        let cost = pricer.group_cost(&g);
         put(kinds.entry(day).or_default().entry(g.kind).or_default(), cost, &g);
     }
     days.into_iter()
@@ -1957,6 +1941,52 @@ mod tests {
             let took = started.elapsed();
             assert_eq!(r.summary.calls, 100_000);
             println!("90-day report over 100k events: {took:?}");
+            assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+        }
+
+        /// Spec 065 SC-005: the same report with 500k embedding records beside 100k completions,
+        /// in under 2 s. Run with `--ignored`.
+        #[tokio::test]
+        #[ignore]
+        async fn a_ninety_day_report_with_500k_embeddings_is_fast() {
+            let (s, _d) = storage();
+            let catalogue = Catalogue::new(crate::catalogue::seed::load_seed());
+            let (provider, model) = priced(&catalogue);
+            let mut batch = Vec::with_capacity(100_000);
+            for i in 0..100_000i64 {
+                let mut e = event((i * 90 * DAY) / 100_000, &format!("discord__{}", i % 400), &provider, &model, 1000);
+                e.turn_id = Some(format!("t{}", i / 4));
+                batch.push(e);
+            }
+            s.insert_legacy_usage(batch).await.unwrap();
+            for chunk in 0..5i64 {
+                let mut batch = Vec::with_capacity(100_000);
+                for j in 0..100_000i64 {
+                    let i = chunk * 100_000 + j;
+                    let mut e = event((i * 90 * DAY) / 500_000, &format!("discord__{}", i % 400), "openai", "text-embedding-3-small", 200);
+                    e.kind = UsageKind::Embedding;
+                    e.tokens.output = 0;
+                    e.activity = if i % 3 == 0 { UsageActivity::Indexing } else { UsageActivity::Chat };
+                    batch.push(e);
+                }
+                s.insert_legacy_usage(batch).await.unwrap();
+            }
+            let q = UsageQuery {
+                agent_id: "a".into(),
+                start: at(0),
+                end: at(90 * DAY),
+                activity: None,
+                kind: None,
+                conversation: None,
+            };
+            let started = std::time::Instant::now();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q)
+                .await
+                .unwrap();
+            let took = started.elapsed();
+            assert_eq!(r.summary.calls, 600_000);
+            assert!(r.by_kind.iter().any(|k| k.kind == UsageKind::Embedding && k.row.cost_usd.is_some()));
+            println!("90-day report over 100k completions and 500k embeddings: {took:?}");
             assert!(took < std::time::Duration::from_secs(2), "{took:?}");
         }
     }

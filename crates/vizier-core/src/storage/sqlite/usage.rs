@@ -331,9 +331,9 @@ impl UsageStorage for SqlStorage {
             ),
             // Every group already carries its kind (column 17); these add nothing, or the day.
             UsageGrouping::Kind => (["NULL", "NULL", "NULL", "NULL", "NULL", "NULL"], "17"),
-            UsageGrouping::DayKind => (
-                [day.as_str(), "NULL", "NULL", "NULL", "NULL", "NULL"],
-                "1",
+            UsageGrouping::Detail => (
+                [day.as_str(), "e.activity", "e.served_model", "e.place", "e.channel", "e.topic"],
+                "1, 2, 3, 4, 5, 6",
             ),
         };
         let (where_sql, params) = filter(q);

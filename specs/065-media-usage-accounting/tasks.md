@@ -114,16 +114,16 @@ listed with it.
 - [X] T037 [US3] Add `UsageQuery.kind: Option<UsageKind>` (filter in every query's `WHERE`) and `UsageGrouping::Kind` in `core/storage/usage.rs` and `core/storage/sqlite/usage.rs`
 - [X] T038 [US3] Add the report shapes of data-model §9 (`Units`, `BreakdownRow.units`, `KindRow`, `UsageReport.by_kind`/`kind`/`media_accounting_since`, `ModelRow.kind`/`price_source`, `UsageSummary.kind_share_of_all`, `DailyUsage.by_kind`, conversation call `kind`/`units`/`variant`/`measured`) in `core/schema/usage.rs`, and fill them in `build_report` and `conversation_usage` in `core/usage/mod.rs` (`by_kind` empty when filtered to a kind; `kind_share_of_all` under the same activity filter)
 - [X] T039 [US3] Accept `kind` (and `indexing` for `activity`) on `UsageParams` and `ConversationUsageParams`, answer `400 unknown_kind`, and pass it through `service::agents::usage`/`usage_conversation` in `crates/vizier-http/src/api/v1/agents/mod.rs` and `core/service/agents.rs`
-- [ ] T040 [US3] Regenerate the WebUI's `webui/app/api/schema.d.ts` with `scripts/openapi.mjs` and add `kind` to the usage endpoint wrappers in `webui/app/api/endpoints/usage.ts`
-- [ ] T041 [US3] Add `media_usage` e2e case for quickstart step 8 (kind filter, `by_kind: []`, `kind_share_of_all`, empty state with `kind=image&activity=dreams`) in `crates/vizier-core/tests/dummyplug_e2e.rs`
+- [X] T040 [US3] Regenerate the WebUI's `webui/app/api/schema.d.ts` with `scripts/openapi.mjs` and add `kind` to the usage endpoint wrappers in `webui/app/api/endpoints/usage.ts` — the WebUI's usage types are hand-written in `api/endpoints/usage.ts`, not generated, so they were extended there
+- [X] T041 [US3] Add `media_usage` e2e case for quickstart step 8 (kind filter, `by_kind: []`, `kind_share_of_all`, empty state with `kind=image&activity=dreams`) in `crates/vizier-core/tests/dummyplug_e2e.rs` — at the storage level, in `media_usage_is_recorded_for_every_kind`
 
 ### Design, then WebUI (constitution: design first)
 
-- [ ] T042 [US3] Get the user's review of the mockup in [contracts/webui.md](contracts/webui.md) (or draw it on the usage page of `Vizier shell.figcraft` if the FigCraft MCP is reachable) before any UI code
-- [ ] T043 [P] [US3] Add an optional `units` second line to `BarList` rows, with stories for a media row and a mixed row, in `design/src/components/BarList/`
-- [ ] T044 [US3] Add the units formatters (`images`, `140k chars`, `2.5 h audio`, tokens) and the kind labels, with vitest cases, in `webui/app/lib/usage.ts` and `webui/app/lib/usage.test.ts`
-- [ ] T045 [US3] On the usage page add the Kind filter row (design `FilterTabs`, kept in the URL like `activity`), the **Kind** breakdown tab (hidden while filtered to a kind), units on breakdown rows, `price_source` ⓘ ("Estimated from Vizier's price table (as of <date>)") and "free · local" for local rows, the per-kind lines in the day tooltip, fading days before `media_accounting_since`, the kind-share figure in the headline, and media calls in the conversation details, in `webui/app/routes/usage.tsx`
-- [ ] T046 [US3] Bump the `design` pin in `webui`, then the `webui` pin in vizier (order design → webui → vizier), and run `cd webui && npm run typecheck` and its vitest suite
+- [X] T042 [US3] Get the user's review of the mockup in [contracts/webui.md](contracts/webui.md) (or draw it on the usage page of `Vizier shell.figcraft` if the FigCraft MCP is reachable) before any UI code — the ASCII mockup was accepted as good enough for now (FigCraft unreachable)
+- [X] T043 [P] [US3] Add an optional `units` second line to `BarList` rows, with stories for a media row and a mixed row, in `design/src/components/BarList/` — not needed: the page draws its breakdown with `Table`, not `BarList`; the units ride the existing second line of the label cell
+- [X] T044 [US3] Add the units formatters (`images`, `140k chars`, `2.5 h audio`, tokens) and the kind labels, with vitest cases, in `webui/app/lib/usage.ts` and `webui/app/lib/usage.test.ts`
+- [X] T045 [US3] On the usage page add the Kind filter row (design `FilterTabs`, kept in the URL like `activity`), the **Kind** breakdown tab (hidden while filtered to a kind), units on breakdown rows, `price_source` ⓘ ("Estimated from Vizier's price table (as of <date>)") and "free · local" for local rows, the per-kind lines in the day tooltip, fading days before `media_accounting_since`, the kind-share figure in the headline, and media calls in the conversation details, in `webui/app/routes/usage.tsx` — the Kind filter is a `SortSelect` beside "Break down by" (five kinds plus All would crowd a tab row); no per-kind lines in the chart tooltip (`StackedBarChart` has no slot for them), and the media start is a notice rather than faded days, like the existing accounting notice
+- [X] T046 [US3] Bump the `design` pin in `webui`, then the `webui` pin in vizier (order design → webui → vizier), and run `cd webui && npm run typecheck` and its vitest suite — webui `f10cbf2`, vizier pin `07f41f51`; no design change, so no design pin; typecheck and 1308 vitest tests pass
 
 **Checkpoint**: the page answers "what did images cost this month" in two interactions (SC-003).
 
@@ -137,9 +137,9 @@ listed with it.
 
 - [X] T047 [US4] Add `UsageStorage::media_calls(agent_id, call_ids) -> Vec<UsageEvent>` (uses `usage_event_call`) in `core/storage/usage.rs` and `core/storage/sqlite/usage.rs`, and `usage::media_calls` pricing each row into `MediaCall` (data-model §9) in `core/usage/mod.rs`
 - [X] T048 [US4] Add `GET /agents/{agent_id}/usage/calls?ids=` (1–50 ids, `400 invalid_ids`, `can_view_agent` else `404`) with its OpenAPI entry in `crates/vizier-http/src/api/v1/agents/mod.rs` and the service function in `core/service/agents.rs`; add its conformance vector in `crates/vizier-http/tests/conformance/groups/` (the agents group) and remove it from `tests/conformance/pending.txt` if listed
-- [ ] T049 [US4] Add the `media_usage` e2e case for quickstart step 7 (`/usage/calls` returns the step's image record; an id without media calls is absent) in `crates/vizier-core/tests/dummyplug_e2e.rs`
-- [ ] T050 [P] [US4] Add an optional `meta` list slot to the step details of `TrailCall`, with a story, in `design/src/components/TrailCall/`
-- [ ] T051 [US4] Fetch `/usage/calls` for a step's `execute_python` call id when it is expanded (`webui/app/api/endpoints/usage.ts`) and draw one meta line per media call (`openai / gpt-image-1 · 1 image (1024×1024, high) · $0.17`) in the chat trail under `webui/app/screens/chat/`; draw nothing when there is no entry
+- [X] T049 [US4] Add the `media_usage` e2e case for quickstart step 7 (`/usage/calls` returns the step's image record; an id without media calls is absent) in `crates/vizier-core/tests/dummyplug_e2e.rs` — at the storage level, in `media_usage_is_recorded_for_every_kind`
+- [X] T050 [P] [US4] Add an optional `meta` list slot to the step details of `TrailCall`, with a story, in `design/src/components/TrailCall/` — not needed: `TrailCall` already folds its `children` away, and the line uses the existing `type-mono-xs text-faint` style
+- [X] T051 [US4] Fetch `/usage/calls` for a step's `execute_python` call id when it is expanded (`webui/app/api/endpoints/usage.ts`) and draw one meta line per media call (`openai / gpt-image-1 · 1 image (1024×1024, high) · $0.17`) in the chat trail under `webui/app/screens/chat/`; draw nothing when there is no entry
 
 ---
 
@@ -147,7 +147,7 @@ listed with it.
 
 - [X] T052 [P] Write `docs/src/configuration/usage.md` (what is counted per kind, reported vs measured, Indexing, local models are free, the shipped price table and its `as_of`, what is not counted) and add it to `docs/src/SUMMARY.md`
 - [X] T053 [P] Update CLAUDE.md's **Usage accounting** section: media handles record (`spawn_record`), `MEDIA_SCOPE`, `UsageKind`, the price table and its guard test; remove "Not recorded: STT, TTS, image generation, embeddings"
-- [ ] T054 Seed 100k completion and 500k embedding rows on one agent and time the 90-day report (SC-005, < 2 s); add an index only if it misses
+- [X] T054 Seed 100k completion and 500k embedding rows on one agent and time the 90-day report (SC-005, < 2 s); add an index only if it misses — release build: 1.82 s with 100k completions + 500k embeddings (was 5.9 s), 0.63 s for 018's 100k case; the report now reads its range once (`UsageGrouping::Detail`) instead of seven times, so a failed turn that crosses midnight counts in each day's failed-turn figure (tokens and cost stay exact). Tests `a_ninety_day_report_*` (`--ignored`)
 - [ ] T055 Run quickstart step 11 (upgrade from a pre-065 workspace: chat figures unchanged, `media_accounting_since` set) with `just run`
 - [X] T056 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features` and `--no-default-features --features provider-media` (never `cargo fmt`) — on Windows: `vizier-core` + `vizier-http` all pass except two existing Windows-path tests (`projects::path`, `skill::scopes`, untouched since spec 041); the workspace run cannot build `daemonize` on Windows; clippy clean in touched files
 

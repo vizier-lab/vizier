@@ -42,8 +42,12 @@ pub enum UsageGrouping {
     Conversation,
     /// The kind only (every group carries its kind).
     Kind,
-    /// Local date × kind, for the day tooltip.
-    DayKind,
+    /// Local date × activity × served model × place × conversation: fine enough that the report
+    /// sums every view from it, so a report reads its range once rather than seven times
+    /// (spec 065 SC-005). A turn counts once in each group it has rounds in: a failed turn that
+    /// crossed midnight, or was served by two model versions, adds to `turns` twice. Tokens,
+    /// calls and cost are exact.
+    Detail,
 }
 
 /// One group's sums. Only the fields of its grouping are set.
