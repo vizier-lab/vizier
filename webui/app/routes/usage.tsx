@@ -78,9 +78,6 @@ export default function Usage() {
                 ? report.by_place
                 : report.by_model
         : []
-    // Days before media calls were recorded: said once, like the accounting notice above it.
-    const mediaSince = report?.media_accounting_since
-    const mediaPredates = !!mediaSince && Date.parse(mediaSince) > Date.parse(report!.range.start) && kind !== 'text'
     const unpricedMediaText = unpricedMedia(report?.unpriced.units)
     const measure = picked ?? (report?.summary.cost_usd != null ? 'cost' : 'tokens')
     const activities = report?.by_activity ?? []
@@ -131,17 +128,6 @@ export default function Usage() {
             }
         >
             {error && <Notice tone="failed" title="Couldn't load usage">{error}</Notice>}
-            {report?.accounting_since && Date.parse(report.accounting_since) > Date.parse(report.range.start) && (
-                <Notice tone="info" title="Part of this range predates full accounting">
-                    Before {absoluteTime(report.accounting_since, true)}, dreams, compaction and failed rounds weren't recorded.
-                </Notice>
-            )}
-            {mediaPredates && (
-                <Notice tone="info" title="Part of this range predates media accounting">
-                    Before {absoluteTime(mediaSince!, true)}, images, speech, transcription and embeddings weren't recorded.
-                </Notice>
-            )}
-
             {!report && !error && (
                 <>
                     <Skeleton lines={2} />
