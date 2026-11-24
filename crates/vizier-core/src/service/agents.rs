@@ -19,7 +19,8 @@ use crate::{
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
     },
     storage::{
-        agent::AgentStorage, history::HistoryStorage, session::SessionStorage, user::UserStorage,
+        agent::AgentStorage, history::HistoryStorage, session::SessionStorage, share::ShareStorage,
+        user::UserStorage,
     },
 };
 
@@ -764,6 +765,14 @@ pub async fn delete(
         .delete(&agent_id, delete_workspace)
         .await
         .map_err(command_error)?;
+    // Cascading revoke for any active shared chat links of this agent.
+    let now = crate::time::now().timestamp_millis();
+    let _ = s
+        .deps()
+        .storage
+        .revoke_shares_by_agent(&agent_id, &who.user_id, now)
+        .await;
+
     // The agent's notifications went with it, and it can no longer be checked for who may
     // view it, so every client reloads.
     s.deps().transport.publish_inbox_event(crate::transport::InboxEvent::Stale {

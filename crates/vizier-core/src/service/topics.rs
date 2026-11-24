@@ -18,6 +18,7 @@ use crate::{
     storage::{
         agent::AgentStorage, detached_script::DetachedScriptStorage, history::HistoryStorage,
         project::ProjectStorage, session::SessionStorage, session_file::SessionFileStorage,
+        share::ShareStorage,
     },
 };
 
@@ -515,7 +516,7 @@ pub async fn delete(
     let session = VizierSession(
         agent_id.to_string(),
         VizierChannelId::from_web(&who.username, channel_id),
-        Some(topic_id),
+        Some(topic_id.clone()),
     );
     let files = &s.deps().session_files;
     if files.has_active_turn(&session).await {
@@ -538,6 +539,14 @@ pub async fn delete(
                 user: Some(who.user_id.clone()),
                 agent_id: None,
             });
+            // Cascading revoke for any active shared chat links of this topic.
+            let now = crate::time::now().timestamp_millis();
+            let _ = s
+                .deps()
+                .storage
+                .revoke_shares_by_topic(agent_id, &topic_id, &who.user_id, now)
+                .await;
+
             Ok("Topic deleted".into())
         }
         Err(ClearError::TurnActive) => Err(conflict(TURN_ACTIVE)),

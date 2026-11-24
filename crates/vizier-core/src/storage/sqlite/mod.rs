@@ -32,6 +32,7 @@ mod provider;
 mod question;
 mod reaction;
 mod scratch;
+mod share;
 mod secret;
 mod custom_tool;
 pub(crate) use custom_tool::delete_agent_custom_tools;
@@ -481,6 +482,7 @@ impl SqlStorage {
         init_custom_tool_schema(conn)?;
         init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
+        share::init_share_schema(conn)?;
         init_ownership_schema(conn)?;
 
         Ok(())

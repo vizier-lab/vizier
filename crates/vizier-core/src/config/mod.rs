@@ -175,6 +175,9 @@ pub struct VizierConfig {
     /// Subagents as temporary workers (spec 059).
     #[serde(default)]
     pub subagents: SubagentsConfig,
+    /// Trusted reverse proxy addresses or CIDRs for forwarded headers.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
 }
 
 /// Subagents (`specs/059-subagent-workers`).
@@ -272,6 +275,7 @@ pub struct RunOverrides {
     pub ws_idle_timeout: Option<u64>,
     pub catalogue_refresh: Option<bool>,
     pub catalogue_ttl: Option<duration_string::DurationString>,
+    pub trusted_proxies: Option<Vec<String>>,
 }
 
 impl VizierConfig {
@@ -294,15 +298,24 @@ impl VizierConfig {
         let _ = fs::create_dir_all(&ws)?;
         config.vizier.workspace = ws.to_string_lossy().to_string();
 
+        if let Ok(v) = std::env::var("VIZIER_TRUSTED_PROXIES") {
+            let env_proxies: Vec<String> = v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
+            config.vizier.trusted_proxies.extend(env_proxies);
+        }
+
         Ok(config.vizier)
     }
 
     /// The built-in defaults on an explicit workspace. Reads nothing from the environment.
     pub fn with_workspace(workspace: PathBuf) -> Self {
-        Self {
+        let mut cfg = Self {
             workspace: workspace.to_string_lossy().to_string(),
             ..Default::default()
+        };
+        if let Ok(v) = std::env::var("VIZIER_TRUSTED_PROXIES") {
+            cfg.trusted_proxies = v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
         }
+        cfg
     }
 
     /// This config with `${ENV}` references expanded in every value, as
@@ -361,6 +374,9 @@ impl VizierConfig {
         if let Some(t) = overrides.catalogue_ttl {
             self.catalogue.ttl = t;
         }
+        if let Some(tp) = &overrides.trusted_proxies {
+            self.trusted_proxies = tp.clone();
+        }
     }
 }
 
@@ -389,6 +405,7 @@ impl Default for VizierConfig {
             catalogue: CatalogueConfig::default(),
             lsp: LspConfig::default(),
             subagents: SubagentsConfig::default(),
+            trusted_proxies: Vec::new(),
         }
     }
 }

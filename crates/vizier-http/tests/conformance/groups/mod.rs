@@ -15,6 +15,7 @@ mod memory;
 mod misc;
 mod projects;
 mod providers;
+mod shares;
 mod subagents;
 mod tasks;
 mod topics;
@@ -43,6 +44,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(misc::vectors());
     all.extend(projects::vectors());
     all.extend(providers::vectors());
+    all.extend(shares::vectors());
     all.extend(subagents::vectors());
     all.extend(tasks::vectors());
     all.extend(topics::vectors());

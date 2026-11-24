@@ -175,7 +175,7 @@ chat (spec assumption).
 `measured INTEGER NOT NULL DEFAULT 0`, `local INTEGER NOT NULL DEFAULT 0`, `call_id TEXT`.
 
 SQLite: `add_column_if_missing` in the usage schema init (an #82 entry, per CLAUDE.md's key
-conventions). PostgreSQL: `0015_media_usage.sql`. Every grouping in `usage_groups` also groups by
+conventions). PostgreSQL: `0016_media_usage.sql`. Every grouping in `usage_groups` also groups by
 `kind`, `variant` and `local` and sums the three unit columns, so the existing Rust pricing loop can
 price each group. One index is added: `usage_event_call ON usage_event (call_id) WHERE call_id IS
 NOT NULL` (R10).

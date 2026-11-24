@@ -25,7 +25,7 @@ conversation, and a cost line on chat steps that made media calls.
 media `Endpoint`; no new crate
 
 **Storage**: `usage_event` gains 8 columns (SQLite `add_column_if_missing`, PostgreSQL
-`0015_media_usage.sql`); one state key `usage.media_accounting_since`
+`0016_media_usage.sql`); one state key `usage.media_accounting_since`
 
 **Testing**: `cargo test --workspace`; `cargo test -p vizier-core --no-default-features` and with
 `provider-media`; WebUI `npm run typecheck` + vitest for `lib/usage.ts`; end-to-end: dummyplug agent
@@ -112,7 +112,7 @@ crates/vizier-core/
     ├── live_voice/engines.rs                # pass the call's session scope
     ├── storage/usage.rs                     # UsageQuery.kind, UsageGrouping::Kind, media_calls()
     ├── storage/sqlite/{mod,usage}.rs        # columns, grouping, media_calls
-    ├── storage/sql/postgres/migrations/0015_media_usage.sql
+    ├── storage/sql/postgres/migrations/0016_media_usage.sql
     └── dependencies.rs                      # set usage.media_accounting_since once
 crates/vizier-core/tests/dummyplug_e2e.rs    # media_usage cases
 crates/vizier-http/src/api/v1/agents/mod.rs  # kind param, /usage/calls route
