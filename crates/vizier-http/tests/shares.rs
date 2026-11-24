@@ -14,6 +14,7 @@ use vizier_core::{
     service::shares::MAX_BODY_BYTES,
     storage::{
         agent::AgentStorage,
+        session::SessionStorage,
         share::{Audience, InsertOutcome, ShareContent, ShareRecord, ShareStorage},
         user::UserStorage,
     },
@@ -71,6 +72,27 @@ async fn env() -> Env {
         ids.push(user.user_id);
     }
     storage.create_agent("agent-a", &agent("A", &ids[0])).await.unwrap();
+    // Provenance (FR-002/FR-003): a share names a conversation that exists and belongs to the
+    // caller, so each person has the topics these tests post against.
+    for (username, topic) in [
+        ("alice", "t1"),
+        ("alice", "t"),
+        ("bob", "t1"),
+        ("bob", "t"),
+        ("root", "t1"),
+        ("root", "t"),
+    ] {
+        storage
+            .save_session_detail(vizier_core::schema::VizierSessionDetail {
+                agent_id: "agent-a".into(),
+                channel: vizier_core::schema::VizierChannelId::from_web(username, "webui"),
+                topic: Some(topic.into()),
+                title: "Chat".into(),
+                is_thinking: false,
+            })
+            .await
+            .unwrap();
+    }
     let router = vizier_http::router(&runtime, &http_cfg);
     let mut tokens = tokens.into_iter();
     let mut ids = ids.into_iter();
