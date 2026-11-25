@@ -364,17 +364,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev python3-dev libclang-dev clang perl make postgresql-client
+      # The MinIO binary is built once per revision and cached: building it downloads several
+      # hundred modules, and one dropped request to the module proxy or sum.golang.org failed
+      # the whole job.
+      - name: Cache the MinIO binary
+        id: minio-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/minio
+          key: minio-${{ runner.os }}-go1.24-v0.0.0-20250422221226-0d7408fc9969
       - uses: actions/setup-go@v5
+        if: steps.minio-cache.outputs.cache-hit != 'true'
         with:
           go-version: '1.24.x'
-      - name: Build and start MinIO
+          cache: false
+      - name: Build MinIO
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: |
+          # MinIO Community Edition no longer publishes public container images. Build the
+          # last release used by this suite from its immutable upstream source revision.
+          for attempt in 1 2 3; do
+            if go install github.com/minio/minio@v0.0.0-20250422221226-0d7408fc9969; then
+              exit 0
+            fi
+            echo "go install failed (attempt $attempt), retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - name: Start MinIO
         env:
           MINIO_ROOT_USER: vizier
           MINIO_ROOT_PASSWORD: vizier-test-secret
         run: |
-          # MinIO Community Edition no longer publishes public container images. Build the
-          # last release used by this suite from its immutable upstream source revision.
-          go install github.com/minio/minio@v0.0.0-20250422221226-0d7408fc9969
           mkdir -p /tmp/vizier-minio
           nohup "$HOME/go/bin/minio" server /tmp/vizier-minio >/tmp/vizier-minio.log 2>&1 &
           for attempt in {1..30}; do
