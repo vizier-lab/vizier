@@ -6,6 +6,7 @@ Offline verification per the constitution's e2e gate: a running binary with an a
 
 ```sh
 just build          # webui into webui/build/client (build.rs needs it)
+npm --prefix dummyplug start   # the mock provider, 127.0.0.1:9998 (separate terminal)
 just run            # dev.vizier.yaml — dummyplug agent(s) configured
 ```
 
@@ -16,16 +17,25 @@ Let `A` be a dummyplug agent id (`vizier agent ps` or `GET /api/v1/agents`). Aut
 ### 1. Give the agent one entity of every kind (HTTP)
 
 ```sh
-# artifact
-curl -F name=report -F file=@README.md localhost:9999/api/v1/agents/$A/artifacts
-# function (custom tool)
-curl -X POST localhost:9999/api/v1/agents/$A/custom-tools -d '{"name":"fetch_weather","category":"custom","script":"pass","input_schema":{}}'
+# artifact — there is no create route: upload a session file, send it with a message, promote it
+curl -X POST localhost:9999/api/v1/files/upload -H "authorization: Bearer $T" \
+  -H 'content-type: application/json' -d "{\"file\":\"$(base64 -i README.md)\",\"filename\":\"report.md\"}"
+# → {"file_id": …, "url": "/api/v1/files/<id>"}; then send it with a chat message:
+curl -X POST localhost:9999/api/v1/agents/$A/chat -H "authorization: Bearer $T" -H 'content-type: application/json' \
+  -d '{"channel_id":"webui","topic_id":"e2e","content":"here","attachments":[{"filename":"report.md","content":{"local":"/api/v1/files/<id>"}}]}'
+curl -X POST localhost:9999/api/v1/agents/$A/channel/webui/topic/e2e/files/promote -H "authorization: Bearer $T" \
+  -H 'content-type: application/json' -d '{"filename":"report.md","name":"report"}'
+# function (custom tool) — people have no create route; an agent saves one itself (a scripted
+# dummyplug turn or the sandbox). The index/resolve paths for functions are covered by the
+# vizier-http integration test instead of this live script.
 # task
-curl -X POST localhost:9999/api/v1/agents/$A/tasks -d '{"slug":"weekly-report","title":"Weekly report","instruction":"write it","schedule":{"cron":"0 9 * * 1"}}'
+curl -X POST localhost:9999/api/v1/agents/$A/tasks -H "authorization: Bearer $T" -H 'content-type: application/json' \
+  -d '{"slug":"weekly-report","title":"Weekly report","instruction":"write it","schedule":{"type":"Cron","expression":"0 9 * * 1"}}'
 # skill (workspace file)
 mkdir -p "$VIZIER_WORKSPACE/agents/$A/skills/summarize" && printf -- '---\nname: summarize\ndescription: Summarize text\n---\nDo the thing.' > "$VIZIER_WORKSPACE/agents/$A/skills/summarize/SKILL.md"
 # memory doc
-curl -X PUT localhost:9999/api/v1/agents/$A/memory/doc/research/notes -d 'Notes body'
+curl -X PUT localhost:9999/api/v1/agents/$A/memory/doc/research/notes -H "authorization: Bearer $T" \
+  -H 'content-type: application/json' -d '{"title":"Notes","content":"Notes body"}'
 ```
 
 ### 2. The link-targets endpoint serves all five targets
