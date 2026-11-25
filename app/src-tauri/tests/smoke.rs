@@ -210,6 +210,7 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
         close_to_tray: true,
         web_access: WebAccess { enabled: true, allow_network: false, port },
         updates: Updates { check_on_start: false },
+        base_url: None,
     };
     let refused = engine.settings_set(on.clone()).await.unwrap_err();
     assert_eq!(refused.code, "password_required");
@@ -287,6 +288,7 @@ async fn web_access_needs_a_password_and_keeps_the_login_rules() {
             close_to_tray: true,
             web_access: WebAccess { enabled: false, allow_network: false, port },
             updates: Updates { check_on_start: false },
+            base_url: None,
         })
         .await
         .unwrap();
@@ -342,6 +344,7 @@ async fn desktop_project_creation_is_refused_over_the_network() {
             close_to_tray: true,
             web_access: WebAccess { enabled: true, allow_network: false, port },
             updates: Updates { check_on_start: false },
+            base_url: None,
         })
         .await
         .expect("web access");
