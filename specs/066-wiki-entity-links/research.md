@@ -14,7 +14,7 @@ Phase 0 output. Every NEEDS CLARIFICATION from the spec is resolved by a decisio
 
 ## R2 — Where resolution and broken-link status live
 
-**Decision**: The WebUI resolves links **client-side** against a cached per-agent entity-name index fetched from one new endpoint (R3). Parsed links whose target is absent from the index render in the broken state; present ones render as internal links. The parser and the kind→href table live in one module (`webui/app/lib/entityLinks.ts`).
+**Decision**: The WebUI resolves links **client-side** against a cached per-agent entity-name index, backed by one new route family (R3) with three modes: a bounded index (Mode 1), a server-side search (Mode 2, the composer's fallback — the same debounced pattern as `suggestProjectFiles`), and a batch exact-existence resolve (Mode 3, the renderer's). Parsed links whose target is absent from the cache — or that a Mode 3 resolve says is gone — render in the broken state; present ones render as internal links. The parser and the kind→href table live in one module (`webui/app/lib/entityLinks.ts`).
 
 **Rationale**: The alternative shapes were measured against the codebase:
 - *Server-side fill* (`fill_reactions` pattern, `storage/sqlite/history.rs:186`): message text lives inside the `data` JSON blob, so a fill would regex-scan every history entry on every read path and then existence-check each reference per kind. Consistent with the pattern but strictly heavier, and it wouldn't cover memory documents rendered client-side anyway.
@@ -23,11 +23,17 @@ Phase 0 output. Every NEEDS CLARIFICATION from the spec is resolved by a decisio
 
 One small endpoint + one client cache serves **both** consumers (renderer and composer suggestions), which is why it wins on Principle I.
 
-## R3 — One endpoint: `GET /api/v1/agents/{id}/link-targets`
+## R3 — One route family: `GET /api/v1/agents/{id}/link-targets` in three modes
 
-**Decision**: A single read route in `vizier-http/src/api/v1/agents/link_targets.rs` (mounted in `agents/mod.rs`) returning names only, composed from existing service calls — `service::artifacts::list`, `service::custom_tools::list`/`tools()`, `service::tasks::list`, `service::skills::list_agent` (agent + global scopes), `service::memory::list_bundles` + `list` (docs capped to the latest 500). Authorization: the standard agent read path — load agent, 404 if missing, `can_view_agent` else `Forbidden` (`service/tasks.rs:201` shape). Full contract: `contracts/link-targets-endpoint.md`.
+**Decision**: A single route file in `vizier-http/src/api/v1/agents/link_targets.rs` (mounted in `agents/mod.rs`), names only, composed from existing service calls — `service::artifacts::list`, `service::custom_tools::list`/`tools()`, `service::tasks::list`, `service::skills::list_agent` (agent + global scopes), `service::memory::list_bundles` + `list`. **No kind ships unbounded**: artifacts (the one genuinely unbounded kind — 5k entries ≈ 0.5 MB) are capped to the latest 200 and memory docs to the latest 500, with a `truncated` map telling the client which kinds were cut. Three modes on the same family, full shape in `contracts/link-targets-endpoint.md`:
 
-**Rationale**: names-only keeps the payload small (an agent with hundreds of entities is still a few KB); every underlying list call already exists and is indexed; one route = one permission check = one cache key.
+1. **Index** (no params): the bounded map above — powers the client cache.
+2. **Search** (`?kind=&q=&limit≤50`): server-side substring filter — the composer's fallback when the local index is exhausted or truncated (mirrors the existing `@` file-mention debounce, one request per suggestion pass, not per keystroke).
+3. **Resolve** (`POST …/resolve`, ≤100 links/call): exact-existence map keyed `kind:name` — the renderer's batch check for out-of-cap or stale names.
+
+Authorization: the standard agent read path — load agent, 404 if missing, `can_view_agent` else `Forbidden` (`service/tasks.rs:201` shape) — on all three modes.
+
+**Rationale**: A full unbounded index loses to scale (artifacts accumulate for the life of an agent); a search-only API loses to the renderer, which needs per-name existence, not ranking, and would pay a round trip per link. Bounded index + search + resolve keeps every response small while both consumers stay off the per-keystroke and per-link request paths. Every underlying list call already exists and is indexed; one route family = one permission check.
 
 **Uniqueness finding (relevant to spec FR-11)**: artifact names are `UNIQUE (agent_id, name)` (`storage/sqlite/mod.rs:667`), custom-tool names are `UNIQUE (agent_id, name)` plus the `name_taken` validator (`custom_tools/validate.rs:24`), and task ids are `{agent_id}/{slug}` — so per kind, per agent, names are unique today. The documented "newest first" fallback order therefore never triggers in practice; it is kept as the contract's tie-break rule should that ever change.
 
@@ -82,5 +88,5 @@ One small endpoint + one client cache serves **both** consumers (renderer and co
 ## Residual risks
 
 - **Prompt adherence**: models may emit links imperfectly (missing kind, bare `[[name]]`). The grammar treats those as memory links / literal text — degraded but never wrong; SC-005 measures real adherence on a live model.
-- **Cache staleness**: a link created after the cache refresh can render "broken" until the next refresh. Accepted: refresh happens on conversation open and on pick; the destination page remains correct regardless.
-- **Memory docs count**: `list_docs` cap (500) means very old memory docs may be absent from suggestions; typed links still resolve because the index endpoint returns the same capped set — the cap bounds payload, and bundles (always complete) remain the primary memory suggestion target.
+- **Cache staleness**: a link created after the cache refresh could render "broken" until the next refresh. Mitigated: names absent from a truncated kind, and any link the renderer is about to mark broken, are confirmed by a Mode 3 resolve batch before the broken state is shown; refresh also happens on conversation open and on pick.
+- **Capped kinds**: old artifacts (beyond 200) and memory docs (beyond 500) are absent from suggestions until the composer falls back to Mode 2 search, and from the index until a Mode 3 resolve runs — the caps bound payload, and bundles (always complete) remain the primary memory suggestion target.

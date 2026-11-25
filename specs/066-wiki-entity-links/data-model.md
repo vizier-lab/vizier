@@ -15,18 +15,21 @@ No database entities are added or changed. The "data model" is two derived shape
 
 **State transitions**: none (no lifecycle; links are inert text).
 
-## LinkTargets (endpoint response DTO — `GET /agents/{id}/link-targets`)
+## LinkTargets (endpoint response DTO — `GET /agents/{id}/link-targets`, three modes)
 
 | Field | Shape | Source (existing call) | Notes |
 |---|---|---|---|
-| `artifacts` | `[{ name, updated_at }]` | `service::artifacts::list` | names unique per agent; ordered `updated_at` desc |
-| `functions` | `[{ name }]` | `service::custom_tools` (`tools()`) | names unique per agent; `enabled` ones only? **No — all**, a disabled tool still resolves (its page explains the state) |
+| `artifacts` | `[name]` (latest **200**, `updated_at` desc) | `service::artifacts::list` | names unique per agent; the unbounded kind — capped, never shipped whole |
+| `functions` | `[name]` | `service::custom_tools` (`tools()`) | names unique per agent; all tools, disabled included (a disabled tool still resolves — its page explains the state) |
 | `tasks` | `[{ slug, title }]` | `service::tasks::list` | slug unique per agent; active and inactive |
 | `skills` | `[{ slug, scope }]` | `service::skills::list_agent` (agent + global) | workspace scopes only (research R4); `scope` ∈ `agent`\|`global` |
 | `memory.bundles` | `[name]` | `service::memory::list_bundles` | complete |
-| `memory.docs` | `[{ bundle, path }]` | `service::memory::list` | capped to latest 500 |
+| `memory.docs` | `[{ bundle, path }]` (latest **500**) | `service::memory::list` | capped like artifacts |
+| `truncated` | `{ kind: bool }` | — | true wherever a cap bit; client falls back to search for those kinds |
 
-**Client cache**: one entry per agent in a Zustand store (`stores/linkTargets.ts`, mirroring `stores/projects.ts`'s `byAgent` + `loaded` shape); refreshed on conversation open and before a suggestion pass if stale; consumers: renderer (broken-state decisions) and composer suggestions.
+**Mode 2** (`?kind=&q=&limit≤50`) returns the same per-kind array shape, server-filtered (case-insensitive substring). **Mode 3** (`POST …/resolve`, ≤100 links) returns `{ resolved: { "kind:name": bool } }` — exact existence for out-of-cap or stale names.
+
+**Client cache**: the Mode 1 index cached per agent in a Zustand store (`stores/linkTargets.ts`, mirroring `stores/projects.ts`'s `byAgent` + `loaded` shape); refreshed on conversation open and before a suggestion pass if stale; consumers: renderer (broken-state decisions, confirmed by Mode 3 batches) and composer suggestions (local filter, Mode 2 fallback).
 
 ## Existing uniqueness constraints relied on
 
