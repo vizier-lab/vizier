@@ -344,6 +344,8 @@ async fn update_agent(
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DeleteAgentQuery {
+    /// **Deprecated, ignored.** Deleting an agent always deletes its folder with everything
+    /// else; accepted so old clients keep working (#82).
     #[serde(default)]
     pub delete_workspace: bool,
 }

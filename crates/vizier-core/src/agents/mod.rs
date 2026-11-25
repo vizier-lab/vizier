@@ -779,22 +779,11 @@ impl AgentHost {
         {
             self.deps.lsp.close_project(&project.id).await;
         }
-        if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
-            return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
-        }
-        self.deps.session_files.delete_blobs(&files).await;
-        self.deps.artifacts.delete_agent_files(agent_id).await;
-        self.deps.ui_pages.delete_agent_blobs(agent_id).await;
-        for integration in attached {
-            self.deps
-                .transport
-                .publish_integration_change(IntegrationChanged {
-                    integration_id: integration.id,
-                    family: integration.family,
-                    agents: vec![agent_id.to_string()],
-                });
-        }
-
+        // The instance stops *before* its rows are deleted: stopping seals open tool calls,
+        // tells senders their turn stopped and settles workers, all of which write history. Run
+        // after the delete, those writes outlived the agent (a deleted agent's conversations
+        // came back). The fence is still held here, so those writes are allowed.
+        //
         // Marked before the inbox closes: a closed inbox ends the request loop at once, and a
         // loop that ended before the mark took the update/restart teardown (consultations of
         // this agent never stopped, its detached scripts interrupted instead of forgotten).
@@ -805,18 +794,65 @@ impl AgentHost {
             .transport
             .unregister_agent(&agent_id.to_string())
             .await;
-        // The agent is gone, so nothing answers its command subject any more.
+        // The agent is going, so nothing answers its command subject any more.
         self.release_scoped(&agent_id.to_string());
-        if let Some(process) = self.processes.remove(agent_id) {
-            process.stop(agent_id).await;
+        match self.processes.remove(agent_id) {
+            Some(process) => process.stop(agent_id).await,
+            // No instance ran its delete teardown, so forget its scripts and workers here.
+            None => {
+                self.deps.detached.delete_agent(agent_id).await;
+                let elsewhere = self.deps.subagents.delete_agent(agent_id).await;
+                crate::agents::subagents::delete_worker_conversations(
+                    &self.deps.session_files,
+                    elsewhere,
+                )
+                .await;
+            }
         }
 
-        if delete_workspace {
-            let workspace = agent_workspace(&self.deps.config.workspace, agent_id);
-            if workspace.exists() {
-                if let Err(e) = std::fs::remove_dir_all(&workspace) {
-                    tracing::warn!("failed to delete workspace for '{}': {}", agent_id, e);
+        if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
+            // Nothing was deleted (one transaction): bring the agent back up as it was.
+            tracing::error!(agent_id, "failed to delete agent: {e}");
+            if let Ok(Some(config)) = self.deps.storage.get_agent(agent_id).await {
+                let recv = self
+                    .deps
+                    .transport
+                    .register_agent(agent_id.to_string())
+                    .await;
+                self.start(agent_id.to_string(), config, recv, None);
+            }
+            return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
+        }
+        self.deps.session_files.delete_blobs(&files).await;
+        self.deps.artifacts.delete_agent_files(agent_id).await;
+        self.deps.ui_pages.delete_agent_blobs(agent_id).await;
+        // Its memory documents (`agents/<agent>/memory/...`), on whichever blob backend; on a
+        // local one that is also where the rest of its folder lives.
+        match crate::storage::blob::BlobKey::new(&format!("agents/{agent_id}")) {
+            Ok(prefix) => {
+                if let Err(e) = self.deps.blobs.delete_prefix(&prefix).await {
+                    tracing::warn!(agent_id, "failed to delete the agent's memory files: {e}");
                 }
+            }
+            Err(e) => tracing::warn!(agent_id, "no blob prefix for the agent: {e}"),
+        }
+        for integration in attached {
+            self.deps
+                .transport
+                .publish_integration_change(IntegrationChanged {
+                    integration_id: integration.id,
+                    family: integration.family,
+                    agents: vec![agent_id.to_string()],
+                });
+        }
+
+        // Everything of the agent goes, so its folder does too. `delete_workspace` is still
+        // accepted from old clients and no longer changes anything (#82).
+        let _ = delete_workspace;
+        let workspace = agent_workspace(&self.deps.config.workspace, agent_id);
+        if workspace.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&workspace) {
+                tracing::warn!("failed to delete workspace for '{}': {}", agent_id, e);
             }
         }
 

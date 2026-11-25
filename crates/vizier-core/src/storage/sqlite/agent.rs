@@ -18,6 +18,98 @@ use crate::{
     },
 };
 
+/// The rows of one agent that `delete_agent` used to leave behind: its conversations (history,
+/// details, reactions, platform links, reply recordings), memory graph, passages and vectors,
+/// tasks and their runs, dream journal, shares, and its keys in `state`. Each child row is
+/// deleted explicitly, since the cascades only fire with `PRAGMA foreign_keys` on.
+pub(crate) fn delete_agent_data(conn: &crate::storage::sql::Connection, agent_id: &str) -> Result<()> {
+    let history = "SELECT uid FROM session_history WHERE agent_id = ?1";
+    for child in ["message_reaction", "platform_message_link", "reply_audio"] {
+        conn.execute(
+            &format!("DELETE FROM {child} WHERE history_uid IN ({history})"),
+            params![agent_id],
+        )?;
+    }
+    for table in [
+        "platform_message_link",
+        "session_history",
+        "session_detail",
+        "task_run",
+        "task",
+        "dream_journal",
+        "memory_passage",
+        "memory_edge",
+        "memory_node",
+        "memory",
+    ] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE agent_id = ?1"),
+            params![agent_id],
+        )?;
+    }
+    conn.execute(
+        "DELETE FROM shared_snapshot_audience WHERE share_id IN \
+         (SELECT share_id FROM shared_snapshot WHERE agent_id = ?1)",
+        params![agent_id],
+    )?;
+    conn.execute(
+        "DELETE FROM shared_snapshot WHERE agent_id = ?1",
+        params![agent_id],
+    )?;
+
+    // Its memory vectors, in every per-width table (`{agent}/{bundle}/{path}#{n}`).
+    let vector_tables = match conn.backend() {
+        crate::storage::sql::Backend::Sqlite => {
+            "SELECT name FROM sqlite_master WHERE type = 'table' \
+             AND sql LIKE 'CREATE VIRTUAL TABLE%' \
+             AND (name = 'document_index' OR name LIKE 'document!_index!_d%' ESCAPE '!')"
+        }
+        crate::storage::sql::Backend::Postgres => {
+            "SELECT table_name FROM information_schema.tables \
+             WHERE table_schema = current_schema() \
+             AND table_name LIKE 'document!_index!_d%' ESCAPE '!'"
+        }
+    };
+    let tables = conn
+        .query_all(vector_tables, ())?
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect::<crate::storage::sql::Result<Vec<_>>>()?;
+    let prefix = format!("{agent_id}/");
+    for table in tables {
+        conn.execute(
+            &format!(
+                "DELETE FROM {table} WHERE context = 'memory' AND substr(path, 1, {}) = ?1",
+                prefix.chars().count()
+            ),
+            params![prefix],
+        )?;
+    }
+
+    // Its keys in `state`: dream bookkeeping, the memory index width, and the active topic of
+    // each Discord/Telegram channel (`{agent}__{discord|telegram}__{id}`, ids without `_`).
+    for key in [
+        format!("dream_last_time:{agent_id}"),
+        format!("dream_status:{agent_id}"),
+        format!("memory.index_dimension.{agent_id}"),
+    ] {
+        conn.execute("DELETE FROM state WHERE key = ?1", params![key])?;
+    }
+    for platform in ["discord", "telegram"] {
+        let prefix = format!("{agent_id}__{platform}__");
+        let len = prefix.chars().count();
+        conn.execute(
+            &format!(
+                "DELETE FROM state WHERE substr(key, 1, {len}) = ?1 \
+                 AND substr(key, {}) NOT LIKE '%!_%' ESCAPE '!'",
+                len + 1
+            ),
+            params![prefix],
+        )?;
+    }
+    Ok(())
+}
+
 fn millis_to_datetime(ms: i64) -> Timestamp {
     crate::time::from_millis_opt(ms).unwrap_or_else(crate::time::now)
 }
@@ -121,7 +213,13 @@ impl AgentStorage for SqlStorage {
     }
 
     async fn delete_agent(&self, agent_id: &str) -> Result<()> {
-        let conn = self.conn.lock()?;
+        let guard = self.conn.lock()?;
+        // One transaction: an agent is deleted whole or not at all, never half.
+        let conn = guard.unchecked_transaction()?;
+        // Its conversations, memory, tasks, dreams, shares and per-agent state. These used to be
+        // left behind, so a deleted agent's history outlived it (and came back with a re-created
+        // agent of the same id).
+        delete_agent_data(&conn, agent_id)?;
         conn.execute(
             "DELETE FROM agent_core WHERE agent_id = ?1",
             params![agent_id],
@@ -169,8 +267,6 @@ impl AgentStorage for SqlStorage {
             "DELETE FROM owner_fence WHERE scope = ?1",
             params![format!("agent:{agent_id}")],
         )?;
-        self.fences
-            .forget(&crate::storage::fence::Scope::Agent(agent_id.to_owned()));
         // Its Telegram side-chat deletion ledger (spec 033): message ids only, but still its own.
         conn.execute(
             "DELETE FROM state WHERE key = ?1",
@@ -200,8 +296,12 @@ impl AgentStorage for SqlStorage {
             params![agent_id],
         )?;
         if deleted == 0 {
+            // Dropping the transaction rolls every statement above back.
             return Err(anyhow::anyhow!("Agent '{}' not found", agent_id));
         }
+        conn.commit()?;
+        self.fences
+            .forget(&crate::storage::fence::Scope::Agent(agent_id.to_owned()));
         Ok(())
     }
 
@@ -447,4 +547,145 @@ mod encryption_tests {
         shell_env_is_protected_but_the_rest_of_the_config_is_readable,
         saving_an_agent_drops_legacy_credential_keys,
     );
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::storage::sql::SqlStore;
+
+    fn storage() -> SqlStorage {
+        // Auto-loaded into connections opened after this, for the memory vector tables.
+        SqlStorage::register_sqlite_vec();
+        let store = SqlStore::sqlite_in_memory().unwrap();
+        store
+            .lock()
+            .unwrap()
+            .with_rusqlite(|c| {
+                c.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+                SqlStorage::init_schema(c).unwrap();
+            })
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap().keep();
+        SqlStorage::new(store, Arc::new(crate::storage::document::BlobDocumentStore::local(dir)))
+    }
+
+    fn agent() -> AgentConfig {
+        serde_json::from_value(serde_json::json!({
+            "name": "A",
+            "provider": "dummyplug",
+            "model": "dummyplug",
+            "thinking_depth": 1,
+            "tools": { "timeout": "30s" },
+            "silent_read_initiative_chance": 0.0,
+            "prompt_timeout": "30s",
+            "heartbeat_interval": "60s",
+        }))
+        .unwrap()
+    }
+
+    /// Rows of every kind `delete_agent` once left behind, for `agent`.
+    fn seed(s: &SqlStorage, agent: &str) {
+        let conn = s.conn.lock().unwrap();
+        let uid = format!("{agent}-h1");
+        let run = [
+            format!("INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data) VALUES ('{uid}', '{agent}', 'http__u__c', 't', 1, 'request', '{{}}')"),
+            format!("INSERT INTO message_reaction (history_uid, reactor_id, emoji, added_at) VALUES ('{uid}', 'p', 'x', 1)"),
+            format!("INSERT INTO platform_message_link (agent_id, platform, chat_id, message_id, history_uid) VALUES ('{agent}', 'discord', '1', '2', '{uid}')"),
+            format!("INSERT INTO session_detail (id, agent_id, channel, topic, data) VALUES ('{agent}-d', '{agent}', 'http__u__c', 't', '{{}}')"),
+            format!("INSERT INTO task (id, agent_id, slug, data) VALUES ('{agent}-t', '{agent}', 's', '{{}}')"),
+            format!("INSERT INTO task_run (agent_id, task_slug, ran_at, session_key, state) VALUES ('{agent}', 's', 1, 'k', 'answered')"),
+            format!("INSERT INTO dream_journal (id, agent_id, stage, timestamp, data) VALUES ('{agent}-j', '{agent}', 'x', 1, '{{}}')"),
+            format!("INSERT INTO memory_node (agent_id, bundle, path, slug, title, tags_json, created_at, updated_at) VALUES ('{agent}', 'b', 'p', 'p', 'P', '[]', '', '')"),
+            format!("INSERT INTO state (key, value) VALUES ('dream_status:{agent}', '\"Idle\"')"),
+            format!("INSERT INTO state (key, value) VALUES ('{agent}__discord__42', '{{}}')"),
+        ];
+        for sql in run {
+            conn.execute(&sql, ()).unwrap();
+        }
+    }
+
+    fn count(s: &SqlStorage, sql: &str) -> i64 {
+        let conn = s.conn.lock().unwrap();
+        conn.query_row(sql, (), |row| row.get(0)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn deleting_an_agent_deletes_its_conversations_and_everything_else() {
+        let s = storage();
+        s.create_agent("a", &agent()).await.unwrap();
+        s.create_agent("a__discord", &agent()).await.unwrap();
+        s.create_agent("b", &agent()).await.unwrap();
+        seed(&s, "a");
+        seed(&s, "b");
+        // Another agent's channel state whose key starts like one of `a`'s.
+        s.conn
+            .lock()
+            .unwrap()
+            .execute("INSERT INTO state (key, value) VALUES ('a__discord__discord__7', '{}')", ())
+            .unwrap();
+
+        {
+            let conn = s.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE VIRTUAL TABLE document_index USING vec0(embedding float[2], context TEXT, path TEXT);
+                 CREATE VIRTUAL TABLE document_index_d3 USING vec0(embedding float[3], context TEXT, path TEXT);",
+            )
+            .unwrap();
+            for (table, dim, path) in [
+                ("document_index", 2, "a/b/p#0"),
+                ("document_index", 2, "b/b/p#0"),
+                ("document_index_d3", 3, "a/b/q#0"),
+                ("document_index_d3", 3, "a__discord/b/q#0"),
+            ] {
+                let v = format!("[{}]", vec!["0.5"; dim].join(","));
+                conn.execute(
+                    &format!("INSERT INTO {table} (embedding, context, path) VALUES (?1, 'memory', ?2)"),
+                    params![v, path],
+                )
+                .unwrap();
+            }
+        }
+
+        s.delete_agent("a").await.unwrap();
+
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM document_index WHERE path LIKE 'a/%'"), 0);
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM document_index_d3 WHERE path LIKE 'a/%'"), 0);
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM document_index"), 1);
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM document_index_d3"), 1);
+
+        for table in [
+            "session_history",
+            "session_detail",
+            "platform_message_link",
+            "task",
+            "task_run",
+            "dream_journal",
+            "memory_node",
+        ] {
+            assert_eq!(
+                count(&s, &format!("SELECT COUNT(*) FROM {table} WHERE agent_id = 'a'")),
+                0,
+                "{table} outlived its agent"
+            );
+            assert_eq!(
+                count(&s, &format!("SELECT COUNT(*) FROM {table} WHERE agent_id = 'b'")),
+                1,
+                "{table} of another agent was touched"
+            );
+        }
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM message_reaction"), 1);
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM state WHERE key IN ('dream_status:a', 'a__discord__42')"), 0);
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM state WHERE key IN ('dream_status:b', 'b__discord__42', 'a__discord__discord__7')"), 3);
+    }
+
+    #[tokio::test]
+    async fn deleting_an_unknown_agent_deletes_nothing() {
+        let s = storage();
+        seed(&s, "ghost");
+        assert!(s.delete_agent("ghost").await.is_err());
+        assert_eq!(count(&s, "SELECT COUNT(*) FROM session_history WHERE agent_id = 'ghost'"), 1);
+    }
 }
