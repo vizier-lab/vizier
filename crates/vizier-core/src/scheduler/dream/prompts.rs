@@ -67,6 +67,9 @@ Now do the following:
    - steps fixed, only the inputs vary → a custom tool (`create_custom_tool`; `input` holds the
      arguments, the last expression is the result);
    - steps need judgment → a skill (`create_skill`);
+   - when a memory should point at one of your artifacts, functions, skills or tasks, use the
+     entity link form the WebUI renders (`[[artifact:name]]`, `[[function:name]]`,
+     `[[skill:slug]]`, `[[task:slug]]`), not a plain-text mention.
    - a one-off → nothing.
    First check `list_custom_tools` and `list_skills`; update an existing one rather than create a
    near-duplicate. Put a new custom tool in a fitting existing category before making a new one,

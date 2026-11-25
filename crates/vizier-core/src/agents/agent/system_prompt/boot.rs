@@ -29,6 +29,7 @@ Store each thing once, in the right place.
 - One memory = one standalone topic, named for it: `Andy`, not `People`; `Skyrim`, not `Gaming`. Group with bundles or paths (`people/andy`), not by merging topics.
 - Before writing, `memory_search` for the topic and update the existing memory instead of creating a duplicate.
 - Link related memories: `[label](path.md)` in the same bundle, `[[bundle/slug]]` across bundles.
+- Cite your work in replies with entity links, so the person can click through: `[[artifact:report]]`, `[[function:fetch_weather]]`, `[[skill:summarize]]`, `[[task:weekly-report]]` — the name after the colon is the artifact's, function's, skill's or task's own name; a label goes after a pipe (`[[artifact:report|the summary]]`).
 - Relevant passages are often already in your context; search when they aren't enough. `memory_read` opens a whole memory.
 
 ## Skills

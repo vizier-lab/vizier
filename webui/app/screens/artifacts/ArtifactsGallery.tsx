@@ -1,6 +1,6 @@
 import { ActivityItem, Button, EmptyState, FileTypeTag, LoadMore, PanelHeader, SearchField, Skeleton, SortSelect, Table, TableRow, TextField } from '@vizier/design'
-import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router'
 import { listAgents } from '../../api/endpoints/agents'
 import {
     artifactActivity,
@@ -152,6 +152,35 @@ export function ArtifactsGallery() {
             toast.error("Couldn't open the artifact", e instanceof Error ? e.message : undefined)
         }
     }
+
+    // An entity wiki link lands here as `?artifact=<name>` (specs/066): open that artifact
+    // once the gallery has its list, looking it up by name when it is not on the first page.
+    const [searchParams, setSearchParams] = useSearchParams()
+    const deepLink = searchParams.get('artifact')
+    const deepLinkTried = useRef(false)
+    useEffect(() => {
+        if (!deepLink || loading || detailOpen || deepLinkTried.current) return
+        deepLinkTried.current = true
+        const clear = () => {
+            const rest = new URLSearchParams(searchParams)
+            rest.delete('artifact')
+            setSearchParams(rest, { replace: true })
+        }
+        const item = items.find((a) => a.name === deepLink)
+        if (item) {
+            void openDetail(item)
+            clear()
+            return
+        }
+        // Not on the loaded page: one filtered lookup (names are unique per agent).
+        void listArtifacts(agentId, { q: deepLink, limit: 5 })
+            .then((page) => {
+                const found = page.items.find((a) => a.name === deepLink)
+                if (found) void openDetail(found)
+            })
+            .catch(() => {})
+            .finally(clear)
+    }, [deepLink, items, loading, detailOpen, agentId])
 
     const doDelete = async () => {
         if (!confirm) return

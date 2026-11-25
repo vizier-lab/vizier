@@ -5,6 +5,7 @@ import rehypeKatex from 'rehype-katex'
 import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { EntityBroken, entityFromHref, linkKey } from '../../lib/entityLinks'
 import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
 import { remarkSlashWords } from '../../lib/remarkSlashWords'
@@ -54,8 +55,21 @@ function InlineCode({ text }: { text: string }) {
 
 const components: ComponentProps<typeof ReactMarkdown>['components'] = {
     // A link into the app (a memory wiki link) stays in the tab; anything else opens a new one.
-    a: ({ node: _n, href, ...p }) =>
-        href?.startsWith('/') && !href.startsWith('//') ? <Link to={href} {...p} /> : <a href={href} {...p} target="_blank" rel="noreferrer noopener" />,
+    // An entity link the enclosing scope resolved as missing draws broken, and goes nowhere.
+    a: ({ node: _n, href, children, ...p }) => {
+        if (href?.startsWith('/') && !href.startsWith('//')) {
+            const Broken = useContext(EntityBroken)
+            const entity = Broken && entityFromHref(href)
+            if (entity && Broken.has(linkKey(entity.kind, entity.name)))
+                return (
+                    <span className="text-faint line-through" title="Not found">
+                        {children}
+                    </span>
+                )
+            return <Link to={href} {...p}>{children}</Link>
+        }
+        return <a href={href} {...p} target="_blank" rel="noreferrer noopener" />
+    },
     // An image from another site is sent no referrer: the app's origin is nobody's business, and
     // hosts that refuse foreign referrers (hotlink protection) still serve a request without one.
     // Capped so a large picture cannot take over the screen; its aspect ratio is kept.

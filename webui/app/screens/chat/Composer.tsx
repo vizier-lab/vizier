@@ -6,6 +6,7 @@ import {
     Icon,
     Tooltip,
     VoiceRecorder,
+    type MentionMenuItem,
     type SkillMenuItem,
 } from '@vizier/design'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -17,7 +18,9 @@ import {
     type ProjectMode,
     type ProjectSkill,
 } from '../../api/endpoints/projects'
+import { entityToken, insertEntityLink } from '../../lib/entityLinks'
 import { insertMention, mentionQuery, pickedMentions } from '../../lib/mentions'
+import { isEntitySuggestion, suggestionsFor, useLinkTargets, type EntitySuggestion } from '../../stores/linkTargets'
 import { skillDescription } from '../../lib/skillDescription'
 import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
@@ -135,9 +138,13 @@ export function Composer({
     useEffect(() => setMode(project?.mode ?? 'plan'), [project?.mode])
     const [picked, setPicked] = useState<string[]>([])
     const [suggestions, setSuggestions] = useState<{ at: number; items: FileSuggestion[] } | null>(null)
+    const [linkSuggestions, setLinkSuggestions] = useState<EntitySuggestion[] | null>(null)
     // Escape puts the menu away until the text changes.
     const [dismissedAt, setDismissedAt] = useState<string | null>(null)
     const suggestionRequest = useRef(0)
+    const linkIndex = useLinkTargets((s) => s.byAgent[agentId])
+    const refreshLinks = useLinkTargets((s) => s.refresh)
+    const searchLinks = useLinkTargets((s) => s.search)
 
     // `@` suggestions, debounced 120 ms. A stale response is dropped by request id.
     useEffect(() => {
@@ -159,6 +166,42 @@ export function Composer({
         }, 120)
         return () => clearTimeout(timer)
     }, [value, project, agentId, topicId])
+
+    // `[[` suggestions (specs/066): the cached index filtered as the person types, refreshed
+    // when the menu opens; a kind prefix with no local match falls back to the server's
+    // search, debounced the same way.
+    useEffect(() => {
+        const token = entityToken(value)
+        if (!token || dismissedAt === value) {
+            setLinkSuggestions(null)
+            return
+        }
+        if (!linkIndex) {
+            void refreshLinks(agentId)
+            return
+        }
+        const local = suggestionsFor(linkIndex, token.kind, token.query)
+        if (local.length > 0 || !token.kind) {
+            setLinkSuggestions(local)
+            return
+        }
+        const id = ++suggestionRequest.current
+        const timer = setTimeout(() => {
+            void searchLinks(agentId, token.kind!, token.query).then((page) => {
+                if (suggestionRequest.current !== id) return
+                setLinkSuggestions(suggestionsFor(page, token.kind, token.query))
+            })
+        }, 120)
+        return () => clearTimeout(timer)
+    }, [value, dismissedAt, agentId, linkIndex, refreshLinks, searchLinks])
+
+    const pickEntity = (item: EntitySuggestion) => {
+        const token = entityToken(value)
+        if (!token) return
+        setValue(insertEntityLink(value, token.start, item.kind, item.name))
+        setLinkSuggestions(null)
+        input.current?.focus()
+    }
 
     const pick = (path: string) => {
         const token = mentionQuery(value)
@@ -408,15 +451,29 @@ export function Composer({
                 lifted={lifted}
                 agentName={agentName}
                 suggest={
-                    project && suggestions && dismissedAt !== value
-                        ? {
-                              label: 'Files',
-                              query: mentionQuery(value)?.query ?? '',
-                              items: suggestions.items,
-                              onPick: (item) => 'path' in item && pick(item.path),
-                              onDismiss: () => setDismissedAt(value),
-                          }
-                        : null
+                    dismissedAt === value
+                        ? null
+                        : suggestions
+                          ? {
+                                label: 'Files',
+                                query: mentionQuery(value)?.query ?? '',
+                                items: suggestions.items,
+                                onPick: (item) => 'path' in item && pick(item.path),
+                                onDismiss: () => setDismissedAt(value),
+                            }
+                          : linkSuggestions
+                          ? {
+                                label: 'Links',
+                                query: entityToken(value)?.query ?? '',
+                                items: linkSuggestions,
+                                onPick: (item: MentionMenuItem) => {
+                                    if (isEntitySuggestion(item)) pickEntity(item)
+                                },
+                                onDismiss: () => setDismissedAt(value),
+                                emptyText: 'Nothing matches. Enter sends it as text.',
+                                footer: '↑↓ to move · Tab or Enter to insert · Esc to close',
+                            }
+                          : null
                 }
                 value={value}
                 onValueChange={setValue}

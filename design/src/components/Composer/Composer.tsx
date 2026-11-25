@@ -20,6 +20,8 @@ export type ComposerSuggest = {
   onDismiss: () => void;
   /** Said when nothing matches; defaults to the file wording. */
   emptyText?: string;
+  /** The menu's footer line; defaults to the mention wording. */
+  footer?: string;
 };
 
 export type ComposerProps = {
@@ -193,6 +195,7 @@ export function Composer({
             items={suggest.items}
             query={suggest.query}
             emptyText={suggest.emptyText}
+            footer={suggest.footer}
             active={suggestIndex}
             onPick={suggest.onPick}
             // Where the composer deck stands: inset, on the composer's top edge, over its lip.

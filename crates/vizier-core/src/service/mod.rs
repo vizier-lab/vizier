@@ -37,6 +37,7 @@ pub mod notifications;
 pub mod overview;
 pub mod files;
 pub mod setup_state;
+pub mod link_targets;
 pub mod page;
 
 pub use error::ServiceError;

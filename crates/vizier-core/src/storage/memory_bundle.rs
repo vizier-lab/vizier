@@ -178,12 +178,26 @@ fn same_bundle_link_target(href: &str) -> Option<String> {
     Some(normalize_path(path_only) + ".md")
 }
 
-/// Cross-bundle wikilinks: `[[bundle/slug]]` or bare `[[bundle]]` (FR-013).
+/// Cross-bundle wikilinks: `[[bundle/slug]]` or bare `[[bundle]]` (FR-013). Entity wiki
+/// links of the WebUI's `[[kind:name]]` grammar (spec 066 — `artifact:`, `function:`,
+/// `skill:`, `task:`) are not memory references, so they are skipped here rather than
+/// classified as bundle references; nothing in a bundle name can collide because the
+/// reserved kinds are matched before any bundle interpretation happens.
+const ENTITY_LINK_KINDS: [&str; 4] = ["artifact", "function", "skill", "task"];
+
+fn is_entity_link_target(target: &str) -> bool {
+    match target.split_once(':') {
+        Some((kind, _)) => ENTITY_LINK_KINDS.contains(&kind),
+        None => false,
+    }
+}
+
 fn parse_wikilinks(content: &str) -> Vec<String> {
     let re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
     re.captures_iter(content)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().trim().to_string()))
         .filter(|s| !s.is_empty())
+        .filter(|s| !is_entity_link_target(s))
         .collect()
 }
 
@@ -3435,6 +3449,69 @@ mod tests {
             .await
             .unwrap();
         assert!(graph.edges.iter().any(|e| e.broken));
+    }
+
+    /// Entity wiki links (spec 066, `[[kind:name]]`) are WebUI navigation, not memory
+    /// relations: they must be skipped by `parse_wikilinks` entirely — never a node, an
+    /// edge, or a broken edge in the memory graph — while ordinary wikilinks in the same
+    /// document keep working exactly as before.
+    #[tokio::test]
+    async fn entity_wikilinks_are_not_memory_relations() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "alpha content".into(),
+                vec![],
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap();
+
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("gamma".into()),
+                false,
+                "Gamma".into(),
+                "cites [[artifact:report]], [[function:fetch_weather]], \
+                 [[skill:summarize|doc]], [[task:weekly-report]] — and [[alpha]]"
+                    .into(),
+                vec![],
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap();
+
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(
+            format!("{}/{}", related[0].bundle, related[0].slug),
+            "default/alpha"
+        );
+
+        let graph = store
+            .get_memory_graph("a1".into(), None, None)
+            .await
+            .unwrap();
+        assert!(graph.edges.iter().all(|e| {
+            !e.target.contains("artifact:report")
+                && !e.target.contains("function:fetch_weather")
+                && !e.target.contains("skill:summarize")
+                && !e.target.contains("task:weekly-report")
+        }));
     }
 
     #[tokio::test]

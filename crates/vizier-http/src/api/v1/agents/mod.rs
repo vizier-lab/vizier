@@ -30,6 +30,7 @@ pub mod core;
 pub mod custom_tools;
 pub mod dream;
 pub mod integrations;
+pub mod link_targets;
 pub mod detached;
 pub mod ui_pages;
 pub mod subagents;
@@ -129,6 +130,7 @@ pub fn agents() -> Router<HTTPState> {
         )
         .nest("/{agent_id}/channel", channel().merge(detached_scripts()).merge(subagent_routes()).merge(ui_page_routes()))
         .nest("/{agent_id}/artifacts", artifacts::artifacts())
+        .nest("/{agent_id}/link-targets", link_targets::link_targets())
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/secrets", secrets())

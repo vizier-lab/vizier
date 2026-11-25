@@ -31,6 +31,7 @@
 - [Agents](./configuration/agents.md)
 - [Channels](./configuration/channels.md)
 - [Memory](./configuration/memory.md)
+- [Entity Links](./configuration/entity-links.md)
 - [Skills](./configuration/skills.md)
 - [Functions](./configuration/custom-tools.md)
 - [MCP Servers](./configuration/mcp.md)
