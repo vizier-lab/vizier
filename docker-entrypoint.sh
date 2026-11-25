@@ -37,6 +37,7 @@ args=(run)
 [ -n "${VIZIER_SHUTDOWN_GRACE:-}" ]  && args+=(--shutdown-grace "$VIZIER_SHUTDOWN_GRACE")
 [ -n "${VIZIER_CATALOGUE_REFRESH:-}" ] && args+=(--catalogue-refresh "$VIZIER_CATALOGUE_REFRESH")
 [ -n "${VIZIER_CATALOGUE_TTL:-}" ]     && args+=(--catalogue-ttl "$VIZIER_CATALOGUE_TTL")
+[ -n "${VIZIER_BASE_URL:-}" ]        && args+=(--base-url "$VIZIER_BASE_URL")
 [ -n "${VIZIER_EXTRA_ARGS:-}" ]      && args+=($VIZIER_EXTRA_ARGS)
 
 # Append explicit user args (everything after "run", if any).

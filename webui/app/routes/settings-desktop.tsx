@@ -22,6 +22,8 @@ export default function SettingsDesktop() {
     const shell = transport.desktop
     const [settings, setSettings] = useState<DesktopSettings>()
     const [port, setPort] = useState('')
+    const [baseUrl, setBaseUrl] = useState('')
+    const [baseUrlProblem, setBaseUrlProblem] = useState<string>()
     const [problem, setProblem] = useState<string>()
     const [needsPassword, setNeedsPassword] = useState(false)
     const [confirmNetwork, setConfirmNetwork] = useState(false)
@@ -35,6 +37,7 @@ export default function SettingsDesktop() {
             (s) => {
                 setSettings(s)
                 setPort(String(s.web_access.port))
+                setBaseUrl(s.base_url ?? '')
             },
             (e) => setProblem(errorText(e, 'The settings could not be loaded.'))
         )
@@ -48,12 +51,17 @@ export default function SettingsDesktop() {
     const save = async (next: DesktopSettings) => {
         setProblem(undefined)
         setNeedsPassword(false)
+        setBaseUrlProblem(undefined)
         try {
             const saved = await shell.settingsSet(next)
             setSettings(saved ?? next)
-            if (saved) setPort(String(saved.web_access.port))
+            if (saved) {
+                setPort(String(saved.web_access.port))
+                setBaseUrl(saved.base_url ?? '')
+            }
         } catch (e) {
             if (errorCode(e) === 'password_required') setNeedsPassword(true)
+            else if (errorCode(e) === 'invalid_base_url') setBaseUrlProblem(errorText(e, 'That address is not a valid URL.'))
             else setProblem(errorText(e, 'The settings could not be saved.'))
         }
     }
@@ -166,6 +174,36 @@ export default function SettingsDesktop() {
                                     Running at <code>{url}</code>
                                 </p>
                             )}
+                        </Card>
+
+                        <Card
+                            title="Address"
+                            description="The public URL people use to reach this Vizier. Used later for sign-in redirects and push notifications."
+                            aria-label="Address"
+                        >
+                            <div className="flex flex-col gap-12">
+                                <TextField
+                                    label="Base URL"
+                                    type="url"
+                                    mono
+                                    placeholder="https://vizier.example.com"
+                                    value={baseUrl}
+                                    invalid={baseUrlProblem !== undefined}
+                                    helper={baseUrlProblem ?? 'Leave empty if it isn’t set. Applies the next time Vizier starts.'}
+                                    onChange={(e) => {
+                                        setBaseUrl(e.target.value)
+                                        setBaseUrlProblem(undefined)
+                                    }}
+                                />
+                                <Button
+                                    className="self-end"
+                                    variant="secondary"
+                                    disabled={baseUrl.trim() === (settings.base_url ?? '')}
+                                    onClick={() => void save({ ...settings, base_url: baseUrl.trim() || null })}
+                                >
+                                    Save
+                                </Button>
+                            </div>
                         </Card>
 
                         <Dialog

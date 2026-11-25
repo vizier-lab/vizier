@@ -110,6 +110,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         },
         worker_threads,
         trusted_proxies: Vec::new(),
+        base_url: None,
         catalogue: Default::default(),
         lsp: Default::default(),
         subagents: Default::default(),

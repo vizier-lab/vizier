@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+pub mod base_url;
 pub mod embedding;
 pub mod provider;
 pub mod shell;
@@ -178,6 +179,11 @@ pub struct VizierConfig {
     /// Trusted reverse proxy addresses or CIDRs for forwarded headers.
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
+    /// The public address people reach this instance at, e.g. `https://vizier.example.com`
+    /// (no trailing `/`). Not read by anything yet; kept for sign-in redirects and push
+    /// notifications. Checked by [`base_url::normalize`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 /// Subagents (`specs/059-subagent-workers`).
@@ -276,6 +282,9 @@ pub struct RunOverrides {
     pub catalogue_refresh: Option<bool>,
     pub catalogue_ttl: Option<duration_string::DurationString>,
     pub trusted_proxies: Option<Vec<String>>,
+    /// Already checked by [`base_url::normalize`]; `Some(None)` would mean "unset", which no
+    /// caller needs, so a set override is always an address.
+    pub base_url: Option<String>,
 }
 
 impl VizierConfig {
@@ -301,6 +310,11 @@ impl VizierConfig {
         if let Ok(v) = std::env::var("VIZIER_TRUSTED_PROXIES") {
             let env_proxies: Vec<String> = v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
             config.vizier.trusted_proxies.extend(env_proxies);
+        }
+
+        if let Some(raw) = config.vizier.base_url.take() {
+            config.vizier.base_url = base_url::normalize(&raw)
+                .map_err(|e| anyhow::anyhow!("vizier.base_url in {}: {e}", path.display()))?;
         }
 
         Ok(config.vizier)
@@ -377,6 +391,9 @@ impl VizierConfig {
         if let Some(tp) = &overrides.trusted_proxies {
             self.trusted_proxies = tp.clone();
         }
+        if let Some(b) = &overrides.base_url {
+            self.base_url = Some(b.clone());
+        }
     }
 }
 
@@ -406,6 +423,7 @@ impl Default for VizierConfig {
             lsp: LspConfig::default(),
             subagents: SubagentsConfig::default(),
             trusted_proxies: Vec::new(),
+            base_url: None,
         }
     }
 }

@@ -79,6 +79,7 @@ Variables used by the defaults and the Docker entrypoint:
 | `VIZIER_JWT_SECRET` | Referenced by the default `channels.http.jwt_secret` |
 | `VIZIER_PORT`, `VIZIER_STORAGE`, `VIZIER_WORKERS`, `VIZIER_WS_IDLE_TIMEOUT`, `VIZIER_EXTRA_ARGS` | Docker entrypoint → CLI flags |
 | `VIZIER_CATALOGUE_REFRESH`, `VIZIER_CATALOGUE_TTL` | `catalogue.refresh` / `catalogue.ttl` |
+| `VIZIER_BASE_URL` | `base_url`, the public address of the server (not used yet) |
 | `RUST_LOG` | Tracing filter (e.g. `vizier=debug`) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, … | Provider keys, picked up without any configuration — see [Providers](./providers.md) |
 

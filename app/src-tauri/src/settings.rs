@@ -42,6 +42,10 @@ pub struct DesktopSettings {
     pub close_to_tray: bool,
     pub web_access: WebAccess,
     pub updates: Updates,
+    /// The public address people reach this Vizier at (`VizierConfig::base_url`). Nothing reads
+    /// it yet; kept for sign-in redirects and push notifications. Applies at the next start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -54,6 +58,7 @@ impl DesktopSettings {
             close_to_tray: true,
             web_access: WebAccess::default(),
             updates: Updates::default(),
+            base_url: None,
             extra: serde_json::Map::new(),
         }
     }

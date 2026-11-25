@@ -35,6 +35,9 @@ vizier:
 
   # ── Runtime ──
   worker_threads: 4                   # tokio worker threads, default 4
+
+  # ── Address ──
+  base_url: https://vizier.example.com  # optional, the public URL of this server
 ```
 
 ### `catalogue`
@@ -90,6 +93,12 @@ See [Agents](./agents.md#subagents).
 
 Number of Tokio worker threads for the whole process. Override with `--workers`.
 
+### `base_url`
+
+The public address people reach this server at, such as `https://vizier.example.com`. Optional, unset by default. **Nothing uses it yet**: it is kept for sign-in redirects and push notifications, which need to link back to this instance.
+
+It must be an absolute `http://` or `https://` URL with a host and no query (`?`), fragment (`#`) or user name. A trailing `/` is removed. A value that breaks these rules stops vizier at startup with a message naming it. Override with `--base-url` or `VIZIER_BASE_URL`. In the desktop app it is set on **Settings → Desktop → Address** instead.
+
 ## Environment variable expansion
 
 Every string in the file goes through `${VAR}` expansion before parsing, so secrets can live in the environment:
@@ -116,6 +125,7 @@ CLI flags win over the file (`VizierConfig::apply_overrides`):
 | `--ws-idle-timeout <SECS>` | `channels.http.ws_idle_timeout_secs` |
 | `--catalogue-refresh <true\|false>` | `catalogue.refresh` |
 | `--catalogue-ttl <DURATION>` | `catalogue.ttl` |
+| `--base-url <URL>` / `VIZIER_BASE_URL` | `base_url` |
 
 ## Ignored legacy keys
 

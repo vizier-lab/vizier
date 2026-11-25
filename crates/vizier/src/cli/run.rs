@@ -151,6 +151,13 @@ pub struct RunArgs {
 
     #[arg(
         long,
+        value_name = "URL",
+        help = "the public address people reach this server at, e.g. https://vizier.example.com (kept for sign-in redirects and push notifications); env VIZIER_BASE_URL"
+    )]
+    base_url: Option<String>,
+
+    #[arg(
+        long,
         value_name = "ROLE[,ROLE]",
         value_parser = parse_server_role_set,
         help = "server roles to run: all (default), or a comma list of gateway-http, gateway-grpc, worker, channels, control; env VIZIER_ROLE"
@@ -236,6 +243,17 @@ fn shutdown_grace(cli: Option<u64>, env: Option<&str>) -> Result<std::time::Dura
     Ok(std::time::Duration::from_secs(seconds))
 }
 
+/// `--base-url` wins over `VIZIER_BASE_URL`; an empty value of either is "not given", so the
+/// seed config's `vizier.base_url` still applies. A malformed one is a startup error.
+fn base_url(cli: Option<&str>, env: Option<&str>) -> Result<Option<String>> {
+    let (source, raw) = match (cli, env) {
+        (Some(v), _) if !v.trim().is_empty() => ("--base-url", v),
+        (_, Some(v)) if !v.trim().is_empty() => ("VIZIER_BASE_URL", v),
+        _ => return Ok(None),
+    };
+    vizier_core::config::base_url::normalize(raw).map_err(|e| anyhow::anyhow!("{source}: {e}"))
+}
+
 pub fn run(args: RunArgs) -> Result<()> {
     let shutdown_grace = shutdown_grace(
         args.shutdown_grace,
@@ -274,6 +292,7 @@ pub fn run(args: RunArgs) -> Result<()> {
                 .and_then(|v| v.trim().parse().ok())
         }),
         trusted_proxies: None,
+        base_url: base_url(args.base_url.as_deref(), std::env::var("VIZIER_BASE_URL").ok().as_deref())?,
     };
     config.apply_overrides(&overrides);
 
@@ -346,6 +365,15 @@ mod tests {
         );
         assert!(shutdown_grace(Some(0), None).is_err());
         assert!(shutdown_grace(None, Some("not-a-number")).is_err());
+    }
+
+    #[test]
+    fn base_url_flag_wins_over_env_and_empty_is_not_given() {
+        assert_eq!(base_url(Some("https://a.example/"), Some("https://b.example")).unwrap().as_deref(), Some("https://a.example"));
+        assert_eq!(base_url(None, Some("https://b.example")).unwrap().as_deref(), Some("https://b.example"));
+        assert_eq!(base_url(Some(""), Some("https://b.example")).unwrap().as_deref(), Some("https://b.example"));
+        assert_eq!(base_url(None, Some("  ")).unwrap(), None);
+        assert!(base_url(Some("not a url"), None).unwrap_err().to_string().starts_with("--base-url"));
     }
 
     #[test]

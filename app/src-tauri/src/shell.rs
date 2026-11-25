@@ -257,13 +257,13 @@ async fn runtime_restart(shell: State<'_, Shell>) -> Result<(), ()> {
 #[tauri::command]
 fn desktop_settings_get(shell: State<'_, Shell>) -> Value {
     let s = shell.engine.settings();
-    json!({ "workspace": s.workspace, "close_to_tray": s.close_to_tray, "web_access": s.web_access, "updates": s.updates })
+    json!({ "workspace": s.workspace, "close_to_tray": s.close_to_tray, "web_access": s.web_access, "updates": s.updates, "base_url": s.base_url })
 }
 
 #[tauri::command]
 async fn desktop_settings_set(patch: SettingsPatch, shell: State<'_, Shell>) -> Result<Value, CommandError> {
     let s = shell.engine.settings_set(patch).await?;
-    Ok(json!({ "workspace": s.workspace, "close_to_tray": s.close_to_tray, "web_access": s.web_access, "updates": s.updates }))
+    Ok(json!({ "workspace": s.workspace, "close_to_tray": s.close_to_tray, "web_access": s.web_access, "updates": s.updates, "base_url": s.base_url }))
 }
 
 #[tauri::command]

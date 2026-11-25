@@ -42,6 +42,7 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 | `--shutdown-grace <SECS>` | Maximum graceful HTTP/runtime drain time after SIGTERM or Ctrl-C (default `30`) |
 | `--catalogue-refresh <true\|false>` | Allow the lazy models.dev catalogue check (default `true`) |
 | `--catalogue-ttl <DURATION>` | How often that check may run (default `24h`) |
+| `--base-url <URL>` | The public address of this server (overrides `base_url` in the config; env `VIZIER_BASE_URL`). Not used yet; see [`base_url`](./main-config.md#base_url) |
 | `--role <ROLE[,ROLE]>` | Which server roles this process runs: `all` (default), or a comma list of `gateway-http`, `gateway-grpc`, `worker`, `channels`, `control`. `VIZIER_ROLE` does the same for containers. See [Roles](#roles) |
 
 ### Roles
@@ -153,6 +154,7 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_SHUTDOWN_GRACE` | `--shutdown-grace` | `30` |
 | `VIZIER_CATALOGUE_REFRESH` | `--catalogue-refresh` | `true` |
 | `VIZIER_CATALOGUE_TTL` | `--catalogue-ttl` | `24h` |
+| `VIZIER_BASE_URL` | `--base-url` | unset |
 | `VIZIER_JWT_SECRET` | env read by the default config | `vizier-default-secret-change-me` — **change it** |
 | `VIZIER_EXTRA_ARGS` | appended verbatim | unset |
 | `RUST_LOG` | logging filter | unset |

@@ -50,6 +50,8 @@ export type DesktopSettings = {
     web_access: { enabled: boolean; allow_network: boolean; port: number }
     updates: { check_on_start: boolean }
     workspace?: string
+    /** The public address people reach this Vizier at. Unset when absent; applies at next start. */
+    base_url?: string | null
 }
 
 export type UpdateInfo = { available: boolean; version?: string; notes?: string }

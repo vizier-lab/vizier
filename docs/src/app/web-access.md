@@ -27,3 +27,7 @@ Allowing the network binds every interface. Traffic is **plain HTTP**: passwords
 - Allowed browser origins (CORS) are limited to the address being served.
 - Your operating system account is the boundary around the workspace: anyone who can run programs as you can read the workspace folder directly, and desktop access is the same as filesystem access. Encryption at rest ([2.14](../configuration/encryption.md)) protects secrets in the database from other people with a copy of the file, not from you.
 - The signing key for browser sessions lives in `{workspace}/.runtime/web-access.key` and is created on first use.
+
+## Address
+
+**Settings → Desktop → Address** holds the **base URL**: the public address people use to reach this Vizier, such as `https://vizier.example.com`. Nothing uses it yet; it is kept for sign-in redirects and push notifications. It must be an `http://` or `https://` URL with no `?` or `#` part, a trailing `/` is removed, and leaving it empty clears it. It applies the next time Vizier starts. The server edition sets the same value with `--base-url` or `VIZIER_BASE_URL` (see [`base_url`](../configuration/main-config.md#base_url)).

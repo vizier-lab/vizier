@@ -177,6 +177,13 @@ impl Engine {
         // managed database or object store here.
         config.storage = StorageConfig::Sqlite;
         config.objects = ObjectsConfig::Local;
+        // Checked when saved; a hand-edited desktop.json may still hold a bad one.
+        if let Some(raw) = self.settings().base_url {
+            match vizier_core::config::base_url::normalize(&raw) {
+                Ok(url) => config.base_url = url,
+                Err(e) => tracing::warn!("ignoring the saved base URL: {e}"),
+            }
+        }
         // The key doubles as the JWT secret of the opt-in web listener (research R10); it is
         // part of the runtime's config because the router reads it from there.
         match web_access::ensure_key(workspace) {
@@ -401,7 +408,10 @@ impl Engine {
                 "set a password before turning on web access",
             ));
         }
+        let base_url = vizier_core::config::base_url::normalize(patch.base_url.as_deref().unwrap_or(""))
+            .map_err(|e| CommandError::new("invalid_base_url", e))?;
         self.save_settings(|s| {
+            s.base_url = base_url;
             s.close_to_tray = patch.close_to_tray;
             s.web_access = patch.web_access;
             s.updates = patch.updates;
@@ -446,4 +456,7 @@ pub struct SettingsPatch {
     pub close_to_tray: bool,
     pub web_access: WebAccess,
     pub updates: crate::settings::Updates,
+    /// Empty or missing clears it.
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
