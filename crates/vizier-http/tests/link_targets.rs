@@ -23,7 +23,8 @@ use vizier_http::auth::AuthService;
 
 struct Env {
     router: Router,
-    runtime: VizierRuntime,
+    /// Owns the storage the router serves; kept alive for the whole test.
+    _runtime: VizierRuntime,
     alice: String,
     viewer: String,
     stranger: String,
@@ -147,7 +148,7 @@ async fn env() -> Env {
     let mut tokens = tokens.into_iter();
     Env {
         router,
-        runtime,
+        _runtime: runtime,
         alice: tokens.next().unwrap(),
         viewer: tokens.next().unwrap(),
         stranger: tokens.next().unwrap(),
@@ -162,7 +163,7 @@ struct Reply {
 }
 
 async fn send(env: &Env, method: &str, uri: &str, token: &str, body: Option<Value>) -> Reply {
-    let mut req = Request::builder()
+    let req = Request::builder()
         .method(method)
         .uri(uri)
         .header("authorization", format!("Bearer {}", token));
