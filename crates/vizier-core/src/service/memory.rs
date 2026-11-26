@@ -1,4 +1,4 @@
-//! An agent's memory: concept documents, bundles, graph, search, attachments and version
+//! An agent's memory: concept documents, bundles, graph, search and version
 //! history (spec 038, US2). Operations go through the agent's memory-op channel on the
 //! transport, as the HTTP handlers did.
 
@@ -30,8 +30,6 @@ pub struct CreateMemoryRequest {
     pub path: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
-    pub attachments: Option<Vec<VizierAttachment>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,8 +39,6 @@ pub struct UpdateMemoryRequest {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
-    pub attachments: Option<Vec<VizierAttachment>>,
     /// The revision this edit started from, when the client knows it. When the document has
     /// moved on, the save is refused with `409 stale_revision` and the newer content instead of
     /// overwriting it (FR-028). Optional and additive: a client that omits it keeps the old
@@ -113,7 +109,6 @@ pub struct MemorySummary {
     pub updated_at: DateTime<Local>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
-    pub attachment_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,7 +123,6 @@ pub struct MemoryDetail {
     pub updated_at: DateTime<Local>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
-    pub attachments: Vec<crate::schema::MemoryAttachmentView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -168,18 +162,6 @@ pub struct PaginatedMemoryResponse {
     pub total: usize,
     pub offset: usize,
     pub limit: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct AttachArtifactRequest {
-    pub artifact: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::IntoParams))]
-pub struct DetachAttachmentQuery {
-    pub name: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -237,55 +219,10 @@ fn summarize_memory(memory: &Memory) -> MemorySummary {
         updated_at: memory.updated_at,
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
-        attachment_count: memory.attachment_count,
     }
 }
 
-async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
-    use crate::schema::{MemoryAttachment, MemoryAttachmentView, VizierAttachmentContent};
-    let deps = s.deps();
-    let mut attachments = Vec::with_capacity(memory.attachments.len());
-    for attachment in &memory.attachments {
-        match attachment {
-            MemoryAttachment::Artifact { artifact_id, name } => {
-                let artifact = deps
-                    .storage
-                    .get_artifact(&memory.agent_id, artifact_id)
-                    .await
-                    .ok()
-                    .flatten();
-                let available = artifact.is_some()
-                    && deps
-                        .artifacts
-                        .content_ref(&memory.agent_id, artifact_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .is_some();
-                attachments.push(MemoryAttachmentView::Artifact {
-                    artifact_id: artifact_id.clone(),
-                    name: name.clone(),
-                    mime_type: artifact.as_ref().map(|a| a.mime_type.clone()),
-                    size: artifact.as_ref().map(|a| a.size),
-                    available,
-                });
-            }
-            MemoryAttachment::LegacySessionFile(legacy) => {
-                let available = match &legacy.content {
-                    VizierAttachmentContent::Local(url) => {
-                        let file_id = url.trim_start_matches("/api/v1/files/");
-                        deps.file_manager.exists(file_id).await
-                    }
-                    _ => true,
-                };
-                attachments.push(MemoryAttachmentView::LegacySessionFile {
-                    filename: legacy.filename.clone(),
-                    content: legacy.content.clone(),
-                    available,
-                });
-            }
-        }
-    }
+async fn detail_from_memory(_s: &Services, memory: &Memory) -> MemoryDetail {
     MemoryDetail {
         agent_id: memory.agent_id.clone(),
         bundle: memory.bundle.clone(),
@@ -296,7 +233,6 @@ async fn detail_from_memory(s: &Services, memory: &Memory) -> MemoryDetail {
         updated_at: memory.updated_at,
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
-        attachments,
     }
 }
 
@@ -350,20 +286,6 @@ async fn require_agent(
     Ok(config)
 }
 
-async fn require_memory_and_artifact_view(
-    s: &Services,
-    who: &Principal,
-    agent_id: &str,
-) -> Result<AgentConfig, ServiceError> {
-    let config = require_agent(s, who, agent_id).await?;
-    if !artifacts_access::can_view(&Caller::from(who), &config) {
-        return Err(ServiceError::Forbidden(
-            "You do not have permission to view this agent's artifacts".into(),
-        ));
-    }
-    Ok(config)
-}
-
 pub(crate) async fn op(
     s: &Services,
     agent_id: &str,
@@ -381,72 +303,6 @@ fn clean_graph_search(params: GraphQueryParams) -> Option<String> {
 
 fn history_path(raw: &str) -> String {
     raw.trim_end_matches(".md").to_string()
-}
-
-// ---- attachments ----
-
-pub async fn attach_artifact(
-    s: &Services,
-    who: &Principal,
-    agent_id: &str,
-    bundle: String,
-    path: &str,
-    body: AttachArtifactRequest,
-) -> Result<MemoryDetail, ServiceError> {
-    require_memory_and_artifact_view(s, who, agent_id).await?;
-    let path = path.trim_end_matches(".md").to_string();
-    let artifact = match s.deps().storage.get_artifact_by_name(agent_id, &body.artifact).await {
-        Ok(Some(artifact)) => artifact,
-        Ok(None) => {
-            return Err(ServiceError::NotFound(format!(
-                "artifact '{}' not found",
-                body.artifact
-            )));
-        }
-        Err(e) => return Err(ServiceError::Internal(e.to_string())),
-    };
-    let request = MemoryOpRequest::AttachArtifact {
-        bundle: Some(bundle),
-        path,
-        artifact_id: artifact.id,
-        artifact_name: artifact.name,
-        origin: RevisionOrigin::from_user(who),
-    };
-    match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(detail_from_memory(s, &memory).await),
-        Ok(_) => Err(unexpected()),
-        Err(e) => Err(attachment_error(e.to_string())),
-    }
-}
-
-pub async fn detach_attachment(
-    s: &Services,
-    who: &Principal,
-    agent_id: &str,
-    bundle: String,
-    path: &str,
-    query: DetachAttachmentQuery,
-) -> Result<MemoryDetail, ServiceError> {
-    require_memory_and_artifact_view(s, who, agent_id).await?;
-    let request = MemoryOpRequest::DetachAttachment {
-        bundle: Some(bundle),
-        path: path.trim_end_matches(".md").to_string(),
-        name: query.name,
-        origin: RevisionOrigin::from_user(who),
-    };
-    match op(s, agent_id, request).await {
-        Ok(MemoryOpResponse::Memory(memory)) => Ok(detail_from_memory(s, &memory).await),
-        Ok(_) => Err(unexpected()),
-        Err(e) => Err(attachment_error(e.to_string())),
-    }
-}
-
-fn attachment_error(msg: String) -> ServiceError {
-    if msg.contains("not found") {
-        ServiceError::NotFound(msg)
-    } else {
-        op_error(msg)
-    }
 }
 
 // ---- list / search / graph ----
@@ -494,13 +350,6 @@ pub async fn create(
     body: CreateMemoryRequest,
 ) -> Result<CreateMemoryResponse, ServiceError> {
     require_agent(s, who, agent_id).await?;
-    if body.attachments.as_ref().is_some_and(|list| !list.is_empty()) {
-        return Err(ServiceError::Invalid {
-            status: 422,
-            message: "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
-            code: None,
-        });
-    }
 
     let request = MemoryOpRequest::Write {
         bundle: body.bundle.clone(),
@@ -537,13 +386,6 @@ pub async fn update(
     body: UpdateMemoryRequest,
 ) -> Result<UpdateMemoryResponse, ServiceError> {
     require_agent(s, who, agent_id).await?;
-    if body.attachments.as_ref().is_some_and(|list| !list.is_empty()) {
-        return Err(ServiceError::Invalid {
-            status: 422,
-            message: "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
-            code: None,
-        });
-    }
     // A stale save is refused before anything is written, showing the newer content — the
     // behaviour the removed Core page carried, so it must not be lost with it (FR-028, FR-029).
     if let Some(base) = body.base_seq

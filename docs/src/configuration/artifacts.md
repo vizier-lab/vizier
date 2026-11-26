@@ -67,31 +67,16 @@ and download but cannot promote or delete. A person without view permission gets
 entry, a `403` from every gallery/content route, and sees a message attachment as a named
 unavailable file.
 
-## Memory attachments
+## Pointing a memory at an artifact
 
-A memory attachment is an artifact reference:
-
-```yaml
-attachments:
-  - artifact_id: 550e8400-e29b-41d4-a716-446655440000
-    name: Q3-report.pdf
-```
-
-- Editing a memory's text never changes what is attached.
-- An agent (or you, over the API) attaches or detaches artifacts separately.
-- The HTTP operations are `POST`/`DELETE /agents/{agent_id}/memory/attachments/{bundle}/{path}`.
-- Attaching or detaching rewrites only the frontmatter, the node count, one revision and the
-  reference rows. It never re-chunks, re-embeds or changes the body.
-- A content update no longer accepts an `attachments` list; a request that still sends one is
-  refused with `422` so it is never silently ignored.
-
-Pre-035 memory attachments (`{ filename, content: { local } }`) still parse and are readable,
-detachable by filename and shown with the memory. They are **legacy**: not migrated, no
-retroactive promotion, tracked for removal before 1.0.0 (#82).
+Memory attachments were removed: a memory cites an artifact with an **entity link** in its body
+(`[[artifact:name]]`, see [Entity links](/docs/configuration/entity-links)) — one mechanism for
+chat and memory alike. A memory document that still carries the old `attachments:` frontmatter
+parses fine; the key is ignored and drops on the next rewrite.
 
 ## Dreams and source conversations
 
-A dream cycle may read the files of the conversations it reflects on and promote one of them to an artifact, or attach one to a memory. It cannot replace or delete artifacts, send attachments or clear files, and it never writes to the source files.
+A dream cycle may read the files of the conversations it reflects on and promote one of them to an artifact. It cannot replace or delete artifacts, send attachments or clear files, and it never writes to the source files.
 
 ## API
 

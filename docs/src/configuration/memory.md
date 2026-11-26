@@ -56,7 +56,7 @@ Compare with [[star-wars/jedi]] or the whole [[marvel]] bundle.
 | `created_at`, `updated_at`, `read_count` | Vizier | `read_count` increments when the agent reads the concept via the memory tools |
 | `tags`, `keywords` | you / the agent | Filterable in the WebUI and API |
 | `relations` | Vizier | Re-parsed from the body on every read/write (self-healing) |
-| `attachments` | Artifact references | Permanent artifacts attached to the memory (`artifact_id`, `name`); old session-file attachments are legacy but still readable |
+| `attachments` | — | Removed: point at an artifact with an entity link (`[[artifact:name]]`, see [Entity links](/docs/configuration/entity-links)). The key in older documents is ignored and drops on the next rewrite |
 
 ### Links
 

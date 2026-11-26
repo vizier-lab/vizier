@@ -364,7 +364,7 @@ impl Artifacts {
     }
 
     /// Delete an artifact: row, references and content, with a `deleted` event that survives.
-    /// Memory links are removed with a revision; message references become unavailable.
+    /// Message references become unavailable.
     pub async fn delete(
         &self,
         agent_id: &str,
@@ -383,7 +383,6 @@ impl Artifacts {
             .list_artifact_references(agent_id, artifact_id)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
-        let memory_refs = references.iter().filter(|r| r.kind == "memory").count();
         let event = ArtifactEvent {
             id: Uuid::new_v4().to_string(),
             agent_id: agent_id.to_string(),
@@ -396,28 +395,11 @@ impl Artifacts {
             source_filename: artifact.source_filename.clone(),
             created_at: crate::time::now(),
         };
-        // The row goes first, so a concurrent memory attach cannot validate it again.
         self.storage
             .delete_artifact(agent_id, artifact_id, &event)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
-        let origin = revision_origin(&actor);
-        let memory_links_removed = match self
-            .storage
-            .detach_artifact_from_memories(agent_id.to_string(), artifact_id.to_string(), &origin)
-            .await
-        {
-            Ok(count) => count,
-            Err(e) => {
-                tracing::warn!(
-                    agent_id,
-                    artifact_id,
-                    "failed to detach a deleted artifact from memories; links read as deleted: {e}"
-                );
-                memory_refs
-            }
-        };
         if let Err(e) = self.paths.delete_artifact(agent_id, artifact_id).await {
             tracing::warn!(
                 agent_id,
@@ -428,7 +410,6 @@ impl Artifacts {
         Ok(crate::schema::ArtifactDeleteResult {
             removed: true,
             references: references.len(),
-            memory_links_removed,
         })
     }
 }

@@ -24,8 +24,8 @@ use vizier_core::{
 };
 
 pub use vizier_core::service::memory::{
-    AttachArtifactRequest, CreateMemoryRequest, CreateMemoryResponse, DeleteBundleParams,
-    DetachAttachmentQuery, GraphQueryParams, ListMemoryParams, MemoryDetail, MemoryHistoryQuery,
+    CreateMemoryRequest, CreateMemoryResponse, DeleteBundleParams,
+    GraphQueryParams, ListMemoryParams, MemoryDetail, MemoryHistoryQuery,
     MemoryHistoryResponse, MemoryRollbackRequest, MemorySummary, PaginatedMemoryResponse,
     QueryMemoryRequest, UpdateMemoryRequest, UpdateMemoryResponse,
 };
@@ -54,10 +54,6 @@ pub fn memory() -> Router<HTTPState> {
         .route("/doc/{bundle}/{*path}", get(get_memory_detail_scoped))
         .route("/doc/{bundle}/{*path}", put(update_memory_scoped))
         .route("/doc/{bundle}/{*path}", delete(delete_memory_scoped))
-        // Attach/detach live on their own prefix because axum requires a catch-all to be the
-        // last segment, so `/doc/{bundle}/{*path}/attachments` cannot be a route.
-        .route("/attachments/{bundle}/{*path}", post(attach_artifact))
-        .route("/attachments/{bundle}/{*path}", delete(detach_attachment))
         .route(
             "/related/{bundle}/{*path}",
             get(get_related_memories_scoped),
@@ -66,59 +62,6 @@ pub fn memory() -> Router<HTTPState> {
 
 fn services(state: &HTTPState) -> Services {
     Services::new(state.deps.clone())
-}
-
-#[utoipa::path(
-    post,
-    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
-    params(
-        ("agent_id" = String, Path, description = "Agent ID"),
-        ("bundle" = String, Path, description = "Bundle name"),
-        ("path" = String, Path, description = "Memory path")
-    ),
-    request_body = AttachArtifactRequest,
-    responses(
-        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
-        (status = 403, description = "Memory or artifact visibility denied", body = APIResponse<String>),
-        (status = 404, description = "Memory or artifact not found", body = APIResponse<String>)
-    )
-)]
-pub async fn attach_artifact(
-    Path((agent_id, bundle, path)): Path<(String, String, String)>,
-    State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Principal>,
-    Json(body): Json<AttachArtifactRequest>,
-) -> Reply<MemoryDetail> {
-    let detail =
-        service::memory::attach_artifact(&services(&state), &user, &agent_id, bundle, &path, body).await?;
-    Ok(api_response(StatusCode::OK, detail))
-}
-
-#[utoipa::path(
-    delete,
-    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
-    params(
-        ("agent_id" = String, Path, description = "Agent ID"),
-        ("bundle" = String, Path, description = "Bundle name"),
-        ("path" = String, Path, description = "Memory path"),
-        DetachAttachmentQuery
-    ),
-    responses(
-        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
-        (status = 403, description = "Memory visibility denied", body = APIResponse<String>),
-        (status = 404, description = "Memory not found", body = APIResponse<String>)
-    )
-)]
-pub async fn detach_attachment(
-    Path((agent_id, bundle, path)): Path<(String, String, String)>,
-    Query(query): Query<DetachAttachmentQuery>,
-    State(state): State<HTTPState>,
-    Extension(user): Extension<crate::auth::Principal>,
-) -> Reply<MemoryDetail> {
-    let detail =
-        service::memory::detach_attachment(&services(&state), &user, &agent_id, bundle, &path, query)
-            .await?;
-    Ok(api_response(StatusCode::OK, detail))
 }
 
 #[utoipa::path(

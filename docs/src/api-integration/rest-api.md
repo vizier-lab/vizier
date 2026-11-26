@@ -260,13 +260,13 @@ Permanent, agent-owned files. Reads need `all_agents:view_artifacts` (or `owned_
 | `GET` | `/agents/{id}/artifacts/activity` | Change log, newest first (`cursor`, `limit`) |
 | `GET` | `/agents/{id}/artifacts/{artifact_id}` | Detail: artifact, origin, references, events |
 | `GET` | `/agents/{id}/artifacts/{artifact_id}/content` | Current bytes; stored MIME type; `Range` supported; `404` when the content is unavailable |
-| `DELETE` | `/agents/{id}/artifacts/{artifact_id}` | Delete (manage); returns `{ removed, references, memory_links_removed }` |
+| `DELETE` | `/agents/{id}/artifacts/{artifact_id}` | Delete (manage); returns `{ removed, references }` |
 | `POST` | `/agents/{id}/channel/{channel}/topic/{topic}/files/promote` | Copy a session file into an artifact (`{ filename, name? }`) |
 | `DELETE` | `/agents/{id}/channel/{channel}/topic/{topic}/files` | Clear the conversation's session files (refused with `409` while a turn is active) |
 
 Message attachments use `{ "filename", "content": { "artifact": { "agent_id", "artifact_id", "available" } } }`. `available` is filled on reads and omitted on write. A person's request attachments must be uploads: a client-supplied `artifact` is refused with `422` (`invalid_attachment` over the WebSocket).
 
-Memory attachments are artifacts too: `POST /agents/{id}/memory/attachments/{bundle}/{path}` with `{ "artifact": "name" }` and `DELETE …/attachments/{bundle}/{path}?name=…`. A memory create/update request that still carries `attachments` is `422`.
+Memory attachments are removed: a memory cites an artifact with an entity link in its body (`[[artifact:name]]`). A memory create/update request that still carries `attachments` is accepted and the field is ignored.
 
 ## Embedding models
 

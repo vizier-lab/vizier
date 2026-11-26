@@ -95,7 +95,7 @@ pub use session::{
 pub use session_file::SessionFileRecord;
 pub use storage::{
     BundleSummary, CORE_BUNDLE, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory,
-    MemoryAttachment, MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
+    MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
     MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, PaginatedMemory, SOUL_PATH, Skill,
     SkillFrontMatter, SkillVersion, default_bundle, is_core_bundle, is_identity_address,
 };

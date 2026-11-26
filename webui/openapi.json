@@ -3462,6 +3462,174 @@
         }
       }
     },
+    "/agents/{agent_id}/link-targets": {
+      "get": {
+        "tags": [
+          "api::v1::agents::link_targets"
+        ],
+        "operationId": "index_or_search",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "With `q`: the search mode over this kind; absent, the bounded index.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Search page size, capped by the service.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bounded name index, or one kind's search page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_LinkTargets"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind in the search mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No agent view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/link-targets/resolve": {
+      "post": {
+        "tags": [
+          "api::v1::agents::link_targets"
+        ],
+        "operationId": "resolve",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Exact existence per link, keyed `kind:name`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_BTreeMap_String_bool"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No agent view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "More than 100 links in the batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/memory": {
       "get": {
         "tags": [
@@ -3570,160 +3738,6 @@
           },
           "500": {
             "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agents/{agent_id}/memory/attachments/{bundle}/{*path}": {
-      "post": {
-        "tags": [
-          "api::v1::agents::memory"
-        ],
-        "operationId": "attach_artifact",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "bundle",
-            "in": "path",
-            "description": "Bundle name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "description": "Memory path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AttachArtifactRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "The memory with its updated attachment list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_MemoryDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Memory or artifact visibility denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Memory or artifact not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "api::v1::agents::memory"
-        ],
-        "operationId": "detach_attachment",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "description": "Agent ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "bundle",
-            "in": "path",
-            "description": "Bundle name",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "description": "Memory path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The memory with its updated attachment list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_MemoryDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Memory visibility denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Memory not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -6481,6 +6495,18 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Narrows every figure to one kind of call: `text`, `image`, `speech`, `transcription` or\n`embedding` (spec 065 FR-015). Composes with `activity`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -6495,7 +6521,80 @@
             }
           },
           "400": {
-            "description": "invalid_range or unknown_activity",
+            "description": "invalid_range, unknown_activity or unknown_kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/usage/calls": {
+      "get": {
+        "tags": [
+          "api::v1::agents"
+        ],
+        "operationId": "agent_usage_calls",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "path",
+            "description": "Comma-separated `execute_python` call ids (history `ToolCall.call_id`), 1–50.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The media calls each named tool call made, priced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MediaCalls"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_ids",
             "content": {
               "application/json": {
                 "schema": {
@@ -6590,6 +6689,17 @@
           },
           {
             "name": "activity",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "kind",
             "in": "path",
             "required": true,
             "schema": {
@@ -9954,14 +10064,9 @@
             "description": "What a delete did. Message references remain (the history row keeps the artifact id and\nreads as unavailable); memory links are removed.",
             "required": [
               "removed",
-              "references",
-              "memory_links_removed"
+              "references"
             ],
             "properties": {
-              "memory_links_removed": {
-                "type": "integer",
-                "minimum": 0
-              },
               "references": {
                 "type": "integer",
                 "minimum": 0
@@ -10082,6 +10187,34 @@
                 "format": "int64",
                 "minimum": 0
               }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_BTreeMap_String_bool": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "type": "string"
             }
           },
           "message": {
@@ -11439,6 +11572,75 @@
           }
         }
       },
+      "APIResponse_LinkTargets": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "artifacts",
+              "functions",
+              "tasks",
+              "skills",
+              "memory",
+              "truncated"
+            ],
+            "properties": {
+              "artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "functions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "memory": {
+                "$ref": "#/components/schemas/MemoryTargets"
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillTarget"
+                }
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TaskTarget"
+                }
+              },
+              "truncated": {
+                "type": "object",
+                "description": "Which kinds were cut by a cap — absence there is not evidence of absence.",
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_LoginResponse": {
         "type": "object",
         "required": [
@@ -11511,6 +11713,46 @@
               }
             ],
             "description": "What the popup shows, plus what only a manager receives."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_MediaCalls": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "calls"
+            ],
+            "properties": {
+              "calls": {
+                "type": "object",
+                "description": "Keyed by `execute_python` call id; an id with no media records is absent.",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaCall"
+                  }
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "message": {
             "type": [
@@ -11608,18 +11850,11 @@
               "created_at",
               "updated_at",
               "tags",
-              "relations",
-              "attachments"
+              "relations"
             ],
             "properties": {
               "agent_id": {
                 "type": "string"
-              },
-              "attachments": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/MemoryAttachmentView"
-                }
               },
               "bundle": {
                 "type": "string"
@@ -13434,6 +13669,7 @@
               "summary",
               "daily",
               "by_activity",
+              "by_kind",
               "by_model",
               "by_place",
               "costliest",
@@ -13464,6 +13700,13 @@
                   "$ref": "#/components/schemas/BreakdownRow"
                 }
               },
+              "by_kind": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/KindRow"
+                },
+                "description": "Empty when the report is narrowed to one kind."
+              },
               "by_model": {
                 "type": "array",
                 "items": {
@@ -13487,6 +13730,24 @@
                 "items": {
                   "$ref": "#/components/schemas/DailyUsage"
                 }
+              },
+              "kind": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/UsageKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "media_accounting_since": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When media calls started being recorded (spec 065 R8)."
               },
               "previous": {
                 "oneOf": [
@@ -14202,18 +14463,11 @@
                 "created_at",
                 "updated_at",
                 "tags",
-                "relations",
-                "attachments"
+                "relations"
               ],
               "properties": {
                 "agent_id": {
                   "type": "string"
-                },
-                "attachments": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MemoryAttachmentView"
-                  }
                 },
                 "bundle": {
                   "type": "string"
@@ -14360,16 +14614,11 @@
                 "created_at",
                 "updated_at",
                 "tags",
-                "relations",
-                "attachment_count"
+                "relations"
               ],
               "properties": {
                 "agent_id": {
                   "type": "string"
-                },
-                "attachment_count": {
-                  "type": "integer",
-                  "minimum": 0
                 },
                 "bundle": {
                   "type": "string"
@@ -16634,14 +16883,9 @@
         "description": "What a delete did. Message references remain (the history row keeps the artifact id and\nreads as unavailable); memory links are removed.",
         "required": [
           "removed",
-          "references",
-          "memory_links_removed"
+          "references"
         ],
         "properties": {
-          "memory_links_removed": {
-            "type": "integer",
-            "minimum": 0
-          },
           "references": {
             "type": "integer",
             "minimum": 0
@@ -16916,17 +17160,6 @@
           "abandoned"
         ]
       },
-      "AttachArtifactRequest": {
-        "type": "object",
-        "required": [
-          "artifact"
-        ],
-        "properties": {
-          "artifact": {
-            "type": "string"
-          }
-        }
-      },
       "AttachmentBody": {
         "type": "object",
         "required": [
@@ -17010,6 +17243,17 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "units": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Units",
+                "description": "The row's media amounts, when it has media calls (spec 065)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -17103,7 +17347,9 @@
           "input_tokens",
           "cached_input_tokens",
           "output_tokens",
-          "failed"
+          "failed",
+          "kind",
+          "measured"
         ],
         "properties": {
           "activity": {
@@ -17133,6 +17379,12 @@
             "format": "int64",
             "minimum": 0
           },
+          "kind": {
+            "$ref": "#/components/schemas/UsageKind"
+          },
+          "measured": {
+            "type": "boolean"
+          },
           "model": {
             "type": "string"
           },
@@ -17153,6 +17405,22 @@
             "minimum": 0
           },
           "served_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Units"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variant": {
             "type": [
               "string",
               "null"
@@ -18345,15 +18613,6 @@
           "content"
         ],
         "properties": {
-          "attachments": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/VizierAttachment"
-            }
-          },
           "bundle": {
             "type": [
               "string",
@@ -18786,7 +19045,8 @@
         "type": "object",
         "required": [
           "date",
-          "by_activity"
+          "by_activity",
+          "by_kind"
         ],
         "properties": {
           "by_activity": {
@@ -18808,7 +19068,26 @@
                 "compaction",
                 "vision",
                 "other",
-                "consultation"
+                "consultation",
+                "indexing"
+              ]
+            }
+          },
+          "by_kind": {
+            "type": "object",
+            "description": "Keyed by `UsageKind` (snake_case), for the day's tooltip (spec 065).",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DayActivity"
+            },
+            "propertyNames": {
+              "type": "string",
+              "description": "What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).\nEvery completion is `Text`. Display order; append only.",
+              "enum": [
+                "text",
+                "image",
+                "speech",
+                "transcription",
+                "embedding"
               ]
             }
           },
@@ -18847,7 +19126,8 @@
         "type": "object",
         "properties": {
           "delete_workspace": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "**Deprecated, ignored.** Deleting an agent always deletes its folder with everything\nelse; accepted so old clients keep working (#82)."
           }
         }
       },
@@ -19026,6 +19306,21 @@
             "type": "string"
           },
           "text": {
+            "type": "string"
+          }
+        }
+      },
+      "DocTarget": {
+        "type": "object",
+        "required": [
+          "bundle",
+          "path"
+        ],
+        "properties": {
+          "bundle": {
+            "type": "string"
+          },
+          "path": {
             "type": "string"
           }
         }
@@ -19468,7 +19763,8 @@
           "together",
           "cohere",
           "copilot",
-          "bedrock"
+          "bedrock",
+          "dummyplug"
         ]
       },
       "EntryPricingView": {
@@ -19928,7 +20224,10 @@
           "xai",
           "huggingface",
           "hyperbolic",
-          "bedrock"
+          "bedrock",
+          "venice",
+          "together",
+          "dummyplug"
         ]
       },
       "ImageGenToolSettings": {
@@ -20471,6 +20770,24 @@
           }
         }
       },
+      "KindRow": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BreakdownRow"
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/components/schemas/UsageKind"
+              }
+            }
+          }
+        ]
+      },
       "KindView": {
         "type": "object",
         "required": [
@@ -20591,6 +20908,56 @@
           "output": {
             "type": "boolean",
             "description": "The output limit is the person's, not the paired model's."
+          }
+        }
+      },
+      "LinkTargets": {
+        "type": "object",
+        "required": [
+          "artifacts",
+          "functions",
+          "tasks",
+          "skills",
+          "memory",
+          "truncated"
+        ],
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryTargets"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillTarget"
+            }
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskTarget"
+            }
+          },
+          "truncated": {
+            "type": "object",
+            "description": "Which kinds were cut by a cap — absence there is not evidence of absence.",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -20787,6 +21154,87 @@
         ],
         "description": "What the popup shows, plus what only a manager receives."
       },
+      "MediaCall": {
+        "type": "object",
+        "description": "One media record made by a tool call, priced (spec 065 R10, `GET …/usage/calls`).",
+        "required": [
+          "kind",
+          "provider",
+          "model",
+          "measured",
+          "local",
+          "price_source",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/UsageKind"
+          },
+          "local": {
+            "type": "boolean"
+          },
+          "measured": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "price_source": {
+            "$ref": "#/components/schemas/PriceSource"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "units": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Units"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variant": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MediaCalls": {
+        "type": "object",
+        "required": [
+          "calls"
+        ],
+        "properties": {
+          "calls": {
+            "type": "object",
+            "description": "Keyed by `execute_python` call id; an id with no media records is absent.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/MediaCall"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "MediaCapability": {
         "type": "string",
         "description": "The one axis discovery varies on (data-model §1). It is also the storage key and the API\nquery value.",
@@ -20888,77 +21336,6 @@
           }
         }
       },
-      "MemoryAttachmentView": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "artifact_id",
-              "name",
-              "available",
-              "kind"
-            ],
-            "properties": {
-              "artifact_id": {
-                "type": "string"
-              },
-              "available": {
-                "type": "boolean"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "artifact"
-                ]
-              },
-              "mime_type": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "name": {
-                "type": "string"
-              },
-              "size": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int64",
-                "minimum": 0
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "filename",
-              "content",
-              "available",
-              "kind"
-            ],
-            "properties": {
-              "available": {
-                "type": "boolean"
-              },
-              "content": {
-                "$ref": "#/components/schemas/VizierAttachmentContent"
-              },
-              "filename": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "legacy_session_file"
-                ]
-              }
-            }
-          }
-        ],
-        "description": "The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.\nThe stored document stays the untagged [`MemoryAttachment`] enum."
-      },
       "MemoryDetail": {
         "type": "object",
         "required": [
@@ -20970,18 +21347,11 @@
           "created_at",
           "updated_at",
           "tags",
-          "relations",
-          "attachments"
+          "relations"
         ],
         "properties": {
           "agent_id": {
             "type": "string"
-          },
-          "attachments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MemoryAttachmentView"
-            }
           },
           "bundle": {
             "type": "string"
@@ -21206,16 +21576,11 @@
           "created_at",
           "updated_at",
           "tags",
-          "relations",
-          "attachment_count"
+          "relations"
         ],
         "properties": {
           "agent_id": {
             "type": "string"
-          },
-          "attachment_count": {
-            "type": "integer",
-            "minimum": 0
           },
           "bundle": {
             "type": "string"
@@ -21245,6 +21610,27 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "MemoryTargets": {
+        "type": "object",
+        "required": [
+          "bundles",
+          "docs"
+        ],
+        "properties": {
+          "bundles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "docs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocTarget"
+            }
           }
         }
       },
@@ -21320,7 +21706,9 @@
               "model",
               "served_models",
               "failed_tokens",
-              "priced"
+              "priced",
+              "kind",
+              "price_source"
             ],
             "properties": {
               "cache_hit_rate": {
@@ -21335,8 +21723,14 @@
                 "format": "int64",
                 "minimum": 0
               },
+              "kind": {
+                "$ref": "#/components/schemas/UsageKind"
+              },
               "model": {
                 "type": "string"
+              },
+              "price_source": {
+                "$ref": "#/components/schemas/PriceSource"
               },
               "priced": {
                 "type": "boolean"
@@ -21852,6 +22246,16 @@
               }
             }
           }
+        ]
+      },
+      "PriceSource": {
+        "type": "string",
+        "description": "Which rule priced a figure (spec 065 research R6).",
+        "enum": [
+          "catalogue",
+          "table",
+          "local",
+          "none"
         ]
       },
       "ProfileEntry": {
@@ -22970,6 +23374,36 @@
           }
         ],
         "description": "Who wanted a task to exist.\n\nThe one distinction that matters — somebody asked, versus the agent set this\nup on its own initiative — made unforgeable in the type. `User`'s payload is\ndeliberately not an account: most people reaching an agent have none, and the\nchat channels already synthesise an identity string for them."
+      },
+      "ResolveLink": {
+        "type": "object",
+        "description": "One link to settle exactly, keyed by its `kind:name` token in the response.",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ResolveRequest": {
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResolveLink"
+            }
+          }
+        }
       },
       "RestartRequest": {
         "type": "object",
@@ -24474,6 +24908,22 @@
           }
         }
       },
+      "SkillTarget": {
+        "type": "object",
+        "required": [
+          "slug",
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "`agent` or `global` — the workspace scopes only (research R4)."
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
       "SortOrder": {
         "type": "string",
         "enum": [
@@ -24504,7 +24954,8 @@
           "mistral",
           "huggingface",
           "gemini",
-          "whisper"
+          "whisper",
+          "dummyplug"
         ]
       },
       "SttToolSettings": {
@@ -24934,6 +25385,21 @@
           }
         ]
       },
+      "TaskTarget": {
+        "type": "object",
+        "required": [
+          "slug",
+          "title"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "TestResult": {
         "type": "object",
         "description": "The answer to \"Test connection\".",
@@ -25053,7 +25519,8 @@
           "elevenlabs",
           "xai",
           "hyperbolic",
-          "kokoro"
+          "kokoro",
+          "dummyplug"
         ]
       },
       "TtsToolSettings": {
@@ -25184,11 +25651,51 @@
           }
         }
       },
+      "Units": {
+        "type": "object",
+        "description": "A media amount in its kind's own unit (spec 065 data-model §9). Only the fields of the kinds\nin the row are set.",
+        "properties": {
+          "audio_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Known durations only."
+          },
+          "characters": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "images": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Embedding input tokens.",
+            "minimum": 0
+          }
+        }
+      },
       "UnpricedNote": {
         "type": "object",
         "required": [
           "tokens",
-          "models"
+          "models",
+          "units"
         ],
         "properties": {
           "models": {
@@ -25201,6 +25708,24 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "units": {
+            "type": "object",
+            "description": "Unpriced media amounts, by kind (spec 065 FR-011).",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Units"
+            },
+            "propertyNames": {
+              "type": "string",
+              "description": "What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).\nEvery completion is `Text`. Display order; append only.",
+              "enum": [
+                "text",
+                "image",
+                "speech",
+                "transcription",
+                "embedding"
+              ]
+            }
           }
         }
       },
@@ -25270,15 +25795,6 @@
           "content"
         ],
         "properties": {
-          "attachments": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/VizierAttachment"
-            }
-          },
           "base_seq": {
             "type": [
               "integer",
@@ -25529,7 +26045,19 @@
           "compaction",
           "vision",
           "other",
-          "consultation"
+          "consultation",
+          "indexing"
+        ]
+      },
+      "UsageKind": {
+        "type": "string",
+        "description": "What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).\nEvery completion is `Text`. Display order; append only.",
+        "enum": [
+          "text",
+          "image",
+          "speech",
+          "transcription",
+          "embedding"
         ]
       },
       "UsageLink": {
@@ -25580,6 +26108,7 @@
           "summary",
           "daily",
           "by_activity",
+          "by_kind",
           "by_model",
           "by_place",
           "costliest",
@@ -25610,6 +26139,13 @@
               "$ref": "#/components/schemas/BreakdownRow"
             }
           },
+          "by_kind": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KindRow"
+            },
+            "description": "Empty when the report is narrowed to one kind."
+          },
           "by_model": {
             "type": "array",
             "items": {
@@ -25633,6 +26169,24 @@
             "items": {
               "$ref": "#/components/schemas/DailyUsage"
             }
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UsageKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "media_accounting_since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When media calls started being recorded (spec 065 R8)."
           },
           "previous": {
             "oneOf": [
@@ -25704,6 +26258,14 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "kind_share_of_all": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Set only when the report is narrowed to one kind (spec 065): its share of all kinds' cost\nunder the same activity filter."
           },
           "output_tokens": {
             "type": "integer",

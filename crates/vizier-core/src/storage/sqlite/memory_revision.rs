@@ -18,7 +18,7 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    schema::{MemoryAttachment, RevisionActor, RevisionOrigin, RevisionTrigger},
+    schema::{RevisionActor, RevisionOrigin, RevisionTrigger},
     storage::memory_bundle::{parse_markdown_bytes, serialize_markdown},
 };
 
@@ -43,20 +43,12 @@ pub struct RevisionFrontMatter {
     pub title: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
-    pub attachments: Vec<MemoryAttachment>,
 }
 
-pub(crate) fn memory_canonical(
-    title: &str,
-    tags: &[String],
-    attachments: &[MemoryAttachment],
-    body: &str,
-) -> Result<String> {
+pub(crate) fn memory_canonical(title: &str, tags: &[String], body: &str) -> Result<String> {
     let fm = RevisionFrontMatter {
         title: title.to_string(),
         tags: tags.to_vec(),
-        attachments: attachments.to_vec(),
     };
     let bytes = serialize_markdown(&fm, body)?;
     Ok(String::from_utf8(bytes)?)
@@ -400,31 +392,25 @@ mod tests {
     }
 
     #[test]
-    fn canonical_round_trips_title_tags_attachments_and_body() {
-        let attachments = vec![MemoryAttachment::LegacySessionFile(VizierAttachment {
-            filename: "photo.png".into(),
-            content: VizierAttachmentContent::Local("files/photo.png".into()),
-        })];
+    fn canonical_round_trips_title_tags_and_body() {
         let tags = vec!["friend".to_string(), "runner".to_string()];
         let body = "Bred likes running.\n\nSee [[friends/alice]].\n";
-        let text = memory_canonical("Bred", &tags, &attachments, body).unwrap();
+        let text = memory_canonical("Bred", &tags, body).unwrap();
         assert!(text.starts_with("---\ntitle: Bred\n"));
         assert!(text.contains("tags:\n- friend\n- runner\n"));
 
         let (fm, parsed_body) = parse_memory_canonical(&text).unwrap();
         assert_eq!(fm.title, "Bred");
         assert_eq!(fm.tags, tags);
-        assert_eq!(fm.attachments.len(), 1);
-        assert_eq!(fm.attachments[0].display_name(), "photo.png");
         assert_eq!(parsed_body, body);
     }
 
     #[test]
     fn canonical_is_stable_for_equal_inputs() {
-        let a = memory_canonical("T", &["x".into()], &[], "body").unwrap();
-        let b = memory_canonical("T", &["x".into()], &[], "body").unwrap();
+        let a = memory_canonical("T", &["x".into()], "body").unwrap();
+        let b = memory_canonical("T", &["x".into()], "body").unwrap();
         assert_eq!(a, b);
-        let c = memory_canonical("T", &["y".into()], &[], "body").unwrap();
+        let c = memory_canonical("T", &["y".into()], "body").unwrap();
         assert_ne!(a, c);
     }
 

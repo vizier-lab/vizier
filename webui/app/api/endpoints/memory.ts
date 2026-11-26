@@ -11,10 +11,9 @@ export interface MemorySummary {
     updated_at: string
     tags: string[]
     relations: string[]
-    attachment_count: number
 }
 
-export interface MemoryDoc extends Omit<MemorySummary, 'attachment_count'> {
+export interface MemoryDoc extends MemorySummary {
     content: string
 }
 
