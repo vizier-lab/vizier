@@ -42,6 +42,18 @@ The automated form of everything below is a case in `crates/vizier-core/tests/du
    list_sessions(agent_id="beta")
    ```
    **Expect**: `beta`'s conversations, because `admin` may use `beta`.
+5. Open a **second** WebUI conversation as `admin`, say one thing in it, then run `list_sessions()`
+   as `admin` again. **Expect**: both conversations are listed — one row per **topic**, not one row
+   per channel.
+6. Let `viewer` (who may use `alpha` only) run `list_sessions(agent_id="beta")`.
+   **Expect**: `beta`'s conversations are absent, exactly as if `beta` did not exist.
+7. Have an agent serve two people: as `admin` and as `viewer`, talk to `alpha` in the WebUI. Then
+   as `admin`, run `list_sessions()`. **Expect**: only `admin`'s own conversation is listed —
+   `viewer`'s is absent, and its title is never shown.
+8. In a conversation where the bot has never replied (a Discord channel it is a member of but has
+   not spoken in), run `list_sessions()`. **Expect**: that channel is **not** listed, because it has
+   no session record — and waking it by its slug still works. The listing says what the agent can
+   find; the wake's own check decides what may be woken.
 
 ## 2. Waking a conversation (Story 1, SC-001)
 
@@ -116,6 +128,10 @@ The automated form of everything below is a case in `crates/vizier-core/tests/du
    report` is in **that** conversation's history — not in the task's own conversation.
 3. Create a task with no conversation named. **Expect**: it behaves exactly as today: the work
    happens in the task's own conversation, and the result is a notification.
+4. Inside the task's own conversation, call `list_sessions()` and then
+   `wake_session(target="current", instruction="x")`. **Expect**: the task's own conversation is
+   listed under `"current"`, and waking it is refused with `{status: "not_wakeable"}` — the
+   scheduler owns it. A scheduled run reaches the person's conversation by naming it.
 
 ## 8. The trail in the WebUI
 

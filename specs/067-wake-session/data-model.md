@@ -138,8 +138,14 @@ pub struct SessionEntry {
 ```
 
 The source is `storage.get_session_list(agent_id, None)` — every conversation of that agent, across
-every channel — filtered down to the wakeable channels and to the agents this turn may reach
-(research D15). No new storage method and no new query.
+every channel — filtered down to three things: the **wakeable** channels, the **agents this turn
+may reach**, and the **conversations that belong to the person this turn is working for**. No new
+storage method and no new query (research D15).
+
+A conversation appears in the listing when it has a session record — which is created the first
+time a turn runs in it, or when the agent creates one empty. The listing therefore holds the
+conversations the agent **has been in**, not every channel a bot is a member of; a wake decides on
+its own access check, so the listing is a convenience and not the authority.
 
 ### `wake_session`
 

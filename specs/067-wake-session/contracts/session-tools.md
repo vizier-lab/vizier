@@ -35,15 +35,30 @@ An array of rows, one per conversation:
 
 ### Rules
 
-1. The calling turn's own conversation is **always** in the list (FR-005).
+1. The calling turn's own conversation is **always** in the list (FR-005). It is wakeable under
+   the name `"current"` when it is a wakeable kind; in a conversation the machinery owns — a
+   scheduled run's own conversation — it is listed and refused.
 2. Only conversations on a **wakeable** channel are listed: a WebUI conversation, a project chat, a
    Discord channel or a Telegram chat (FR-014, FR-015). A scheduled run's, a worker's, a
    consultation's or a dream cycle's conversation is not in the list, and cannot be woken.
 3. Another agent's conversations are in the list only when the person this turn is working for may
    use that agent — the same rule the consultation list uses (FR-016, FR-017).
-4. A WebUI or project conversation of **another person** is not in the list (FR-018).
+4. A WebUI or project conversation of **another person** is not in the list (FR-018). One agent may
+   serve several people, and every one of that agent's conversations is in the stored rows, so
+   without this filter the listing would hand one person the titles of another person's
+   conversations.
 5. A title that is empty matches nothing under `query`; a conversation with no title is listed
    without one.
+
+### What the listing is, and is not
+
+A conversation is in the listing when it has a session record, and a session record is created the
+first time a turn runs in it (or when the agent creates a conversation empty). So the listing holds
+**the conversations the agent has been in** — not every channel a bot is a member of. A Discord
+channel the bot has never replied in is not listed, and is still wakeable by its slug.
+
+The listing is therefore a **convenience, not the authority**: the wake's own access check decides
+what may be woken, and it does not require the conversation to have been listed.
 
 ---
 

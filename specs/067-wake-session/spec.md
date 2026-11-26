@@ -222,6 +222,9 @@ the person.
 
 - **Waking the caller's own conversation.** Allowed, under the name "current". It starts a second
   turn in a conversation that may already be busy; the woken turn waits behind it.
+- **The caller's own conversation in a scheduled run.** It is the task's own conversation, which
+  the machinery owns: it is listed under "current" and refused. A scheduled run reaches the
+  person's own conversation by naming it, not by naming "current".
 - **Waking a conversation that is itself machinery.** Refused: a scheduled run's, a subagent
   worker's, a consultation's and a dream cycle's conversations belong to the machinery that owns
   them, and a foreign turn in them breaks that machinery's own bookkeeping.
@@ -260,8 +263,9 @@ the person.
   running there.
 - **FR-004**: The reference of a conversation MUST be stable: the same conversation always has the
   same reference, and a reference taken from a listing is accepted by a wake.
-- **FR-005**: The conversation the call is made in MUST always be listed, under the name "current",
-  and MUST be wakeable under that name.
+- **FR-005**: The conversation the call is made in MUST always be listed, under the name "current".
+  It MUST be wakeable under that name when it is a conversation of a kind that may be woken; in a
+  conversation the system's own machinery owns, it is listed and refused.
 
 **Waking a conversation**
 

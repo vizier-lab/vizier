@@ -267,20 +267,42 @@ title is not unique and may be empty.
 ## D15 - Where the listing comes from
 
 **Decision**: `storage.get_session_list(agent_id, None)` — every conversation of that agent, across
-every channel. The channel filter is applied in the tool, on the parsed channel, and the title
-search on the title.
+every channel. The tool filters the rows down to **three** things: the wakeable channels, the
+agents this turn may reach, and the conversations that belong to the person this turn is working
+for. The channel filter is applied on the typed channel, and the title search on the title.
 
 **Rationale**: The method already exists and already returns the right shape
 (`Vec<VizierSessionDetail>`: agent, **typed** channel, topic, title, thinking state), and `None`
-means every channel. No new storage method, no new query, no new table. The rows are filtered
-down to the wakeable channels and to the agents this turn may reach, so the listing cannot be
-wider than the set of things a wake would accept.
+means every channel. No new storage method, no new query, no new table.
+
+Three filters, and each of them is a rule the wake would apply anyway, so **the listing cannot be
+wider than the set of things a wake would accept**:
+
+1. **The wakeable channels** (D2): a scheduled run's, a worker's, a consultation's and a dream
+   cycle's conversation is not listed, and cannot be woken.
+2. **The agents this turn may reach** (D9): another agent's conversations are listed only when the
+   person this turn is working for may use that agent.
+3. **The person's own conversations** (FR-018): a WebUI or project conversation of **another
+   person** is not listed. One agent may serve several people, and `get_session_list` returns all
+   of that agent's rows — `ana`'s and `bob`'s alike — so without this filter the listing would
+   hand one person the titles of another person's conversations. The filter is
+   `channel.web_user() == consulter.principal.username`, the same check the wake makes.
+
+**The listing is a convenience, not the authority.** A `session_detail` row is created the first
+time a turn runs in a conversation (`agents/process.rs:701-712`: "A session without a detail row is
+new: record it, then title it from this first request"), or when the agent creates a conversation
+empty. So the listing holds the conversations the agent **has been in** — not every channel a bot
+is a member of. A Discord channel the bot has never replied in has no row, so it is not listed,
+and it is still wakeable by its slug. The wake's own access check is what decides; the listing
+only says what the agent can find.
 
 **Alternatives considered**: `storage.conversation_rows(agent_id, q)` — the conversation picker's
 source. Rejected: it returns one row per **channel** (with a topic count and the newest topic),
 not one row per conversation, so it cannot address a specific topic. A new storage method with the
-filters pushed down. Rejected: constitution I — the filters are two predicates over rows the
-engine already loads.
+filters pushed down. Rejected: constitution I — the filters are three predicates over rows the
+engine already loads. Listing every channel the agent could reach, from the platform APIs.
+Rejected: that is a directory of channels, not of conversations, and it would need credentials and
+pagination the engine does not otherwise need.
 
 ## D16 - Verification
 
