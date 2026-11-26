@@ -8,6 +8,7 @@ import remarkMath from 'remark-math'
 import { EntityBroken, entityFromHref, linkKey } from '../../lib/entityLinks'
 import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
+import { remarkGuardedMath } from '../../lib/remarkGuardedMath'
 import { remarkSlashWords } from '../../lib/remarkSlashWords'
 import { Mermaid } from './Mermaid'
 
@@ -20,7 +21,9 @@ type Props = {
 }
 
 // Module level: a fresh plugin array on every render re-parses the whole document each time.
-const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkBreaks, remarkMath]
+// The guard comes before the breaks: the text it puts back is prose, and prose breaks on a
+// newline like every other prose.
+const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkMath, remarkGuardedMath, remarkBreaks]
 const PERSON_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [...PLUGINS, remarkSlashWords]
 
 // KaTeX is the one rehype pass. It rewrites math nodes only — `inlineMath` and `math`, which

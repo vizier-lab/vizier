@@ -10,8 +10,11 @@ import remarkMath from 'remark-math'
 import { SafeLink } from '../lib/generativeUi/registry/anchor'
 import { highlightCode } from '../lib/highlight'
 import { remarkBreaks } from '../lib/remarkBreaks'
+import { remarkGuardedMath } from '../lib/remarkGuardedMath'
 
-const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkBreaks, remarkMath]
+// The guard comes before the breaks: the text it puts back is prose, and prose breaks on a
+// newline like every other prose.
+const PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [remarkGfm, remarkMath, remarkGuardedMath, remarkBreaks]
 const REHYPE: NonNullable<ComponentProps<typeof ReactMarkdown>['rehypePlugins']> = [rehypeKatex]
 
 function Fenced({ text, lang }: { text: string; lang: string | undefined }) {

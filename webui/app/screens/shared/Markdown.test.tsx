@@ -34,6 +34,20 @@ const shown = (html: string) =>
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&')
 
+/**
+ * What the prose reads, without the markup around it. React's hydration comments separate two
+ * text nodes, so they come out before the tags do.
+ */
+const text = (html: string) =>
+    html
+        .replace(/<!--.*?-->/g, '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+
 describe('markdown code fences', () => {
     // The reply in the bug report: the plain text was right, the drawn block was not.
     it('draws a yaml fence as its source text', () => {
@@ -150,6 +164,25 @@ describe('markdown math', () => {
         const html = draw('```python\nprice = "$5"\n```')
         expect(html).not.toContain('class="katex"')
         expect(html).toContain('$5')
+    })
+
+    // The bug: a price in prose was read as a formula, and the words between the dollars were
+    // drawn as math.
+    it('reads a price in prose as prose', () => {
+        const html = draw('The price is $5 and $10 total')
+        expect(html).not.toContain('class="katex"')
+        expect(text(html)).toBe('The price is $5 and $10 total')
+    })
+
+    it('reads shell variables in prose as prose', () => {
+        const html = draw('Use $HOME and $PATH here')
+        expect(html).not.toContain('class="katex"')
+        expect(text(html)).toBe('Use $HOME and $PATH here')
+    })
+
+    // A formula is still a formula: the dollars around it are written like math.
+    it('still reads a formula as math', () => {
+        expect(draw('Let $x$ and $y$ be integers')).toContain('class="katex"')
     })
 })
 
