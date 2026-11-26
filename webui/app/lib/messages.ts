@@ -31,12 +31,23 @@ export function isAudioRequest(
     return 'audio_chat' in content
 }
 
-/** Everything a request carries to draw, the voice message included. */
+/**
+ * Everything a request carries to draw, the voice message included.
+ */
 export function requestAttachments(
     content: VizierRequestContent,
     attachments: VizierAttachment[] | undefined
 ): VizierAttachment[] {
     return isAudioRequest(content) ? [content.audio_chat[0], ...(attachments ?? [])] : (attachments ?? [])
+}
+
+/**
+ * The voice message a person sent: its recording and the words heard in it. Nothing else in the
+ * message has words: a file uploaded alongside a voice message is a file, not a transcript.
+ */
+export function requestSpoken(content: VizierRequestContent): Spoken | null {
+    if (!isAudioRequest(content)) return null
+    return { attachment: content.audio_chat[0], transcript: content.audio_chat[1] }
 }
 
 /** A pre-058 background job report, read from old history only (#82). */
@@ -52,6 +63,18 @@ export function replyText(content: VizierResponseContent): string | null {
     if ('message' in content) return content.message.content
     if ('audio_reply' in content) return content.audio_reply[1]
     return null
+}
+
+/**
+ * What was spoken: the recording and the words in it. A transcript belongs to one recording,
+ * never to a whole message: a file the agent attached carries no words of its own, so the
+ * reply it wrote is not read back to it as one.
+ */
+export interface Spoken {
+    /** The recording the words belong to. */
+    attachment: VizierAttachment
+    /** The words, when they are known: null while a live voice message is still recognised. */
+    transcript: string | null
 }
 
 /** A reply the agent spoke: the audio is its own content, not one of the `attachments`. */
@@ -70,6 +93,15 @@ export function replyAttachments(
     attachments: VizierAttachment[] | undefined
 ): VizierAttachment[] {
     return isAudioReply(content) ? [content.audio_reply[0], ...(attachments ?? [])] : (attachments ?? [])
+}
+
+/**
+ * The reply the agent spoke: its recording and the words said in it. A plain message reply has
+ * none: the prose it wrote is the reply, not a transcript of some file it attached.
+ */
+export function replySpoken(content: VizierResponseContent | undefined): Spoken | null {
+    if (!isAudioReply(content)) return null
+    return { attachment: content.audio_reply[0], transcript: content.audio_reply[1] }
 }
 
 export function replyStats(content: VizierResponseContent): VizierResponseStats | undefined {

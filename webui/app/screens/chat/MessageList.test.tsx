@@ -1,7 +1,7 @@
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import type { ChatMessage } from '../../api/frames'
+import type { ChatMessage, VizierAttachment } from '../../api/frames'
 import { emptyTopic } from '../../lib/frames'
 import { MessageList } from './MessageList'
 
@@ -224,5 +224,44 @@ describe('a turn that ends on a question card', () => {
         )
         expect(html).toContain('the question card')
         expect(html.indexOf('in ·')).toBeGreaterThan(html.indexOf('the question card'))
+    })
+})
+
+describe('a reply that carries an audio file', () => {
+    const audio: VizierAttachment = { filename: 'voice_note.mp3', content: { url: 'https://cdn.example/note.mp3' } }
+
+    // The bug: the reply's prose was shown as the transcription of the audio beside it.
+    it('does not read a written reply back as the audio\'s transcript', () => {
+        const html = draw([
+            entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'make a note' } } }),
+            entry(
+                'end',
+                {
+                    Response: {
+                        timestamp: '2026-10-23T10:00:05Z',
+                        content: { message: { content: 'Here is the note.' } },
+                        attachments: [audio],
+                    },
+                },
+                '2026-10-23T10:00:05Z'
+            ),
+        ])
+        expect(html).toContain('Here is the note.')
+        expect(html).not.toContain('Hide transcript')
+        expect(html).not.toContain('Show transcript')
+    })
+
+    // A spoken reply's own words are its transcript, and they open in the player.
+    it('opens the transcript of a reply the agent spoke', () => {
+        const html = draw([
+            entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'say it out' } } }),
+            entry(
+                'end',
+                { Response: { timestamp: '2026-10-23T10:00:05Z', content: { audio_reply: [audio, 'Here is the note.', null] } } },
+                '2026-10-23T10:00:05Z'
+            ),
+        ])
+        expect(html).toContain('Hide transcript')
+        expect(html).toContain('Here is the note.')
     })
 })

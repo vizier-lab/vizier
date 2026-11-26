@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { VizierAttachment, VizierRequestContent, VizierResponseContent } from '../api/frames'
-import { isAudioReply, requestAttachments, requestText, replyAttachments, replyText } from './messages'
+import { isAudioReply, replyAttachments, replySpoken, replyText, requestAttachments, requestSpoken, requestText } from './messages'
 
 const audio: VizierAttachment = { filename: 'audio_reply_1.wav', content: { local: '/api/v1/files/1' } }
 const file: VizierAttachment = { filename: 'report.pdf', content: { local: '/api/v1/files/2' } }
@@ -27,6 +27,29 @@ describe('spoken replies', () => {
     it('leaves a plain message to its own attachments', () => {
         expect(replyAttachments({ message: { content: 'hi' } }, [file])).toEqual([file])
         expect(replyAttachments({ message: { content: 'hi' } }, undefined)).toEqual([])
+    })
+})
+
+describe('the words of a recording', () => {
+    it('pairs a spoken reply with the recording they were said in', () => {
+        expect(replySpoken(spoken)).toEqual({ attachment: audio, transcript: 'hello there' })
+    })
+
+    // The bug: a written reply's prose was read back as the transcript of an audio it carried.
+    it('leaves a written reply without words', () => {
+        expect(replySpoken({ message: { content: 'here is the recording' } })).toBeNull()
+        expect(replySpoken(undefined)).toBeNull()
+    })
+
+    it('pairs a voice message with the recording they were heard in', () => {
+        expect(requestSpoken({ audio_chat: [audio, 'what is the weather'] })).toEqual({
+            attachment: audio,
+            transcript: 'what is the weather',
+        })
+    })
+
+    it('leaves a typed message without words', () => {
+        expect(requestSpoken({ chat: 'hello' })).toBeNull()
     })
 })
 

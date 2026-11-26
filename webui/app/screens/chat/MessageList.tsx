@@ -17,15 +17,15 @@ import { Presence } from '@vizier/design'
 import type { ChatMessage, Turn } from '../../api/frames'
 import type { TopicState } from '../../lib/frames'
 import {
-    isAudioReply,
-    isAudioRequest,
     isBackgroundReport,
     isDetachedDelivery,
     replyAttachments,
     replyError,
+    replySpoken,
     replyStats,
     replyText,
     requestAttachments,
+    requestSpoken,
     requestText,
     statsLine,
     time,
@@ -227,7 +227,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
         const content = request.content
         const mentioned = (request.metadata as { mentions?: string[] } | undefined)?.mentions
         const attachments = requestAttachments(content, request.attachments)
-        const spoken = isAudioRequest(content)
+        const spoken = requestSpoken(content)
         const text = requestText(content)
         return (
             <UserMessage
@@ -241,9 +241,9 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                     attachments.length ? (
                         <ReplyMedia
                             attachments={attachments}
-                            transcript={spoken ? text : undefined}
+                            spoken={spoken}
                             // A drawn voice message with no text yet is still being recognised.
-                            transcribing={spoken && !text && e.uid.startsWith('live-')}
+                            transcribing={!!spoken && !spoken.transcript && e.uid.startsWith('live-')}
                         />
                     ) : undefined
                 }
@@ -263,7 +263,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
         const content = outcome?.content.Response?.content
         const text = content ? replyText(content) : null
         const attachments = replyAttachments(content, outcome?.content.Response?.attachments)
-        const spoken = isAudioReply(content)
+        const spoken = replySpoken(content)
         // A live voice reply whose recording is not kept yet: the same card from the start, waiting
         // for its player, instead of text that turns into a card when the speaking ends.
         const said = turn.request?.content.Request
@@ -312,7 +312,8 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                                 <Markdown>{rewriteEntityLinks(agent.id, text)}</Markdown>
                             )}
                             {waitingForAudio && text && <PendingAudio transcript={text} speaking={liveSpeaking} />}
-                            <ReplyMedia attachments={attachments} transcript={text} openTranscript />
+                            {/* A written reply's prose is the reply, not what an audio beside it says. */}
+                            <ReplyMedia attachments={attachments} spoken={spoken} openTranscript={!!spoken} />
                         </div>
                     </AgentReply>
                 )}

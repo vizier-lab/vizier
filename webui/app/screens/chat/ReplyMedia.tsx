@@ -2,18 +2,26 @@ import { AudioPlayer, FilePeek, ImageGallery, VideoPlayer } from '@vizier/design
 import { useRef, useState } from 'react'
 import type { VizierAttachment } from '../../api/frames'
 import { artifactContentUrl } from '../../api/endpoints/artifacts'
-import { relativeToApi, transport } from '../../api/transport'
+import { relativeToApi } from '../../api/transport'
 import { downloadFile } from '../../lib/download'
 import { assetPath } from '../../lib/fileUrls'
 import { FilePreviewModal, type PreviewFile } from '../shared/FilePreviewModal'
 import { Markdown } from '../shared/Markdown'
 import { replySeconds, useCallLevels } from './useLiveVoice'
+import type { Spoken } from '../../lib/messages'
 
 const EXT = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
 const IMAGE = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif'])
 const AUDIO = new Set(['mp3', 'wav', 'ogg', 'oga', 'm4a', 'webm', 'opus', 'flac'])
 const VIDEO = new Set(['mp4', 'mov', 'mkv', 'm4v'])
 const MIME: Record<string, string> = { csv: 'text/csv', md: 'text/markdown', txt: 'text/plain', json: 'application/json', pdf: 'application/pdf' }
+
+/**
+ * The same recording, however it was carried across: the same object, or the same file among
+ * ones that came apart on the way (a page read back from the server).
+ */
+const sameRecording = (a: VizierAttachment, b: VizierAttachment) =>
+    a === b || (a.filename === b.filename && JSON.stringify(a.content) === JSON.stringify(b.content))
 
 export function attachmentUrl(a: VizierAttachment): string | null {
     const c = a.content as {
@@ -161,12 +169,17 @@ export function Video({ a, src }: { a: Pick<VizierAttachment, 'filename'>; src: 
 /** What a reply carries: images side by side, audio and video players, other files as peeks. */
 export function ReplyMedia({
     attachments,
-    transcript,
+    spoken,
     transcribing,
     openTranscript,
 }: {
     attachments: VizierAttachment[]
-    transcript?: string | null
+    /**
+     * The recording that carries words, and the words themselves. They belong to that one
+     * recording, so a file the agent attached beside its reply is shown without a transcript:
+     * the prose it wrote is the reply, not what some audio in it says.
+     */
+    spoken?: Spoken | null
     /** A live voice message just heard: its transcript is on its way. */
     transcribing?: boolean
     /** A spoken reply: its transcript shows as it arrives, without a press. */
@@ -214,7 +227,18 @@ export function ReplyMedia({
             )}
             {others.map(({ a, url }) => {
                 const ext = EXT(a.filename)
-                if (AUDIO.has(ext)) return <Audio key={url} src={url} transcript={transcript ?? undefined} transcribing={transcribing} openTranscript={openTranscript} />
+                // The words belong to the recording they were said in: only that one shows them.
+                const words = spoken && sameRecording(spoken.attachment, a) ? spoken : null
+                if (AUDIO.has(ext))
+                    return (
+                        <Audio
+                            key={url}
+                            src={url}
+                            transcript={words?.transcript ?? undefined}
+                            transcribing={words ? transcribing : undefined}
+                            openTranscript={words ? openTranscript : undefined}
+                        />
+                    )
                 if (VIDEO.has(ext)) return <Video key={url} a={a} src={url} />
                 const previewable = ext in MIME && ext !== 'pdf'
                 return (
