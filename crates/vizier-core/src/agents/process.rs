@@ -1039,6 +1039,9 @@ fn start_session_job(
                 | VizierRequestContent::BackgroundReport(_)
                 | VizierRequestContent::ClientEvent(_)
                 | VizierRequestContent::QuestionAnswer(_)
+            // A woken turn (spec 067) is work in the conversation it names, so that
+            // conversation becomes busy like any other turn's.
+            | VizierRequestContent::Woken(_)
         ) || matches!(&thinking_request.content, VizierRequestContent::DetachedDelivery(text) if !text.is_empty())
         {
             if let Some(ref tx) = thinking_response_tx {
@@ -1601,7 +1604,10 @@ pub async fn handle_request(
         // A worker's task and the main agent's reply to it (spec 059): a chat turn of the
         // worker's own conversation, durable and resumable like any other.
         | VizierRequestContent::SubagentTask(_)
-        | VizierRequestContent::SubagentReply(_) => {
+        | VizierRequestContent::SubagentReply(_)
+        // A turn the agent started in this conversation itself (spec 067): a chat turn of its
+        // own conversation, with that conversation's history in view.
+        | VizierRequestContent::Woken(_) => {
             // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
             // them as `Chat`, so this is the one place they are told apart.
             // The list as typed rides the request's history entry; the resolved contents never
@@ -1712,6 +1718,10 @@ pub async fn handle_request(
                         | VizierRequestContent::AudioChat(..)
                         | VizierRequestContent::ClientEvent(_)
                         | VizierRequestContent::QuestionAnswer(_)
+                        // A woken turn (spec 067) lands in the person's own conversation and has
+                        // no job notification of its own, so it takes the chat one — the point of
+                        // the feature is that the work appears where the person is looking.
+                        | VizierRequestContent::Woken(_)
                 );
             let res = agent
                 .chat(
@@ -2146,6 +2156,8 @@ fn chat_turn_prompt(
         VizierRequestContent::QuestionAnswer(answer) => answer.text.clone(),
         VizierRequestContent::SubagentTask(brief) => brief.text.clone(),
         VizierRequestContent::SubagentReply(reply) => reply.text.clone(),
+        // The work a woken turn was given (spec 067): what retrieval and skill matching read.
+        VizierRequestContent::Woken(instruction) => instruction.clone(),
         _ => return None,
     })
 }

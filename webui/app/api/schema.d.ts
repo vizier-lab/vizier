@@ -7073,6 +7073,13 @@ export interface components {
              *     the worker's conversation like `Chat`.
              */
             subagent_reply: components["schemas"]["SubagentReplyText"];
+        } | {
+            /**
+             * @description A turn the agent started in this conversation itself (spec 067). It starts a turn like
+             *     `Chat`: same history, same queue, same attribution — but the agent is the one that asked,
+             *     and nobody is waiting on the answer.
+             */
+            woken: string;
         };
         VizierResponse: {
             attachments: components["schemas"]["VizierAttachment"][];

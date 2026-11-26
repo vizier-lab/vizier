@@ -16,6 +16,7 @@ export function requestText(content: VizierRequestContent): string {
     if ('chat' in content) return content.chat
     if ('client_event' in content) return content.client_event.text
     if ('question_answer' in content) return content.question_answer.text ?? ''
+    if ('woken' in content) return content.woken
     if ('audio_chat' in content) return content.audio_chat[1] ?? ''
     if ('silent_read' in content) return content.silent_read
     if ('prompt' in content) return content.prompt

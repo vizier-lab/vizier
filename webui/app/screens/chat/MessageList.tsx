@@ -392,6 +392,23 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
         const c = e.content
         if (c.Request) {
             const content = c.Request.content
+            if ('woken' in content) {
+                // The agent started this turn in this conversation itself (spec 067). It is
+                // not the person's message, so it is drawn as the agent's own card — the work
+                // it was given, above the trail of what it did.
+                arrive(
+                    <BackgroundReportCard
+                        key={e.uid}
+                        agentId={agent.id}
+                        title="Worked on this"
+                        meta={time(e.timestamp)}
+                    >
+                        <Markdown size="document">{content.woken}</Markdown>
+                    </BackgroundReportCard>,
+                    e.uid
+                )
+                continue
+            }
             if ('unattended' in content) continue
             if (isDetachedDelivery(content)) {
                 // Delivered mid-turn, it is a step of that turn's trail (`groupHistory`); only a

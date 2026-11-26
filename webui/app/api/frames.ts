@@ -130,6 +130,9 @@ export type VizierRequestContent =
   // The person's answer to a question set the agent asked (specs/042-agent-asking-question).
   // `text` is the summary the conversation shows as their message.
   | { question_answer: QuestionAnswerContent }
+  // A turn the agent started in this conversation itself (spec 067): the work it was given,
+  // and the agent's own doing — not a message from a person.
+  | { woken: string }
 
 export interface ClientEventContent {
   text: string

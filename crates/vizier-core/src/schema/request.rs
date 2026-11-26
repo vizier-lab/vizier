@@ -78,6 +78,10 @@ pub enum VizierRequestContent {
     /// The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues
     /// the worker's conversation like `Chat`.
     SubagentReply(crate::schema::SubagentReplyText),
+    /// A turn the agent started in this conversation itself (spec 067). It starts a turn like
+    /// `Chat`: same history, same queue, same attribution — but the agent is the one that asked,
+    /// and nobody is waiting on the answer.
+    Woken(String),
 }
 
 /// One `/btw` side chat carried in each request: the question being asked now and the
@@ -151,6 +155,7 @@ impl VizierRequestContent {
             Self::QuestionAnswer(_) => "question_answer",
             Self::SubagentTask(_) => "subagent_task",
             Self::SubagentReply(_) => "subagent_reply",
+            Self::Woken(_) => "woken",
         }
     }
 
@@ -189,6 +194,10 @@ impl Display for VizierRequestContent {
             Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
             Self::SubagentTask(brief) => f.write_str(&brief.text),
             Self::SubagentReply(reply) => f.write_str(&reply.text),
+            // The work the woken turn was given, and nothing else: the framing that says
+            // what kind of turn this is rides the context block, so the request's own text
+            // stays exactly what the agent wrote (spec 067).
+            Self::Woken(instruction) => f.write_str(instruction),
             // The readable summary, then the answers as data the agent can read without
             // re-parsing prose — the shape `ClientEvent` already uses.
             Self::QuestionAnswer(answer) => {
@@ -604,6 +613,18 @@ impl VizierRequest {
                 }))?);
             }
             _ => {}
+        }
+
+        // A woken turn (spec 067): the agent started it itself, in a conversation of its own.
+        // `sender` is that agent's id — the request's `user` — and `via` says the request is
+        // not from the person.
+        if let VizierRequestContent::Woken(_) = &self.content {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("wake"));
+            frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+            frontmatter.insert("metadata".into(), self.shown_metadata());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
         // A client event is still the person's message (they clicked it), so `sender` stays
