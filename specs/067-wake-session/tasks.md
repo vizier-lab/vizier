@@ -186,7 +186,7 @@ what it produced — the request drawn as the agent's own card, not the person's
 - [X] T047 Regenerate the public API listing with `just public-api` — the new enum variant, the new tools and the new module change `crates/vizier-core/public-api.txt`
 - [X] T048 Update `CLAUDE.md`: the tools section (the two tools, the category, the request kind), the category count (24 → 25) and the SPECKIT pointer
 - [X] T049 Run `cargo clippy` and `cargo test` and resolve every warning and failure in the touched files
-- [X] T050 Run `cd webui && npm run typecheck` and `just web-check`
+- [X] T050 Run the web gate: `cd webui && npm run typecheck`, `cd design && npm run typecheck`, and `cd webui && npm test` (1757 tests) — the `just web-check` recipe needs a POSIX shell for its `&&`, so the same steps were run by hand on Windows
 - [X] T051 Run `just test-scripts`, which includes `scripts/trail-tool-categories.test.mjs` — the test that fails when the WebUI's copy of the categories and the engine's disagree
 - [X] T052 The e2e gate (constitution): walk every step of `quickstart.md` with dummyplug agents and mark each step pass or fail in this file's Notes
 - [X] T053 Commit with a conventional message (`feat: add the session tools — list_sessions and wake_session`)
@@ -266,6 +266,13 @@ what it produced — the request drawn as the agent's own card, not the person's
 - **A same-agent wake cannot deadlock**: the engine spawns a turn per session
   (`agents/process.rs`, `turns.spawn`), so the caller's turn and the woken turn run concurrently
   and a waiting caller gets its answer.
+- **The webui typecheck has to run after every webui file lands.** The first run of it here
+  happened before the last WebUI files existed, so it never saw `frames.wake.test.ts`; CI caught
+  the file (a conditional type that resolved to `never`) and it now takes the exported
+  `VizierRequestContent`. The gate was re-run over the whole package afterwards.
+- **`just web-check` cannot run on Windows**: the recipe joins its steps with `&&`, which
+  PowerShell 5.1 rejects, so `just` runs it through `powershell.exe`. The same steps were run by
+  hand: design typecheck, webui typecheck, design + webui token lint, webui vitest.
 - [P] tasks = different files, no dependencies
 - [Story] label maps each task to its story for traceability
 - Every task names the file it changes, so it can be picked up cold
