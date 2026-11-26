@@ -44,3 +44,33 @@ export const NoMemberMatches: Story = {
   args: { label: "Agents and people", items: [], query: "zed", emptyText: "Nobody in this Workspace is called “@zed”." },
 };
 
+const ENTITIES = [
+  { kind: "artifact" as const, name: "report", note: "artifact" },
+  { kind: "function" as const, name: "fetch_weather", note: "function" },
+  { kind: "skill" as const, name: "summarize", note: "skill · agent" },
+  { kind: "skill" as const, name: "onboarding", note: "skill · global" },
+  { kind: "task" as const, name: "weekly-report", note: "task" },
+  { kind: "memory" as const, name: "research/topics/energy", note: "memory" },
+];
+
+/** Typed "[[" in the composer: the chat agent's artifacts, functions, skills, tasks and memory (specs/066). */
+export const EntityLinks: Story = {
+  args: {
+    label: "Links",
+    items: ENTITIES,
+    query: "",
+    active: 0,
+    footer: "↑↓ to move · Tab or Enter to insert · Esc to close",
+  },
+};
+
+export const NoEntityMatches: Story = {
+  args: {
+    label: "Links",
+    items: [],
+    query: "zzz",
+    emptyText: "Nothing matches “[[zzz”. Enter sends it as text.",
+    footer: "↑↓ to move · Tab or Enter to insert · Esc to close",
+  },
+};
+

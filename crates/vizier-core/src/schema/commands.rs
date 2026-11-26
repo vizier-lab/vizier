@@ -232,21 +232,6 @@ pub enum MemoryOpRequest {
         tags: Vec<String>,
         origin: RevisionOrigin,
     },
-    /// Attach one artifact (owned by this agent) to an existing memory (specs/035).
-    AttachArtifact {
-        bundle: Option<String>,
-        path: String,
-        artifact_id: String,
-        artifact_name: String,
-        origin: RevisionOrigin,
-    },
-    /// Remove one attachment by display name, artifact or legacy session file.
-    DetachAttachment {
-        bundle: Option<String>,
-        path: String,
-        name: String,
-        origin: RevisionOrigin,
-    },
     Query {
         bundle: Option<String>,
         query: String,

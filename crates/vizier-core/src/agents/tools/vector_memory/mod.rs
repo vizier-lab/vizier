@@ -1,5 +1,3 @@
-pub mod attachments;
-
 use crate::time::Timestamp;
 use std::sync::Arc;
 
@@ -12,9 +10,7 @@ use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::file_manager::FileManager;
 use crate::indexer::VizierIndexer;
-use crate::schema::{
-    AgentId, MemoryAttachment, RevisionOrigin, VizierAttachment, VizierAttachmentContent,
-};
+use crate::schema::{AgentId, RevisionOrigin};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 use crate::storage::memory_bundle::WritePolicy;
@@ -161,7 +157,6 @@ pub struct MemorySummary {
     pub updated_at: Timestamp,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
-    pub attachment_count: usize,
     pub read_count: u64,
 }
 
@@ -250,7 +245,6 @@ impl VizierTool for MemoryList {
                             updated_at: m.updated_at,
                             tags: m.tags,
                             relations: m.relations,
-                            attachment_count: m.attachment_count,
                             read_count: m.read_count,
                         })
                         .collect(),
@@ -429,9 +423,7 @@ impl VizierTool for MemoryWrite {
         naming a new bundle creates it automatically. Use `path` to nest a concept under a \
         subdirectory (e.g. 'friends/bred'). Same-bundle links are ordinary markdown links \
         ([label](path/to/concept.md)); cross-bundle links use [[bundle/slug]] or bare [[bundle]]. \
-        Tags can be added for categorization. This tool never changes attachments: to attach a \
-        permanent artifact use `attach_artifact_to_memory`; to remove one use \
-        `detach_attachment_from_memory`."
+        Tags can be added for categorization."
             .into()
     }
 
@@ -521,7 +513,6 @@ pub struct MemoryDetailOutput {
     pub agent_id: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
-    pub attachments: Vec<String>,
     pub read_count: u64,
 }
 
@@ -544,7 +535,7 @@ impl VizierTool for MemoryRead {
         search result's bundle and path are exactly this tool's arguments, so no second search is \
         needed. Content may contain same-bundle markdown links or [[bundle/slug]]/[[bundle]] \
         cross-bundle wikilinks — call memory_follow or memory_read with those to traverse the \
-        knowledge graph. Memory attachments are added to your session files."
+        knowledge graph."
             .into()
     }
 
@@ -577,93 +568,11 @@ impl VizierTool for MemoryRead {
                     agent_id: m.agent_id,
                     tags: m.tags,
                     relations: m.relations,
-                    attachments: m
-                        .attachments
-                        .iter()
-                        .map(|a| a.display_name().to_string())
-                        .collect(),
                     read_count: m.read_count,
                 })
                 .unwrap_or_default();
 
-                let mut stored_files = Vec::new();
-                let mut gone = Vec::new();
-                for att in &m.attachments {
-                    match att {
-                        MemoryAttachment::Artifact { artifact_id, name } => {
-                            let attachment = VizierAttachment {
-                                filename: name.clone(),
-                                content: VizierAttachmentContent::Artifact {
-                                    agent_id: self.0.clone(),
-                                    artifact_id: artifact_id.clone(),
-                                    available: None,
-                                },
-                            };
-                            match self.2.resolve(&attachment).await {
-                                Ok((_, bytes)) => {
-                                    let safe =
-                                        crate::artifacts::session_filename(artifact_id, name);
-                                    let mime_type = get_mime_type(&safe);
-                                    match self.2.upload(&safe, bytes.clone()).await {
-                                        Ok(record) => {
-                                            let size = record.size;
-                                            if self
-                                                .1
-                                                .save_session_file(
-                                                    &ctx.session,
-                                                    &safe,
-                                                    &mime_type,
-                                                    size,
-                                                    &record.id,
-                                                )
-                                                .await
-                                                .is_ok()
-                                            {
-                                                stored_files.push(safe);
-                                            }
-                                        }
-                                        Err(e) => gone.push(format!("{name} ({e})")),
-                                    }
-                                }
-                                Err(_) => gone.push(name.clone()),
-                            }
-                        }
-                        MemoryAttachment::LegacySessionFile(att) => {
-                            if let VizierAttachmentContent::Local(url) = &att.content {
-                                let file_id = url.trim_start_matches("/api/v1/files/");
-                                let mime_type = get_mime_type(&att.filename);
-
-                                if self
-                                    .1
-                                    .save_session_file(
-                                        &ctx.session,
-                                        &att.filename,
-                                        &mime_type,
-                                        0,
-                                        file_id,
-                                    )
-                                    .await
-                                    .is_ok()
-                                {
-                                    stored_files.push(att.filename.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let mut result = output;
-                if !stored_files.is_empty() {
-                    let files = stored_files.join(", ");
-                    result = format!("{result}\n\n[+{files} to session files]");
-                }
-                if !gone.is_empty() {
-                    result = format!(
-                        "{result}\n\n[artifact attachment(s) deleted and unavailable: {}]",
-                        gone.join(", ")
-                    );
-                }
-                Ok(result)
+                Ok(output)
             }
             // FR-019: say plainly that it is gone, and say what to do instead. An empty result or
             // an opaque error both read to an agent as "the tool failed", and it retries.
@@ -772,11 +681,6 @@ impl VizierTool for MemoryFollow {
                             )
                             .await;
 
-                        let attachment_names: Vec<String> = memory
-                            .attachments
-                            .iter()
-                            .map(|a| a.display_name().to_string())
-                            .collect();
                         result.push(MemoryDetailOutput {
                             bundle: memory.bundle.clone(),
                             path: memory.slug.clone(),
@@ -787,7 +691,6 @@ impl VizierTool for MemoryFollow {
                             agent_id: memory.agent_id,
                             tags: memory.tags,
                             relations: memory.relations,
-                            attachments: attachment_names,
                             read_count: memory.read_count,
                         });
                         next.push(memory_key);

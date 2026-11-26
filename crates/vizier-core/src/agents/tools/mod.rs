@@ -1326,8 +1326,6 @@ impl VizierTools {
         "read_image_file",
         "promote_artifact",
         "list_artifacts",
-        "attach_artifact_to_memory",
-        "detach_attachment_from_memory",
         // Custom tools (spec 061 R14): a dream may write and tidy them, never delete, switch
         // off or call one.
         "list_custom_tools",
@@ -1618,15 +1616,7 @@ impl BaseTools {
                 deps.transport.clone(),
             ))
             .tool(ui_kit::UiDescribeElements)
-            .tool(ui_kit::UiExamples)
-            .tool(vector_memory::attachments::AttachArtifactToMemory {
-                agent_id: agent_id.clone(),
-                storage: deps.storage.clone(),
-            })
-            .tool(vector_memory::attachments::DetachAttachmentFromMemory {
-                agent_id: agent_id.clone(),
-                storage: deps.storage.clone(),
-            });
+            .tool(ui_kit::UiExamples);
 
         user_toolset = user_toolset
             .tool(SendWebuiMessage {
@@ -1895,7 +1885,6 @@ mod tests {
         vector_memory::{
             MemoryDelete, MemoryDeleteBundle, MemoryFollow, MemoryGraphTool, MemoryList,
             MemoryRead, MemorySearch, MemoryWrite,
-            attachments::{AttachArtifactToMemory, DetachAttachmentFromMemory},
         },
     };
 
@@ -1930,8 +1919,6 @@ mod tests {
             entry::<MemoryGraphTool>(),
             entry::<MemoryDelete>(),
             entry::<MemoryDeleteBundle>(),
-            entry::<AttachArtifactToMemory>(),
-            entry::<DetachAttachmentFromMemory>(),
             entry::<ScheduleOneTimeTask>(),
             entry::<ScheduleCronTask>(),
             entry::<ListTask>(),
@@ -2074,8 +2061,6 @@ mod tests {
             ("memory_graph", Memory),
             ("memory_delete", Memory),
             ("memory_delete_bundle", Memory),
-            ("attach_artifact_to_memory", Memory),
-            ("detach_attachment_from_memory", Memory),
             ("schedule_one_time_task", Scheduling),
             ("schedule_cron_task", Scheduling),
             ("list_task", Scheduling),

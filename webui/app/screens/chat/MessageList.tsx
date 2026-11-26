@@ -43,6 +43,8 @@ import { Reactions } from './Reactions'
 import { DeliveryRow, Trail, WorkerUpdateRow } from './Trail'
 import { DetachedSource } from './detachedSource'
 import { mentionsAsCode } from '../../lib/mentions'
+import { collectEntityLinks, EntityBroken, rewriteEntityLinks } from '../../lib/entityLinks'
+import { useLinkTargets } from '../../stores/linkTargets'
 import { planActionsVisible, planOf } from '../../lib/plans'
 import { PlanCard } from './client/PlanCard'
 import { currentPrompt, markTime, promptIndex, waitingUid, withWaiting, type PromptMark } from '../../lib/prompts'
@@ -101,6 +103,9 @@ function isCommand(command: string): command is 'checkpoint' | 'lobotomy' {
     return command === 'checkpoint' || command === 'lobotomy'
 }
 
+/** One shared empty set: a context value that is a fresh object re-renders on every call. */
+const NO_BROKEN: ReadonlySet<string> = new Set()
+
 /**
  * Whether this checkpoint is the one `/lobotomy` saves. The engine stores the command and then
  * a checkpoint with no handover (`run_lobotomy`), so the command directly above it is what tells
@@ -129,6 +134,45 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
     const me = useSession((s) => s.user)
     const turns = useMemo(() => orderTurnsBySent(groupHistory(entries)), [entries])
     const prices = usePrices()
+
+    // Entity wiki links on the page (spec 066): the store's index answers what it can, one
+    // batched resolve settles the rest, and a target that is gone draws broken instead of
+    // navigating nowhere. Unresolved renders optimistically live.
+    const linkTargetsLoaded = useLinkTargets((s) => s.loaded[agent.id])
+    const refreshLinkTargets = useLinkTargets((s) => s.refresh)
+    const resolveLinks = useLinkTargets((s) => s.resolve)
+    const pageLinks = useMemo(() => {
+        const texts: string[] = []
+        for (const e of entries) {
+            const c = e.content
+            if (c.Request) texts.push(requestText(c.Request.content))
+            else if (c.Response) {
+                const t = replyText(c.Response.content)
+                if (t) texts.push(t)
+            } else if (typeof c.AssistantMessage === 'string') texts.push(c.AssistantMessage)
+        }
+        return texts.flatMap(collectEntityLinks)
+    }, [entries])
+    const [broken, setBroken] = useState<ReadonlySet<string>>(NO_BROKEN)
+    useEffect(() => {
+        if (!linkTargetsLoaded) {
+            void refreshLinkTargets(agent.id)
+            return
+        }
+        if (pageLinks.length === 0) {
+            setBroken(NO_BROKEN)
+            return
+        }
+        let alive = true
+        void resolveLinks(agent.id, pageLinks).then((map) => {
+            if (!alive) return
+            const next = new Set(Object.entries(map).filter(([, ok]) => !ok).map(([key]) => key))
+            setBroken(next.size > 0 ? next : NO_BROKEN)
+        })
+        return () => {
+            alive = false
+        }
+    }, [agent.id, linkTargetsLoaded, pageLinks, refreshLinkTargets, resolveLinks])
     const scroller = useRef<HTMLDivElement>(null)
     // The scroller as state too, so the scroll-bar measurement starts when the element attaches,
     // not only on mount (the ref can still be empty then, which left the composer misaligned).
@@ -205,7 +249,11 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                 }
             >
                 {/* A voice message's transcript sits behind "Show transcript" in its player. */}
-                {!spoken && text !== '' && <Markdown size="document" slashWords>{mentionsAsCode(text, mentioned)}</Markdown>}
+                {!spoken && text !== '' && (
+                    <Markdown size="document" slashWords>
+                        {rewriteEntityLinks(agent.id, mentionsAsCode(text, mentioned))}
+                    </Markdown>
+                )}
             </UserMessage>
         )
     }
@@ -260,7 +308,9 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                     >
                         <div className="flex flex-col gap-16">
                             {/* A spoken reply's transcript is open in its player, read along as it is heard. */}
-                            {text != null && text !== '' && !spoken && !waitingForAudio && <Markdown>{text}</Markdown>}
+                            {text != null && text !== '' && !spoken && !waitingForAudio && (
+                                <Markdown>{rewriteEntityLinks(agent.id, text)}</Markdown>
+                            )}
                             {waitingForAudio && text && <PendingAudio transcript={text} speaking={liveSpeaking} />}
                             <ReplyMedia attachments={attachments} transcript={text} openTranscript />
                         </div>
@@ -277,7 +327,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
         const lastTrail = lastBlockOf(turn, 'trail')
         const failed = !!(turn.outcome && replyError(turn.outcome.content.Response!.content))
         return turn.blocks.map((block, i) => {
-            if (block.kind === 'message') return <Markdown key={block.id}>{block.text}</Markdown>
+            if (block.kind === 'message') return <Markdown key={block.id}>{rewriteEntityLinks(agent.id, block.text)}</Markdown>
             if (block.kind === 'steer') {
                 // The agent carries on after the person's message: its head starts the next part,
                 // as it starts the turn. Only after the last of messages read together.
@@ -566,6 +616,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
     )
 
     return (
+        <EntityBroken.Provider value={broken}>
         <DetachedSource.Provider value={source}>
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
@@ -627,6 +678,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
             </Presence>
         </div>
         </DetachedSource.Provider>
+        </EntityBroken.Provider>
     )
 }
 

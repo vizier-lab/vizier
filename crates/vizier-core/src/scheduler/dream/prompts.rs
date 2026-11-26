@@ -67,6 +67,9 @@ Now do the following:
    - steps fixed, only the inputs vary → a custom tool (`create_custom_tool`; `input` holds the
      arguments, the last expression is the result);
    - steps need judgment → a skill (`create_skill`);
+   - when a memory should point at one of your artifacts, functions, skills or tasks, use the
+     entity link form the WebUI renders (`[[artifact:name]]`, `[[function:name]]`,
+     `[[skill:slug]]`, `[[task:slug]]`), not a plain-text mention.
    - a one-off → nothing.
    First check `list_custom_tools` and `list_skills`; update an existing one rather than create a
    near-duplicate. Put a new custom tool in a fitting existing category before making a new one,
@@ -78,11 +81,11 @@ Now do the following:
 
 6. **Clean up redundancies** — If new information duplicates existing memories, update the existing ones rather than creating duplicates.
 
-7. **Keep and attach artifacts** — Use `list_artifacts` to see what is already permanent. A
+7. **Keep artifacts and cite them** — Use `list_artifacts` to see what is already permanent. A
    valuable file you found in a source conversation can be kept with
-   `promote_artifact(filename="...", source_session="<source slug>")`. Attach a permanent
-   artifact to a memory with `attach_artifact_to_memory(path="...", artifact="...")`, and
-   remove one with `detach_attachment_from_memory(path="...", name="...")`. Do not update,
+   `promote_artifact(filename="...", source_session="<source slug>")`. When a memory should
+   point at one, cite it with the entity link the WebUI renders
+   (`[[artifact:name]]`, `[[function:name]]`, `[[skill:slug]]`, `[[task:slug]]`). Do not update,
    delete, send or clear anything.
 
 8. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:

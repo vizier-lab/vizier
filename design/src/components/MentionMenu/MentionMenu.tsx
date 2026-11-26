@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { ComponentProps, HTMLAttributes } from "react";
 import { Icon } from "../../icons/Icon";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { cx } from "../../lib/cx";
@@ -6,8 +6,8 @@ import { Avatar } from "../Avatar/Avatar";
 import { HighlightMatch } from "../Picker/Picker";
 import { DeckFrame } from "../ComposerDeck/DeckFrame";
 
-/** A file or folder of a project, or (in a Workspace) an agent or person to mention. */
-export type MentionMenuItem = { path: string; kind: "file" | "dir" } | MentionMenuMember;
+/** A file or folder of a project, an agent or person to mention, or an entity of the chat's agent. */
+export type MentionMenuItem = { path: string; kind: "file" | "dir" } | MentionMenuMember | MentionMenuEntity;
 
 export type MentionMenuMember = {
   kind: "agent" | "person";
@@ -20,18 +20,33 @@ export type MentionMenuMember = {
   imageSrc?: string;
 };
 
+/** One entity of the chat's agent (specs/066): what `[[kind:name]]` addresses. */
+export type MentionMenuEntity = {
+  kind: "artifact" | "function" | "skill" | "task" | "memory";
+  /** The entity's own name, as the link addresses it. */
+  name: string;
+  /** What the row says quietly on the right: the kind, or a skill's scope. */
+  note?: string;
+};
+
 function isMember(item: MentionMenuItem): item is MentionMenuMember {
   return item.kind === "agent" || item.kind === "person";
 }
 
+function isEntity(item: MentionMenuItem): item is MentionMenuEntity {
+  return item.kind === "artifact" || item.kind === "function" || item.kind === "skill" || item.kind === "task" || item.kind === "memory";
+}
+
 function keyOf(item: MentionMenuItem) {
-  return isMember(item) ? `${item.kind}:${item.id}` : item.path;
+  if (isMember(item)) return `${item.kind}:${item.id}`;
+  if (isEntity(item)) return `entity:${item.kind}:${item.name}`;
+  return item.path;
 }
 
 export type MentionMenuProps = {
-  /** What the list is of: "Files", or "Agents and people". */
+  /** What the list is of: "Files", "Agents and people", or "Links". */
   label: string;
-  /** Entries matching what was typed after "@". */
+  /** Entries matching what was typed after "@" or "[[". */
   items: MentionMenuItem[];
   query: string;
   /** Index of the highlighted row. */
@@ -39,6 +54,8 @@ export type MentionMenuProps = {
   onPick: (item: MentionMenuItem) => void;
   /** Said when nothing matches, before "Enter sends it as text". Defaults to the file wording. */
   emptyText?: string;
+  /** The footer line; defaults to the mention wording. */
+  footer?: string;
   /** The composer's text field controls this list via aria-activedescendant. */
   id: string;
 } & Omit<HTMLAttributes<HTMLDivElement>, "id">;
@@ -55,9 +72,9 @@ function split(path: string) {
  * you type. Built like the slash menu (SkillMenu); the composer owns the keys (↑ ↓ Tab Enter Esc).
  * The folder is drawn quiet and the name strong, so the eye finds the file, not the path.
  */
-export function MentionMenu({ label, items, query, active, onPick, id, emptyText, className, ...rest }: MentionMenuProps) {
+export function MentionMenu({ label, items, query, active, onPick, id, emptyText, footer, className, ...rest }: MentionMenuProps) {
   return (
-    <DeckFrame label={label} footer="↑↓ to move · Tab or Enter to mention · Esc to close" className={className} {...rest}>
+    <DeckFrame label={label} footer={footer ?? "↑↓ to move · Tab or Enter to mention · Esc to close"} className={className} {...rest}>
       {items.length === 0 ? (
         <p id={id} role="status" className="px-8 py-8 type-small text-muted">
           {emptyText ?? `No file matches “@${query}”.`} Enter sends it as text.
@@ -76,7 +93,7 @@ export function MentionMenu({ label, items, query, active, onPick, id, emptyText
               }}
               className={cx("flex cursor-pointer items-center gap-8 rounded-sm px-8 py-6", i === active && "bg-live text-on-live [&_*]:text-on-live!")}
             >
-              {isMember(item) ? <MemberRow item={item} query={query} /> : <FileRow item={item} query={query} />}
+              {isMember(item) ? <MemberRow item={item} query={query} /> : isEntity(item) ? <EntityRow item={item} query={query} /> : <FileRow item={item} query={query} />}
             </div>
           ))}
         </div>
@@ -116,6 +133,27 @@ function MemberRow({ item, query }: { item: MentionMenuMember; query: string }) 
         @<HighlightMatch text={item.id} query={query} />
       </span>
       {item.hint && <span className="ml-auto shrink-0 type-mono-xs text-faint">{item.hint}</span>}
+    </>
+  );
+}
+
+const ENTITY_ICON: Record<MentionMenuEntity["kind"], ComponentProps<typeof Icon>["name"]> = {
+  artifact: "file",
+  function: "functions",
+  skill: "skills",
+  task: "tasks",
+  memory: "memory",
+};
+
+/** An entity of the chat's agent (specs/066): the kind's icon, the name strong, the note quiet. */
+function EntityRow({ item, query }: { item: MentionMenuEntity; query: string }) {
+  return (
+    <>
+      <Icon name={ENTITY_ICON[item.kind]} size={14} tone="faint" />
+      <span className="min-w-0 truncate type-code text-fg">
+        <HighlightMatch text={item.name} query={query} />
+      </span>
+      {item.note && <span className="ml-auto shrink-0 type-mono-xs text-faint">{item.note}</span>}
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { renderToString } from 'react-dom/server'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../../api/frames'
 import { emptyTopic } from '../../lib/frames'
@@ -162,6 +163,43 @@ describe('a message the turn read while it worked (spec 062)', () => {
         const html = draw(finished).replace(/aria-valuetext="[^"]*"/g, '')
         expect(html.match(/keep the old token format/g) ?? []).toHaveLength(1)
         expect(html.indexOf('keep the old token format')).toBeGreaterThan(html.indexOf('refactor the auth module'))
+    })
+})
+
+describe('an entity wiki link in the conversation (spec 066)', () => {
+    const reply =
+        'Cites [[artifact:report]], [[function:fetch_weather]], [[skill:summarize|the skill]], [[task:weekly-report]], `[[task:y]]` and [[flavour:vanilla]].'
+    const entries: ChatMessage[] = [
+        entry('req', { Request: { timestamp: '2026-10-23T10:00:00Z', user: 'me', content: { chat: 'cite your work' } } }),
+        entry('end', { Response: { timestamp: '2026-10-23T10:00:05Z', content: { message: { content: reply } } } }, '2026-10-23T10:00:05Z'),
+    ]
+    const drawRouted = (msgs: ChatMessage[]) =>
+        renderToString(
+            <MemoryRouter>
+                <MessageList
+                    state={{ ...emptyTopic(session), entries: msgs }}
+                    agent={{ id: 'oz', name: 'Oz' }}
+                    hasOlder={false}
+                    loadingOlder={false}
+                    onLoadOlder={() => {}}
+                    onReact={() => {}}
+                />
+            </MemoryRouter>
+        )
+
+    it('rewrites every kind into an internal link, honoring the alias', () => {
+        const html = drawRouted(entries)
+        expect(html).toContain('href="/oz/artifacts?artifact=report"')
+        expect(html).toContain('href="/oz/functions/fetch_weather"')
+        expect(html).toContain('href="/oz/skills/summarize"')
+        expect(html).toContain('href="/oz/tasks/weekly-report"')
+        expect(html).toContain('the skill')
+    })
+
+    it('leaves inline code and unknown kinds as literal text', () => {
+        const html = drawRouted(entries)
+        expect(html).toContain('[[task:y]]')
+        expect(html).toContain('[[flavour:vanilla]]')
     })
 })
 

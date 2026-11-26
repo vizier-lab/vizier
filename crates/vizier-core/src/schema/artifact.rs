@@ -350,7 +350,6 @@ pub struct ArtifactPage {
 pub struct ArtifactDeleteResult {
     pub removed: bool,
     pub references: usize,
-    pub memory_links_removed: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

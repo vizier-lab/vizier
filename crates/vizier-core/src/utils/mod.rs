@@ -106,8 +106,6 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "memory_follow" => "🔗 Following links:".to_string(),
         "memory_graph" => "📊 Knowledge graph:".to_string(),
         "memory_delete" => "🗑️ Deleting memory:".to_string(),
-        "attach_artifact_to_memory" => "📎 Attaching artifact to memory:".to_string(),
-        "detach_attachment_from_memory" => "📎 Detaching memory attachment:".to_string(),
         "list_task" => "📋 Listing tasks:".to_string(),
         "delete_task" => "🗑️ Deleting task:".to_string(),
         "get_task_detail" => "📋 Task detail:".to_string(),

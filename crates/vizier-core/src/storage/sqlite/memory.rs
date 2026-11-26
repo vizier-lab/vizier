@@ -49,44 +49,6 @@ impl MemoryStorage for SqlStorage {
             .await
     }
 
-    async fn attach_memory_attachment(
-        &self,
-        agent_id: String,
-        bundle: Option<String>,
-        path: String,
-        artifact_id: String,
-        artifact_name: String,
-        origin: &RevisionOrigin,
-    ) -> Result<Memory> {
-        self.bundle_store()
-            .attach_memory_attachment(agent_id, bundle, path, artifact_id, artifact_name, origin)
-            .await
-    }
-
-    async fn detach_memory_attachment(
-        &self,
-        agent_id: String,
-        bundle: Option<String>,
-        path: String,
-        name: String,
-        origin: &RevisionOrigin,
-    ) -> Result<Memory> {
-        self.bundle_store()
-            .detach_memory_attachment(agent_id, bundle, path, name, origin)
-            .await
-    }
-
-    async fn detach_artifact_from_memories(
-        &self,
-        agent_id: String,
-        artifact_id: String,
-        origin: &RevisionOrigin,
-    ) -> Result<usize> {
-        self.bundle_store()
-            .detach_artifact_from_memories(agent_id, artifact_id, origin)
-            .await
-    }
-
     async fn seed_identity(
         &self,
         agent_id: &str,
@@ -96,12 +58,6 @@ impl MemoryStorage for SqlStorage {
     ) -> Result<bool> {
         self.bundle_store()
             .seed_identity(agent_id, legacy, indexer, limits)
-            .await
-    }
-
-    async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
-        self.bundle_store()
-            .reconcile_agent_artifact_references(agent_id)
             .await
     }
 

@@ -13,7 +13,7 @@ use crate::{
     config::{ChunkLimits, MemoryLimits},
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, CORE_BUNDLE, ImportReport, Memory, MemoryAttachment, MemoryFrontMatter,
+        BundleSummary, CORE_BUNDLE, ImportReport, Memory, MemoryFrontMatter,
         MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams,
         MemoryRevision, MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions,
         RevisionDiff, RevisionOrigin, RevisionTrigger, RollbackResponse, SOUL_PATH,
@@ -114,7 +114,6 @@ struct NodeRow {
     path: String,
     title: String,
     tags: Vec<String>,
-    attachment_count: usize,
     created_at: Timestamp,
     updated_at: Timestamp,
     read_count: u64,
@@ -178,12 +177,26 @@ fn same_bundle_link_target(href: &str) -> Option<String> {
     Some(normalize_path(path_only) + ".md")
 }
 
-/// Cross-bundle wikilinks: `[[bundle/slug]]` or bare `[[bundle]]` (FR-013).
+/// Cross-bundle wikilinks: `[[bundle/slug]]` or bare `[[bundle]]` (FR-013). Entity wiki
+/// links of the WebUI's `[[kind:name]]` grammar (spec 066 — `artifact:`, `function:`,
+/// `skill:`, `task:`) are not memory references, so they are skipped here rather than
+/// classified as bundle references; nothing in a bundle name can collide because the
+/// reserved kinds are matched before any bundle interpretation happens.
+const ENTITY_LINK_KINDS: [&str; 4] = ["artifact", "function", "skill", "task"];
+
+fn is_entity_link_target(target: &str) -> bool {
+    match target.split_once(':') {
+        Some((kind, _)) => ENTITY_LINK_KINDS.contains(&kind),
+        None => false,
+    }
+}
+
 fn parse_wikilinks(content: &str) -> Vec<String> {
     let re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
     re.captures_iter(content)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().trim().to_string()))
         .filter(|s| !s.is_empty())
+        .filter(|s| !is_entity_link_target(s))
         .collect()
 }
 
@@ -248,7 +261,7 @@ fn slice_passage(content: &str, start: usize, end: usize) -> String {
 
 fn canonical_of_bytes(bytes: &[u8]) -> Option<String> {
     let (fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(bytes).ok()?;
-    memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body).ok()
+    memory_canonical(&fm.title, &fm.tags, &body).ok()
 }
 
 /// The refusal for content above the ceiling (FR-018). The first token is the stable marker
@@ -280,8 +293,6 @@ fn memory_from_frontmatter(fm: MemoryFrontMatter, content: String) -> Memory {
         tags: fm.tags,
         keywords: fm.keywords,
         relations: fm.relations,
-        attachment_count: fm.attachments.len(),
-        attachments: fm.attachments,
         read_count: fm.read_count,
     }
 }
@@ -542,7 +553,6 @@ impl BundleMemoryStore {
         slug_leaf: &str,
         title: &str,
         tags: &[String],
-        attachment_count: usize,
         created_at: Timestamp,
         updated_at: Timestamp,
         read_count: u64,
@@ -551,13 +561,12 @@ impl BundleMemoryStore {
         let conn = self.conn.lock()?;
         conn.execute(
             "INSERT INTO memory_node
-                (agent_id, bundle, path, slug, title, tags_json, attachment_count, created_at, updated_at, read_count)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                (agent_id, bundle, path, slug, title, tags_json, created_at, updated_at, read_count)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
              ON CONFLICT(agent_id, bundle, path) DO UPDATE SET
                 slug = excluded.slug,
                 title = excluded.title,
                 tags_json = excluded.tags_json,
-                attachment_count = excluded.attachment_count,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 read_count = excluded.read_count",
@@ -568,7 +577,6 @@ impl BundleMemoryStore {
                 slug_leaf,
                 title,
                 tags_json,
-                attachment_count as i64,
                 crate::time::stored(created_at),
                 crate::time::stored(updated_at),
                 read_count as i64
@@ -591,7 +599,6 @@ impl BundleMemoryStore {
             &leaf_of(path),
             &fm.title,
             &fm.tags,
-            fm.attachments.len(),
             fm.created_at,
             fm.updated_at,
             fm.read_count,
@@ -634,27 +641,26 @@ impl BundleMemoryStore {
         let conn = self.conn.lock()?;
         let map_row = |row: &Row| -> sql::Result<NodeRow> {
             let tags_json: String = row.get(2)?;
-            let created_at: String = row.get(4)?;
-            let updated_at: String = row.get(5)?;
+            let created_at: String = row.get(3)?;
+            let updated_at: String = row.get(4)?;
             Ok(NodeRow {
                 bundle: row.get(0)?,
                 path: row.get(1)?,
-                title: row.get(6)?,
+                title: row.get(5)?,
                 tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-                attachment_count: row.get::<_, i64>(3)? as usize,
                 created_at: DateTime::parse_from_rfc3339(&created_at)
                     .map(|d| d.with_timezone(&Local))
                     .unwrap_or_else(|_| crate::time::now()),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at)
                     .map(|d| d.with_timezone(&Local))
                     .unwrap_or_else(|_| crate::time::now()),
-                read_count: row.get::<_, i64>(7)? as u64,
+                read_count: row.get::<_, i64>(6)? as u64,
             })
         };
 
         let rows = if let Some(b) = bundle {
             let mut stmt = conn.prepare(
-                "SELECT bundle, path, tags_json, attachment_count, created_at, updated_at, title, read_count
+                "SELECT bundle, path, tags_json, created_at, updated_at, title, read_count
                  FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
             )?;
             stmt.query_map(params![agent_id, b], map_row)?
@@ -662,7 +668,7 @@ impl BundleMemoryStore {
                 .collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT bundle, path, tags_json, attachment_count, created_at, updated_at, title, read_count
+                "SELECT bundle, path, tags_json, created_at, updated_at, title, read_count
                  FROM memory_node WHERE agent_id = ?1",
             )?;
             stmt.query_map(params![agent_id], map_row)?
@@ -1145,8 +1151,6 @@ impl BundleMemoryStore {
             tags: n.tags.clone(),
             keywords: vec![],
             relations,
-            attachments: vec![],
-            attachment_count: n.attachment_count,
             read_count: n.read_count,
         })
     }
@@ -1210,7 +1214,6 @@ impl BundleMemoryStore {
             title,
             content,
             tags,
-            None,
             origin,
             indexer,
             limits,
@@ -1219,9 +1222,7 @@ impl BundleMemoryStore {
         .await
     }
 
-    /// The one write path. `attachments: None` preserves whatever the document already has
-    /// (a content update never clobbers attachments); `Some` is used by rollback, which must
-    /// restore the snapshot's attachment list.
+    /// The one write path.
     #[allow(clippy::too_many_arguments)]
     async fn write_memory_inner(
         &self,
@@ -1232,7 +1233,6 @@ impl BundleMemoryStore {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Option<Vec<MemoryAttachment>>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
@@ -1305,14 +1305,13 @@ impl BundleMemoryStore {
         };
 
         let now = crate::time::now();
-        let (created_at, read_count, existing_attachments) = match &existing {
+        let (created_at, read_count) = match &existing {
             Some(bytes) => match parse_markdown_bytes::<MemoryFrontMatter>(bytes) {
-                Ok((fm, _)) => (fm.created_at, fm.read_count, fm.attachments),
-                Err(_) => (now, 0, vec![]),
+                Ok((fm, _)) => (fm.created_at, fm.read_count),
+                Err(_) => (now, 0),
             },
-            None => (now, 0, vec![]),
+            None => (now, 0),
         };
-        let attachments = attachments.unwrap_or(existing_attachments);
 
         let relations = parse_relations(&content);
         let frontmatter = MemoryFrontMatter {
@@ -1325,13 +1324,11 @@ impl BundleMemoryStore {
             tags: tags.clone(),
             keywords: vec![],
             relations: relations.clone(),
-            attachment_count: attachments.len(),
-            attachments: attachments.clone(),
             read_count,
         };
 
         let canonical_before = existing.as_deref().and_then(canonical_of_bytes);
-        let canonical_new = memory_canonical(&title, &tags, &attachments, &content)?;
+        let canonical_new = memory_canonical(&title, &tags, &content)?;
 
         let bytes = serialize_markdown(&frontmatter, &content)?;
         self.document_store.put(&key, bytes).await?;
@@ -1444,223 +1441,6 @@ impl BundleMemoryStore {
         )
         .await?;
         Ok(true)
-    }
-
-    /// Sync the derived `artifact_reference` rows for one memory. Best effort: the document is
-    /// the source of truth and a failure is repaired by the next agent-start reconcile.
-    fn sync_artifact_references(
-        &self,
-        agent_id: &str,
-        bundle: &str,
-        path: &str,
-        title: &str,
-        attachments: &[MemoryAttachment],
-    ) {
-        let result = (|| -> Result<()> {
-            let conn = self.conn.lock()?;
-            let tx = conn.unchecked_transaction()?;
-            tx.execute(
-                "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
-                params![agent_id, bundle, path],
-            )?;
-            let now = crate::time::now().timestamp_millis();
-            let target = format!("memory:{bundle}:{path}");
-            for attachment in attachments {
-                if let MemoryAttachment::Artifact { artifact_id, .. } = attachment {
-                    tx.execute(
-                        "INSERT INTO artifact_reference \
-                         (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
-                         VALUES (?1, ?2, 'memory', ?3, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7) \
-                         ON CONFLICT (artifact_id, kind, target) DO UPDATE SET agent_id = excluded.agent_id, \
-                         session_slug = excluded.session_slug, history_uid = excluded.history_uid, \
-                         channel = excluded.channel, topic = excluded.topic, bundle = excluded.bundle, \
-                         path = excluded.path, label = excluded.label, created_at = excluded.created_at",
-                        params![artifact_id, agent_id, target, bundle, path, title, now],
-                    )?;
-                }
-            }
-            tx.commit()?;
-            Ok(())
-        })();
-        if let Err(e) = result {
-            tracing::warn!(
-                agent_id,
-                bundle,
-                path,
-                "failed to sync memory artifact references: {e}"
-            );
-        }
-    }
-
-    /// Attach one artifact to an existing memory (`specs/035-add-artifacts` R6). Idempotent by
-    /// artifact id. Rewrites only the frontmatter, node, a revision and reference rows.
-    pub async fn attach_memory_attachment(
-        &self,
-        agent_id: String,
-        bundle: Option<String>,
-        path: String,
-        artifact_id: String,
-        artifact_name: String,
-        origin: &RevisionOrigin,
-    ) -> Result<Memory> {
-        let bundle = bundle.unwrap_or_else(default_bundle);
-        let path = normalize_path(&path);
-        let key = Self::doc_key(&agent_id, &bundle, &path);
-        let existing = self
-            .document_store
-            .get(&key)
-            .await?
-            .ok_or_else(|| anyhow!("memory '{path}' not found in bundle '{bundle}'"))?;
-        let (mut fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(&existing)?;
-        if fm
-            .attachments
-            .iter()
-            .any(|a| a.artifact_id() == Some(artifact_id.as_str()))
-        {
-            return Ok(memory_from_frontmatter(fm, body));
-        }
-        fm.attachments.push(MemoryAttachment::Artifact {
-            artifact_id,
-            name: artifact_name,
-        });
-        self.rewrite_attachments(&agent_id, &bundle, &path, &key, existing, fm, body, origin)
-            .await
-    }
-
-    /// Remove one attachment by display name, artifact or legacy session file. A name that is
-    /// not attached changes nothing.
-    pub async fn detach_memory_attachment(
-        &self,
-        agent_id: String,
-        bundle: Option<String>,
-        path: String,
-        name: String,
-        origin: &RevisionOrigin,
-    ) -> Result<Memory> {
-        let bundle = bundle.unwrap_or_else(default_bundle);
-        let path = normalize_path(&path);
-        let key = Self::doc_key(&agent_id, &bundle, &path);
-        let existing = self
-            .document_store
-            .get(&key)
-            .await?
-            .ok_or_else(|| anyhow!("memory '{path}' not found in bundle '{bundle}'"))?;
-        let (mut fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(&existing)?;
-        let before = fm.attachments.len();
-        fm.attachments.retain(|a| a.display_name() != name);
-        if fm.attachments.len() == before {
-            return Ok(memory_from_frontmatter(fm, body));
-        }
-        self.rewrite_attachments(&agent_id, &bundle, &path, &key, existing, fm, body, origin)
-            .await
-    }
-
-    async fn rewrite_attachments(
-        &self,
-        agent_id: &str,
-        bundle: &str,
-        path: &str,
-        key: &str,
-        existing: Vec<u8>,
-        mut fm: MemoryFrontMatter,
-        body: String,
-        origin: &RevisionOrigin,
-    ) -> Result<Memory> {
-        let canonical_before = canonical_of_bytes(&existing);
-        fm.updated_at = crate::time::now();
-        fm.attachment_count = fm.attachments.len();
-        let canonical_new = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body)?;
-        let bytes = serialize_markdown(&fm, &body)?;
-        self.document_store.put(key, bytes).await?;
-        self.upsert_node_from_frontmatter(agent_id, bundle, path, &fm)?;
-        self.record_revision(
-            agent_id,
-            bundle,
-            path,
-            Some(&canonical_new),
-            origin,
-            canonical_before.as_deref(),
-        )?;
-        self.sync_artifact_references(agent_id, bundle, path, &fm.title, &fm.attachments);
-        Ok(memory_from_frontmatter(fm, body))
-    }
-
-    /// Remove every link to one artifact from the agent's memories, recording a revision per
-    /// affected document. The body is never changed.
-    pub async fn detach_artifact_from_memories(
-        &self,
-        agent_id: String,
-        artifact_id: String,
-        origin: &RevisionOrigin,
-    ) -> Result<usize> {
-        let nodes = self.list_nodes(&agent_id, None)?;
-        let mut changed = 0;
-        for node in nodes {
-            let key = Self::doc_key(&agent_id, &node.bundle, &node.path);
-            let Some(existing) = self.document_store.get(&key).await? else {
-                continue;
-            };
-            let Ok((mut fm, body)) = parse_markdown_bytes::<MemoryFrontMatter>(&existing) else {
-                continue;
-            };
-            let before = fm.attachments.len();
-            fm.attachments
-                .retain(|a| a.artifact_id() != Some(artifact_id.as_str()));
-            if fm.attachments.len() == before {
-                continue;
-            }
-            match self
-                .rewrite_attachments(
-                    &agent_id,
-                    &node.bundle,
-                    &node.path,
-                    &key,
-                    existing,
-                    fm,
-                    body,
-                    origin,
-                )
-                .await
-            {
-                Ok(_) => changed += 1,
-                Err(e) => tracing::warn!(
-                    agent_id,
-                    bundle = %node.bundle,
-                    path = %node.path,
-                    "failed to detach deleted artifact from memory: {e}"
-                ),
-            }
-        }
-        Ok(changed)
-    }
-
-    /// Rebuild every `artifact_reference` memory row for one agent from its concept documents.
-    /// Returns how many artifact references are now recorded.
-    pub async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
-        let nodes = self.list_nodes(agent_id, None)?;
-        let mut refs = 0;
-        for node in nodes {
-            let key = Self::doc_key(agent_id, &node.bundle, &node.path);
-            let Some(bytes) = self.document_store.get(&key).await? else {
-                continue;
-            };
-            let Ok((fm, _)) = parse_markdown_bytes::<MemoryFrontMatter>(&bytes) else {
-                continue;
-            };
-            refs += fm
-                .attachments
-                .iter()
-                .filter(|a| a.artifact_id().is_some())
-                .count();
-            self.sync_artifact_references(
-                agent_id,
-                &node.bundle,
-                &node.path,
-                &fm.title,
-                &fm.attachments,
-            );
-        }
-        Ok(refs)
     }
 
     /// Semantic search over passages (FR-008–FR-016).
@@ -2611,8 +2391,7 @@ impl BundleMemoryStore {
                     self.document_store.put(&key, out).await?;
                     self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &fm)?;
                     // Import skips existing paths, so there is never a "before" to baseline.
-                    let canonical =
-                        memory_canonical(&fm.title, &fm.tags, &fm.attachments, &content)?;
+                    let canonical = memory_canonical(&fm.title, &fm.tags, &content)?;
                     self.record_revision(
                         &agent_id,
                         &bundle,
@@ -2814,7 +2593,6 @@ impl BundleMemoryStore {
             fm.title,
             body,
             fm.tags,
-            Some(fm.attachments),
             &origin,
             indexer,
             limits,
@@ -2847,7 +2625,6 @@ impl BundleMemoryStore {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
         created_at: Timestamp,
         updated_at: Timestamp,
         read_count: u64,
@@ -2856,10 +2633,6 @@ impl BundleMemoryStore {
         let path = normalize_path(&path);
         let key = Self::doc_key(&agent_id, &bundle, &path);
         let relations = parse_relations(&content);
-        let attachments: Vec<MemoryAttachment> = attachments
-            .into_iter()
-            .map(MemoryAttachment::LegacySessionFile)
-            .collect();
 
         let frontmatter = MemoryFrontMatter {
             slug: path.clone(),
@@ -2871,20 +2644,13 @@ impl BundleMemoryStore {
             tags,
             keywords: vec![],
             relations: relations.clone(),
-            attachment_count: attachments.len(),
-            attachments,
             read_count,
         };
 
         let bytes = serialize_markdown(&frontmatter, &content)?;
         self.document_store.put(&key, bytes).await?;
         self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &frontmatter)?;
-        let canonical = memory_canonical(
-            &frontmatter.title,
-            &frontmatter.tags,
-            &frontmatter.attachments,
-            &content,
-        )?;
+        let canonical = memory_canonical(&frontmatter.title, &frontmatter.tags, &content)?;
         self.record_revision(
             &agent_id,
             &bundle,
@@ -3437,6 +3203,69 @@ mod tests {
         assert!(graph.edges.iter().any(|e| e.broken));
     }
 
+    /// Entity wiki links (spec 066, `[[kind:name]]`) are WebUI navigation, not memory
+    /// relations: they must be skipped by `parse_wikilinks` entirely — never a node, an
+    /// edge, or a broken edge in the memory graph — while ordinary wikilinks in the same
+    /// document keep working exactly as before.
+    #[tokio::test]
+    async fn entity_wikilinks_are_not_memory_relations() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "alpha content".into(),
+                vec![],
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap();
+
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("gamma".into()),
+                false,
+                "Gamma".into(),
+                "cites [[artifact:report]], [[function:fetch_weather]], \
+                 [[skill:summarize|doc]], [[task:weekly-report]] — and [[alpha]]"
+                    .into(),
+                vec![],
+                &origin(),
+                &indexer,
+                &limits(),
+            )
+            .await
+            .unwrap();
+
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(
+            format!("{}/{}", related[0].bundle, related[0].slug),
+            "default/alpha"
+        );
+
+        let graph = store
+            .get_memory_graph("a1".into(), None, None)
+            .await
+            .unwrap();
+        assert!(graph.edges.iter().all(|e| {
+            !e.target.contains("artifact:report")
+                && !e.target.contains("function:fetch_weather")
+                && !e.target.contains("skill:summarize")
+                && !e.target.contains("task:weekly-report")
+        }));
+    }
+
     #[tokio::test]
     async fn reconciliation_picks_up_documents_copied_from_elsewhere() {
         let dir = tempfile::tempdir().unwrap();
@@ -3725,8 +3554,6 @@ mod tests {
             tags: vec![],
             keywords: vec![],
             relations: vec![],
-            attachment_count: 0,
-            attachments: vec![],
             read_count: 0,
         };
         std::fs::write(
@@ -4425,7 +4252,6 @@ mod tests {
                 "legacy".into(),
                 "Legacy".into(),
                 "written before core was reserved".into(),
-                vec![],
                 vec![],
                 now,
                 now,

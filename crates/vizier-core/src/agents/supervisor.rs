@@ -543,27 +543,6 @@ impl Supervisor {
         let idx = indexer?.clone();
         let agent_id = self.agent_id.clone();
 
-        // Rebuild the derived `artifact_reference` memory rows from the concept documents
-        // (`specs/035-add-artifacts`), so an import or a crashed write is repaired on the next
-        // start without a second full scan of its own.
-        {
-            let storage = self.deps.storage.clone();
-            let agent_id = agent_id.clone();
-            tokio::spawn(async move {
-                use crate::storage::memory::MemoryStorage;
-                match storage.reconcile_agent_artifact_references(&agent_id).await {
-                    Ok(0) => {}
-                    Ok(count) => {
-                        tracing::debug!(agent_id, count, "memory artifact references reconciled")
-                    }
-                    Err(e) => tracing::warn!(
-                        agent_id,
-                        "memory artifact reference reconcile failed; it is retried on the next start: {e}"
-                    ),
-                }
-            });
-        }
-
         let rx = match self.deps.transport.register_memory_op(agent_id.clone()).await {
             Ok(rx) => rx,
             Err(e) => {

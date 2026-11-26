@@ -432,20 +432,6 @@ impl ArtifactStorage for SqlStorage {
         Ok(())
     }
 
-    async fn delete_memory_references(
-        &self,
-        agent_id: &str,
-        bundle: &str,
-        path: &str,
-    ) -> Result<()> {
-        let conn = self.conn.lock()?;
-        conn.execute(
-            "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
-            params![agent_id, bundle, path],
-        )?;
-        Ok(())
-    }
-
     async fn delete_agent_artifact_data(&self, agent_id: &str) -> Result<()> {
         let conn = self.conn.lock()?;
         let tx = conn.unchecked_transaction()?;
@@ -797,15 +783,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_and_memory_reference_cleanup_are_scoped() {
+    async fn session_reference_cleanup_is_scoped() {
         let (s, _d) = storage();
         let a = artifact("x", 100);
         create(&s, &a).await;
         for (kind, target, slug, bundle, path) in [
             ("message", "m1", Some("s1"), None, None),
             ("message", "m2", Some("s2"), None, None),
-            ("memory", "mem1", None, Some("default"), Some("p")),
-            ("memory", "mem2", None, Some("default"), Some("q")),
         ] {
             s.upsert_artifact_reference(&ArtifactReference {
                 artifact_id: a.id.clone(),
@@ -827,10 +811,7 @@ mod tests {
         s.delete_message_references_for_session("a", "s1")
             .await
             .unwrap();
-        s.delete_memory_references("a", "default", "p")
-            .await
-            .unwrap();
-        assert_eq!(s.count_artifact_references("a", &a.id).await.unwrap(), 2);
+        assert_eq!(s.count_artifact_references("a", &a.id).await.unwrap(), 1);
         s.delete_agent_artifact_data("a").await.unwrap();
         assert_eq!(s.count_artifact_references("a", &a.id).await.unwrap(), 0);
         assert!(s.get_artifact("a", &a.id).await.unwrap().is_none());
@@ -842,6 +823,6 @@ mod tests {
         delete_removes_refs_but_keeps_the_event,
         paging_is_stable_with_tied_timestamps,
         filters_and_stats_are_independent_of_the_cursor,
-        session_and_memory_reference_cleanup_are_scoped,
+        session_reference_cleanup_is_scoped,
     );
 }

@@ -66,13 +66,6 @@ pub trait ArtifactStorage {
         session_slug: &str,
     ) -> Result<()>;
 
-    async fn delete_memory_references(
-        &self,
-        agent_id: &str,
-        bundle: &str,
-        path: &str,
-    ) -> Result<()>;
-
     async fn delete_agent_artifact_data(&self, agent_id: &str) -> Result<()>;
 
     /// The current content file name (`content.v<n>`) of an artifact, `None` when the row is
@@ -175,17 +168,6 @@ impl ArtifactStorage for crate::storage::VizierStorage {
     ) -> Result<()> {
         self.0
             .delete_message_references_for_session(agent_id, session_slug)
-            .await
-    }
-
-    async fn delete_memory_references(
-        &self,
-        agent_id: &str,
-        bundle: &str,
-        path: &str,
-    ) -> Result<()> {
-        self.0
-            .delete_memory_references(agent_id, bundle, path)
             .await
     }
 

@@ -68,38 +68,6 @@ async fn dispatch_memory_op(
             )
             .await
             .map(MemoryOpResponse::from_written),
-        MemoryOpRequest::AttachArtifact {
-            bundle,
-            path,
-            artifact_id,
-            artifact_name,
-            origin,
-        } => storage
-            .attach_memory_attachment(
-                agent_id.to_string(),
-                bundle.clone(),
-                path.clone(),
-                artifact_id.clone(),
-                artifact_name.clone(),
-                origin,
-            )
-            .await
-            .map(MemoryOpResponse::from_memory),
-        MemoryOpRequest::DetachAttachment {
-            bundle,
-            path,
-            name,
-            origin,
-        } => storage
-            .detach_memory_attachment(
-                agent_id.to_string(),
-                bundle.clone(),
-                path.clone(),
-                name.clone(),
-                origin,
-            )
-            .await
-            .map(MemoryOpResponse::from_memory),
         MemoryOpRequest::Query {
             bundle,
             query,

@@ -17,10 +17,12 @@ import {
     type MemoryRevisionSummary,
 } from '../../api/endpoints/memory'
 import { absoluteTime, relativeTime } from '../../lib/format'
+import { collectEntityLinks, EntityBroken, rewriteEntityLinks } from '../../lib/entityLinks'
 import { linkWikiLinks, relationLink } from '../../lib/memoryLinks'
 import { bundleHref, chatFrom, docFromChat, docHref } from '../../lib/memoryTree'
 import { authorLabel, diffLines, type RevisionDiff } from '../../lib/revisions'
 import { useMobile } from '../../lib/useMobile'
+import { useLinkTargets } from '../../stores/linkTargets'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import { Markdown } from '../shared/Markdown'
 import { Panes } from '../shared/Panes'
@@ -58,6 +60,9 @@ export function MemoryDocument({ agentId, bundle, path }: DocProps) {
 }
 
 type DocProps = { agentId: string; bundle: string; path: string }
+
+/** One shared empty set: a context value that is a fresh object re-renders on every call. */
+const NO_BROKEN: ReadonlySet<string> = new Set()
 
 function ReadDoc({ agentId, bundle, path }: DocProps) {
     const navigate = useNavigate()
@@ -183,6 +188,33 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
 
     const at = history.find((r) => r.seq === shown)
     const text = rev !== null ? (old?.seq === rev ? old.content : null) : (doc?.content ?? null)
+
+    // Entity wiki links in the document (specs/066): settled against the agent's index the
+    // same way the conversation settles its own, so both surfaces read the same reference.
+    const linkTargetsLoaded = useLinkTargets((s) => s.loaded[agentId])
+    const refreshLinkTargets = useLinkTargets((s) => s.refresh)
+    const resolveLinks = useLinkTargets((s) => s.resolve)
+    const docLinks = useMemo(() => (text ? collectEntityLinks(text) : []), [text])
+    const [brokenLinks, setBrokenLinks] = useState<ReadonlySet<string>>(NO_BROKEN)
+    useEffect(() => {
+        if (!linkTargetsLoaded) {
+            void refreshLinkTargets(agentId)
+            return
+        }
+        if (docLinks.length === 0) {
+            setBrokenLinks(NO_BROKEN)
+            return
+        }
+        let alive = true
+        void resolveLinks(agentId, docLinks).then((map) => {
+            if (!alive) return
+            const next = new Set(Object.entries(map).filter(([, ok]) => !ok).map(([key]) => key))
+            setBrokenLinks(next.size > 0 ? next : NO_BROKEN)
+        })
+        return () => {
+            alive = false
+        }
+    }, [agentId, linkTargetsLoaded, docLinks, refreshLinkTargets, resolveLinks])
     const edit = () => navigate(`${docHref(agentId, bundle, path)}?edit=1${from ? `&from=${encodeURIComponent(from)}` : ''}`)
 
     const links = (label: string, items: DocLink[]) =>
@@ -322,7 +354,11 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
                     <Skeleton lines={12} />
                 ) : (
                     <article className="max-w-[72ch]">
-                        <Markdown size="document">{linkWikiLinks(agentId, bundle, text)}</Markdown>
+                        <EntityBroken.Provider value={brokenLinks}>
+                            <Markdown size="document">
+                                {rewriteEntityLinks(agentId, linkWikiLinks(agentId, bundle, text))}
+                            </Markdown>
+                        </EntityBroken.Provider>
                     </article>
                 )}
             </Panes>

@@ -46,8 +46,6 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     memory_graph: 'memory',
     memory_delete: 'memory',
     memory_delete_bundle: 'memory',
-    attach_artifact_to_memory: 'memory',
-    detach_attachment_from_memory: 'memory',
     schedule_one_time_task: 'scheduling',
     schedule_cron_task: 'scheduling',
     list_task: 'scheduling',

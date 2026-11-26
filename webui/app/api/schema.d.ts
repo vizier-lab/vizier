@@ -681,6 +681,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/link-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["index_or_search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/link-targets/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resolve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/memory": {
         parameters: {
             query?: never;
@@ -692,22 +724,6 @@ export interface paths {
         put?: never;
         post: operations["create_memory"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{agent_id}/memory/attachments/{bundle}/{*path}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["attach_artifact"];
-        delete: operations["detach_attachment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1169,6 +1185,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["agent_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/usage/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["agent_usage_calls"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2147,7 +2179,6 @@ export interface components {
              *     reads as unavailable); memory links are removed.
              */
             data?: {
-                memory_links_removed: number;
                 references: number;
                 removed: boolean;
             };
@@ -2177,6 +2208,14 @@ export interface components {
                 total: number;
                 /** Format: int64 */
                 total_bytes: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_BTreeMap_String_bool: {
+            data?: {
+                [key: string]: boolean;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2534,6 +2573,22 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_LinkTargets: {
+            data?: {
+                artifacts: string[];
+                functions: string[];
+                memory: components["schemas"]["MemoryTargets"];
+                skills: components["schemas"]["SkillTarget"][];
+                tasks: components["schemas"]["TaskTarget"][];
+                /** @description Which kinds were cut by a cap — absence there is not evidence of absence. */
+                truncated: {
+                    [key: string]: boolean;
+                };
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_LoginResponse: {
             data?: {
                 token: string;
@@ -2548,6 +2603,17 @@ export interface components {
                 can_manage: boolean;
                 languages?: components["schemas"]["LanguageInfo"][] | null;
                 overrides?: components["schemas"]["OverrideInfo"][] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_MediaCalls: {
+            data?: {
+                /** @description Keyed by `execute_python` call id; an id with no media records is absent. */
+                calls: {
+                    [key: string]: components["schemas"]["MediaCall"][];
+                };
             };
             message?: string | null;
             /** Format: int32 */
@@ -2575,7 +2641,6 @@ export interface components {
         APIResponse_MemoryDetail: {
             data?: {
                 agent_id: string;
-                attachments: components["schemas"]["MemoryAttachmentView"][];
                 bundle: string;
                 content: string;
                 /** Format: date-time */
@@ -3103,10 +3168,18 @@ export interface components {
                 accounting_since?: string | null;
                 activity?: components["schemas"]["UsageActivity"] | null;
                 by_activity: components["schemas"]["BreakdownRow"][];
+                /** @description Empty when the report is narrowed to one kind. */
+                by_kind: components["schemas"]["KindRow"][];
                 by_model: components["schemas"]["ModelRow"][];
                 by_place: components["schemas"]["BreakdownRow"][];
                 costliest: components["schemas"]["ConversationRow"][];
                 daily: components["schemas"]["DailyUsage"][];
+                kind?: components["schemas"]["UsageKind"] | null;
+                /**
+                 * Format: date-time
+                 * @description When media calls started being recorded (spec 065 R8).
+                 */
+                media_accounting_since?: string | null;
                 previous?: components["schemas"]["PeriodTotals"] | null;
                 range: components["schemas"]["UsageRange"];
                 summary: components["schemas"]["UsageSummary"];
@@ -3283,7 +3356,6 @@ export interface components {
         APIResponse_Vec_MemoryDetail: {
             data?: {
                 agent_id: string;
-                attachments: components["schemas"]["MemoryAttachmentView"][];
                 bundle: string;
                 content: string;
                 /** Format: date-time */
@@ -3330,7 +3402,6 @@ export interface components {
         APIResponse_Vec_MemorySummary: {
             data?: {
                 agent_id: string;
-                attachment_count: number;
                 bundle: string;
                 /** Format: date-time */
                 created_at: string;
@@ -3972,7 +4043,6 @@ export interface components {
          *     reads as unavailable); memory links are removed.
          */
         ArtifactDeleteResult: {
-            memory_links_removed: number;
             references: number;
             removed: boolean;
         };
@@ -4051,9 +4121,6 @@ export interface components {
          * @enum {string}
          */
         AskState: "open" | "provided" | "declined" | "timed_out" | "abandoned";
-        AttachArtifactRequest: {
-            artifact: string;
-        };
         AttachmentBody: {
             attached: boolean;
         };
@@ -4085,6 +4152,7 @@ export interface components {
             share?: number | null;
             /** Format: int64 */
             tokens: number;
+            units?: components["schemas"]["Units"] | null;
         };
         BtwRequest: {
             channel_id: string;
@@ -4122,6 +4190,8 @@ export interface components {
             failed: boolean;
             /** Format: int64 */
             input_tokens: number;
+            kind: components["schemas"]["UsageKind"];
+            measured: boolean;
             model: string;
             /** Format: int64 */
             output_tokens: number;
@@ -4129,6 +4199,8 @@ export interface components {
             /** Format: int32 */
             round?: number | null;
             served_model?: string | null;
+            units?: components["schemas"]["Units"] | null;
+            variant?: string | null;
         };
         CatalogueStatus: {
             /** Format: date-time */
@@ -4449,7 +4521,6 @@ export interface components {
             settings?: Record<string, never>;
         };
         CreateMemoryRequest: {
-            attachments?: components["schemas"]["VizierAttachment"][] | null;
             bundle?: string | null;
             content: string;
             path?: string | null;
@@ -4579,6 +4650,10 @@ export interface components {
             by_activity: {
                 [key: string]: components["schemas"]["DayActivity"];
             };
+            /** @description Keyed by `UsageKind` (snake_case), for the day's tooltip (spec 065). */
+            by_kind: {
+                [key: string]: components["schemas"]["DayActivity"];
+            };
             date: string;
         };
         DayActivity: {
@@ -4590,6 +4665,10 @@ export interface components {
             tokens: number;
         };
         DeleteAgentQuery: {
+            /**
+             * @description **Deprecated, ignored.** Deleting an agent always deletes its folder with everything
+             *     else; accepted so old clients keep working (#82).
+             */
             delete_workspace?: boolean;
         };
         /** @description One script as the panel draws it: the activity trail's run detail. */
@@ -4643,6 +4722,10 @@ export interface components {
             old_line?: number | null;
             op: string;
             text: string;
+        };
+        DocTarget: {
+            bundle: string;
+            path: string;
         };
         DockerShellConfig: {
             container_name: string;
@@ -4787,7 +4870,7 @@ export interface components {
             provider: components["schemas"]["EmbeddingProvider"];
         };
         /** @enum {string} */
-        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
+        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock" | "dummyplug";
         /**
          * @description One entry's `pricing` as the API reports it (contracts §4a): the state, the figure when there
          *     is one, and — for every absence — the label plus a cause-specific reason that carries the way
@@ -4930,7 +5013,7 @@ export interface components {
             since_seq?: number | null;
         };
         /** @enum {string} */
-        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock" | "venice" | "together";
+        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock" | "venice" | "together" | "dummyplug";
         ImageGenToolSettings: {
             /** @default null */
             model: string | null;
@@ -5062,6 +5145,9 @@ export interface components {
             required?: boolean;
             type: components["schemas"]["FieldType"];
         };
+        KindRow: components["schemas"]["BreakdownRow"] & {
+            kind: components["schemas"]["UsageKind"];
+        };
         KindView: {
             description: string;
             family: components["schemas"]["IntegrationFamily"];
@@ -5101,6 +5187,17 @@ export interface components {
             context: boolean;
             /** @description The output limit is the person's, not the paired model's. */
             output: boolean;
+        };
+        LinkTargets: {
+            artifacts: string[];
+            functions: string[];
+            memory: components["schemas"]["MemoryTargets"];
+            skills: components["schemas"]["SkillTarget"][];
+            tasks: components["schemas"]["TaskTarget"][];
+            /** @description Which kinds were cut by a cap — absence there is not evidence of absence. */
+            truncated: {
+                [key: string]: boolean;
+            };
         };
         /**
          * @description The live voice block a person may send when saving an agent (T041, FR-003).
@@ -5159,6 +5256,27 @@ export interface components {
             languages?: components["schemas"]["LanguageInfo"][] | null;
             overrides?: components["schemas"]["OverrideInfo"][] | null;
         };
+        /** @description One media record made by a tool call, priced (spec 065 R10, `GET …/usage/calls`). */
+        MediaCall: {
+            /** Format: date-time */
+            at: string;
+            /** Format: double */
+            cost_usd?: number | null;
+            kind: components["schemas"]["UsageKind"];
+            local: boolean;
+            measured: boolean;
+            model: string;
+            price_source: components["schemas"]["PriceSource"];
+            provider: string;
+            units?: components["schemas"]["Units"] | null;
+            variant?: string | null;
+        };
+        MediaCalls: {
+            /** @description Keyed by `execute_python` call id; an id with no media records is absent. */
+            calls: {
+                [key: string]: components["schemas"]["MediaCall"][];
+            };
+        };
         /**
          * @description The one axis discovery varies on (data-model §1). It is also the storage key and the API
          *     query value.
@@ -5192,29 +5310,8 @@ export interface components {
             /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
             source: string;
         };
-        /**
-         * @description The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.
-         *     The stored document stays the untagged [`MemoryAttachment`] enum.
-         */
-        MemoryAttachmentView: {
-            artifact_id: string;
-            available: boolean;
-            /** @enum {string} */
-            kind: "artifact";
-            mime_type?: string | null;
-            name: string;
-            /** Format: int64 */
-            size?: number | null;
-        } | {
-            available: boolean;
-            content: components["schemas"]["VizierAttachmentContent"];
-            filename: string;
-            /** @enum {string} */
-            kind: "legacy_session_file";
-        };
         MemoryDetail: {
             agent_id: string;
-            attachments: components["schemas"]["MemoryAttachmentView"][];
             bundle: string;
             content: string;
             /** Format: date-time */
@@ -5291,7 +5388,6 @@ export interface components {
         };
         MemorySummary: {
             agent_id: string;
-            attachment_count: number;
             bundle: string;
             /** Format: date-time */
             created_at: string;
@@ -5301,6 +5397,10 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        MemoryTargets: {
+            bundles: string[];
+            docs: components["schemas"]["DocTarget"][];
         };
         ModelCaps: {
             attachment?: boolean | null;
@@ -5322,7 +5422,9 @@ export interface components {
             cache_hit_rate?: number | null;
             /** Format: int64 */
             failed_tokens: number;
+            kind: components["schemas"]["UsageKind"];
             model: string;
+            price_source: components["schemas"]["PriceSource"];
             priced: boolean;
             provider: string;
             served_models: string[];
@@ -5481,6 +5583,11 @@ export interface components {
             /** Format: int64 */
             telegram: number;
         };
+        /**
+         * @description Which rule priced a figure (spec 065 research R6).
+         * @enum {string}
+         */
+        PriceSource: "catalogue" | "table" | "local" | "none";
         /**
          * @description One Application Inference Profile a connection may chat through (spec 044, data-model
          *     "profile entry"). Non-secret: the ARN as saved, an optional display name and optional
@@ -5862,6 +5969,14 @@ export interface components {
         } | {
             /** @description The agent set this task up itself, with no one asking. */
             agent: components["schemas"]["String"];
+        };
+        /** @description One link to settle exactly, keyed by its `kind:name` token in the response. */
+        ResolveLink: {
+            kind: string;
+            name: string;
+        };
+        ResolveRequest: {
+            links: components["schemas"]["ResolveLink"][];
         };
         /** @description Body of `POST …/lsp/restart`. */
         RestartRequest: {
@@ -6317,6 +6432,11 @@ export interface components {
         SignOutResponse: {
             state: string;
         };
+        SkillTarget: {
+            /** @description `agent` or `global` — the workspace scopes only (research R4). */
+            scope: string;
+            slug: string;
+        };
         /** @enum {string} */
         SortOrder: "asc" | "desc";
         /**
@@ -6327,7 +6447,7 @@ export interface components {
         SsoSessionState: "configured" | "signed-in" | "expired" | "unreadable";
         String: string;
         /** @enum {string} */
-        SttProvider: "openai" | "openrouter" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
+        SttProvider: "openai" | "openrouter" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper" | "dummyplug";
         SttToolSettings: {
             /** @default null */
             language: string | null;
@@ -6468,6 +6588,10 @@ export interface components {
             /** Format: date-time */
             OneTimeTask: string;
         };
+        TaskTarget: {
+            slug: string;
+            title: string;
+        };
         /** @description The answer to "Test connection". */
         TestResult: {
             /**
@@ -6507,7 +6631,7 @@ export interface components {
             topic_id: string;
         };
         /** @enum {string} */
-        TtsProvider: "openai" | "openrouter" | "elevenlabs" | "xai" | "hyperbolic" | "kokoro";
+        TtsProvider: "openai" | "openrouter" | "elevenlabs" | "xai" | "hyperbolic" | "kokoro" | "dummyplug";
         TtsToolSettings: {
             /** @default null */
             model: string | null;
@@ -6557,10 +6681,34 @@ export interface components {
             title: string;
             versions: components["schemas"]["UiPageVersionView"][];
         };
+        /**
+         * @description A media amount in its kind's own unit (spec 065 data-model §9). Only the fields of the kinds
+         *     in the row are set.
+         */
+        Units: {
+            /**
+             * Format: double
+             * @description Known durations only.
+             */
+            audio_seconds?: number | null;
+            /** Format: int64 */
+            characters?: number | null;
+            /** Format: int64 */
+            images?: number | null;
+            /**
+             * Format: int64
+             * @description Embedding input tokens.
+             */
+            tokens?: number | null;
+        };
         UnpricedNote: {
             models: string[];
             /** Format: int64 */
             tokens: number;
+            /** @description Unpriced media amounts, by kind (spec 065 FR-011). */
+            units: {
+                [key: string]: components["schemas"]["Units"];
+            };
         };
         UpdateCoreRequest: {
             /**
@@ -6582,7 +6730,6 @@ export interface components {
             settings?: Record<string, never> | null;
         };
         UpdateMemoryRequest: {
-            attachments?: components["schemas"]["VizierAttachment"][] | null;
             /**
              * Format: int64
              * @description The revision this edit started from, when the client knows it. When the document has
@@ -6666,7 +6813,13 @@ export interface components {
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
          * @enum {string}
          */
-        UsageActivity: "chat" | "project" | "workspace" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other" | "consultation";
+        UsageActivity: "chat" | "project" | "workspace" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other" | "consultation" | "indexing";
+        /**
+         * @description What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).
+         *     Every completion is `Text`. Display order; append only.
+         * @enum {string}
+         */
+        UsageKind: "text" | "image" | "speech" | "transcription" | "embedding";
         UsageLink: {
             kind: components["schemas"]["UsageLinkKind"];
             path: string;
@@ -6688,10 +6841,18 @@ export interface components {
             accounting_since?: string | null;
             activity?: components["schemas"]["UsageActivity"] | null;
             by_activity: components["schemas"]["BreakdownRow"][];
+            /** @description Empty when the report is narrowed to one kind. */
+            by_kind: components["schemas"]["KindRow"][];
             by_model: components["schemas"]["ModelRow"][];
             by_place: components["schemas"]["BreakdownRow"][];
             costliest: components["schemas"]["ConversationRow"][];
             daily: components["schemas"]["DailyUsage"][];
+            kind?: components["schemas"]["UsageKind"] | null;
+            /**
+             * Format: date-time
+             * @description When media calls started being recorded (spec 065 R8).
+             */
+            media_accounting_since?: string | null;
             previous?: components["schemas"]["PeriodTotals"] | null;
             range: components["schemas"]["UsageRange"];
             summary: components["schemas"]["UsageSummary"];
@@ -6714,6 +6875,12 @@ export interface components {
             failed: components["schemas"]["FailedTotals"];
             /** Format: int64 */
             input_tokens: number;
+            /**
+             * Format: double
+             * @description Set only when the report is narrowed to one kind (spec 065): its share of all kinds' cost
+             *     under the same activity filter.
+             */
+            kind_share_of_all?: number | null;
             /** Format: int64 */
             output_tokens: number;
             /**
@@ -9239,6 +9406,115 @@ export interface operations {
             };
         };
     };
+    index_or_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description With `q`: the search mode over this kind; absent, the bounded index. */
+                kind: string | null;
+                q: string | null;
+                /** @description Search page size, capped by the service. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bounded name index, or one kind's search page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_LinkTargets"];
+                };
+            };
+            /** @description Unknown kind in the search mode */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No agent view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    resolve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Exact existence per link, keyed `kind:name` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_BTreeMap_String_bool"];
+                };
+            };
+            /** @description No agent view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description More than 100 links in the batch */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
     get_all_memories: {
         parameters: {
             query?: {
@@ -9319,101 +9595,6 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-        };
-    };
-    attach_artifact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Bundle name */
-                bundle: string;
-                /** @description Memory path */
-                path: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AttachArtifactRequest"];
-            };
-        };
-        responses: {
-            /** @description The memory with its updated attachment list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_MemoryDetail"];
-                };
-            };
-            /** @description Memory or artifact visibility denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-            /** @description Memory or artifact not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-        };
-    };
-    detach_attachment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Agent ID */
-                agent_id: string;
-                /** @description Bundle name */
-                bundle: string;
-                /** @description Memory path */
-                path: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The memory with its updated attachment list */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_MemoryDetail"];
-                };
-            };
-            /** @description Memory visibility denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
-                };
-            };
-            /** @description Memory not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11309,6 +11490,11 @@ export interface operations {
                 end_date: string | null;
                 /** @description Narrows every figure to one activity (spec 018 FR-021). */
                 activity: string | null;
+                /**
+                 * @description Narrows every figure to one kind of call: `text`, `image`, `speech`, `transcription` or
+                 *     `embedding` (spec 065 FR-015). Composes with `activity`.
+                 */
+                kind: string | null;
             };
             cookie?: never;
         };
@@ -11323,7 +11509,59 @@ export interface operations {
                     "application/json": components["schemas"]["APIResponse_UsageReport"];
                 };
             };
-            /** @description invalid_range or unknown_activity */
+            /** @description invalid_range, unknown_activity or unknown_kind */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    agent_usage_calls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Comma-separated `execute_python` call ids (history `ToolCall.call_id`), 1–50. */
+                ids: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The media calls each named tool call made, priced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MediaCalls"];
+                };
+            };
+            /** @description invalid_ids */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11365,6 +11603,7 @@ export interface operations {
                 start_date: string | null;
                 end_date: string | null;
                 activity: string | null;
+                kind: string | null;
                 /** @description Calls to return, 1–100. Default 20. */
                 limit: number | null;
             };

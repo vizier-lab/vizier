@@ -1,9 +1,21 @@
 import { renderToString } from 'react-dom/server'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
+import { EntityBroken } from '../../lib/entityLinks'
 import { Markdown } from './Markdown'
 
 /** A reply drawn as the chat draws it. */
 const draw = (markdown: string) => renderToString(<Markdown>{markdown}</Markdown>)
+
+/** The same, inside a router and an entity-link scope, as the chat and Memory draw it. */
+const drawRouted = (markdown: string, broken?: ReadonlySet<string>) =>
+    renderToString(
+        <MemoryRouter>
+            <EntityBroken.Provider value={broken ?? null}>
+                <Markdown>{markdown}</Markdown>
+            </EntityBroken.Provider>
+        </MemoryRouter>
+    )
 
 /**
  * What the block actually reads, whatever it is coloured as: tags, React's hydration comments
@@ -149,5 +161,27 @@ describe('markdown diagrams', () => {
         expect(html).toContain('graph TD')
         expect(html).toContain('a --&gt; b')
         expect(html).toContain('mermaid')
+    })
+})
+
+describe('entity links in markdown (spec 066)', () => {
+    it('renders a live entity link as an internal link', () => {
+        expect(drawRouted('[report](/oz/artifacts?artifact=report)')).toContain('href="/oz/artifacts?artifact=report"')
+    })
+
+    it('renders a resolved-missing entity link broken, going nowhere', () => {
+        const html = drawRouted('[gone](/oz/artifacts?artifact=gone)', new Set(['artifact:gone']))
+        expect(html).not.toContain('href=')
+        expect(html).toContain('Not found')
+        expect(html).toContain('line-through')
+    })
+
+    it('renders entity links optimistically live before a scope resolves them', () => {
+        expect(drawRouted('[gone](/oz/artifacts?artifact=gone)')).toContain('href="/oz/artifacts?artifact=gone"')
+    })
+
+    it('leaves non-entity internal links (a memory link) alone', () => {
+        const html = drawRouted('[memory](/oz/memory/research/notes)', new Set(['artifact:gone']))
+        expect(html).toContain('href="/oz/memory/research/notes"')
     })
 })
