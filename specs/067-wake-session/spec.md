@@ -15,19 +15,22 @@
 - Q: Which conversations may be woken? → A: Only conversation channels — WebUI, project chat,
   Discord, Telegram. Conversations the system's own machinery owns (scheduled runs, subagent
   workers, consultations, dream cycles) keep their own owners and are not wakeable this way
-  (FR-006).
-- Q: May an agent wake a conversation that belongs to another agent? → A: Yes, under the same rule
-  that governs consulting: only agents the person on whose behalf it works may use (FR-007).
+  (FR-014).
+- Q: May an agent wake a conversation that belongs to **another** agent? → A: No. The agent that
+  is woken is always the one that woke it, so neither tool takes an agent id: the calling agent is
+  injected by the system, and the agent never has to name one or get it wrong. Both tools are
+  about the calling agent's own conversations (FR-016, FR-026).
 - Q: What are the tools called? → A: `list_sessions` and `wake_session`. "Wake" says it starts a
-  turn there, unlike posting a message into it (FR-015).
+  turn there, unlike posting a message into it (FR-023).
 - Q: May a woken turn be started in the caller's own conversation? → A: Yes, under the name
-  "current", so an agent can hand work to the conversation it is already in (FR-003).
+  "current", so an agent can hand work to the conversation it is already in (FR-005).
 
 **Input**: User description: "currently what tools available for agent to send/message to other
 channel?" … "prefer jadi generalize tool aja daripada pake target session gitu, biar lebih
-flexible, it's better to be flexible now, kalo perlu hardening bisa nyusul nanti" — the feature is a
-general way for an agent to start work in any conversation it can reach, so that scheduled work
-happens in the person's own conversation instead of a throwaway one.
+flexible, it's better to be flexible now, kalo perlu hardening bisa nyusul nanti" … "gausah ada
+optional input, agent_id pasti diinject system, biar agent ga nyasar" — the feature is a general
+way for an agent to start work in any of its own conversations, so that scheduled work happens in
+the person's own conversation instead of a throwaway one.
 
 ## Context
 
@@ -52,49 +55,54 @@ summary, a weekly review — and the work runs in a conversation nobody is in. T
 a notification, disconnected from the conversation where the person actually lives. The person
 wanted the work to happen *there*.
 
-This feature gives the agent a general way to start a turn in any conversation it can reach: find
+This feature gives the agent a general way to start a turn in any of its own conversations: find
 the conversation, then wake it with an instruction. The work happens in that conversation, with its
 history in view, and the answer lands there too. A scheduled run that wants this simply does it.
+
+The agent that is woken is always the one that woke it. That is what keeps the tools honest: an
+agent never has to name another agent, so it never has to get one wrong, and "whose conversation is
+this?" is answered by the system rather than by the model.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - An agent starts work in another conversation (Priority: P1)
 
-An agent is in one conversation and needs work done in another — a person's thread, a project chat,
-a channel on a chat platform. It names the conversation, gives the instruction, and the work runs
-there. The agent of that conversation does the work, in that conversation, with that conversation's
-history in view, and its answer appears there.
+An agent is in one conversation and needs work done in another of its conversations — a person's
+thread, a project chat, a channel on a chat platform. It names the conversation, gives the
+instruction, and the work runs there. The agent works on it in that conversation, with that
+conversation's history in view, and its answer appears there.
 
 **Why this priority**: This is the feature. Everything else is a guardrail or a convenience around
 it.
 
-**Independent Test**: With two offline test agents, have agent A wake one of B's conversations
-with an instruction. B's turn runs in that conversation, under B, and B's reply is in that
+**Independent Test**: With one offline test agent holding two conversations, have it wake one of
+them with an instruction. The turn runs in that conversation, and the reply is in that
 conversation's history afterwards.
 
 **Acceptance Scenarios**:
 
-1. **Given** agent A and a conversation A may wake, **When** A wakes it with an instruction,
-   **Then** the call returns at once without waiting, and a turn starts in that conversation.
-2. **Given** a woken conversation, **When** its agent runs, **Then** it runs as that agent (its
+1. **Given** an agent and a conversation of its own, **When** it wakes the conversation with an
+   instruction, **Then** the call returns at once without waiting, and a turn starts in that
+   conversation.
+2. **Given** a woken conversation, **When** the turn runs, **Then** it runs as that agent (its
    identity, memory, tools, integrations, provider and configured prompt), in that conversation,
    with that conversation's earlier turns in view.
 3. **Given** the woken turn, **When** it finishes, **Then** its reply is saved into the target
    conversation and shown there, exactly as a turn started by a person would be.
 4. **Given** a target conversation that already has a turn running, **When** it is woken,
    **Then** the woken turn waits behind the running one, as a person's message would.
-5. **Given** agent A waking a conversation of agent B, **When** B's turn reads its request,
-   **Then** it is told which agent woke it, that the request is not from a person, and that nobody
-   is waiting on the answer in that conversation.
+5. **Given** a woken turn, **When** the agent reads its request, **Then** it is told the request is
+   not a person's message, that it started this turn itself, and that nobody is waiting on the
+   answer in that conversation.
 
 ---
 
 ### User Story 2 - An agent finds the conversation to work in (Priority: P1)
 
-An agent that wants to work in a conversation has to be able to find it. It lists the
-conversations it may reach, sees each one's reference, title, channel, owning agent and whether
-something is running there, and picks one — by narrowing the list to a channel, or by searching
-titles. The conversation it is in right now is always among them.
+An agent that wants to work in a conversation has to be able to find it. It lists its
+conversations, sees each one's reference, title, channel and whether something is running there,
+and picks one — by narrowing the list to a channel, or by searching titles. The conversation it is
+in right now is always among them.
 
 **Why this priority**: Without discovery the wake tool is unusable: references cannot be invented.
 This story is what makes Story 1 usable.
@@ -106,45 +114,42 @@ the result narrows with it. The caller's own conversation appears with the name 
 **Acceptance Scenarios**:
 
 1. **Given** an agent with several conversations, **When** it lists them, **Then** each entry has a
-   reference it can pass to a wake, the owning agent, the channel, the topic where the channel has
-   one, a title, and whether a turn is running there.
+   reference it can pass to a wake, the channel, the topic where the channel has one, a title, and
+   whether a turn is running there.
 2. **Given** a channel filter, **When** the agent lists with it, **Then** only conversations on that
    channel are returned.
 3. **Given** a text to search for, **When** the agent lists with it, **Then** only conversations
    whose title contains it are returned.
 4. **Given** any listing, **When** the agent reads it, **Then** the conversation the call itself is
    in is present, under the name "current".
-5. **Given** an agent that may not reach another agent, **When** it lists, **Then** that agent's
-   conversations are absent, exactly as if the agent did not exist.
+5. **Given** an agent that serves two people, **When** it lists, **Then** only the conversations of
+   the person it is working for are returned — never the other person's.
 
 ---
 
-### User Story 3 - Only conversations the caller may reach can be woken (Priority: P1)
+### User Story 3 - Only the caller's own conversations may be woken (Priority: P1)
 
-Waking a conversation spends another agent's budget, writes into that conversation's history, and
-shows up in front of the person who owns it. So an agent may only wake a conversation it is
-entitled to reach: a conversation of its own agent, or one of an agent the person on whose behalf it
-works may use. A conversation belonging to a different person is out of reach even when the
-address is known.
+Waking a conversation spends the agent's budget, writes into that conversation's history, and shows
+up in front of the person who owns it. So the conversation must belong to the agent that wakes it,
+and to the person the agent is working for. A conversation of another person is out of reach even
+when the address is known, and no tool names another agent at all.
 
 **Why this priority**: This is the boundary that keeps the feature from being a way to reach
 anything. It has to land with the feature, not after it.
 
-**Independent Test**: With three people, one of whom may use agent B and one of whom may not, have
-each ask their agent to wake a conversation of B. Only the entitled one succeeds; the other is
-refused without revealing whether B exists.
+**Independent Test**: With one agent serving two people, have each person's turn wake a
+conversation. The entitled one succeeds; the other is refused. Then read the two tools' arguments
+and check that neither names an agent, so no conversation of another agent can be named at all.
 
 **Acceptance Scenarios**:
 
 1. **Given** a conversation of the calling agent, **When** the agent wakes it, **Then** it starts.
-2. **Given** a conversation of an agent the person may use, **When** the calling agent wakes it,
-   **Then** it starts.
-3. **Given** a conversation of an agent the person may not use, **When** the calling agent wakes
-   it, **Then** it is refused exactly as for an agent that does not exist, and nothing reaches it.
-4. **Given** a WebUI or project conversation of another person, **When** the calling agent wakes it,
+2. **Given** a WebUI or project conversation of another person, **When** the calling agent wakes it,
    **Then** it is refused, whatever the address.
-5. **Given** a turn with no person in it, such as a scheduled run, **When** the agent wakes a
+3. **Given** a turn with no person in it, such as a scheduled run, **When** the agent wakes a
    conversation, **Then** the calling agent's owner is the person whose access decides.
+4. **Given** the two tools, **When** the agent reads their arguments, **Then** neither takes an
+   agent id, and no conversation of another agent can be named.
 
 ---
 
@@ -183,38 +188,36 @@ knows.
 one-shot question-asking. It depends on Story 1.
 
 **Independent Test**: Wake a slow conversation with waiting on, and check the call returns with the
-woken turn's answer. Then wake one without waiting, and check the call returns at once with no
-answer, and that the answer still arrives in the target conversation.
+woken turn's reply. Then wake one without waiting, and check the call returns at once with no
+reply, and that the reply still arrives in the target conversation.
 
 **Acceptance Scenarios**:
 
 1. **Given** a wake with waiting on, **When** the woken turn finishes, **Then** the call returns
-   with its answer, in the same call.
+   with its reply, in the same call.
 2. **Given** a wake with waiting on, **When** the caller is interrupted while waiting, **Then** the
-   waiting ends, the woken turn carries on, and its answer still reaches the target conversation.
+   waiting ends, the woken turn carries on, and its reply still reaches the target conversation.
 3. **Given** a wake without waiting, **When** the call returns, **Then** it returns at once with
-   the target's reference and no answer, and the woken turn is not stopped by the call returning.
+   the target's reference and no reply, and the woken turn is not stopped by the call returning.
 
 ---
 
 ### User Story 6 - The person sees what woke their conversation (Priority: P3)
 
-The person whose conversation was woken can see, in that conversation, that another agent started
-work there, what it was asked, and what came of it — the same as any other turn in that
-conversation.
+The person whose conversation was woken can see, in that conversation, that the agent started work
+there, what it was asked, and what came of it — the same as any other turn in that conversation.
 
 **Why this priority**: The person's own conversation is affected by the feature, so they should be
 able to see it. It follows from Story 1 rather than adding to it.
 
 **Independent Test**: Wake a person's thread and read its trail: the request that woke it and the
-reply it produced are both there, and the request reads as coming from an agent rather than from
+reply it produced are both there, and the request reads as coming from the agent rather than from
 the person.
 
 **Acceptance Scenarios**:
 
 1. **Given** a conversation that was woken, **When** the person reads it, **Then** the request that
-   woke it appears in the conversation's trail, attributed to the waking agent rather than to the
-   person.
+   woke it appears in the conversation's trail, attributed to the agent rather than to the person.
 2. **Given** the same conversation, **When** the person reads it, **Then** the woken turn's reply
    follows the request, as any reply would.
 
@@ -228,17 +231,16 @@ the person.
 - **Waking a conversation that is itself machinery.** Refused: a scheduled run's, a subagent
   worker's, a consultation's and a dream cycle's conversations belong to the machinery that owns
   them, and a foreign turn in them breaks that machinery's own bookkeeping.
-- **Waking a conversation of an agent the caller may not consult.** Refused exactly as for an
-  agent that does not exist, so the refusal leaks nothing.
+- **A conversation of another agent.** Not reachable, and not nameable: neither tool takes an agent
+  id, so there is nothing to refuse.
 - **A conversation that was deleted between listing and waking.** Refused as unknown, never as a
   failure of the call.
 - **An address that does not parse, or names a channel that has no topic.** Refused as bad data,
   never as a failure of the call.
 - **A target that is not a conversation at all.** A reference that names no conversation is refused
   with the reason, so the agent can correct the address and try again.
-- **Chains and loops.** A woken turn counts one hop deeper than the turn that woke it, and wakes
-  beyond the hop limit are refused, so A → B → A cannot run away. Waking a conversation of an
-  agent already in the chain is refused at any hop count.
+- **Loops.** A woken turn counts one hop deeper than the turn that woke it, and wakes beyond the
+  hop limit are refused, so a conversation that wakes another that wakes the first cannot run away.
 - **The woken turn asks the person something.** The person-facing question and sensitive-input
   tools are not offered in a woken turn, because nobody is there to answer.
 - **The woken turn hires subagents.** Allowed. It acts with its own tools, and its workers belong
@@ -254,13 +256,12 @@ the person.
 
 **Finding a conversation**
 
-- **FR-001**: An agent MUST be able to list the conversations it may reach. The tool MUST be named
+- **FR-001**: An agent MUST be able to list its own conversations. The tool MUST be named
   `list_sessions`.
 - **FR-002**: A listing MUST be able to be narrowed to one channel and to a text to look for in
   titles. A channel filter and a text filter MAY be given together.
 - **FR-003**: Every entry MUST carry a reference the agent can hand to a wake unchanged, the
-  owning agent, the channel, the topic where the channel has topics, a title, and whether a turn is
-  running there.
+  channel, the topic where the channel has topics, a title, and whether a turn is running there.
 - **FR-004**: The reference of a conversation MUST be stable: the same conversation always has the
   same reference, and a reference taken from a listing is accepted by a wake.
 - **FR-005**: The conversation the call is made in MUST always be listed, under the name "current".
@@ -272,21 +273,20 @@ the person.
 - **FR-006**: An agent MUST be able to start a turn in a conversation it names, with an
   instruction. The tool MUST be named `wake_session`.
 - **FR-007**: A wake MUST name one target: the name "current", or a conversation reference. It
-  MUST carry an instruction, and it MAY ask to wait for the answer.
-- **FR-008**: The woken turn MUST run as the agent that owns the target conversation: its own
-  identity, memory, tools, integrations, provider and configured prompt, in that conversation,
-  with that conversation's earlier turns in view.
-- **FR-009**: The woken turn's request MUST be marked as unattended: it states which agent woke
-  it, that it is not a person's message, and that nobody is waiting on the answer in that
-  conversation.
+  MUST carry an instruction, and it MAY ask to wait for the reply.
+- **FR-008**: The woken turn MUST run as the calling agent: its own identity, memory, tools,
+  integrations, provider and configured prompt, in the target conversation, with that
+  conversation's earlier turns in view.
+- **FR-009**: The woken turn's request MUST be marked as machine-written: it states that the agent
+  started this turn itself, that it is not a person's message, and that nobody is waiting on the
+  answer in that conversation.
 - **FR-010**: The woken turn's reply MUST be saved into the target conversation and shown there,
-  and the request that woke it MUST appear in that conversation's trail attributed to the waking
-  agent.
+  and the request that woke it MUST appear in that conversation's trail attributed to the agent.
 - **FR-011**: A woken turn MUST wait behind a turn already running in the target conversation, as
   a person's message does.
 - **FR-012**: A wake MUST return at once with the target's reference, and MUST NOT stop the woken
   turn when it returns.
-- **FR-013**: A wake that asks to wait MUST return the woken turn's answer in the same call, and
+- **FR-013**: A wake that asks to wait MUST return the woken turn's reply in the same call, and
   MUST end the wait without stopping the woken turn if the caller is interrupted.
 - **FR-014**: Only conversation channels MAY be woken: WebUI conversations, project chats, Discord
   channels and Telegram chats. A reference to any other kind of conversation MUST be refused.
@@ -296,86 +296,86 @@ the person.
 
 **Who may be woken**
 
-- **FR-016**: An agent MUST be able to wake a conversation of its own agent, and a conversation of
-  an agent the person on whose behalf it is working may use. "May use" means the person may chat
-  with that agent, under the same view rule that decides whether it appears to them in the WebUI.
-- **FR-017**: An agent that may not use another agent MUST NOT be able to wake one of its
-  conversations, and MUST be answered about it exactly as about an agent that does not exist.
-- **FR-018**: A WebUI or project conversation MUST belong to the person on whose behalf the calling
+- **FR-016**: The conversation that is woken MUST belong to the agent making the call. The tools
+  MUST NOT take an agent id: the calling agent is supplied by the system, and no conversation of
+  another agent can be named.
+- **FR-017**: A WebUI or project conversation MUST belong to the person on whose behalf the calling
   agent is working. A conversation of another person MUST be refused.
-- **FR-019**: In a conversation with no person in it, such as a scheduled run, the calling agent's
+- **FR-018**: In a conversation with no person in it, such as a scheduled run, the calling agent's
   owner MUST be the person whose access decides.
-- **FR-020**: Access MUST be checked when the conversation is listed and again when it is woken.
+- **FR-019**: Access MUST be checked when the conversation is listed and again when it is woken.
 
 **Limits**
 
-- **FR-021**: A woken turn MUST count as one hop deeper than the turn that woke it. Wakes beyond
+- **FR-020**: A woken turn MUST count as one hop deeper than the turn that woke it. Wakes beyond
   the hop limit MUST be refused. The limit MUST be a backend setting, independent of the
   subagent and consultation limits.
-- **FR-022**: At any hop count, waking a conversation of an agent already in the chain MUST be
-  refused.
-- **FR-023**: The person-facing question and sensitive-input tools MUST NOT be offered in a woken
+- **FR-021**: The person-facing question and sensitive-input tools MUST NOT be offered in a woken
   turn.
-- **FR-024**: No limit on how many conversations an agent may wake, beyond the hop limit.
+- **FR-022**: No limit on how many conversations an agent may wake, beyond the hop limit.
 
 **Tools and guidance**
 
-- **FR-025**: The two tools MUST form their own tool category, and its name MUST be reserved, so
+- **FR-023**: The two tools MUST form their own tool category, and its name MUST be reserved, so
   an integration or tool server of the same name is given a distinct name.
-- **FR-026**: Every refusal — unknown or foreign reference, not-allowed agent, another person's
-  conversation, a conversation of the system's own machinery, a bad instruction, a broken hop
-  limit — MUST be returned as data the calling agent can read, never as a failure of the call.
-- **FR-027**: The calling agent's operating doctrine MUST explain the difference between waking a
-  conversation (starting work there, at that agent's cost, into that conversation's history) and
-  posting a message into it (saying something there, at the caller's cost), and MUST tell the
-  agent to name the target conversation explicitly rather than guess.
+- **FR-024**: Every refusal — unknown reference, another person's conversation, a conversation of
+  the system's own machinery, a bad instruction, a broken hop limit — MUST be returned as data the
+  calling agent can read, never as a failure of the call.
+- **FR-025**: The calling agent's guidance MUST explain the difference between waking a
+  conversation (starting work there, into that conversation's history) and posting a message into
+  it (saying something there, at the caller's cost), and MUST tell the agent to name the target
+  conversation explicitly rather than guess.
 
 **Jobs and other work**
 
-- **FR-028**: A scheduled run MUST be able to wake the person's own conversation, so that the work
+- **FR-026**: A scheduled run MUST be able to wake the person's own conversation, so that the work
   a job does happens where the person sees it, with no change to how jobs are scheduled.
-- **FR-029**: A scheduled run that names no conversation MUST behave exactly as it does today.
+- **FR-027**: A scheduled run that names no conversation MUST behave exactly as it does today.
 
 **People's view**
 
-- **FR-030**: A person MUST be able to see, in a conversation of their own, that another agent
-  woke it and what it produced. Nothing else about the wake MUST be visible to them, and they
-  MUST NOT be able to stop a woken turn from the conversation.
+- **FR-028**: A person MUST be able to see, in a conversation of their own, that the agent woke it
+  and what it produced. Nothing else about the wake MUST be visible to them, and they MUST NOT be
+  able to stop a woken turn from the conversation.
 
 ### Key Entities
 
-- **Conversation**: the place a conversation of work happens. It has an owning agent, a channel
-  (WebUI, project chat, Discord channel, Telegram chat, or one of the system's own kinds), a topic
-  where the channel has one, a title, and a state that says whether a turn is running in it.
+- **Conversation**: the place a conversation of work happens. It belongs to one agent, and has a
+  channel (WebUI, project chat, Discord channel, Telegram chat, or one of the system's own kinds), a
+  topic where the channel has one, a title, and a state that says whether a turn is running in it.
 - **Conversation reference**: the stable name of a conversation, used to address it. It names the
   channel and, where the channel has topics, the topic. "Current" names the conversation of the
-  turn that uses it.
-- **Wake**: one instruction that starts a turn in another conversation. It names the waking agent,
-  the target conversation, the instruction, whether the caller waits, and the answer when it does.
+  turn that uses it. It never names an agent: the agent is the one making the call.
+- **Wake**: one instruction that starts a turn in another conversation of the same agent. It names
+  the target conversation, the instruction, whether the caller waits, and the reply when it does.
   It lives only for the call; the result lives in the target conversation.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: An agent can start work in any conversation it may reach, and the result appears in
+- **SC-001**: An agent can start work in any of its own conversations, and the result appears in
   that conversation, in 100% of test runs.
-- **SC-002**: In 100% of attempts, a person who may not use another agent cannot cause any turn to
-  reach one of that agent's conversations, and cannot tell the agent exists.
-- **SC-003**: In 100% of attempts, a person cannot cause a turn to reach a WebUI or project
+- **SC-002**: In 100% of attempts, a person cannot cause a turn to reach a WebUI or project
   conversation belonging to somebody else.
-- **SC-004**: 0 conversations owned by the system's own machinery are ever woken.
-- **SC-005**: 0 wake chains exceed the hop limit, and 0 chains wake an agent already in the chain.
-- **SC-006**: A scheduled run can place its work in the person's own conversation, with no change
+- **SC-003**: 0 conversations owned by the system's own machinery are ever woken.
+- **SC-004**: 0 wake chains exceed the hop limit.
+- **SC-005**: A scheduled run can place its work in the person's own conversation, with no change
   to how jobs are scheduled, in 100% of test runs.
-- **SC-007**: A caller that waits receives the woken turn's answer in the same call, in 100% of
-  test runs; a caller that does not wait receives no answer and its target is unaffected.
-- **SC-008**: Every refusal is readable data, and 0 refusals fail the call they came from.
+- **SC-006**: A caller that waits receives the woken turn's reply in the same call, in 100% of
+  test runs; a caller that does not wait receives no reply and its target is unaffected.
+- **SC-007**: Every refusal is readable data, and 0 refusals fail the call they came from.
+- **SC-008**: 0 tools expose an agent id, so 0 calls can name an agent that is not the caller.
 
 ## Assumptions
 
 - **Naming.** `list_sessions` and `wake_session`. "Wake" says it starts a turn there; the tools
   that post a message into a conversation keep their existing names and their existing meaning.
+- **One agent, injected.** The conversation that is woken always belongs to the agent making the
+  call. Neither tool takes an agent id, so the model never has to name one or reason about which
+  agent owns a conversation. Waking a conversation of another agent is out of scope; if it is
+  wanted later, it is a new argument on `wake_session` and a new access rule, not a change to the
+  addressing.
 - The conversation vocabulary the system already uses for naming conversations is reused, so a
   reference from a listing is exactly what a wake takes, and the same reference appears wherever
   a conversation is named.
@@ -385,15 +385,15 @@ the person.
   feature and not part of this one.
 - One target per call. Waking several conversations in one call is out of scope; the agent may call
   the tool again.
-- Waking is offered where the agent can act for a person. A turn with no person in it may wake a
-  conversation of an agent its owner may use, and of its own owner's conversations, but no
-  conversation of another person.
+- Waking is offered where the agent can act for a person. A turn with no person in it — a
+  scheduled run — may wake the conversations of its owner, and of no one else's.
 - The hop limit reuses the machinery that already bounds background work, so the two limits are
-  one number rather than two.
+  one number rather than two, and it is the only guard a wake needs: with one agent, a loop is a
+  conversation waking another waking the first, and the hop count stops it.
 - What the woken agent writes to its own memory during the woken turn is its own business, as in
   any other conversation it has.
-- The woken turn's model usage is recorded as the target agent's, under its own activity, linked
-  to the target conversation.
+- The woken turn's model usage is recorded as the agent's own, under its own activity, linked to
+  the target conversation.
 - A woken turn may hire subagents, and its workers belong to the target conversation.
 - Nobody may stop, redirect or answer a woken turn from the conversation it woke.
 - Changing how a scheduled run finds the conversation to work in is not needed: the agent in the

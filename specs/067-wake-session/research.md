@@ -57,17 +57,16 @@ somebody else's conversation — and its doc comment says the write routes delib
 
 ## D3 - The woken turn is a new request content kind
 
-**Decision**: `VizierRequestContent::Woken(WokenRequest)`, where
-`WokenRequest { from_agent: AgentId, instruction: String }`. It joins the **history arm** of
-`process.rs::handle_request` (the arm that lists `Chat`, `AudioChat`, `ClientEvent`,
-`QuestionAnswer`, `SubagentTask`, `SubagentReply`, `BackgroundReport`, `DetachedDelivery`), so the
-woken turn runs with the target conversation's history in view.
+**Decision**: `VizierRequestContent::Woken(String)` — the instruction, and nothing else. It joins
+the **history arm** of `process.rs::handle_request` (the arm that lists `Chat`, `AudioChat`,
+`ClientEvent`, `QuestionAnswer`, `SubagentTask`, `SubagentReply`, `BackgroundReport`,
+`DetachedDelivery`), so the woken turn runs with the target conversation's history in view.
 
 **Rationale**: FR-008 wants the target conversation's earlier turns in view. **`Unattended` cannot
 do that**: it is not in the history arm, and its branch calls `agent.chat(…, vec![], …)` with an
 empty history (this is why spec 012 rejected `Unattended` for a background report). `Chat` does
 have the history, but `Chat` means "a person spoke": it is classified as an interactive turn, so
-the question tools are offered (FR-023 forbids them), and its frontmatter attributes the message
+the question tools are offered (FR-021 forbids them), and its frontmatter attributes the message
 to a person.
 
 The codebase has already made this exact decision twice — spec 012 D3 for `BackgroundReport` and
@@ -76,33 +75,51 @@ keeps the history, the frontmatter and the WebUI from having to sniff a flag*. S
 words: "`Chat(text)` with a metadata flag. Rejected: history and the WebUI would have to sniff
 metadata, and a person's message and a report would look alike in every other consumer."
 
+**Why a plain string, not a struct**: the woken agent is always the caller (D9), so a
+`from_agent` field would hold the agent's own id — the request's `user` already says that. The
+kind carries the instruction alone, like `Unattended`, `Prompt` and `DetachedDelivery` do.
+
 **Alternatives considered**: `Unattended(instruction)` plus a `woken_by` field on the request.
 Rejected for spec 012's reason. `Chat(text)` plus a flag. Rejected: it offers the question tools
 and credits a person. A new **prompt section** (like `scheduled_run.md`). Rejected because the
 prompt sections are selected on the **session's channel**, and the target channel of a wake is an
 ordinary WebUI or Discord channel that also carries the person's own messages — a channel-selected
-section could not tell the two apart. The content kind carries the framing instead, exactly as the
+section could not tell the two apart. The framing rides the content kind instead, exactly as the
 dream cycle carries its own framing in `EXTRACTION_PROMPT` rather than in a section.
 
-## D4 - The woken turn's frontmatter names the waking agent
+## D4 - The woken turn's frontmatter, and where its framing lives
 
 **Decision**: A new arm in `VizierRequest::generate_frontmatter` (`schema/request.rs:525`):
 
 ```yaml
-sender: <the waking agent's id>
+sender: <the calling agent's id>
 via: wake
 sent_at: <when>
 metadata: <the request's metadata>
 ```
 
-**Rationale**: The frontmatter is the only place the model learns who sent the request. The
-scheduler's arm (`sender: scheduler`, `requested_by: …`) and the consultation's arm
-(`sender: <consulting agent>`) are the precedent, and `via` is how the consultation arm tells the
-reader it is not a person's message. FR-009 asks for exactly this.
+`sender` is the request's own `user`, which the wake sets to the calling agent's id. The
+**framing** — that the agent started this turn itself, that it is not a person's message, and that
+nobody is waiting on the answer in this conversation — is a **constant** string in the content
+kind's own `Display` arm, which is what renders into the prompt.
 
-**Alternatives considered**: Putting the waking agent in the instruction text. Rejected: the text
-is the instruction, and a prefix on it would be re-rendered on every replay of the request, and
-would be the only place naming the sender — where the frontmatter already is.
+**Rationale**: The frontmatter is where the reader learns who sent the request; the scheduler's
+arm (`sender: scheduler`, `requested_by: …`) and the consultation's arm (`sender: <consulting
+agent>`) are the precedent, and `via` is how the consultation arm tells the reader it is not a
+person's message.
+
+The framing is a constant, like `SCHEDULED_RUN_MD`, so the prompt prefix stays reusable between
+wakes of the same conversation. It cannot be a **prompt section**, because the sections are selected
+on the session's channel (D3) and the target channel is an ordinary WebUI or Discord channel that
+also carries the person's own messages — a channel-selected section could not tell a wake from a
+person's message.
+
+**Alternatives considered**: Putting the framing in the instruction text. Rejected: the text is
+what the WebUI shows the person, and a prefix on it would be drawn in the chat as if the agent had
+written it. Putting it in the frontmatter. Rejected: the frontmatter is metadata about the request,
+and a paragraph of prose there would read as part of the request's own fields. A new prompt section
+selected on the request kind. Rejected: no such seam exists, and inventing one for a constant
+string is the wrong shape.
 
 ## D5 - A woken turn is not interactive
 
@@ -146,32 +163,67 @@ second answer to a question the codebase already answers.
 config flag for a second call site of an existing rule. The `subagents.max_depth` setting.
 Rejected: it counts *subagent* hops, and a wake is not a subagent.
 
-## D8 - The chain is the existing chain, widened
+## D8 - The hop limit is the only loop guard
 
-**Decision**: The woken request appends the waking agent to `VizierRequest::consultation_chain`
-(`schema/request.rs:362`), and a wake to an agent already in the chain is refused.
+**Decision**: The woken request carries `background_depth: ctx.background_depth + 1`, and a wake is
+refused when `ctx.background_depth >= MAX_BACKGROUND_DEPTH` (3), using the same `check_depth`
+helper the detached-script and background tools use. The consultation chain is **not** touched:
+`VizierRequest::consultation_chain` stays what it is — the consulting agents above a turn.
 
-**Rationale**: FR-022. The field is already "the agents above this turn", and its length is
-already the depth that offers the consultation tools only below `MAX_CONSULTATION_DEPTH`. A wake is
-another way for one agent to be above another, so it belongs in the same chain rather than in a
-second one. The field's **doc comment** is widened to say so (consultations and wakes); its name
-and type stay, so nothing in the stored rows changes shape.
+**Rationale**: FR-020 asks for a hop limit that is independent of the subagent and consultation
+limits. `MAX_BACKGROUND_DEPTH` is exactly that — a background-work limit, a different number from
+`subagents.max_depth` and from `MAX_CONSULTATION_DEPTH` — and it already counts "hops of
+background work", which a wake is. **No new setting** (constitution I): a fourth depth number
+would be a second answer to a question the codebase already answers.
 
-**Alternatives considered**: A separate `wake_chain`. Rejected: a second chain field is a second
-answer to "which agents are above this turn", and the two would have to be kept in step. Not
-appending at all, and relying on the depth alone. Rejected: the depth stops a runaway, it does not
-stop A → B → A.
+The chain has nothing to guard here. It exists because a consultation puts one agent *above*
+another, so a cycle A → B → A has to be refused; a wake never does, because **the woken agent is
+always the caller** (D9) — there is no second agent to form a cycle with. The only cycle a wake
+can produce is a conversation waking another waking the first, and that is exactly what the hop
+count stops. So the chain keeps its meaning, its name and its doc comment, and one thing less
+moves.
 
-## D9 - Access is the consultation access, unchanged
+**Alternatives considered**: A new `sessions.max_depth` setting. Rejected: constitution I — a
+config flag for a second call site of an existing rule. The `subagents.max_depth` setting.
+Rejected: it counts *subagent* hops, and a wake is not a subagent. Widening the chain to cover
+wakes as well. Rejected: the chain would grow by the agent that is already the caller, and the
+"agent already above this turn" rule it encodes would never fire.
 
-**Decision**: The wake uses `consultations::access::consulter(storage, ctx)` for "whose access
-decides in this turn" and `consultations::access::consultable(storage, ctx, &consulter, agent_id)`
-for "may this turn reach that agent". A wake to an agent that may not be consulted is refused
-**exactly** as an agent that does not exist.
+## D9 - The agent is injected; the only access rule is the person's own conversation
 
-**Rationale**: FR-016 and FR-017 say what the consult rules already say: an agent may reach
-another agent only if the person it is working for may use that agent, and a refusal must not
-leak whether the agent exists. One rule for "who may reach whom" is the point; two would drift.
+**Decision**: **Neither tool takes an agent id.** The conversation that is woken always belongs to
+the agent making the call, and the system supplies it (`ctx.session.0`). The only access rule left
+is the person's: a WebUI or project conversation must belong to the person the turn is working for,
+and the person's identity comes from `consultations::access::consulter(storage, ctx)` — the one
+existing helper that answers "whose access decides in this turn".
+
+**Rationale**: The agent is a **separate dimension** of a session
+(`VizierSession(AgentId, VizierChannelId, Option<TopicId>)`), not part of the conversation's
+address: `http__ana__vizier-webui` names a channel, not an agent, and two agents may hold
+conversations on the same one. So an address cannot name the agent, and a tool that took one as an
+argument would be asking the model to supply a string it cannot derive — the exact "agent ga
+nyasar" the user wanted to avoid.
+
+And it does not need to: with one agent, the only reachability question left is the person's, and
+that is one comparison — the target's `web_user()` against the consulting person's username.
+
+**What this drops**: the consultation rules for *reaching another agent*
+(`consultations::access::consultable`, the `unknown_agent` refusal, the self and chain refusals).
+They were the right rule when one agent could reach another; with the caller always the woken
+agent, there is no other agent to reach, so the machinery has nothing to decide. `consulter` is
+still used — the person's identity is still needed.
+
+**What this keeps open**: waking a conversation of another agent is a **new argument** on
+`wake_session` plus a **new access rule**, not a change to the addressing. The conversation
+reference stays the same either way.
+
+**Alternatives considered**: An optional `agent_id` that defaults to the caller. Rejected: it
+leaves the model a way to name another agent, and with the default in place the optional form
+buys nothing. Resolving the agent from the target inside the system. Rejected: the target does
+not name an agent (above), and the lookup that would be needed — a topic lookup across agents, or
+a scan of every agent's channel integrations — is new storage surface for a case that has none.
+Keeping cross-agent waking with a required `agent_id`. Rejected: it makes every call carry a
+field the model must get right, for a case nobody asked for.
 
 ## D10 - The tools are offered only where a person's access can be decided
 
@@ -242,47 +294,50 @@ background work, not a conversation.
 
 ## D14 - The tool surface
 
-**Decision**: Two tools.
+**Decision**: Two tools, and **neither takes an agent id** (D9).
 
-`list_sessions(agent_id?, channel?, query?)` — the conversations a turn may reach. Each row:
-`agent_id`, `channel` (the slug), `topic_id`, `title`, `is_thinking`. The calling turn's own
-conversation is always in the list, under the channel it is on.
+`list_sessions(channel?, query?)` — the calling agent's own conversations. Each row: `channel`
+(the slug), `topic_id`, `title`, `is_thinking`. The calling turn's own conversation is always in
+the list, under the channel it is on.
 
-`wake_session(target, agent_id?, topic_id?, instruction, wait?)` — start a turn in the named
-conversation. `target` is `"current"` or a channel slug; `agent_id` defaults to the calling
-agent; `topic_id` is needed for the channels that have topics; `instruction` is the work; `wait`
-asks for the answer in the same call.
+`wake_session(target, topic_id?, instruction, wait?)` — start a turn in the named conversation of
+the calling agent. `target` is `"current"` or a channel slug; `topic_id` is needed for the
+channels that have topics; `instruction` is the work; `wait` asks for the reply in the same call.
 
-**Rationale**: FR-001 to FR-007. The listing needs the channel filter and the title search
-(FR-002), and the wake needs one target, one instruction and the choice to wait (FR-007). Two
-tools rather than one, because they are two different questions: "where may I work" and "work
+**Rationale**: FR-001 to FR-007 and FR-016. The listing needs the channel filter and the title
+search (FR-002), and the wake needs one target, one instruction and the choice to wait (FR-007).
+Two tools rather than one, because they are two different questions: "where may I work" and "work
 there". The discovery tool is not optional: references cannot be invented, so without it the wake
 tool has no usable input.
+
+Neither tool takes an agent id, and that is what makes them a matched pair: the listing answers
+"which of my conversations", and the wake answers "in that one". The two questions have the same
+subject, so the same subject, and neither names it.
 
 **Alternatives considered**: One tool with a mode argument. Rejected: the model would have to
 choose a mode to get a listing it usually wants first. A `wake_session` that takes the whole
 session slug. Rejected in D1. Listing the conversations of an agent by title only. Rejected: the
-title is not unique and may be empty.
+title is not unique and may be empty. Keeping `agent_id` on `list_sessions` so a caller could
+survey another agent's conversations. Rejected: the wake could not follow it, so the survey would
+lead nowhere — a listing the caller may not act on is a trap, not a tool.
 
 ## D15 - Where the listing comes from
 
-**Decision**: `storage.get_session_list(agent_id, None)` — every conversation of that agent, across
-every channel. The tool filters the rows down to **three** things: the wakeable channels, the
-agents this turn may reach, and the conversations that belong to the person this turn is working
-for. The channel filter is applied on the typed channel, and the title search on the title.
+**Decision**: `storage.get_session_list(agent_id, None)` — every conversation of the calling
+agent, across every channel. The tool filters the rows down to **two** things: the wakeable
+channels, and the conversations that belong to the person this turn is working for. The channel
+filter is applied on the typed channel, and the title search on the title.
 
 **Rationale**: The method already exists and already returns the right shape
 (`Vec<VizierSessionDetail>`: agent, **typed** channel, topic, title, thinking state), and `None`
 means every channel. No new storage method, no new query, no new table.
 
-Three filters, and each of them is a rule the wake would apply anyway, so **the listing cannot be
+Two filters, and each of them is a rule the wake would apply anyway, so **the listing cannot be
 wider than the set of things a wake would accept**:
 
 1. **The wakeable channels** (D2): a scheduled run's, a worker's, a consultation's and a dream
    cycle's conversation is not listed, and cannot be woken.
-2. **The agents this turn may reach** (D9): another agent's conversations are listed only when the
-   person this turn is working for may use that agent.
-3. **The person's own conversations** (FR-018): a WebUI or project conversation of **another
+2. **The person's own conversations** (FR-017): a WebUI or project conversation of **another
    person** is not listed. One agent may serve several people, and `get_session_list` returns all
    of that agent's rows — `ana`'s and `bob`'s alike — so without this filter the listing would
    hand one person the titles of another person's conversations. The filter is
@@ -293,13 +348,13 @@ time a turn runs in a conversation (`agents/process.rs:701-712`: "A session with
 new: record it, then title it from this first request"), or when the agent creates a conversation
 empty. So the listing holds the conversations the agent **has been in** — not every channel a bot
 is a member of. A Discord channel the bot has never replied in has no row, so it is not listed,
-and it is still wakeable by its slug. The wake's own access check is what decides; the listing
-only says what the agent can find.
+and it is still wakeable by its slug. The wake's own check is what decides; the listing only says
+what the agent can find.
 
 **Alternatives considered**: `storage.conversation_rows(agent_id, q)` — the conversation picker's
 source. Rejected: it returns one row per **channel** (with a topic count and the newest topic),
 not one row per conversation, so it cannot address a specific topic. A new storage method with the
-filters pushed down. Rejected: constitution I — the filters are three predicates over rows the
+filters pushed down. Rejected: constitution I — the filters are two predicates over rows the
 engine already loads. Listing every channel the agent could reach, from the platform APIs.
 Rejected: that is a directory of channels, not of conversations, and it would need credentials and
 pagination the engine does not otherwise need.

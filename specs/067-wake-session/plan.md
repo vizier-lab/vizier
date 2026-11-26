@@ -25,10 +25,12 @@ background report and for a worker's task. Second, **one parser that is also the
 (research D2): the function that turns a channel slug back into a channel accepts only the four
 wakeable kinds, so the machinery channels are refused by construction rather than by a second list.
 
-Access is the consultation access, unchanged (research D9): the person a turn is working for
-decides which other agents it may reach, and a WebUI conversation belongs to its own person. The
-hop limit is the background-work limit (research D7) and the chain is the existing chain, widened
-(research D8). The tools land in their own appended category, `sessions` (research D13).
+Access is the person's, not another agent's (research D9): the conversation that is woken always
+belongs to the agent making the call, and the system supplies it, so neither tool names an agent
+and the model never has to reason about which agent owns a conversation. The one rule left is that
+a WebUI conversation belongs to its own person. The hop limit is the background-work limit
+(research D7, D8) and is the only loop guard a wake needs. The tools land in their own appended
+category, `sessions` (research D13).
 
 ## Technical Context
 
@@ -69,12 +71,12 @@ category, one parser. No HTTP route, no new screen, no new panel.
 
 | Gate | Verdict |
 |---|---|
-| **I. Lean by default** | Pass. No table, no handle, no state machine, no new setting, no new dependency. The wake is a call over an existing transport method, the hop limit is the existing background limit, the chain is the existing chain, and the listing is a call to an existing storage method (D7, D8, D11, D15). The one new abstraction — the slug parser — replaces a list, it does not add one (D2). |
-| **II. DRY via traits** | Pass. No new trait and no new `match` over a kind in a call site: the new content kind is classified by the existing exhaustive matches, which is how every other kind is handled. The access rules are the consultation module's, not a copy (D9). The tools are one `VizierTool` impl each, like every other tool. |
+| **I. Lean by default** | Pass. No table, no handle, no state machine, no new setting, no new dependency. The wake is a call over an existing transport method, the hop limit is the existing background limit, the consultation chain is not touched at all, and the listing is a call to an existing storage method (D7, D8, D11, D15). The one new abstraction — the slug parser — replaces a list, it does not add one (D2). |
+| **II. DRY via traits** | Pass. No new trait and no new `match` over a kind in a call site: the new content kind is classified by the existing exhaustive matches, which is how every other kind is handled. The person's identity comes from the consultation module's `consulter`, not from a copy of it (D9). The tools are one `VizierTool` impl each, like every other tool. |
 | **III. Self-contained default** | Pass. Nothing needs a new service. A wake is an in-process request (or a bus request in a Fleet), exactly as a consultation is. |
 | **IV. Portability** | Pass. There is no platform-specific code and no new dependency. |
 | **V. Unified errors and observability** | Pass. Every refusal is a `VizierError`-free value returned as data (FR-026), as the consultation refusals already are. Failures are `crate::Result` with `throw_vizier_error`. Logging goes through `tracing`. |
-| **Migration code tracked (#82)** | Not required. Nothing is removed and no data changes shape: the content kind is new, the chain field keeps its name and type. |
+| **Migration code tracked (#82)** | Not required. Nothing is removed and no data changes shape: the content kind is new, and the consultation chain keeps its name, its type and its meaning. |
 | **Design before UI code** | Not required, and the reason is stated: the feature adds no screen, no panel and no layout. The WebUI's work is a new category in the trail's own map and one more arm in the request-content union — a message that already exists, drawn the way a worker's task is drawn (contracts/session-tools.md). |
 | **Matching submodule branches** | Required: run `just checkout 067-wake-session`, because the `speckit.git.feature` hook branched only the workspace. `landing` and `dummyplug` are submodules; `design/` and `webui/` are folders of this repository. The change touches the workspace only, but the branch rule still applies. |
 | **dummyplug e2e** | Pass. [quickstart.md](quickstart.md) scripts every story as dummyplug steps, and none needs a live model: every check is about which tool ran, what was refused, and where the reply landed. |
@@ -112,9 +114,8 @@ crates/vizier-core/src/
 │   │                             #   every_tool() entries; the two tools in the default toolset
 │   ├── process.rs                # Woken in the history arm; notifies_chat includes it
 │   └── agent/system_prompt/      # (unchanged — the framing rides the content kind, D3)
-├── schema/request.rs             # VizierRequestContent::Woken; WokenRequest; the frontmatter arm;
-│                                 #   consultation_chain's doc comment widened (D8)
-├── consultations/access.rs       # (read-only reuse: consulter, consultable, may_consult — D9, D10)
+├── schema/request.rs             # VizierRequestContent::Woken; the frontmatter arm (D4)
+├── consultations/access.rs       # (read-only reuse: consulter, may_consult — D9, D10)
 ├── utils/mod.rs                  # tool_call_title: the two tools' lines
 └── tests/dummyplug_e2e.rs        # the e2e cases
 
@@ -137,13 +138,12 @@ new crate, no new HTTP route, nothing in the binary crate.
 
 ## Order of work
 
-1. **The content kind and its classification** (no behaviour an agent can see yet): `Woken` and
-   `WokenRequest` in `schema/request.rs`, the frontmatter arm, the `consultation_chain` doc
-   comment, the history arm and `notifies_chat` in `agents/process.rs`, the `is_interactive_turn`
-   arm in `agents/tools/mod.rs`. The exhaustive matches will not compile until each is classified,
-   which is the checklist.
-2. **The tools**: the new module, the slug parser, the access check, the depth and chain rules,
-   the two tools, the category, the wiring, the `tool_call_title` lines. Unit tests. This delivers
+1. **The content kind and its classification** (no behaviour an agent can see yet): `Woken` in
+   `schema/request.rs`, the frontmatter arm, the history arm and `notifies_chat` in
+   `agents/process.rs`, the `is_interactive_turn` arm in `agents/tools/mod.rs`. The exhaustive
+   matches will not compile until each is classified, which is the checklist.
+2. **The tools**: the new module, the slug parser, the access check, the depth rule, the two
+   tools, the category, the wiring, the `tool_call_title` lines. Unit tests. This delivers
    Stories 1, 2, 3 and 5 to agents.
 3. **The WebUI**: the request-content union, the category map, the icon map, the regenerated
    schema, the `tool_call_title` lines' counterpart in the trail. `just web-check`.
