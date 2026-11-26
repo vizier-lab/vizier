@@ -26717,6 +26717,19 @@
                 "description": "The main agent's answer to a worker's `ask_main_agent` question (spec 059). It continues\nthe worker's conversation like `Chat`."
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "A turn the agent started in this conversation itself (spec 067). It starts a turn like\n`Chat`: same history, same queue, same attribution — but the agent is the one that asked,\nand nobody is waiting on the answer.",
+            "required": [
+              "woken"
+            ],
+            "properties": {
+              "woken": {
+                "type": "string",
+                "description": "A turn the agent started in this conversation itself (spec 067). It starts a turn like\n`Chat`: same history, same queue, same attribution — but the agent is the one that asked,\nand nobody is waiting on the answer."
+              }
+            }
           }
         ]
       },

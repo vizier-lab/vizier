@@ -79,7 +79,8 @@ pub(crate) mod python;
 mod read_image;
 mod scheduler;
 mod scratchpad;
-mod secrets;
+pub mod secrets;
+pub mod sessions;
 pub mod self_integrations;
 mod session_files;
 pub mod shell;
@@ -150,10 +151,14 @@ pub enum ToolCategory {
     /// person may use, wait for its answer, reply to its questions and follow up. The consulted
     /// side is offered only the tool to ask back.
     Consultations,
+    /// The session tools (`specs/067-wake-session`): list the agent's own conversations and
+    /// wake one, so work happens in a conversation the person is in rather than in a throwaway
+    /// one. The conversation woken is always one of the calling agent's own.
+    Sessions,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 24] = [
+    pub const ALL: [ToolCategory; 25] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -178,6 +183,7 @@ impl ToolCategory {
         Self::CustomTools,
         Self::Ui,
         Self::Consultations,
+        Self::Sessions,
     ];
 
     pub fn name(self) -> &'static str {
@@ -206,6 +212,7 @@ impl ToolCategory {
             Self::CustomTools => "custom_tools",
             Self::Ui => "ui",
             Self::Consultations => "consultations",
+            Self::Sessions => "sessions",
         }
     }
 
@@ -256,6 +263,9 @@ impl ToolCategory {
             }
             Self::Consultations => {
                 "Ask another agent for its knowledge, tools or judgment; wait for its answer, reply to its questions and follow up"
+            }
+            Self::Sessions => {
+                "List your own conversations and start work in one of them, so the answer lands where the person is"
             }
         }
     }
@@ -410,6 +420,9 @@ pub fn is_interactive_turn(content: &VizierRequestContent, session: &VizierSessi
         // A worker (spec 059): nobody but its main agent reads it, and it asks that agent with
         // `ask_main_agent`, never a person.
         VizierRequestContent::SubagentTask(_) | VizierRequestContent::SubagentReply(_) => false,
+        // A woken turn (spec 067): the agent started it itself and nobody is waiting on the
+        // answer in that conversation, so it may not ask a person a question.
+        VizierRequestContent::Woken(_) => false,
     };
     somebody_may_answer && session_has_person(session)
 }
@@ -1616,7 +1629,19 @@ impl BaseTools {
                 deps.transport.clone(),
             ))
             .tool(ui_kit::UiDescribeElements)
-            .tool(ui_kit::UiExamples);
+            .tool(ui_kit::UiExamples)
+            // The session tools (spec 067): the agent's own conversations, and a turn in one
+            // of them. Always registered; offered only where a person's access can be
+            // decided, by their own `available`.
+            .tool(sessions::ListSessions {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            .tool(sessions::WakeSession {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+                transport: deps.transport.clone(),
+            });
 
         user_toolset = user_toolset
             .tool(SendWebuiMessage {
@@ -2026,6 +2051,8 @@ mod tests {
             entry::<SendWebuiMessage>(),
             entry::<CreateWebuiConversation>(),
             entry::<ListWebuiTopics>(),
+            entry::<sessions::ListSessions>(),
+            entry::<sessions::WakeSession>(),
             entry::<ShellExec>(),
             entry::<self_integrations::ListIntegrationKinds>(),
             entry::<self_integrations::ListIntegrations>(),
@@ -2148,6 +2175,8 @@ mod tests {
             ("webui_send_message", Webui),
             ("webui_create_conversation", Webui),
             ("webui_list_topics", Webui),
+            ("list_sessions", Sessions),
+            ("wake_session", Sessions),
             ("shell_exec", Shell),
             ("list_integration_kinds", Integrations),
             ("list_integrations", Integrations),
@@ -2385,11 +2414,12 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `consultations` (spec 064) is the last; `ui` (spec 063) is the one before it.
-        assert_eq!(names.last(), Some(&"consultations"));
-        assert_eq!(names[names.len() - 2], "ui");
-        assert_eq!(names[names.len() - 3], "custom_tools");
-        assert_eq!(names.len(), 24);
+        // `sessions` (spec 067) is the last; `consultations` (spec 064) is the one before it.
+        assert_eq!(names.last(), Some(&"sessions"));
+        assert_eq!(names[names.len() - 2], "consultations");
+        assert_eq!(names[names.len() - 3], "ui");
+        assert_eq!(names[names.len() - 4], "custom_tools");
+        assert_eq!(names.len(), 25);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");

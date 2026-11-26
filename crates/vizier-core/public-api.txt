@@ -1156,6 +1156,7 @@ pub vizier_core::prelude::VizierRequestContent::Prompt(alloc::string::String)
 pub vizier_core::prelude::VizierRequestContent::QuestionAnswer(crate::questions::model::QuestionAnswer)
 pub vizier_core::prelude::VizierRequestContent::SilentRead(alloc::string::String)
 pub vizier_core::prelude::VizierRequestContent::Unattended(alloc::string::String)
+pub vizier_core::prelude::VizierRequestContent::Woken(alloc::string::String)
 impl vizier_core::prelude::VizierRequestContent
 pub fn vizier_core::prelude::VizierRequestContent::is_side_chat(&self) -> bool
 pub fn vizier_core::prelude::VizierRequestContent::kind(&self) -> &'static str
@@ -7332,6 +7333,7 @@ pub vizier_core::schema::VizierRequestContent::Prompt(alloc::string::String)
 pub vizier_core::schema::VizierRequestContent::QuestionAnswer(crate::questions::model::QuestionAnswer)
 pub vizier_core::schema::VizierRequestContent::SilentRead(alloc::string::String)
 pub vizier_core::schema::VizierRequestContent::Unattended(alloc::string::String)
+pub vizier_core::schema::VizierRequestContent::Woken(alloc::string::String)
 impl vizier_core::prelude::VizierRequestContent
 pub fn vizier_core::prelude::VizierRequestContent::is_side_chat(&self) -> bool
 pub fn vizier_core::prelude::VizierRequestContent::kind(&self) -> &'static str

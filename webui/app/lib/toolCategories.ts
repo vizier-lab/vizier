@@ -33,6 +33,7 @@ export type BuiltinCategory =
     | 'custom_tools'
     | 'ui'
     | 'consultations'
+    | 'sessions'
     // Not a `ToolCategory`: the sandbox's own lookups and the dream journal.
     | 'lookup'
     | 'dreams'
@@ -124,6 +125,8 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     webui_send_message: 'webui',
     webui_create_conversation: 'webui',
     webui_list_topics: 'webui',
+    list_sessions: 'sessions',
+    wake_session: 'sessions',
     shell_exec: 'shell',
     list_integration_kinds: 'integrations',
     list_integrations: 'integrations',

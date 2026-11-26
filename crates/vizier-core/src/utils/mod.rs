@@ -154,6 +154,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "webui_send_message" => "💬 WebUI message:".to_string(),
         "webui_create_conversation" => "➕ New WebUI conversation:".to_string(),
         "webui_list_topics" => "📋 WebUI topics:".to_string(),
+        "list_sessions" => "📋 Conversations:".to_string(),
+        "wake_session" => "💬 Waking conversation:".to_string(),
         _ => format!("use {}", &name),
     };
 
@@ -299,6 +301,9 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         }
         "webui_create_conversation" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
+        }
+        "wake_session" => {
+            format!("'{}'", args["instruction"].as_str().unwrap_or("?"))
         }
         _ => format!(
             "```js\n{}\n```",

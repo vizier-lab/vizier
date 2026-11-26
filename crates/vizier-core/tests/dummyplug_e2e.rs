@@ -2433,3 +2433,64 @@ async fn media_usage_is_recorded_for_every_kind() {
     let images = usage(&runtime, Some(UsageKind::Image), UsageGrouping::Kind).await;
     assert!(!images.is_empty() && images.iter().all(|g| g.kind == UsageKind::Image));
 }
+
+/// Spec 067 quickstart §2: a wake starts a turn in another conversation of the same agent, the
+/// work happens there with that conversation's history in view, and the answer lands there.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wake_starts_a_turn_in_another_conversation() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+
+    let caller = web_session("caller");
+    let target = web_session("work");
+
+    let instruction = answer_with("the work is done", 0);
+    let code = format!(
+        "wake_session(target='http__e2e__harness', topic_id='work', instruction={instruction:?}, wait=True)"
+    );
+    let reply = chat(runtime.transport(), &caller, &run_python(&code, false, None)).await;
+    assert!(reply.contains("the work is done"), "{reply}");
+
+    // The work happened in the conversation it named, not in the one that called.
+    let history = history_of(&runtime, &target).await;
+    let requests: Vec<_> = history
+        .iter()
+        .filter(|h| matches!(h.content, SessionHistoryContent::Request(_)))
+        .collect();
+    assert_eq!(requests.len(), 1, "{history:#?}");
+    let SessionHistoryContent::Request(request) = &requests[0].content else {
+        unreachable!("a request entry")
+    };
+    assert!(
+        matches!(request.content, VizierRequestContent::Woken(_)),
+        "the request that woke the conversation is a woken one: {:?}",
+        request.content
+    );
+    // It is the agent's own doing: the request is from the agent, not from the person.
+    assert_eq!(request.user, "plug");
+
+    // The answer is in that conversation, as its reply.
+    let replies: Vec<_> = history
+        .iter()
+        .filter(|h| matches!(h.content, SessionHistoryContent::Response(_)))
+        .collect();
+    assert_eq!(replies.len(), 1, "{history:#?}");
+}
+
+/// Spec 067 quickstart §5: a conversation of somebody else, and one the machinery owns, are
+/// refused as data — the call succeeds and says why.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wake_of_a_conversation_it_may_not_reach_is_refused_as_data() {
+    let Some((_dummyplug, runtime, _dir)) = consultation_harness().await else { return };
+
+    let caller = web_session("caller");
+    // Another person's WebUI conversation.
+    let code = "wake_session(target='http__someone-else__harness', topic_id='work', instruction='x')";
+    let reply = chat(runtime.transport(), &caller, &run_python(code, false, None)).await;
+    assert!(reply.contains("other_person"), "{reply}");
+
+    // A conversation the machinery owns: named, and refused with the reason.
+    let code = "wake_session(target='task__daily__1730000000000', instruction='x')";
+    let reply = chat(runtime.transport(), &caller, &run_python(code, false, None)).await;
+    assert!(reply.contains("not_wakeable"), "{reply}");
+}
+

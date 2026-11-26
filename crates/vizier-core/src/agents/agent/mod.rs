@@ -29,6 +29,7 @@ use crate::{
                 consultation::consultation_md,
                 user::owner_md,
                 worker::{employer_identity_md, served_owner_md, worker_md},
+                woken::woken_note,
             },
         },
         hook::{VizierSessionHook, VizierSessionHooks},
@@ -963,26 +964,31 @@ impl VizierAgent {
         } else {
             None
         };
+        // What this client says it can render goes first in the block: the block is the head
+        // of the user message, so that is the first content after the system prompts.
+        // Nothing about it is stored — see `VizierRequest`.
+        let context = context_md_with(
+            &req.client_context,
+            &memory,
+            &skills,
+            invoked.as_ref().map(|invoked| &invoked.skill),
+            digest.as_deref(),
+            project_state.as_deref(),
+            mentions.as_deref(),
+            spoken_note,
+        );
+        // The woken framing (spec 067) rides the context block too: that block is a separate
+        // part of the user message, so the request's own text stays exactly what the agent
+        // wrote — which is what a script reads and what the offline harness parses.
+        let context = match woken_note(&req.content) {
+            Some(note) => format!("{context}\n\n{note}"),
+            None => context,
+        };
         let prompt_result = self
             .prompt_with(
                 &turn_model,
                 &tools,
-                with_context(
-                    message,
-                    // What this client says it can render goes first in the block: the block is
-                    // the head of the user message, so that is the first content after the
-                    // system prompts. Nothing about it is stored — see `VizierRequest`.
-                    context_md_with(
-                        &req.client_context,
-                        &memory,
-                        &skills,
-                        invoked.as_ref().map(|invoked| &invoked.skill),
-                        digest.as_deref(),
-                        project_state.as_deref(),
-                        mentions.as_deref(),
-                        spoken_note,
-                    ),
-                ),
+                with_context(message, context),
                 history,
                 0,
                 hooks.clone(),

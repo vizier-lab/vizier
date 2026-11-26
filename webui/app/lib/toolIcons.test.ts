@@ -24,6 +24,7 @@ describe('kindOf', () => {
         expect(kindOf('fetch')).toMatchObject({ key: 'web', glyph: { icon: 'globe' } })
         expect(kindOf('read_file')).toMatchObject({ key: 'coding' })
         expect(kindOf('discord_send_message')).toMatchObject({ glyph: { brand: 'discord' } })
+        expect(kindOf('wake_session')).toMatchObject({ key: 'sessions', label: 'Conversations', glyph: { icon: 'activity' } })
         expect(kindOf('list_tool_functions')).toMatchObject({ key: 'lookup' })
     })
 
