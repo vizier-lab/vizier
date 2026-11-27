@@ -10283,7 +10283,8 @@
               "fetched_at",
               "refresh",
               "provider_count",
-              "model_count"
+              "model_count",
+              "sources"
             ],
             "properties": {
               "checked_at": {
@@ -10311,6 +10312,13 @@
               "source": {
                 "type": "string",
                 "description": "`bundled` (the build-time seed) or `cached` (a refreshed copy)."
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourceStatus"
+                },
+                "description": "Every catalogue source, in registration order (spec 068 FR-012). The fields above stay\nmodels.dev's, so existing readers keep working."
               }
             }
           },
@@ -13673,7 +13681,8 @@
               "by_model",
               "by_place",
               "costliest",
-              "unpriced"
+              "unpriced",
+              "sources"
             ],
             "properties": {
               "accounting_since": {
@@ -13761,6 +13770,13 @@
               },
               "range": {
                 "$ref": "#/components/schemas/UsageRange"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourceSummary"
+                },
+                "description": "The catalogue sources the rows' labels name, for their display names (spec 068)."
               },
               "summary": {
                 "$ref": "#/components/schemas/UsageSummary"
@@ -17435,7 +17451,8 @@
           "fetched_at",
           "refresh",
           "provider_count",
-          "model_count"
+          "model_count",
+          "sources"
         ],
         "properties": {
           "checked_at": {
@@ -17463,6 +17480,13 @@
           "source": {
             "type": "string",
             "description": "`bundled` (the build-time seed) or `cached` (a refreshed copy)."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "description": "Every catalogue source, in registration order (spec 068 FR-012). The fields above stay\nmodels.dev's, so existing readers keep working."
           }
         }
       },
@@ -21191,7 +21215,8 @@
             "type": "string"
           },
           "price_source": {
-            "$ref": "#/components/schemas/PriceSource"
+            "type": "string",
+            "description": "Which source or rule priced the call, as on a model row."
           },
           "provider": {
             "type": "string"
@@ -21708,9 +21733,17 @@
               "failed_tokens",
               "priced",
               "kind",
-              "price_source"
+              "price_source",
+              "price_alternatives"
             ],
             "properties": {
+              "borrowed_from": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The provider a `borrowed` price came from."
+              },
               "cache_hit_rate": {
                 "type": [
                   "number",
@@ -21729,8 +21762,16 @@
               "model": {
                 "type": "string"
               },
+              "price_alternatives": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PriceAlternative"
+                },
+                "description": "Up to three other sources that price this row differently."
+              },
               "price_source": {
-                "$ref": "#/components/schemas/PriceSource"
+                "type": "string",
+                "description": "Which source or rule priced the row (spec 068): `models_dev`, `openrouter`, `venice`,\n`curated`, `inference_profile`, `local`, `subscription`, `borrowed`, or `none`. Open: a\nnew source adds a value, never a schema change."
               },
               "priced": {
                 "type": "boolean"
@@ -22248,15 +22289,21 @@
           }
         ]
       },
-      "PriceSource": {
-        "type": "string",
-        "description": "Which rule priced a figure (spec 065 research R6).",
-        "enum": [
-          "catalogue",
-          "table",
-          "local",
-          "none"
-        ]
+      "PriceAlternative": {
+        "type": "object",
+        "required": [
+          "source",
+          "cost_usd"
+        ],
+        "properties": {
+          "cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
       },
       "ProfileEntry": {
         "type": "object",
@@ -24931,6 +24978,81 @@
           "desc"
         ]
       },
+      "SourceStatus": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "origin",
+          "fetched_at",
+          "model_count",
+          "unmapped"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "model_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "description": "`bundled` (the build-time seed) or `cached` (a refreshed copy)."
+          },
+          "refresh": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RefreshStatus",
+                "description": "`None` for a source that never refreshes (vizier's own price table)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unmapped": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Upstream entries left out because their names did not map onto vizier's ids.",
+            "minimum": 0
+          }
+        }
+      },
+      "SourceSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "fetched_at"
+        ],
+        "properties": {
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "SsoSessionState": {
         "type": "string",
         "description": "Where the connection stands, as the settings row renders it (data-model \"the connection\nstate machine\"). Derived from the stored rows on every read, never stored itself.",
@@ -26112,7 +26234,8 @@
           "by_model",
           "by_place",
           "costliest",
-          "unpriced"
+          "unpriced",
+          "sources"
         ],
         "properties": {
           "accounting_since": {
@@ -26200,6 +26323,13 @@
           },
           "range": {
             "$ref": "#/components/schemas/UsageRange"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceSummary"
+            },
+            "description": "The catalogue sources the rows' labels name, for their display names (spec 068)."
           },
           "summary": {
             "$ref": "#/components/schemas/UsageSummary"

@@ -23,8 +23,25 @@ export interface Units {
     tokens?: number
 }
 
-/** Which rule priced a figure: the catalogue, Vizier's shipped media price table, a free local model, or nothing. */
-export type PriceSource = 'catalogue' | 'table' | 'local' | 'none'
+/**
+ * Which source or rule priced a figure (spec 068): a catalogue source id (`models_dev`, `openrouter`,
+ * `venice`, `curated`) or a rule (`inference_profile`, `local`, `subscription`, `borrowed`, `none`).
+ * Open: a new source adds a value. A source's display name is in the report's `sources`.
+ */
+export type PriceSource = string
+
+/** Another source that prices a model row differently, priced on the row's own amounts. */
+export interface PriceAlternative {
+    source: string
+    cost_usd: number
+}
+
+/** A catalogue source the report's labels name. */
+export interface SourceSummary {
+    id: string
+    name: string
+    fetched_at: string
+}
 
 export interface Breakdown {
     key: string
@@ -50,6 +67,8 @@ export interface ModelRowDto extends Breakdown {
     cache_hit_rate?: number | null
     kind?: UsageKind
     price_source?: PriceSource
+    borrowed_from?: string | null
+    price_alternatives?: PriceAlternative[]
 }
 
 export interface Summary {
@@ -101,6 +120,7 @@ export interface UsageReport {
     by_place: Breakdown[]
     costliest: CostlyConversation[]
     unpriced: { models: string[]; tokens: number; units?: Partial<Record<UsageKind, Units>> }
+    sources?: SourceSummary[]
 }
 
 /** One media record a tool call made, priced (spec 065, `GET …/usage/calls`). */

@@ -1,0 +1,2 @@
+# FR-021 (spec 068): prices that deliberately changed from the pre-068 pricer, as
+# "<kind> <provider> <model> -> <source that now wins>". Checked by usage/golden_tests.rs.

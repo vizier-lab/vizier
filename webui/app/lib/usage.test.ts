@@ -15,13 +15,13 @@ it('says a media amount in its own unit', () => {
 
 it('labels a price by where it came from', () => {
     expect(priceNote('local')).toBe('free · local')
-    expect(priceNote('table')).toMatch(/price table/)
-    expect(priceNote('catalogue')).toBeUndefined()
+    expect(priceNote('curated')).toMatch(/price table/)
+    expect(priceNote('models_dev')).toBeUndefined()
     expect(unpricedMedia({ image: { images: 12 }, transcription: { audio_seconds: 60 } })).toBe('12 images, 1 min audio')
 })
 
 it('writes one line per media call on a step', () => {
-    const call = { kind: 'image', provider: 'openai', model: 'gpt-image-1-mini', variant: '1024x1024', units: { images: 1 }, measured: true, local: false, cost_usd: 0.17, price_source: 'table', at: '' } as const
+    const call = { kind: 'image', provider: 'openai', model: 'gpt-image-1-mini', variant: '1024x1024', units: { images: 1 }, measured: true, local: false, cost_usd: 0.17, price_source: 'curated', at: '' } as const
     expect(mediaCallLine(call)).toBe('openai / gpt-image-1-mini · 1 image (1024x1024) · ~$0.17')
     expect(mediaCallLine({ ...call, local: true, cost_usd: 0, price_source: 'local' })).toMatch(/free · local$/)
     expect(mediaCallLine({ ...call, cost_usd: null, price_source: 'none' })).toMatch(/unpriced$/)

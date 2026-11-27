@@ -11,7 +11,7 @@ use crate::llm::dialect::DialectKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CatalogueSource {
+pub enum SnapshotOrigin {
     /// The build-time seed embedded in the binary.
     Bundled,
     /// A refreshed copy from the `catalogue_snapshot` table.
@@ -31,7 +31,7 @@ pub enum ProviderKind {
 
 #[derive(Debug, Clone)]
 pub struct CatalogueData {
-    pub source: CatalogueSource,
+    pub source: SnapshotOrigin,
     pub fetched_at: DateTime<Local>,
     pub checked_at: Option<DateTime<Local>>,
     pub etag: Option<String>,
@@ -41,7 +41,7 @@ pub struct CatalogueData {
 impl CatalogueData {
     pub fn empty() -> Self {
         Self {
-            source: CatalogueSource::Bundled,
+            source: SnapshotOrigin::Bundled,
             fetched_at: crate::time::epoch(),
             checked_at: None,
             etag: None,
@@ -85,6 +85,9 @@ pub struct CatalogueModel {
     /// The `canonical_model_id` prefix, for the model's logo.
     pub lab: Option<String>,
     pub route: Option<RouteOverride>,
+    /// What the model produces (spec 068): `Text` for chat models; media models never appear
+    /// in a chat picker. `None` when no source says.
+    pub kind: Option<crate::schema::usage::UsageKind>,
 }
 
 /// What a model can do. Absence is "unknown", never "false", and unknown counts as supported
@@ -289,7 +292,9 @@ fn to_model(key: String, m: RawModel) -> CatalogueModel {
         .modalities
         .map(|md| (md.input, md.output))
         .unwrap_or_default();
+    let kind = kind_for_output(&output);
     CatalogueModel {
+        kind,
         name: m.name.unwrap_or_else(|| m.id.clone().unwrap_or_else(|| key.clone())),
         id: m.id.unwrap_or(key),
         family: m.family,
@@ -405,6 +410,24 @@ pub fn default_base_url(id: &ProviderId) -> Option<&'static str> {
         "venice" => "https://api.venice.ai/api/v1",
         _ => return None,
     })
+}
+
+/// A model's kind from its output modalities: text wins (a chat model that can also draw is a
+/// chat model), then image, then audio as speech. `None` when none are listed.
+pub fn kind_for_output(output: &[String]) -> Option<crate::schema::usage::UsageKind> {
+    use crate::schema::usage::UsageKind;
+    let has = |m: &str| output.iter().any(|o| o == m);
+    if has("text") {
+        Some(UsageKind::Text)
+    } else if has("image") {
+        Some(UsageKind::Image)
+    } else if has("audio") {
+        Some(UsageKind::Speech)
+    } else if has("embedding") || has("embeddings") {
+        Some(UsageKind::Embedding)
+    } else {
+        None
+    }
 }
 
 fn kind_for_api(api: Option<&str>) -> ProviderKind {

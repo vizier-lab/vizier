@@ -307,18 +307,22 @@ impl Units {
     }
 }
 
-/// Which rule priced a figure (spec 065 research R6).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+// Another source that prices a model row differently (spec 068 FR-006), priced on the row's own
+// tokens and units. A plain comment: a doc comment would become the schema's description.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum PriceSource {
-    Catalogue,
-    /// Vizier's shipped media price table.
-    Table,
-    /// A model on this machine: free.
-    Local,
-    #[default]
-    None,
+pub struct PriceAlternative {
+    pub source: String,
+    pub cost_usd: f64,
+}
+
+// A catalogue source a report's labels name, with its display name (spec 068).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SourceSummary {
+    pub id: String,
+    pub name: String,
+    pub fetched_at: DateTime<Local>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -357,7 +361,14 @@ pub struct ModelRow {
     pub failed_tokens: u64,
     pub priced: bool,
     pub kind: UsageKind,
-    pub price_source: PriceSource,
+    /// Which source or rule priced the row (spec 068): `models_dev`, `openrouter`, `venice`,
+    /// `curated`, `inference_profile`, `local`, `subscription`, `borrowed`, or `none`. Open: a
+    /// new source adds a value, never a schema change.
+    pub price_source: String,
+    /// The provider a `borrowed` price came from.
+    pub borrowed_from: Option<String>,
+    /// Up to three other sources that price this row differently.
+    pub price_alternatives: Vec<PriceAlternative>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -407,6 +418,8 @@ pub struct UsageReport {
     pub by_place: Vec<BreakdownRow>,
     pub costliest: Vec<ConversationRow>,
     pub unpriced: UnpricedNote,
+    /// The catalogue sources the rows' labels name, for their display names (spec 068).
+    pub sources: Vec<SourceSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -442,7 +455,8 @@ pub struct MediaCall {
     pub measured: bool,
     pub local: bool,
     pub cost_usd: Option<f64>,
-    pub price_source: PriceSource,
+    /// Which source or rule priced the call, as on a model row.
+    pub price_source: String,
     pub at: DateTime<Local>,
 }
 

@@ -8,6 +8,23 @@ A provider is an LLM backend. Providers are shared across all agents; each agent
 
 Vizier's list of providers and models comes from the [models.dev](https://models.dev) catalogue: over 200 providers and thousands of models, each with its context window, output limit, capabilities (tool calling, image input, reasoning) and price. Any catalogue provider that speaks a protocol Vizier supports (OpenAI chat or Responses, Anthropic, Gemini, Ollama) can be used — adding a provider needs no code change.
 
+### Catalogue sources
+
+models.dev is one source among several. The catalogue combines:
+
+| Source | What it says | Authoritative for |
+|---|---|---|
+| **OpenRouter's list** | Every OpenRouter model's price (text, image, speech, transcription), limits and capabilities | `openrouter` only |
+| **Venice's list** | Every Venice model's price (text, image, speech), limits and capabilities | `venice` only |
+| **Vizier's price table** | Hand-checked prices, each with the page it came from | every provider |
+| **models.dev** | How to connect to each provider, and most models' facts and prices | every provider |
+
+For each fact, the most authoritative source that has it wins: a provider's own list first, then the price table, then models.dev. A source that lacks a fact never hides another's. So a model only Venice lists still appears in Venice's model picker with Venice's limits, and is not flagged as unknown. How usage is priced from these sources is in [Usage and Spend](usage.md#prices).
+
+Every source ships inside the binary and is refreshed like models.dev: only when a person opens Settings → Providers or a picker (at most once per `catalogue.ttl`), or presses **Refresh now**, and never at startup or by agents. `catalogue.refresh: false` turns them all off. `GET /api/v1/catalogue` lists each source under `sources`, with its date, model count and last refresh error.
+
+Adding a source is one file under `crates/vizier-core/src/catalogue/sources/` implementing `CatalogueSource`, plus one line in `sources::standard()`.
+
 - **Offline by default**: a snapshot of the catalogue is built into the binary, so a fresh install works without network access.
 - **Kept current lazily**: when a person opens the provider pickers or Settings → Providers, Vizier checks models.dev in the background (at most once per `catalogue.ttl`, with a conditional request) and keeps the result in SQLite. Agents, scheduled tasks and dreams never trigger a check, and startup makes no request. Settings → Providers shows the catalogue's date and has a **Refresh now** button.
 - **Turn it off** with `catalogue.refresh: false` (or `VIZIER_CATALOGUE_REFRESH=false`); the built-in snapshot is then used until the next upgrade.

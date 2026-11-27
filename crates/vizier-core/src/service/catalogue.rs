@@ -36,21 +36,70 @@ pub struct CatalogueStatus {
     pub refresh: RefreshStatus,
     pub provider_count: usize,
     pub model_count: usize,
+    /// Every catalogue source, in registration order (spec 068 FR-012). The fields above stay
+    /// models.dev's, so existing readers keep working.
+    pub sources: Vec<SourceStatus>,
+}
+
+// One catalogue source's snapshot and refresh state (spec 068). A plain comment: a doc
+// comment would become the schema's description.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct SourceStatus {
+    pub id: String,
+    pub name: String,
+    /// `bundled` (the build-time seed) or `cached` (a refreshed copy).
+    pub origin: String,
+    pub fetched_at: DateTime<Local>,
+    pub checked_at: Option<DateTime<Local>>,
+    pub model_count: usize,
+    /// Upstream entries left out because their names did not map onto vizier's ids.
+    pub unmapped: u32,
+    /// `None` for a source that never refreshes (vizier's own price table).
+    pub refresh: Option<RefreshStatus>,
+}
+
+fn origin(o: crate::catalogue::data::SnapshotOrigin) -> String {
+    match o {
+        crate::catalogue::data::SnapshotOrigin::Bundled => "bundled".into(),
+        crate::catalogue::data::SnapshotOrigin::Cached => "cached".into(),
+    }
 }
 
 pub fn status(deps: &VizierDependencies) -> CatalogueStatus {
     let data = deps.catalogue.snapshot();
     let refresh = crate::catalogue::refresh::status(deps);
+    let sources = deps
+        .catalogue
+        .sources()
+        .iter()
+        .map(|s| {
+            let d = s.data();
+            let refresh = if s.id() == crate::catalogue::SourceId::MODELS_DEV {
+                Some(refresh.clone())
+            } else {
+                s.refresh_state().map(|r| r.status(&deps.config.catalogue))
+            };
+            SourceStatus {
+                id: s.id().to_string(),
+                name: s.name().to_string(),
+                origin: origin(d.origin),
+                fetched_at: d.fetched_at,
+                checked_at: d.checked_at,
+                model_count: d.model_count(),
+                unmapped: d.unmapped,
+                refresh,
+            }
+        })
+        .collect();
     CatalogueStatus {
-        source: match data.source {
-            crate::catalogue::data::CatalogueSource::Bundled => "bundled".into(),
-            crate::catalogue::data::CatalogueSource::Cached => "cached".into(),
-        },
+        source: origin(data.source),
         fetched_at: data.fetched_at,
         checked_at: data.checked_at,
         refresh,
         provider_count: data.providers.len(),
         model_count: data.model_count(),
+        sources,
     }
 }
 
@@ -71,14 +120,14 @@ pub struct MediaModels {
 
 impl MediaModels {
     pub fn build(deps: &VizierDependencies, capability: crate::catalogue::media::MediaCapability) -> Self {
-        use crate::catalogue::data::CatalogueSource;
+        use crate::catalogue::data::SnapshotOrigin;
         use crate::catalogue::media;
         let list = deps.catalogue.media_list(capability);
         MediaModels {
             capability,
             source: match list.source {
-                CatalogueSource::Bundled => "bundled".into(),
-                CatalogueSource::Cached => "cached".into(),
+                SnapshotOrigin::Bundled => "bundled".into(),
+                SnapshotOrigin::Cached => "cached".into(),
             },
             fetched_at: list.fetched_at,
             checked_at: list.checked_at,
@@ -819,7 +868,7 @@ fn invalid(message: impl Into<String>) -> ServiceError {
 
 /// Status of the catalogue; a read of it may start the lazy refresh.
 pub fn catalogue_status(deps: &VizierDependencies) -> CatalogueStatus {
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     status(deps)
 }
 
@@ -860,7 +909,7 @@ pub async fn refresh(
     deps: &VizierDependencies,
     user: &Principal,
 ) -> Result<CatalogueStatus, ServiceError> {
-    use crate::catalogue::refresh::{RefreshError, refresh_now};
+    use crate::catalogue::{refresh::RefreshError, refresh_now};
     crate::access::require(user, "settings:providers")?;
     match refresh_now(deps).await {
         Ok(()) => Ok(status(deps)),
@@ -880,7 +929,7 @@ pub async fn list_providers(
     kind: Option<&str>,
     connected: Option<bool>,
 ) -> Vec<ProviderSummary> {
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     let q = q.map(str::to_lowercase).filter(|q| !q.is_empty());
     provider_summaries(deps)
         .await
@@ -911,7 +960,7 @@ pub async fn list_models(
     all: bool,
     capability: Option<&str>,
 ) -> Result<Vec<ModelSummary>, ServiceError> {
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     let capability = match capability {
         None => ModelCapability::Chat,
         Some(value) => {
@@ -932,7 +981,7 @@ pub async fn validate_chat_model_override(
     deps: &VizierDependencies,
     choice: &crate::schema::ModelOverride,
 ) -> Result<(ProviderId, String), ServiceError> {
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     let unavailable = || ServiceError::Invalid {
         status: 422,
         message: "the selected provider or model is unavailable".into(),
@@ -963,7 +1012,7 @@ pub async fn get_model(
     id: &str,
     model: &str,
 ) -> Result<ModelSummary, ServiceError> {
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     let Ok(id) = ProviderId::parse(id) else {
         return Err(invalid("invalid provider id"));
     };
@@ -1148,6 +1197,7 @@ mod tests {
                             release_date: None,
                             knowledge: None,
                             lab: None,
+                            kind: None,
                             route: None,
                         },
                     )]),
@@ -1309,6 +1359,7 @@ mod tests {
                         release_date: None,
                         knowledge: None,
                         lab: None,
+                        kind: None,
                         route: None,
                     },
                 )]),

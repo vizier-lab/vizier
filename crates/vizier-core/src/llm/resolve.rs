@@ -671,7 +671,21 @@ fn resolve_custom(
     resolved.max_output = output;
     resolved.max_tokens = overrides.max_tokens;
     resolved.caps = caps;
-    resolved.cost = borrowed.and_then(|m| m.cost);
+    // The same answer a usage report gives (spec 068): the maker's price first, then this
+    // protocol's, borrowed from the same model id.
+    resolved.cost = ctx
+        .catalogue
+        .price(
+            &custom.id,
+            &crate::catalogue::aggregate::Query {
+                model,
+                kind: crate::schema::usage::UsageKind::Text,
+                has_tokens: true,
+                prefer: Some(dialect),
+            },
+        )
+        .price
+        .and_then(|p| p.tokens);
     resolved.base_url = custom.base_url.clone();
     resolved.headers = custom
         .headers

@@ -43,7 +43,9 @@ no key.
   Prices are converted to USD per 1M tokens (× 1e6) at parse time, so they fit vizier's `Cost`.
   `overrides` tiers are dropped in this feature, and the base price is used (noted in the
   contract). Lists stay unauthenticated.
-- **D2.** Image prices come from each image model's `endpoints` call. The **seed** script collects
+- **D2.** (As built: the **first** endpoint, OpenRouter's default route, since endpoints price in
+  different units — per image, per token, per megapixel — so "cheapest" compares nothing; and the
+  refresh fetches every image model's endpoints, 4 at a time, once per TTL.) Image prices come from each image model's `endpoints` call. The **seed** script collects
   them at build time. A runtime refresh fetches them too, at most 4 at a time and only for ids
   that are new or whose price is older than the TTL. A failed endpoint keeps the model's last
   price. The cheapest host's price is used. Token-billed image prices go into `Cost` (input text →

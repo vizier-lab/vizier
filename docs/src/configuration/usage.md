@@ -40,23 +40,42 @@ conversation's activity.
 
 ## Prices
 
-Costs are estimates, priced when the page is read, in this order:
+Costs are estimates, priced when the page is read, so a newer price also re-prices past usage.
+Every model row says where its price came from. Vizier asks, in this order:
 
-1. **Local models are free.** On-device Whisper and Kokoro, the built-in local embeddings, Ollama
-   and the offline `dummyplug` provider are shown as *free · local*, never as unpriced.
-2. **The provider catalogue** (models.dev), for any call measured in tokens on a model it prices.
-3. **Vizier's media price table**, shipped with each release
-   (`crates/vizier-core/assets/media-prices.json`). It holds prices the catalogue cannot express,
-   per image, per million characters and per audio minute, plus token rates for media models
-   the catalogue does not list. Every entry names the provider's pricing page it was copied from
-   and the date. On the page, an estimate from this table carries a note giving the table's date.
-4. Anything else is **unpriced**: it is counted, and listed under *Not in the estimate* with its
-   amount in its own unit.
+1. **Free by rule.** A model on this machine (on-device Whisper and Kokoro, the built-in local
+   embeddings, Ollama, llama.cpp and the offline `dummyplug` provider) is *free · local*. Usage on
+   the ChatGPT subscription provider is *included · subscription*: $0 per call, because the
+   subscription covers it. Neither is ever listed as unpriced.
+2. **An inference-profile entry** (Amazon Bedrock over SSO): the price saved on the entry, then
+   its paired model.
+3. **The provider's own price list.** OpenRouter and Venice publish the price of every model they
+   serve, text, image, speech and transcription alike, and Vizier ships both lists. A provider's
+   list only ever prices that provider's own models: OpenRouter's list prices `openrouter`
+   usage, never Anthropic's, even for a model with the same name.
+4. **Vizier's price table**, shipped with each release
+   (`crates/vizier-core/assets/media-prices.json`). It holds prices the other sources cannot
+   express (per image, per million characters, per audio minute) and models no other source
+   lists. Every entry names the provider page it was copied from and the date.
+5. **models.dev**, the community catalogue, for every provider it lists.
+6. **Borrowed.** A model with no price at its own provider (most often a custom provider in
+   front of a well-known model) is priced at the same model id's price elsewhere, its maker
+   first: `my-proxy / gpt-4o-mini` is priced at OpenAI's `gpt-4o-mini` rate. The row reads
+   *estimate · borrowed from openai*, and the figure counts in the totals.
+7. Anything else is **unpriced**: it is counted, and listed under *Not in the estimate* with its
+   amount in its own unit. It is never shown as $0.
 
-The table only holds prices a provider publishes. Several default models had no published price
-when the table was written, so they show as unpriced: OpenAI `dall-e-3`, Groq and Mistral
-transcription, and the Hugging Face, Hyperbolic and Bedrock image models. A provider's price
-change reaches the table with the next release.
+When two sources price the same model differently, the more authoritative one is used and the
+row also shows what the other says.
+
+The report's `price_source` field names the source or rule (`openrouter`, `venice`, `curated`,
+`models_dev`, `inference_profile`, `local`, `subscription`, `borrowed` or `none`), and `sources`
+gives each source's display name and date. Versions before spec 068 wrote `catalogue` for
+models.dev and `table` for the price table. **This is a breaking change** for API clients that read
+those two values.
+
+A few default models still have no price from any source: OpenAI `dall-e-3`, Groq and Mistral
+transcription, and the Hugging Face, Hyperbolic and Bedrock image models. They show as unpriced.
 
 ## What is not counted
 

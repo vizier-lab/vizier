@@ -25,8 +25,9 @@ Ties within one level (several `General` sources later) follow registration orde
 
 ## 3. `Billing` (on `BuiltinProvider`, and derived for catalogue providers)
 
-`Metered` (default) · `Local` (Ollama, llama.cpp, dummyplug, and any models.dev provider whose
-`kind` is `Local`) · `Subscription` (ChatGPT). Asked before any source. `Local` and
+`Metered` (default) · `Local` (Ollama, llama.cpp, dummyplug, and a models.dev provider whose
+`kind` is `Local` **while no source prices any of its models**: `privatemode-ai` is a localhost
+proxy to a paid service, found by the FR-021 golden test) · `Subscription` (ChatGPT). Asked before any source. `Local` and
 `Subscription` price every kind at $0 with that label and are never borrowed for.
 
 ## 4. `SourceData`
@@ -129,9 +130,9 @@ fetching stays with `models_dev`.
 | `failed_at` | INTEGER ms NULL | |
 | `data` | BLOB | the trimmed upstream JSON |
 
-**`media_catalogue_snapshot`**: unchanged columns. The payload schema goes 1 → 2, and `MediaModel`
-gains `price: Option<Price>`. A schema-1 row is ignored, so the seed answers until the next
-refresh.
+**`media_catalogue_snapshot`**: unchanged (as built). The OpenRouter source fetches the speech and
+transcription lists' prices and each image model's endpoint pricing itself and keeps them in its
+`catalogue_source_snapshot` row, so spec 028's media lists keep schema 1 and only serve pickers.
 
 ## 11. Report wire types (`schema/usage.rs`)
 

@@ -8,7 +8,7 @@ use std::io::Read;
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 
-use super::data::{CatalogueData, CatalogueSource, parse};
+use super::data::{CatalogueData, SnapshotOrigin, parse};
 
 const SEED_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/catalogue.json.gz"));
 const SEED_META: &[u8] = include_bytes!("../../assets/catalogue/meta.json");
@@ -57,7 +57,7 @@ pub fn load_seed() -> CatalogueData {
     let meta = seed_meta();
     match parse(&seed_json()) {
         Ok(mut data) => {
-            data.source = CatalogueSource::Bundled;
+            data.source = SnapshotOrigin::Bundled;
             data.fetched_at = meta.fetched_at;
             data.etag = meta.etag;
             data
@@ -141,7 +141,7 @@ mod tests {
         let data = load_seed();
         assert!(data.providers.len() >= 200, "{} providers", data.providers.len());
         assert!(data.model_count() >= 5000);
-        assert_eq!(data.source, CatalogueSource::Bundled);
+        assert_eq!(data.source, SnapshotOrigin::Bundled);
         assert!(data.fetched_at > crate::time::epoch());
     }
 

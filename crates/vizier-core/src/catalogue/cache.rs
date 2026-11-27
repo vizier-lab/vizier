@@ -3,7 +3,7 @@
 
 use std::io::{Read, Write};
 
-use super::data::{CatalogueData, CatalogueSource, parse};
+use super::data::{CatalogueData, SnapshotOrigin, parse};
 use crate::storage::{VizierStorage, catalogue::CatalogueCacheStorage};
 
 pub const SCHEMA: i64 = 1;
@@ -40,7 +40,7 @@ pub async fn newest(storage: &VizierStorage, seed: CatalogueData) -> CatalogueDa
         .and_then(|json| parse(&json).map_err(|e| e.0))
     {
         Ok(mut data) => {
-            data.source = CatalogueSource::Cached;
+            data.source = SnapshotOrigin::Cached;
             data.fetched_at = row.fetched_at;
             data.checked_at = Some(row.checked_at);
             data.etag = row.etag;

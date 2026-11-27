@@ -4,6 +4,7 @@ use std::path::Path;
 fn main() {
     embed_catalogue_seed();
     validate_media_seed();
+    validate_provider_lists();
 }
 
 /// Gzip the committed model catalogue seed into `$OUT_DIR/catalogue.json.gz`, which
@@ -44,5 +45,20 @@ fn validate_media_seed() {
         .unwrap_or_else(|e| panic!("cannot read {}: {e}; {hint}", seed.display()));
     if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
         panic!("{} is not valid JSON ({e}); {hint}", seed.display());
+    }
+}
+
+/// Validate the committed provider price lists (spec 068, `contracts/seeds.md`): embedded as-is
+/// by `src/catalogue/sources/{openrouter,venice}.rs`, so a malformed file fails the build here.
+fn validate_provider_lists() {
+    for name in ["openrouter_models.json", "venice.json"] {
+        println!("cargo:rerun-if-changed=assets/catalogue/{name}");
+        let seed = Path::new("assets/catalogue").join(name);
+        let hint = "run `python3 -I scripts/catalogue_update.py --provider-lists`";
+        let bytes = std::fs::read(&seed)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}; {hint}", seed.display()));
+        if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            panic!("{} is not valid JSON ({e}); {hint}", seed.display());
+        }
     }
 }

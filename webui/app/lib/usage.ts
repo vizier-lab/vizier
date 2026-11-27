@@ -45,7 +45,7 @@ export function formatUnits(units?: Units | null): string | undefined {
 /** How a priced figure is labelled: free for a local model, a note for the shipped table. */
 export function priceNote(source?: PriceSource): string | undefined {
     if (source === 'local') return 'free · local'
-    if (source === 'table') return "estimated from Vizier's price table"
+    if (source === 'curated') return "estimated from Vizier's price table"
     if (source === 'none') return 'unpriced'
     return undefined
 }

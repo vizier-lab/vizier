@@ -3,6 +3,10 @@
 
 - `api.json` + `meta.json` + `logos/` come from models.dev (spec 015).
 - `openrouter_media.json` comes from OpenRouter's three public media model lists (spec 028).
+- `openrouter_models.json` and `venice.json` are those providers' own published price lists, one
+  catalogue source each (spec 068, `specs/068-catalogue-sources/contracts/seeds.md`).
+
+`--provider-lists` refreshes only the last two, leaving models.dev's seed and the logos alone.
 
 Standard library only; run as `python3 -I scripts/catalogue_update.py` (or `just
 catalogue-update`). The release workflow runs it with `--keep-on-failure`, so an upstream
@@ -34,6 +38,33 @@ MEDIA_URLS = {
     "image": "https://openrouter.ai/api/v1/images/models",
 }
 MEDIA_SCHEMA = 1
+
+# Providers' own price lists (spec 068). All public, no key.
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+OPENROUTER_ENDPOINTS_URL = "https://openrouter.ai/api/v1/images/models/{}/endpoints"
+VENICE_URL = "https://api.venice.ai/api/v1/models?type={}"
+VENICE_TYPES = ("text", "image", "tts")
+PROVIDER_LIST_SCHEMA = 1
+# The fields kept per OpenRouter model, and per Venice model (`contracts/seeds.md`).
+OPENROUTER_FIELDS = (
+    "id",
+    "name",
+    "context_length",
+    "architecture",
+    "pricing",
+    "top_provider",
+    "supported_parameters",
+    "expiration_date",
+)
+VENICE_FIELDS = ("id", "type", "context_length", "model_spec")
+VENICE_SPEC_FIELDS = (
+    "name",
+    "availableContextTokens",
+    "maxCompletionTokens",
+    "capabilities",
+    "pricing",
+    "deprecation",
+)
 # A defensive cap, matching `crates/vizier-core/src/catalogue/media.rs`.
 MEDIA_MAX = 2000
 
@@ -207,6 +238,117 @@ def fetch_media():
     }
 
 
+def get_json(url, what):
+    status, _, body = fetch(url)
+    if status != 200:
+        raise UpdateError(f"{url} returned {status}")
+    try:
+        return json.loads(body)
+    except ValueError as e:
+        raise UpdateError(f"{what} is not valid JSON: {e}") from e
+
+
+def data_rows(raw, what):
+    data = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(data, list) or not data:
+        raise UpdateError(f"{what} has no data array")
+    return [row for row in data if isinstance(row, dict) and isinstance(row.get("id"), str)]
+
+
+def keep(row, fields):
+    return {k: row[k] for k in fields if k in row}
+
+
+def image_endpoint_pricing(model_id):
+    """The pricing list of the model's first endpoint (OpenRouter's default route), or None.
+
+    Endpoints price in different units (per image, per token, per megapixel), so "cheapest" has
+    no meaning across them; the first one is what a request without a provider preference uses.
+    """
+    try:
+        raw = get_json(OPENROUTER_ENDPOINTS_URL.format(model_id), f"{model_id} endpoints")
+    except Exception:  # noqa: BLE001 - one model's price is missing, the rest still ship
+        return None
+    endpoints = raw.get("endpoints") if isinstance(raw, dict) else None
+    for ep in endpoints if isinstance(endpoints, list) else []:
+        pricing = ep.get("pricing") if isinstance(ep, dict) else None
+        if isinstance(pricing, list) and pricing:
+            return pricing
+    return None
+
+
+def fetch_openrouter_models():
+    """OpenRouter's text and audio models with prices, its speech and transcription lists' prices,
+    and each image model's cheapest endpoint price."""
+    models = [keep(r, OPENROUTER_FIELDS) for r in data_rows(get_json(OPENROUTER_MODELS_URL, "the OpenRouter list"), "the OpenRouter list")]
+    out = {"schema": PROVIDER_LIST_SCHEMA, "fetched_at": utc_now(), "models": models}
+    for capability in ("speech", "transcription"):
+        rows = data_rows(get_json(MEDIA_URLS[capability], f"the {capability} list"), f"the {capability} list")
+        out[capability] = [keep(r, ("id", "name", "pricing")) for r in rows]
+    images = data_rows(get_json(MEDIA_URLS["image"], "the image list"), "the image list")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        prices = list(pool.map(lambda r: image_endpoint_pricing(r["id"]), images))
+    out["image"] = [
+        {"id": r["id"], "name": r.get("name", r["id"]), "pricing": p}
+        for r, p in zip(images, prices)
+        if p is not None
+    ]
+    if not models:
+        raise UpdateError("the OpenRouter list has no models")
+    return out
+
+
+def fetch_venice():
+    """Venice's text, image and speech lists with their prices."""
+    out = {"schema": PROVIDER_LIST_SCHEMA, "fetched_at": utc_now()}
+    for kind in VENICE_TYPES:
+        rows = data_rows(get_json(VENICE_URL.format(kind), f"Venice's {kind} list"), f"Venice's {kind} list")
+        trimmed = []
+        for r in rows:
+            row = keep(r, VENICE_FIELDS)
+            spec = r.get("model_spec")
+            if isinstance(spec, dict):
+                row["model_spec"] = keep(spec, VENICE_SPEC_FIELDS)
+            trimmed.append(row)
+        out[kind] = trimmed
+    return out
+
+
+def write_list(name, data, arrays):
+    """Write a provider list seed atomically, one model per line (small diffs)."""
+    head = [k for k in data if k not in arrays]
+    lines = ["{"] + [f"  {json.dumps(k)}: {json.dumps(data[k])}," for k in head]
+    for i, key in enumerate(arrays):
+        comma = "," if i < len(arrays) - 1 else ""
+        rows = data.get(key, [])
+        lines.append(f"  {json.dumps(key)}: [")
+        for j, row in enumerate(rows):
+            end = "," if j < len(rows) - 1 else ""
+            lines.append("    " + json.dumps(row, ensure_ascii=False, sort_keys=True) + end)
+        lines.append(f"  ]{comma}")
+    lines.append("}")
+    text = "\n".join(lines) + "\n"
+    if json.loads(text) != data:
+        raise UpdateError(f"rendered {name} does not round-trip")
+    path = os.path.join(OUT_DIR, name)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return path
+
+
+def update_provider_lists():
+    """Fetch both provider lists before writing either, so a failure keeps both committed."""
+    openrouter = fetch_openrouter_models()
+    venice = fetch_venice()
+    write_list("openrouter_models.json", openrouter, ["models", "speech", "transcription", "image"])
+    write_list("venice.json", venice, list(VENICE_TYPES))
+    counts = " / ".join(f"{k} {len(openrouter[k])}" for k in ("models", "speech", "transcription", "image"))
+    vcounts = " / ".join(f"{k} {len(venice[k])}" for k in VENICE_TYPES)
+    print(f"provider lists: openrouter {counts}; venice {vcounts}")
+
+
 def write_media(media):
     """Write the media seed atomically (a temp file, then replace).
 
@@ -329,15 +471,19 @@ def update():
     data = trim(raw)
     validate(data, load_current())
 
-    # Both seeds are fetched before either is written: a failure leaves both committed files in
-    # place rather than shipping a half-refreshed pair.
+    # Every seed is fetched before any is written: a failure leaves the committed files in place
+    # rather than shipping a half-refreshed set.
     media = fetch_media()
+    openrouter = fetch_openrouter_models()
+    venice = fetch_venice()
 
     ids = logo_ids(data)
     logos, no_logo, failed = fetch_logos(ids)
 
     os.makedirs(LOGO_DIR, exist_ok=True)
     write_media(media)
+    write_list("openrouter_models.json", openrouter, ["models", "speech", "transcription", "image"])
+    write_list("venice.json", venice, list(VENICE_TYPES))
     with open(os.path.join(OUT_DIR, "api.json"), "w", encoding="utf-8") as f:
         f.write(render(data))
 
@@ -386,9 +532,14 @@ def main():
         action="store_true",
         help="on any error, warn, keep the committed snapshot and exit 0 (release use)",
     )
+    parser.add_argument(
+        "--provider-lists",
+        action="store_true",
+        help="refresh only the providers' own price lists (OpenRouter, Venice)",
+    )
     args = parser.parse_args()
     try:
-        update()
+        update_provider_lists() if args.provider_lists else update()
     except Exception as e:  # noqa: BLE001
         if args.keep_on_failure:
             print(f"::warning::catalogue update failed, keeping the committed snapshot: {e}")

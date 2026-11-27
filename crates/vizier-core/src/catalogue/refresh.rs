@@ -6,16 +6,15 @@
 //! never contacts models.dev. A check is one background task (stale-while-revalidate); callers
 //! are always served from memory at once.
 
-use crate::time::Timestamp;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
 
 use super::cache::{self, SCHEMA};
-use super::data::{CatalogueData, CatalogueSource, parse};
+use super::data::{CatalogueData, SnapshotOrigin, parse};
+use super::source_refresh::SourceRefresh;
 use crate::catalogue::RefreshStatus;
 use crate::dependencies::VizierDependencies;
 use crate::storage::{
@@ -25,27 +24,20 @@ use crate::storage::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(30);
-const FAILURE_BACKOFF: chrono::Duration = chrono::Duration::hours(1);
 
 #[derive(Default)]
 pub struct RefreshState {
-    in_progress: AtomicBool,
-    /// The last failed check, for the 1h backoff and the status line.
-    failure: Mutex<Option<(String, Timestamp)>>,
+    /// The shared policy (spec 068): TTL, the 1 h backoff, one check in flight.
+    pub refresh: SourceRefresh,
     logos_in_flight: Mutex<HashSet<String>>,
     fallback_logo: Mutex<Option<Vec<u8>>>,
 }
 
 pub fn status(deps: &VizierDependencies) -> RefreshStatus {
-    let state = deps.catalogue.refresh_state();
-    let failure = state.failure.lock().clone();
-    RefreshStatus {
-        enabled: deps.config.catalogue.refresh,
-        ttl: deps.config.catalogue.ttl.to_string(),
-        in_progress: state.in_progress.load(Ordering::SeqCst),
-        last_error: failure.as_ref().map(|(e, _)| e.clone()),
-        failed_at: failure.map(|(_, at)| at),
-    }
+    deps.catalogue
+        .refresh_state()
+        .refresh
+        .status(&deps.config.catalogue)
 }
 
 /// Start a background check when refresh is on, the data is older than the TTL, no check
@@ -54,29 +46,17 @@ pub fn status(deps: &VizierDependencies) -> RefreshStatus {
 /// Call this only from request handlers serving a person (see the module docs): never from
 /// agent, scheduler or dream code.
 pub fn maybe_refresh(deps: &VizierDependencies) {
-    if !deps.config.catalogue.refresh {
-        return;
-    }
-    let data = deps.catalogue.snapshot();
-    let checked = data.checked_at.unwrap_or(data.fetched_at);
-    let ttl = chrono::Duration::from_std(*deps.config.catalogue.ttl).unwrap_or(chrono::Duration::hours(24));
-    let now = crate::time::now();
-    if now - checked < ttl {
-        return;
-    }
-    let state = deps.catalogue.refresh_state();
-    if let Some((_, at)) = *state.failure.lock()
-        && now - at < FAILURE_BACKOFF
+    let data = deps.catalogue.models_dev();
+    let state = &deps.catalogue.refresh_state().refresh;
+    if !state.is_due(&deps.config.catalogue, data.checked_at.unwrap_or(data.fetched_at))
+        || !state.try_begin()
     {
-        return;
-    }
-    if state.in_progress.swap(true, Ordering::SeqCst) {
         return;
     }
     let deps = deps.clone();
     tokio::spawn(async move {
         let _ = check(&deps).await;
-        deps.catalogue.refresh_state().in_progress.store(false, Ordering::SeqCst);
+        deps.catalogue.refresh_state().refresh.end();
     });
 }
 
@@ -92,19 +72,12 @@ pub async fn refresh_now(deps: &VizierDependencies) -> Result<(), RefreshError> 
     if !deps.config.catalogue.refresh {
         return Err(RefreshError::Disabled);
     }
-    let state = deps.catalogue.refresh_state();
-    if state.in_progress.swap(true, Ordering::SeqCst) {
-        let deadline = tokio::time::Instant::now() + TIMEOUT;
-        while state.in_progress.load(Ordering::SeqCst) && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        return match state.failure.lock().clone() {
-            Some((e, _)) => Err(RefreshError::Failed(e)),
-            None => Ok(()),
-        };
+    let state = &deps.catalogue.refresh_state().refresh;
+    if !state.try_begin() {
+        return state.wait().await.map_err(RefreshError::Failed);
     }
     let result = check(deps).await;
-    state.in_progress.store(false, Ordering::SeqCst);
+    state.end();
     result.map_err(RefreshError::Failed)
 }
 
@@ -210,14 +183,14 @@ fn validate(new: &CatalogueData, current: &CatalogueData, in_use: &HashSet<Strin
 async fn fail(deps: &VizierDependencies, error: String) -> Result<(), String> {
     let now = crate::time::now();
     tracing::warn!("catalogue refresh failed, keeping the current catalogue: {error}");
-    *deps.catalogue.refresh_state().failure.lock() = Some((error.clone(), now));
+    deps.catalogue.refresh_state().refresh.set_failure(error.clone(), now);
     let _ = deps.storage.record_failure(&error, now).await;
     Err(error)
 }
 
 /// One conditional GET, then: 304 → note the check; 200 → trim, validate, cache and swap in.
 async fn check(deps: &VizierDependencies) -> Result<(), String> {
-    let current = deps.catalogue.snapshot();
+    let current = deps.catalogue.models_dev();
     let url = deps.config.catalogue.url.clone();
     let mut req = deps
         .http
@@ -244,7 +217,7 @@ async fn check(deps: &VizierDependencies) -> Result<(), String> {
         if deps.storage.get_snapshot().await.ok().flatten().is_some() {
             let _ = deps.storage.touch_checked(now).await;
         }
-        *deps.catalogue.refresh_state().failure.lock() = None;
+        deps.catalogue.refresh_state().refresh.clear_failure();
         return Ok(());
     }
     if status != 200 {
@@ -286,7 +259,7 @@ async fn check(deps: &VizierDependencies) -> Result<(), String> {
         return fail(deps, e).await;
     }
 
-    data.source = CatalogueSource::Cached;
+    data.source = SnapshotOrigin::Cached;
     data.fetched_at = now;
     data.checked_at = Some(now);
     data.etag = etag.clone();
@@ -309,7 +282,7 @@ async fn check(deps: &VizierDependencies) -> Result<(), String> {
         "the model catalogue was refreshed"
     );
     deps.catalogue.swap(data);
-    *deps.catalogue.refresh_state().failure.lock() = None;
+    deps.catalogue.refresh_state().refresh.clear_failure();
     Ok(())
 }
 

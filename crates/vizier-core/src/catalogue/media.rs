@@ -5,17 +5,17 @@
 //! `catalogue.refresh`/`catalogue.ttl` policy, but nothing else: the sources, the payloads and
 //! the storage table are different, so they are versioned and refreshed separately.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::cache;
-use super::data::CatalogueSource;
+use super::data::SnapshotOrigin;
 use super::refresh::RefreshError;
+use super::source_refresh::SourceRefresh;
 use crate::catalogue::RefreshStatus;
 use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
@@ -29,7 +29,6 @@ pub const SCHEMA: i64 = 1;
 /// A defensive cap; the live lists are ~60 entries.
 const MAX_MODELS: usize = 2_000;
 const TIMEOUT: Duration = Duration::from_secs(30);
-const FAILURE_BACKOFF: chrono::Duration = chrono::Duration::hours(1);
 
 /// The one axis discovery varies on (data-model §1). It is also the storage key and the API
 /// query value.
@@ -137,7 +136,7 @@ impl MediaModel {
 pub struct MediaList {
     pub capability: MediaCapability,
     pub models: Vec<MediaModel>,
-    pub source: CatalogueSource,
+    pub source: SnapshotOrigin,
     /// When the current bytes were successfully fetched (the seed's timestamp or a refresh).
     pub fetched_at: DateTime<Local>,
     /// The last successful check; `None` for the seed until a refresh.
@@ -308,13 +307,6 @@ fn enum_values(row: &Map<String, Value>, key: &str) -> Vec<String> {
     strings(param.get("values"))
 }
 
-/// One capability's in-memory list and refresh state.
-#[derive(Default)]
-struct CapabilityRefresh {
-    in_progress: AtomicBool,
-    /// The last failed check, for the 1 h backoff and the status line; restored at startup.
-    failure: Mutex<Option<(String, DateTime<Local>)>>,
-}
 
 #[derive(Default)]
 struct MediaLists {
@@ -346,7 +338,7 @@ impl MediaLists {
 #[derive(Default)]
 pub struct MediaCatalogue {
     lists: RwLock<MediaLists>,
-    refresh: [CapabilityRefresh; 3],
+    refresh: [SourceRefresh; 3],
 }
 
 impl MediaCatalogue {
@@ -356,7 +348,7 @@ impl MediaCatalogue {
             lists.set(MediaList {
                 capability,
                 models: seed.models(capability).to_vec(),
-                source: CatalogueSource::Bundled,
+                source: SnapshotOrigin::Bundled,
                 fetched_at: seed.fetched_at,
                 checked_at: None,
             });
@@ -367,7 +359,7 @@ impl MediaCatalogue {
         }
     }
 
-    fn state(&self, capability: MediaCapability) -> &CapabilityRefresh {
+    fn state(&self, capability: MediaCapability) -> &SourceRefresh {
         let index = match capability {
             MediaCapability::Speech => 0,
             MediaCapability::Transcription => 1,
@@ -385,7 +377,7 @@ impl MediaCatalogue {
             .unwrap_or_else(|| MediaList {
                 capability,
                 models: vec![],
-                source: CatalogueSource::Bundled,
+                source: SnapshotOrigin::Bundled,
                 fetched_at: crate::time::epoch(),
                 checked_at: None,
             })
@@ -413,7 +405,7 @@ impl MediaCatalogue {
             if let Some(error) = &row.last_error
                 && let Some(at) = row.failed_at
             {
-                *self.state(capability).failure.lock() = Some((error.clone(), at));
+                self.state(capability).set_failure(error.clone(), at);
             }
             let current = self.list(capability);
             if row.schema != SCHEMA || row.fetched_at <= current.fetched_at {
@@ -430,7 +422,7 @@ impl MediaCatalogue {
                     self.swap(MediaList {
                         capability,
                         models,
-                        source: CatalogueSource::Cached,
+                        source: SnapshotOrigin::Cached,
                         fetched_at: row.fetched_at,
                         checked_at: Some(row.checked_at),
                     });
@@ -447,34 +439,17 @@ impl MediaCatalogue {
     /// failed in the last hour, and none is running. Returns at once; only ever called from a
     /// person's read of the list (spec FR-018/SC-011).
     pub fn maybe_refresh(&self, deps: &VizierDependencies, capability: MediaCapability) {
-        if !deps.config.catalogue.refresh {
-            return;
-        }
         let list = self.list(capability);
-        let checked = list.checked_at.unwrap_or(list.fetched_at);
-        let ttl = chrono::Duration::from_std(*deps.config.catalogue.ttl)
-            .unwrap_or(chrono::Duration::hours(24));
-        let now = crate::time::now();
-        if now - checked < ttl {
-            return;
-        }
         let state = self.state(capability);
-        if let Some((_, at)) = *state.failure.lock()
-            && now - at < FAILURE_BACKOFF
+        if !state.is_due(&deps.config.catalogue, list.checked_at.unwrap_or(list.fetched_at))
+            || !state.try_begin()
         {
-            return;
-        }
-        if state.in_progress.swap(true, Ordering::SeqCst) {
             return;
         }
         let deps = deps.clone();
         tokio::spawn(async move {
             let _ = check(&deps, capability).await;
-            deps.catalogue
-                .media()
-                .state(capability)
-                .in_progress
-                .store(false, Ordering::SeqCst);
+            deps.catalogue.media().state(capability).end();
         });
     }
 
@@ -489,19 +464,11 @@ impl MediaCatalogue {
             return Err(RefreshError::Disabled);
         }
         let state = self.state(capability);
-        if state.in_progress.swap(true, Ordering::SeqCst) {
-            let deadline = tokio::time::Instant::now() + TIMEOUT;
-            while state.in_progress.load(Ordering::SeqCst) && tokio::time::Instant::now() < deadline
-            {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            return match state.failure.lock().clone() {
-                Some((e, _)) => Err(RefreshError::Failed(e)),
-                None => Ok(()),
-            };
+        if !state.try_begin() {
+            return state.wait().await.map_err(RefreshError::Failed);
         }
         let result = check(deps, capability).await;
-        state.in_progress.store(false, Ordering::SeqCst);
+        state.end();
         result.map_err(RefreshError::Failed)
     }
 }
@@ -515,15 +482,10 @@ fn decode_cached(data: &[u8]) -> Result<Vec<MediaModel>, String> {
 
 /// The status block the API returns, reusing the chat catalogue's shape and vocabulary.
 pub fn status(deps: &VizierDependencies, capability: MediaCapability) -> RefreshStatus {
-    let state = deps.catalogue.media().state(capability);
-    let failure = state.failure.lock().clone();
-    RefreshStatus {
-        enabled: deps.config.catalogue.refresh,
-        ttl: deps.config.catalogue.ttl.to_string(),
-        in_progress: state.in_progress.load(Ordering::SeqCst),
-        last_error: failure.as_ref().map(|(e, _)| e.clone()),
-        failed_at: failure.map(|(_, at)| at),
-    }
+    deps.catalogue
+        .media()
+        .state(capability)
+        .status(&deps.config.catalogue)
 }
 
 async fn get(
@@ -604,11 +566,11 @@ async fn check(deps: &VizierDependencies, capability: MediaCapability) -> Result
     media.swap(MediaList {
         capability,
         models,
-        source: CatalogueSource::Cached,
+        source: SnapshotOrigin::Cached,
         fetched_at: now,
         checked_at: Some(now),
     });
-    *media.state(capability).failure.lock() = None;
+    media.state(capability).clear_failure();
     Ok(())
 }
 
@@ -622,7 +584,7 @@ async fn fail(
         capability = capability.as_str(),
         "media model list refresh failed, keeping the current list: {error}"
     );
-    *deps.catalogue.media().state(capability).failure.lock() = Some((error.clone(), now));
+    deps.catalogue.media().state(capability).set_failure(error.clone(), now);
     let _ = deps
         .storage
         .record_media_failure(capability.as_str(), &error, now)
@@ -753,7 +715,7 @@ mod tests {
         };
         let catalogue = MediaCatalogue::new(seed);
         let speech = catalogue.list(MediaCapability::Speech);
-        assert_eq!(speech.source, CatalogueSource::Bundled);
+        assert_eq!(speech.source, SnapshotOrigin::Bundled);
         assert_eq!(speech.checked_at, None);
         assert_eq!(speech.fetched_at.timestamp_millis(), 1_700_000_000_000);
         assert_eq!(ids(&speech.models), vec!["s"]);
