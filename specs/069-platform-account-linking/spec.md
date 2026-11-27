@@ -41,28 +41,60 @@ When a message reaches an agent from Discord or Telegram, the agent is told who 
 
 **Independent Test**: Using the offline `dummyplug` provider on a Discord or Telegram integration, send a message from a connected account and from an unconnected one, ask the agent to echo its per-request context, and compare the sender and metadata.
 
+**Illustration** (the header an agent reads above a Discord message; field names settle in the plan):
+
+```yaml
+# Connected account
+sender: rin                 # Vizier username
+verified: true
+sent_at: 2026-11-27T14:02:11+07:00
+metadata:
+  platform: discord
+  platform_user_id: "381926457021"
+  platform_username: rin_dev
+  platform_display_name: Rin
+  discord_channel_id: "1100"
+  is_dm: false
+```
+
+```yaml
+# Not connected
+sender: Unregistered User
+verified: false
+sent_at: 2026-11-27T14:03:40+07:00
+metadata:
+  platform: discord
+  platform_user_id: "552013874411"
+  platform_username: kai.k
+  platform_display_name: Kai
+  discord_channel_id: "1100"
+  is_dm: false
+```
+
+Today the same message reads `sender: "@Rin (DiscordId: 381926457021)"` for everyone, with nothing saying whether that person is anyone in Vizier.
+
 **Acceptance Scenarios**:
 
 1. **Given** a connected Discord account belonging to Vizier user `rin`, **When** it messages the agent, **Then** the agent sees the sender as `rin`, marked as a verified Vizier user, with the Discord id and display name in the metadata.
 2. **Given** a Discord account that is not connected, **When** it messages the agent, **Then** the agent sees the sender as `Unregistered User`, with the Discord id and display name in the metadata.
 3. **Given** a person connects their account, **When** their next message arrives, **Then** it is stamped with their Vizier username without restarting the agent or the bot.
-4. **Given** a person disconnects their account, **When** their next message arrives, **Then** it reads as `Unregistered User` again.
+4. **Given** a person unlinks their account, **When** their next message arrives, **Then** it reads as `Unregistered User` again.
 5. **Given** the agent's owner has a connected account, **When** the owner writes on Discord or Telegram, **Then** the agent can recognise its owner from the verified link, not from any hand-typed field.
 
 ---
 
-### User Story 3 - See and remove connected accounts (Priority: P2)
+### User Story 3 - See and unlink connected accounts (Priority: P2)
 
-A person opens *Settings › Profile* and sees a **Connected accounts** section: each connected Discord and Telegram account with its platform username, id and when it was connected, a **Disconnect** action for each, and a field to enter a connect code. The old free-text id and username fields are gone.
+A person opens *Settings › Profile* and sees a **Connected accounts** section: each connected Discord and Telegram account with its platform username, id and when it was connected, an **Unlink** item in each row's menu, and a field to enter a connect code. The old free-text id and username fields are gone.
 
 **Why this priority**: People must be able to review and undo a link; but connecting (US1) already works without this page beyond the code field.
 
-**Independent Test**: Connect an account, open the profile, see it listed, disconnect it, and check that the agent now reads that platform account as `Unregistered User`.
+**Independent Test**: Connect an account, open the profile, see it listed, unlink it from the row menu, and check that the agent now reads that platform account as `Unregistered User`.
 
 **Acceptance Scenarios**:
 
 1. **Given** a person with a connected Telegram account, **When** they open their profile, **Then** they see it listed with username, id and connected date, and no editable id or username fields.
-2. **Given** they choose Disconnect and confirm, **Then** the account is removed from the list and its next message to any agent reads as `Unregistered User`.
+2. **Given** they choose Unlink from the row's menu and confirm, **Then** the account is removed from the list and its next message to any agent reads as `Unregistered User`.
 3. **Given** a person who has not connected a platform, **Then** that platform's row says how to connect: "Send /connect to any agent's bot on Discord".
 
 ---
@@ -79,13 +111,13 @@ A person who had typed their Discord or Telegram id into their profile before th
 
 1. **Given** an upgraded workspace with a hand-typed Discord id on a profile, **When** a message arrives from that id, **Then** the agent sees `Unregistered User`.
 2. **Given** the same profile, **When** the person connects that Discord account with `/connect`, **Then** the unverified entry is replaced by the connected account.
-3. **Given** the person disconnects or never connects, **Then** the unverified value stays visible (and removable) on the profile until they remove it.
+3. **Given** the person unlinks or never connects, **Then** the unverified value stays visible (and removable) on the profile until they remove it.
 
 ---
 
 ### Edge Cases
 
-- **A platform account already connected to another Vizier user**: redeeming its code is refused with "this Discord account is already connected to another Vizier user", naming no one; the other person's link is untouched. The current owner must disconnect first.
+- **A platform account already connected to another Vizier user**: redeeming its code is refused with "this Discord account is already connected to another Vizier user", naming no one; the other person's link is untouched. The current owner must unlink it first.
 - **A Vizier user who already has a Discord account connected redeems a code from a different Discord account**: the confirmation says the new account replaces the current one; confirming swaps them.
 - **A forwarded link** (someone sends their link to another person to make their platform account read as that person): the confirmation names the platform account and warns "only confirm a code you requested yourself"; nothing is linked without the explicit confirm by the signed-in person.
 - **Guessing codes**: codes are long enough and redemption attempts are rate-limited per person and per address so guessing a live code is impractical.
@@ -110,12 +142,12 @@ A person who had typed their Discord or Telegram id into their profile before th
 - **FR-006**: Redeeming a code (by link or by typing it into the profile) MUST show a confirmation naming the platform, the platform username and id, and the signed-in Vizier username, with a warning to confirm only a code the person requested; nothing is linked until the person confirms.
 - **FR-007**: One platform account MUST be connected to at most one Vizier user; a Vizier user MUST have at most one connected account per platform. Redeeming a code for an account connected to someone else MUST be refused without revealing who; redeeming a code for a second account of the same platform MUST state that it replaces the current one.
 - **FR-008**: Redemption attempts MUST be rate-limited per person and per address, and a wrong, expired or used code MUST give one indistinguishable "expired or already used" answer.
-- **FR-009**: Connecting and disconnecting MUST take effect on the next message without restarting any agent or bot.
-- **FR-010**: Connecting and disconnecting MUST be recorded (who, which platform account, when) for the person's own review; no code value is ever recorded or logged.
+- **FR-009**: Connecting and unlinking MUST take effect on the next message without restarting any agent or bot.
+- **FR-010**: Connecting and unlinking MUST be recorded (who, which platform account, when) for the person's own review; no code value is ever recorded or logged.
 
 **Managing**
 
-- **FR-011**: The profile MUST show a Connected accounts section listing each connected account (platform, username, id, connected date) with a Disconnect action, and a field to enter a connect code.
+- **FR-011**: The profile MUST show a Connected accounts section listing each connected account (platform, username, id, connected date) with an Unlink item in each row's menu (asking for confirmation, then taking effect at once), and a field to enter a connect code.
 - **FR-012**: The hand-entered Discord/Telegram id and username fields MUST be removed from the profile form and from the profile update operation for new values.
 - **FR-013**: Deleting a Vizier user MUST remove their connected accounts.
 - **FR-014**: Values entered by hand before this feature MUST NOT identify anyone; they MUST be shown as "Not verified — send /connect to confirm", MUST be removable, and MUST be replaced when the same platform is connected. (Compatibility kept until removal before 1.0.0, tracked in #82.)
@@ -147,7 +179,7 @@ A person who had typed their Discord or Telegram id into their profile before th
 - **SC-002**: The code path works in 100% of deployments, including the desktop app and deployments without a configured public address.
 - **SC-003**: 0 platform messages from an unconnected account are attributed to a Vizier user, including accounts whose id was typed into a profile before the upgrade.
 - **SC-004**: 100% of platform requests reaching an agent carry the platform id and display name in metadata, connected or not.
-- **SC-005**: A connect or disconnect is reflected in the very next message the account sends, with no restart.
+- **SC-005**: A connect or unlink is reflected in the very next message the account sends, with no restart.
 - **SC-006**: A code is never visible to anyone other than the platform account that requested it, and an expired, used or wrong code gives the same answer.
 
 ## Assumptions
