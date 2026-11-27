@@ -35,6 +35,7 @@
   implementation choices.
 - FR-015 and SC-006 state the extensibility goal the request asked for ("a layer of abstraction")
   as an outcome, not a design.
-- The three open decisions from the design discussion were settled as defaults in Assumptions:
-  subscription = $0, borrowed prices count as estimates, override screen in scope as P3. Revisit
-  them with `/speckit-clarify` if any is wrong.
+- The open decisions from the design discussion are settled in Assumptions: subscription = $0,
+  borrowed prices count as estimates. Hand-entered prices (overrides and custom-provider model
+  prices) were dropped at the user's request on 2026-11-27, so the spec has no new settings screen.
+  The checklist was re-run after that edit and still passes.
