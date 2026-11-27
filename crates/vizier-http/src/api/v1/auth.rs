@@ -2,6 +2,7 @@ use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
 };
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
@@ -697,7 +698,7 @@ pub async fn update_my_profile(
     State(state): State<HTTPState>,
     Extension(user): Extension<Principal>,
     Json(req): Json<UpdateUserProfileRequest>,
-) -> models::response::Response<UserProfileResponse> {
+) -> axum::response::Response {
     let changes = profile::ProfileChanges {
         discord_id: req.discord_id,
         discord_username: req.discord_username,
@@ -706,7 +707,7 @@ pub async fn update_my_profile(
         alias: req.alias,
     };
     match profile::update(&services(&state), &user, changes).await {
-        Ok(updated) => api_response(StatusCode::OK, profile_response(updated)),
-        Err(e) => err(e),
+        Ok(updated) => api_response(StatusCode::OK, profile_response(updated)).into_response(),
+        Err(e) => crate::error::ApiError(e).into_response(),
     }
 }

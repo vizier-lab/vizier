@@ -61,7 +61,8 @@ use crate::{
         integration::IntegrationStorage,
         session_file::SessionFileStorage,
         turn::TurnStorage,
-        user::{UserProfile, UserStorage},
+        platform_link::PlatformLinkStorage,
+        user::UserStorage,
     },
     stt::VizierStt,
     transport::VizierTransport,
@@ -93,7 +94,6 @@ pub struct VizierAgent {
     refresh_lock: Arc<Mutex<()>>,
     skills: VizierSkills,
     config: AgentConfig,
-    owner_profile: Option<UserProfile>,
     stt: Option<Arc<VizierStt>>,
     tts: Option<Arc<VizierTts>>,
     image_gen: Option<Arc<VizierImageGen>>,
@@ -194,16 +194,6 @@ impl VizierAgent {
 
         init_workspace(workspace.clone());
 
-        // Fetch owner profile if owner_id is set
-        let owner_profile = if let Some(ref owner_id) = agent_config.owner_id {
-            deps.storage
-                .get_user_profile(owner_id)
-                .await
-                .unwrap_or(None)
-        } else {
-            None
-        };
-
         Ok(Self {
             agent_id,
             deps: deps.clone(),
@@ -213,7 +203,6 @@ impl VizierAgent {
             refresh_lock: Arc::new(Mutex::new(())),
             skills,
             config: agent_config.clone(),
-            owner_profile,
             stt,
             tts,
             image_gen,
@@ -466,6 +455,23 @@ impl VizierAgent {
         identity_md(stored.as_deref())
     }
 
+    /// The owner's `OWNER.md`, read afresh every turn so linking or unlinking a platform
+    /// account applies without a restart (spec 069). `None` for an agent with no owner.
+    async fn owner_block(&self) -> Option<String> {
+        let owner_id = self.config.owner_id.as_deref()?;
+        let user = self.storage.get_user_by_id(owner_id).await.ok().flatten()?;
+        let profile = self.storage.get_user_profile(owner_id).await.ok().flatten();
+        let links = self
+            .storage
+            .list_links(owner_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(agent_id = %self.agent_id, "could not read the owner's linked accounts: {e}");
+                Vec::new()
+            });
+        Some(owner_md(&user.username, profile.as_ref(), &links))
+    }
+
     /// Takes the session because one section is conditional on it: the scheduled-run
     /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
     /// nowhere else — selecting on the request content kind would catch the dream cycle,
@@ -490,7 +496,7 @@ impl VizierAgent {
                 .unwrap_or("a Digital Steward".into()),
             system_prompt: self.config.system_prompt.clone(),
             sandbox: sandbox_md(categories, &self.config.tools.timeout.to_string()),
-            owner: self.owner_profile.as_ref().map(owner_md),
+            owner: self.owner_block().await,
             identity: self.identity_block().await,
             project: project.map(project_md),
             documents: self.config.documents.clone(),

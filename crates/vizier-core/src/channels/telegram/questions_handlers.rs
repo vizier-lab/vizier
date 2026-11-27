@@ -8,6 +8,7 @@ use teloxide::prelude::*;
 use teloxide::types::{CallbackQuery, MessageId};
 
 use super::{TelegramChannelReader, questions};
+use crate::platform_links::PlatformSender;
 use crate::questions::{
     model::{QuestionAnswer, QuestionSetRecord},
     press::{self, Outcome, Pressed},
@@ -20,10 +21,6 @@ use crate::schema::VizierChannelId;
 const NOTICE_LIMIT: usize = 200;
 
 impl TelegramChannelReader {
-    fn question_answerer(user: &teloxide::types::User) -> String {
-        format!("@{} (TelegramUser: {})", user.full_name(), user.id.0)
-    }
-
     /// A press on a question's inline keyboard (FR-026). Always answers the callback, so the
     /// person never sees a spinner that times out (FR-023); a refusal is the answer's text.
     pub(super) async fn handle_question_press(&self, query: CallbackQuery) {
@@ -77,7 +74,10 @@ impl TelegramChannelReader {
         question: Option<usize>,
         message: Option<MessageId>,
     ) -> Option<String> {
-        let who = Self::question_answerer(from);
+        let sender =
+            crate::platform_links::sender::resolve(&*self.deps.storage, super::person_of(from))
+                .await;
+        let who = sender.label.clone();
         let answer = |answers, declined| QuestionAnswer {
             set_id: record.set_id.clone(),
             text: String::new(),
@@ -96,12 +96,12 @@ impl TelegramChannelReader {
                 None
             }
             Outcome::Dismiss => self
-                .submit_question_answer(record, answer(vec![], true), &who)
+                .submit_question_answer(record, answer(vec![], true), &sender)
                 .await
                 .err()
                 .map(|e| e.message()),
             Outcome::Submit(answers) => self
-                .submit_question_answer(record, answer(answers, false), &who)
+                .submit_question_answer(record, answer(answers, false), &sender)
                 .await
                 .err()
                 .map(|e| e.message()),
@@ -129,17 +129,18 @@ impl TelegramChannelReader {
         &self,
         record: &QuestionSetRecord,
         answer: QuestionAnswer,
-        who: &str,
+        sender: &PlatformSender,
     ) -> Result<(), SubmitError> {
-        let request = submit::submit(
+        let mut request = submit::submit(
             &self.deps.storage,
             &self.deps.transport,
             &self.deps.questions,
             &record.session,
             answer,
-            who,
+            &sender.label,
         )
         .await?;
+        crate::platform_links::sender::stamp(&mut request, sender);
         // The reply streams through the session-event broadcast, which this reader's woken-turn
         // watcher renders into the chat.
         let responses = self
@@ -205,15 +206,19 @@ impl TelegramChannelReader {
             // The text form: one reply answers the whole set.
             None => match text_form::parse(&record.set, text) {
                 Ok(answers) => {
-                    let who = Self::question_answerer(from);
+                    let sender = crate::platform_links::sender::resolve(
+                        &*self.deps.storage,
+                        super::person_of(from),
+                    )
+                    .await;
                     let answer = QuestionAnswer {
                         set_id: record.set_id.clone(),
                         text: String::new(),
                         answers,
-                        answerer: Some(who.clone()),
+                        answerer: Some(sender.label.clone()),
                         declined: false,
                     };
-                    self.submit_question_answer(&record, answer, &who)
+                    self.submit_question_answer(&record, answer, &sender)
                         .await
                         .err()
                         .map(|e| e.message())

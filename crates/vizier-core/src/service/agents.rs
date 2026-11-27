@@ -1229,6 +1229,7 @@ pub async fn btw(
         session,
         &format!("http:{}", who.username),
         who.username.clone(),
+        None,
         side_chat,
         *config.prompt_timeout,
     )

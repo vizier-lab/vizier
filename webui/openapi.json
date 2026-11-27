@@ -7050,6 +7050,153 @@
         }
       }
     },
+    "/auth/users/me/connections": {
+      "get": {
+        "tags": [
+          "api::v1::connections"
+        ],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "Connected accounts, unverified hand-typed ones and recent changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Connections"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api::v1::connections"
+        ],
+        "operationId": "redeem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Connected; `replaced` is the account that was unlinked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ConnectResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`connect_code_unavailable`: unknown, expired or used"
+          },
+          "409": {
+            "description": "`platform_linked_elsewhere`"
+          },
+          "429": {
+            "description": "`rate_limited`, with `Retry-After`"
+          }
+        }
+      }
+    },
+    "/auth/users/me/connections/preview": {
+      "post": {
+        "tags": [
+          "api::v1::connections"
+        ],
+        "operationId": "preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What confirming the code would do. Consumes nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ConnectPreview"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`connect_code_unavailable`: unknown, expired or used"
+          },
+          "409": {
+            "description": "`platform_linked_elsewhere`"
+          },
+          "429": {
+            "description": "`rate_limited`, with `Retry-After`"
+          }
+        }
+      }
+    },
+    "/auth/users/me/connections/{platform}": {
+      "delete": {
+        "tags": [
+          "api::v1::connections"
+        ],
+        "operationId": "unlink",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "path",
+            "description": "`discord` or `telegram`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unlinked"
+          },
+          "404": {
+            "description": "`not_linked`"
+          }
+        }
+      }
+    },
+    "/auth/users/me/connections/{platform}/unverified": {
+      "delete": {
+        "tags": [
+          "api::v1::connections"
+        ],
+        "operationId": "clear_unverified",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "path",
+            "description": "`discord` or `telegram`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The hand-typed values for that platform are gone"
+          }
+        }
+      }
+    },
     "/catalogue": {
       "get": {
         "tags": [
@@ -10366,6 +10513,157 @@
                     "type": "null"
                   }
                 ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ConnectPreview": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "What confirming a code would do. Nothing has changed yet.",
+            "required": [
+              "platform",
+              "platform_user_id",
+              "vizier_username"
+            ],
+            "properties": {
+              "platform": {
+                "$ref": "#/components/schemas/ChannelPlatform"
+              },
+              "platform_display_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "platform_user_id": {
+                "type": "string"
+              },
+              "platform_username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "replaces": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectedAccount",
+                    "description": "The caller's other account on this platform, which confirming would unlink."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "vizier_username": {
+                "type": "string",
+                "description": "The Vizier account the platform account would be connected to."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ConnectResult": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "link"
+            ],
+            "properties": {
+              "link": {
+                "$ref": "#/components/schemas/ConnectedAccount"
+              },
+              "replaced": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectedAccount"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Connections": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "links",
+              "unverified",
+              "events"
+            ],
+            "properties": {
+              "events": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConnectionChange"
+                },
+                "description": "Newest first."
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConnectedAccount"
+                }
+              },
+              "unverified": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UnverifiedAccount"
+                }
               }
             }
           },
@@ -17846,6 +18144,115 @@
           }
         }
       },
+      "ConnectCodeRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "As typed: case, spaces and dashes don't matter."
+          }
+        }
+      },
+      "ConnectPreview": {
+        "type": "object",
+        "description": "What confirming a code would do. Nothing has changed yet.",
+        "required": [
+          "platform",
+          "platform_user_id",
+          "vizier_username"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "platform_display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_user_id": {
+            "type": "string"
+          },
+          "platform_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replaces": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConnectedAccount",
+                "description": "The caller's other account on this platform, which confirming would unlink."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vizier_username": {
+            "type": "string",
+            "description": "The Vizier account the platform account would be connected to."
+          }
+        }
+      },
+      "ConnectResult": {
+        "type": "object",
+        "required": [
+          "link"
+        ],
+        "properties": {
+          "link": {
+            "$ref": "#/components/schemas/ConnectedAccount"
+          },
+          "replaced": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConnectedAccount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ConnectedAccount": {
+        "type": "object",
+        "required": [
+          "platform",
+          "platform_user_id",
+          "linked_at"
+        ],
+        "properties": {
+          "linked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "platform_display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_user_id": {
+            "type": "string"
+          },
+          "platform_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Connection": {
         "type": "object",
         "required": [
@@ -17862,6 +18269,59 @@
           "status": {
             "type": "string",
             "description": "`connected`, `missing` or `unreachable`."
+          }
+        }
+      },
+      "ConnectionChange": {
+        "type": "object",
+        "required": [
+          "platform",
+          "platform_user_id",
+          "action",
+          "at"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/LinkAction"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "platform_user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Connections": {
+        "type": "object",
+        "required": [
+          "links",
+          "unverified",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectionChange"
+            },
+            "description": "Newest first."
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectedAccount"
+            }
+          },
+          "unverified": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnverifiedAccount"
+            }
           }
         }
       },
@@ -20934,6 +21394,15 @@
             "description": "The output limit is the person's, not the paired model's."
           }
         }
+      },
+      "LinkAction": {
+        "type": "string",
+        "description": "What changed about a person's links.",
+        "enum": [
+          "linked",
+          "replaced",
+          "unlinked"
+        ]
       },
       "LinkTargets": {
         "type": "object",
@@ -25851,6 +26320,30 @@
           }
         }
       },
+      "UnverifiedAccount": {
+        "type": "object",
+        "description": "An id or username typed by hand before accounts could be proven. It identifies nobody (#82).",
+        "required": [
+          "platform"
+        ],
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "platform_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateCoreRequest": {
         "type": "object",
         "required": [
@@ -26664,6 +27157,13 @@
           },
           "user": {
             "type": "string"
+          },
+          "verified": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the sender is a Vizier user proven by a linked platform account\n(`specs/069-platform-account-linking`). Set only by `platform_links::sender::stamp`, so it\nis `None` for every request that did not come from a Discord or Telegram person, and for\nrequests stored before that feature. Cleared from client input on receipt."
           }
         }
       },

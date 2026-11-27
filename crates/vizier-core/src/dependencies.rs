@@ -89,6 +89,8 @@ pub struct VizierDependencies {
     /// The side-chat rate limit (`specs/033-btw-side-chat` research R9): 5 asks per 60 s per
     /// platform identity, shared by the HTTP handler and the Discord/Telegram readers.
     pub side_chat_limits: Arc<crate::utils::rate_limit::RateLimiter>,
+    /// How often one platform account may ask for a connect code (spec 069).
+    pub connect_issues: Arc<crate::utils::rate_limit::RateLimiter>,
     /// The stale-read guard for project coding tools (`specs/041-project-coding-workspace`
     /// R8): `(session slug, path) → sha256` of what the chat last read or wrote.
     pub project_ledger: Arc<crate::projects::ledger::ProjectReadLedger>,
@@ -366,6 +368,13 @@ impl VizierDependencies {
                 crate::channels::side_chat::ASKS_PER_WINDOW,
                 crate::channels::side_chat::ASK_WINDOW,
             )),
+            connect_issues: Arc::new(
+                crate::utils::rate_limit::RateLimiter::new(
+                    crate::platform_links::connect::ISSUES_PER_WINDOW,
+                    crate::platform_links::connect::ISSUE_WINDOW,
+                )
+                .with_max_keys(10_000),
+            ),
             project_ledger: Default::default(),
             lsp: crate::projects::lsp::LspHost::new(config.lsp.max_servers),
             questions: Arc::new(crate::questions::Questions::new()),

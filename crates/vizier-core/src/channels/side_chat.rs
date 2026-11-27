@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::platform_links::PlatformSender;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     ErrorKind,
@@ -143,15 +144,17 @@ fn kind_label(kind: ErrorKind) -> &'static str {
 ///
 /// `person` is who is asking, as the platform names them: `http:{username}`,
 /// `discord:{user id}` or `telegram:{user id}`. It is only the rate-limit key and the check
-/// that a reply may continue a side chat, never stored, and per platform identity on purpose:
-/// the profile links between a WebUI account and a Discord/Telegram id are self-declared
-/// (research R9), so a key spanning platforms would let anyone spend another person's budget.
+/// that a reply may continue a side chat, never stored, and per platform identity on purpose
+/// (spec 033 research R9): never the sender label, which every unlinked person shares.
+/// `platform` is the linked-or-not sender of a Discord or Telegram ask (spec 069), which
+/// replaces `user` on the request.
 #[allow(clippy::too_many_arguments)]
 pub async fn ask(
     deps: &VizierDependencies,
     session: VizierSession,
     person: &str,
     user: String,
+    platform: Option<&PlatformSender>,
     side_chat: SideChat,
     timeout: Duration,
 ) -> Result<SideChatAnswer, SideChatError> {
@@ -164,7 +167,7 @@ pub async fn ask(
     // Counts the ask itself; the limit is checked before anything is sent.
     let _ = deps.side_chat_limits.check(person);
 
-    let request = VizierRequest {
+    let mut request = VizierRequest {
         timestamp: crate::time::now(),
         user,
         content: VizierRequestContent::Btw(side_chat),
@@ -172,6 +175,9 @@ pub async fn ask(
         transient: true,
         ..Default::default()
     };
+    if let Some(sender) = platform {
+        crate::platform_links::sender::stamp(&mut request, sender);
+    }
 
     let (tx, rx) = deps.transport.reply_channel().await.map_err(|_| no_agent())?;
     deps.transport
@@ -563,6 +569,7 @@ mod tests {
                 session("no-agent"),
                 "http:user",
                 "user".into(),
+                None,
                 short_side_chat("what?"),
                 Duration::from_secs(5),
             )
@@ -579,6 +586,7 @@ mod tests {
             session("no-agent"),
             "http:user",
             "user".into(),
+            None,
             short_side_chat("what?"),
             Duration::from_secs(5),
         )
@@ -599,6 +607,7 @@ mod tests {
                 session("no-agent"),
                 first,
                 "p-one".into(),
+                None,
                 short_side_chat("what?"),
                 Duration::from_secs(5),
             )
@@ -610,6 +619,7 @@ mod tests {
             session("no-agent"),
             first,
             "p-one".into(),
+            None,
             short_side_chat("what?"),
             Duration::from_secs(5),
         )
@@ -623,6 +633,7 @@ mod tests {
             session("no-agent"),
             second,
             "p-two".into(),
+            None,
             short_side_chat("what?"),
             Duration::from_secs(5),
         )

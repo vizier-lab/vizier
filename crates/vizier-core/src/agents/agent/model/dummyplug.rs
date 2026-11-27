@@ -56,6 +56,9 @@ impl CompletionModel for DummyplugModel {
             if text.eq_ignore_ascii_case("tools") {
                 tracing::debug!("dummyplug: listing {} tool(s)", tools.len());
                 AssistantPart::Text(reply_tool_list(tools))
+            } else if text.eq_ignore_ascii_case("sender") {
+                tracing::debug!("dummyplug: echoing the frontmatter");
+                AssistantPart::Text(reply_sender(&message))
             } else if text.eq_ignore_ascii_case("context") {
                 tracing::debug!("dummyplug: echoing the context block");
                 AssistantPart::Text(reply_context(&message))
@@ -117,6 +120,26 @@ fn command_text(message: &Message) -> String {
         None => &body[..],
     };
     strip_fence(body.trim()).trim().to_string()
+}
+
+/// §9: the frontmatter of the newest user message, between its `---` lines: who the agent was
+/// told sent it.
+fn reply_sender(message: &Message) -> String {
+    let Message::User(content) = message else {
+        return "(no frontmatter)".to_string();
+    };
+    content
+        .iter()
+        .filter_map(|c| match c {
+            Part::Text(t) if !t.starts_with(CONTEXT_HEADER) => Some(t.as_str()),
+            _ => None,
+        })
+        .find_map(|text| {
+            let block = text.strip_prefix("---\n")?;
+            let end = block.find("\n---")?;
+            Some(block[..end].trim_end().to_string())
+        })
+        .unwrap_or_else(|| "(no frontmatter)".to_string())
 }
 
 /// §6: the per-request context block exactly as the agent received it this turn.
@@ -609,6 +632,22 @@ mod tests {
     #[tokio::test]
     async fn context_without_a_block_says_so() {
         assert_eq!(reply_text(user_message("context"), vec![]).await, "(no context block)");
+    }
+
+    // --- §9: sender ----------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn sender_replies_with_the_frontmatter_block() {
+        let text = reply_text(user_message("sender"), vec![]).await;
+        assert!(text.contains("sender: tester"), "{text}");
+        assert!(text.contains("sent_at:"), "{text}");
+        assert!(!text.contains("---"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn sender_without_frontmatter_says_so() {
+        let bare = Message::User(vec![Part::Text("sender".into())]);
+        assert_eq!(reply_text(bare, vec![]).await, "(no frontmatter)");
     }
 
     // --- US4: tool requests -------------------------------------------------------------------

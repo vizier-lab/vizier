@@ -23,8 +23,12 @@ use crate::channels::woken;
 use crate::channels::{FatalChannelError, VizierChannel};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
+use crate::platform_links::{
+    self, PlatformPerson, PlatformSender,
+    sender::{command_request, stamp_or_unregistered},
+};
 use crate::schema::{
-    PlatformMessageId, SideChat, SideChatTurn, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
+    ChannelPlatform, PlatformMessageId, SideChat, SideChatTurn, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::storage::agent::AgentStorage;
@@ -44,6 +48,17 @@ const SIDE_CHAT_IDLE: std::time::Duration = std::time::Duration::from_secs(2 * 6
 const SIDE_CHAT_SWEEP: std::time::Duration = std::time::Duration::from_secs(15);
 const SIDE_CHAT_ENDED: &str = "This side chat has ended — start a new one with /btw.";
 const TELEGRAM_LIMIT: usize = 4096;
+
+/// Who a Telegram message is from, for linking and labelling (spec 069). The person's id, never
+/// the chat's: in a group every member shares the chat id.
+fn person_of(user: &teloxide::types::User) -> PlatformPerson {
+    PlatformPerson {
+        platform: ChannelPlatform::Telegram,
+        id: user.id.0.to_string(),
+        username: user.username.clone(),
+        display_name: Some(user.full_name()),
+    }
+}
 
 /// One message in a side chat: the bot's replies and the person's own messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -341,6 +356,13 @@ impl TelegramChannelReader {
         let is_mention = text.starts_with(&format!("@{}", bot_username))
             || text.contains(&format!("@{}", bot_username));
 
+        // `/connect` links this person's account (spec 069). It is never an answer to a question
+        // or a turn, so it comes before both.
+        if is_command(&text, "connect", &bot_username) {
+            self.connect(&msg, &bot_username).await;
+            return Ok(());
+        }
+
         // A reply to a question set's message answers it (`specs/042-agent-asking-question`
         // FR-027); it is never an ordinary message.
         if self.question_reply(&msg).await {
@@ -419,11 +441,6 @@ impl TelegramChannelReader {
 
         let replied_to = msg.reply_to_message().as_ref().map(|m| m.id.to_string());
         let message_id = msg.id.to_string();
-        let user_full_name = msg
-            .from
-            .as_ref()
-            .map(|u| u.username.clone().unwrap_or_default())
-            .unwrap_or_else(|| "Unknown".into());
 
         let metadata = serde_json::json!({
             "is_reply_message": replied_to.is_some(),
@@ -483,7 +500,7 @@ impl TelegramChannelReader {
             }
         }
 
-        let user = format!("@{} (TelegramUser: {})", user_full_name, chat_id.0);
+        let sender = self.sender_of(msg.from.as_ref()).await;
 
         let transport = self.deps.transport.clone();
 
@@ -708,22 +725,7 @@ impl TelegramChannelReader {
             let _ = transport
                 .send_request(
                     session,
-                    VizierRequest {
-                        trace: Default::default(),
-                        client_tools: vec![],
-                        client_categories: vec![],
-                        client: None,
-                        timestamp: crate::time::now(),
-                        user: user.clone(),
-                        content: VizierRequestContent::Command("abort".to_string()),
-                        platform_message_id: None,
-                        metadata: serde_json::json!({}),
-                        attachments: vec![],
-                        expect_audio_reply: None,
-                        scheduled_task: None,
-                        background_depth: 0,
-                        ..Default::default()
-                    },
+                    command_request("abort", sender.as_ref()),
                     None,
                 )
                 .await;
@@ -736,22 +738,7 @@ impl TelegramChannelReader {
             let _ = transport
                 .send_request(
                     session,
-                    VizierRequest {
-                        trace: Default::default(),
-                        client_tools: vec![],
-                        client_categories: vec![],
-                        client: None,
-                        timestamp: crate::time::now(),
-                        user: user.clone(),
-                        content: VizierRequestContent::Command("checkpoint".to_string()),
-                        platform_message_id: None,
-                        metadata: serde_json::json!({}),
-                        attachments: vec![],
-                        expect_audio_reply: None,
-                        scheduled_task: None,
-                        background_depth: 0,
-                        ..Default::default()
-                    },
+                    command_request("checkpoint", sender.as_ref()),
                     Some(response_tx),
                 )
                 .await;
@@ -804,22 +791,7 @@ impl TelegramChannelReader {
             let _ = transport
                 .send_request(
                     session,
-                    VizierRequest {
-                        trace: Default::default(),
-                        client_tools: vec![],
-                        client_categories: vec![],
-                        client: None,
-                        timestamp: crate::time::now(),
-                        user: user.clone(),
-                        content: VizierRequestContent::Command("lobotomy".to_string()),
-                        platform_message_id: None,
-                        metadata: serde_json::json!({}),
-                        attachments: vec![],
-                        expect_audio_reply: None,
-                        scheduled_task: None,
-                        background_depth: 0,
-                        ..Default::default()
-                    },
+                    command_request("lobotomy", sender.as_ref()),
                     Some(response_tx),
                 )
                 .await;
@@ -891,22 +863,15 @@ impl TelegramChannelReader {
             (text.clone(), VizierRequestContent::SilentRead(text))
         };
 
-        let request = VizierRequest {
-            trace: Default::default(),
-            client_tools: vec![],
-            client_categories: vec![],
-            client: None,
+        let mut request = VizierRequest {
             timestamp: crate::time::now(),
-            user,
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Telegram(msg.id.0.into())),
             metadata,
             attachments,
-            expect_audio_reply: None,
-            scheduled_task: None,
-            background_depth: 0,
             ..Default::default()
         };
+        stamp_or_unregistered(&mut request, sender.as_ref());
 
         let renderer = TurnRenderer {
             bot: self.bot.clone(),
@@ -936,6 +901,35 @@ impl TelegramChannelReader {
         });
 
         Ok(())
+    }
+
+    /// Who the event is from, linked or not; `None` where Telegram names no person.
+    async fn sender_of(&self, user: Option<&teloxide::types::User>) -> Option<PlatformSender> {
+        let user = user?;
+        Some(platform_links::sender::resolve(&*self.deps.storage, person_of(user)).await)
+    }
+
+    /// `/connect` (spec 069): a code only in a private chat, where nobody else can read it.
+    async fn connect(&self, msg: &Message, bot_username: &str) {
+        let Some(from) = msg.from.as_ref().filter(|user| !user.is_bot) else {
+            return;
+        };
+        let reply = platform_links::connect::issue(
+            &self.deps,
+            &person_of(from),
+            msg.chat.is_private(),
+            Some(format!("https://t.me/{bot_username}")),
+        )
+        .await;
+        let text = platform_links::text::reply(ChannelPlatform::Telegram, &reply);
+        if let Err(err) = self
+            .bot
+            .send_message(msg.chat.id, text)
+            .reply_parameters(ReplyParameters::new(msg.id))
+            .await
+        {
+            tracing::warn!("could not answer /connect on telegram: {err}");
+        }
     }
 
     /// One `/btw` question, new or a follow-up (`specs/033-btw-side-chat/`). The agent keeps
@@ -982,12 +976,13 @@ impl TelegramChannelReader {
             _ => std::time::Duration::from_secs(120),
         };
         let question = question.trim().to_string();
-        let name = from.username.clone().unwrap_or_else(|| from.first_name.clone());
+        let sender = platform_links::sender::resolve(&*self.deps.storage, person_of(from)).await;
         let result = side_chat::ask(
             &self.deps,
             session,
             &person,
-            format!("@{} (TelegramUser: {})", name, from.id.0),
+            sender.label.clone(),
+            Some(&sender),
             SideChat {
                 question: question.clone(),
                 turns,
@@ -1414,6 +1409,7 @@ fn telegram_rules() -> PlatformRules {
             ),
             // spec 062: `/queue <message>`, read by core like any typed text.
             CommandEntry::new("queue", "send this after my current turn, as a new one"),
+            CommandEntry::new("connect", "link this account to your Vizier user"),
         ],
     }
 }
@@ -1434,6 +1430,15 @@ fn is_command(text: &str, name: &str, bot_username: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 069: `/connect` is in the menu, and `/connect@bot` addresses only that bot.
+    #[test]
+    fn connect_is_in_the_menu_and_matches_this_bot() {
+        assert!(telegram_rules().builtins.iter().any(|entry| entry.name == "connect"));
+        assert!(is_command("/connect", "connect", "vizier_bot"));
+        assert!(is_command("/connect@vizier_bot", "connect", "vizier_bot"));
+        assert!(!is_command("/connect@other_bot", "connect", "vizier_bot"));
+    }
 
     #[test]
     fn btw_is_in_the_menu_and_matches_the_whole_word() {

@@ -20,6 +20,7 @@ pub mod users;
 pub mod roles;
 pub mod api_keys;
 pub mod profile;
+pub mod platform_links;
 pub mod project_lsp;
 pub mod shares;
 pub mod share_guard;

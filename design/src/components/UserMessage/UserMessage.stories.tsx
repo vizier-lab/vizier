@@ -55,3 +55,17 @@ export const Queued: Story = { args: { children: "Also check the retry path", qu
 
 /** Sent with Ctrl+Enter (or `/queue`) while the agent works: it runs as a new turn after this one. */
 export const QueuedAsNewTurn: Story = { args: { children: "Then draft the release notes", queued: { agentName: "Archivist", mode: "queue" } } };
+
+/** A Discord or Telegram conversation: who is connected to a Vizier user, and who is not. */
+export const PlatformSenders: Story = {
+  render: () => (
+    <div className="flex flex-col gap-24">
+      <UserMessage name="rin" sender="connected" time="14:02">
+        Can you check the deploy?
+      </UserMessage>
+      <UserMessage name="Kai" seed="552013874411" sender="unregistered" time="14:03">
+        me too
+      </UserMessage>
+    </div>
+  ),
+};

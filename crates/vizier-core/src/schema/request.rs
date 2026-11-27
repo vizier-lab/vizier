@@ -390,6 +390,12 @@ pub struct VizierRequest {
     /// input on receipt and before a request is queued. A `mid_turn` request never opens a turn.
     #[serde(default, skip_serializing_if = "is_false")]
     pub mid_turn: bool,
+    /// Whether the sender is a Vizier user proven by a linked platform account
+    /// (`specs/069-platform-account-linking`). Set only by `platform_links::sender::stamp`, so it
+    /// is `None` for every request that did not come from a Discord or Telegram person, and for
+    /// requests stored before that feature. Cleared from client input on receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
     /// What the client that sent this request says about itself: what it renders, what it
     /// offers, how it is being used. The WebUI says it draws mermaid diagrams and LaTeX.
     ///
@@ -639,6 +645,7 @@ impl VizierRequest {
             if let Some(page) = &event.page {
                 frontmatter.insert("page".into(), json!(format!("{} v{}", page.page_id, page.version)));
             }
+            self.insert_verified(&mut frontmatter);
             frontmatter.insert("sent_at".into(), json!(self.sent_at()));
             frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
@@ -652,6 +659,7 @@ impl VizierRequest {
             frontmatter.insert("sender".into(), json!(self.user));
             frontmatter.insert("via".into(), json!("question_answer"));
             frontmatter.insert("question_set".into(), json!(answer.set_id));
+            self.insert_verified(&mut frontmatter);
             frontmatter.insert("sent_at".into(), json!(self.sent_at()));
             frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
@@ -663,16 +671,25 @@ impl VizierRequest {
             let mut frontmatter = serde_json::Map::new();
             frontmatter.insert("sender".into(), json!(self.user));
             frontmatter.insert("via".into(), json!("mid_turn"));
+            self.insert_verified(&mut frontmatter);
             frontmatter.insert("sent_at".into(), json!(self.sent_at()));
             frontmatter.insert("metadata".into(), self.shown_metadata());
             return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
-        Ok(serde_yaml::to_string(&json!({
-            "sender": self.user,
-            "sent_at": self.sent_at(),
-            "metadata": self.shown_metadata(),
-        }))?)
+        let mut frontmatter = serde_json::Map::new();
+        frontmatter.insert("sender".into(), json!(self.user));
+        self.insert_verified(&mut frontmatter);
+        frontmatter.insert("sent_at".into(), json!(self.sent_at()));
+        frontmatter.insert("metadata".into(), self.shown_metadata());
+        Ok(serde_yaml::to_string(&frontmatter)?)
+    }
+
+    /// `verified` beside a platform sender; nothing for any other request.
+    fn insert_verified(&self, frontmatter: &mut serde_json::Map<String, serde_json::Value>) {
+        if let Some(verified) = self.verified {
+            frontmatter.insert("verified".into(), json!(verified));
+        }
     }
 
     pub async fn to_message(&self, resolver: &dyn AttachmentResolver) -> Result<Message> {
@@ -1367,6 +1384,65 @@ mod tests {
         assert!(request.client_context.is_empty());
         let wire = serde_json::to_value(&request).unwrap();
         assert!(wire.get("client_context").is_none(), "{wire}");
+    }
+
+    /// Spec 069: a platform request says whether its sender is proven.
+    #[test]
+    fn a_platform_request_says_whether_its_sender_is_verified() {
+        for (verified, sender) in [(true, "rin"), (false, "Unregistered User")] {
+            let request = VizierRequest {
+                user: sender.into(),
+                content: VizierRequestContent::Chat("hi".into()),
+                verified: Some(verified),
+                metadata: serde_json::json!({ "platform_user_id": "1" }),
+                ..Default::default()
+            };
+            let frontmatter = request.generate_frontmatter().unwrap();
+            assert!(frontmatter.contains(&format!("sender: {sender}")), "{frontmatter}");
+            assert!(frontmatter.contains(&format!("verified: {verified}")), "{frontmatter}");
+
+            // It survives the journal, so a resumed turn reads the same.
+            let wire = serde_json::to_value(&request).unwrap();
+            let back: VizierRequest = serde_json::from_value(wire).unwrap();
+            assert_eq!(back.verified, Some(verified));
+
+            let mid_turn = VizierRequest { mid_turn: true, ..request.clone() };
+            let frontmatter = mid_turn.generate_frontmatter().unwrap();
+            assert!(frontmatter.contains(&format!("verified: {verified}")), "{frontmatter}");
+        }
+    }
+
+    /// Spec 069: every request that is not from a platform person reads as it always did,
+    /// including one stored before the field existed.
+    #[test]
+    fn other_requests_carry_no_verified_line() {
+        let old: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-11-04T00:00:00Z",
+            "user": "@rin (DiscordId: 1)",
+            "content": { "chat": "hello" },
+            "metadata": {}
+        }))
+        .unwrap();
+        assert_eq!(old.verified, None);
+        assert!(serde_json::to_value(&old).unwrap().get("verified").is_none());
+
+        let web = VizierRequest {
+            user: "rin".into(),
+            content: VizierRequestContent::Chat("hi".into()),
+            ..Default::default()
+        };
+        let delivery = VizierRequest {
+            content: VizierRequestContent::DetachedDelivery("done".into()),
+            ..web.clone()
+        };
+        let woken = VizierRequest {
+            content: VizierRequestContent::Woken("do it".into()),
+            ..web.clone()
+        };
+        for request in [old, web, delivery, woken, scheduled()] {
+            let frontmatter = request.generate_frontmatter().unwrap();
+            assert!(!frontmatter.contains("verified"), "{frontmatter}");
+        }
     }
 }
 

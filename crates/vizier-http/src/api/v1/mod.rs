@@ -17,6 +17,7 @@ use crate::{
 pub mod agents;
 pub mod auth;
 pub mod catalogue;
+pub mod connections;
 pub mod embedding;
 pub mod files;
 pub mod integrations;
@@ -48,6 +49,28 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .route(
             "/auth/users/me/profile",
             put(auth::update_my_profile)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        // Connected Discord and Telegram accounts (spec 069), the caller's own only.
+        .route(
+            "/auth/users/me/connections",
+            get(connections::list)
+                .post(connections::redeem)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/auth/users/me/connections/preview",
+            post(connections::preview)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/auth/users/me/connections/{platform}",
+            delete(connections::unlink)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/auth/users/me/connections/{platform}/unverified",
+            delete(connections::clear_unverified)
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         // Setup routes (public - only works when no users exist)

@@ -26,6 +26,7 @@ use crate::{
         catalogue_source::{CatalogueSourceRow, CatalogueSourceStorage},
         memory::MemoryStorage,
         notification::NotificationStorage,
+        platform_link::PlatformLinkStorage,
         project::ProjectStorage,
         provider::{CustomProviderStorage, ProviderStorage},
         question::{QuestionStorage, SensitiveAskStorage},
@@ -67,6 +68,7 @@ pub mod catalogue_source;
 pub mod memory;
 pub mod memory_bundle;
 pub mod notification;
+pub mod platform_link;
 pub mod project;
 pub mod share;
 pub mod provider;
@@ -157,6 +159,7 @@ where
         + CustomToolStorage
         + ui_page::UiPageStorage
         + NotificationStorage
+        + PlatformLinkStorage
         + ProjectStorage
         + share::ShareStorage
         + QuestionStorage
@@ -610,5 +613,73 @@ impl SessionFileStorage for VizierStorage {
 
     async fn session_file_reference_count(&self, file_id: &str) -> Result<usize> {
         self.0.session_file_reference_count(file_id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl platform_link::PlatformLinkStorage for VizierStorage {
+    async fn issue_connect_code(
+        &self,
+        person: &crate::platform_links::PlatformPerson,
+        code_hash: &str,
+        now_ms: i64,
+        expires_ms: i64,
+    ) -> Result<()> {
+        self.0
+            .issue_connect_code(person, code_hash, now_ms, expires_ms)
+            .await
+    }
+
+    async fn peek_connect_code(
+        &self,
+        code_hash: &str,
+        now_ms: i64,
+    ) -> Result<Option<crate::platform_links::PlatformPerson>> {
+        self.0.peek_connect_code(code_hash, now_ms).await
+    }
+
+    async fn redeem_connect_code(
+        &self,
+        code_hash: &str,
+        user_id: &str,
+        now_ms: i64,
+    ) -> Result<platform_link::RedeemOutcome> {
+        self.0.redeem_connect_code(code_hash, user_id, now_ms).await
+    }
+
+    async fn find_link(
+        &self,
+        platform: crate::schema::ChannelPlatform,
+        platform_user_id: &str,
+    ) -> Result<Option<platform_link::PlatformLink>> {
+        self.0.find_link(platform, platform_user_id).await
+    }
+
+    async fn list_links(&self, user_id: &str) -> Result<Vec<platform_link::PlatformLink>> {
+        self.0.list_links(user_id).await
+    }
+
+    async fn unlink_platform(
+        &self,
+        user_id: &str,
+        platform: crate::schema::ChannelPlatform,
+    ) -> Result<bool> {
+        self.0.unlink_platform(user_id, platform).await
+    }
+
+    async fn touch_link_names(&self, person: &crate::platform_links::PlatformPerson) -> Result<()> {
+        self.0.touch_link_names(person).await
+    }
+
+    async fn list_link_events(
+        &self,
+        user_id: &str,
+        limit: u32,
+    ) -> Result<Vec<platform_link::PlatformLinkEvent>> {
+        self.0.list_link_events(user_id, limit).await
+    }
+
+    async fn purge_expired_connect_codes(&self, now_ms: i64) -> Result<u64> {
+        self.0.purge_expired_connect_codes(now_ms).await
     }
 }

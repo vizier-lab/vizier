@@ -30,6 +30,7 @@
 - [Providers](./configuration/providers.md)
 - [Agents](./configuration/agents.md)
 - [Channels](./configuration/channels.md)
+- [Connected Accounts](./configuration/channel-identities.md)
 - [Memory](./configuration/memory.md)
 - [Entity Links](./configuration/entity-links.md)
 - [Skills](./configuration/skills.md)

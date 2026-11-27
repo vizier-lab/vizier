@@ -52,6 +52,8 @@ export * from "./components/CodeEditor";
 export * from "./components/ColorField";
 export * from "./components/CommandNote";
 export * from "./components/Composer";
+export * from "./components/ConnectConfirm";
+export * from "./components/ConnectedAccountRow";
 export * from "./components/ContextRing";
 export * from "./components/Dialog";
 export * from "./components/DateTimeField";

@@ -1289,6 +1289,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/users/me/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["redeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/me/connections/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/me/connections/{platform}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["unlink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/users/me/connections/{platform}/unverified": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["clear_unverified"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalogue": {
         parameters: {
             query?: never;
@@ -2256,6 +2320,41 @@ export interface components {
                 attachments: components["schemas"]["VizierAttachment"][];
                 content: string;
                 stats?: components["schemas"]["VizierResponseStats"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ConnectPreview: {
+            /** @description What confirming a code would do. Nothing has changed yet. */
+            data?: {
+                platform: components["schemas"]["ChannelPlatform"];
+                platform_display_name?: string | null;
+                platform_user_id: string;
+                platform_username?: string | null;
+                replaces?: components["schemas"]["ConnectedAccount"] | null;
+                /** @description The Vizier account the platform account would be connected to. */
+                vizier_username: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ConnectResult: {
+            data?: {
+                link: components["schemas"]["ConnectedAccount"];
+                replaced?: components["schemas"]["ConnectedAccount"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Connections: {
+            data?: {
+                /** @description Newest first. */
+                events: components["schemas"]["ConnectionChange"][];
+                links: components["schemas"]["ConnectedAccount"][];
+                unverified: components["schemas"]["UnverifiedAccount"][];
             };
             message?: string | null;
             /** Format: int32 */
@@ -4328,11 +4427,50 @@ export interface components {
             source_call_id?: string | null;
             text: string;
         };
+        ConnectCodeRequest: {
+            /** @description As typed: case, spaces and dashes don't matter. */
+            code: string;
+        };
+        /** @description What confirming a code would do. Nothing has changed yet. */
+        ConnectPreview: {
+            platform: components["schemas"]["ChannelPlatform"];
+            platform_display_name?: string | null;
+            platform_user_id: string;
+            platform_username?: string | null;
+            replaces?: components["schemas"]["ConnectedAccount"] | null;
+            /** @description The Vizier account the platform account would be connected to. */
+            vizier_username: string;
+        };
+        ConnectResult: {
+            link: components["schemas"]["ConnectedAccount"];
+            replaced?: components["schemas"]["ConnectedAccount"] | null;
+        };
+        ConnectedAccount: {
+            /** Format: date-time */
+            linked_at: string;
+            platform: components["schemas"]["ChannelPlatform"];
+            platform_display_name?: string | null;
+            platform_user_id: string;
+            platform_username?: string | null;
+        };
         Connection: {
             /** @description `saved`, `env:NAME`, or `null` (a local provider, or none found). */
             source?: string | null;
             /** @description `connected`, `missing` or `unreachable`. */
             status: string;
+        };
+        ConnectionChange: {
+            action: components["schemas"]["LinkAction"];
+            /** Format: date-time */
+            at: string;
+            platform: components["schemas"]["ChannelPlatform"];
+            platform_user_id: string;
+        };
+        Connections: {
+            /** @description Newest first. */
+            events: components["schemas"]["ConnectionChange"][];
+            links: components["schemas"]["ConnectedAccount"][];
+            unverified: components["schemas"]["UnverifiedAccount"][];
         };
         /** @description What a consultee is told about the request beyond its text (spec 064 FR-003). */
         ConsultationFrame: {
@@ -5200,6 +5338,11 @@ export interface components {
             /** @description The output limit is the person's, not the paired model's. */
             output: boolean;
         };
+        /**
+         * @description What changed about a person's links.
+         * @enum {string}
+         */
+        LinkAction: "linked" | "replaced" | "unlinked";
         LinkTargets: {
             artifacts: string[];
             functions: string[];
@@ -6755,6 +6898,12 @@ export interface components {
                 [key: string]: components["schemas"]["Units"];
             };
         };
+        /** @description An id or username typed by hand before accounts could be proven. It identifies nobody (#82). */
+        UnverifiedAccount: {
+            platform: components["schemas"]["ChannelPlatform"];
+            platform_user_id?: string | null;
+            platform_username?: string | null;
+        };
         UpdateCoreRequest: {
             /**
              * Format: int64
@@ -7050,6 +7199,13 @@ export interface components {
             /** Format: date-time */
             timestamp: string;
             user: string;
+            /**
+             * @description Whether the sender is a Vizier user proven by a linked platform account
+             *     (`specs/069-platform-account-linking`). Set only by `platform_links::sender::stamp`, so it
+             *     is `None` for every request that did not come from a Discord or Telegram person, and for
+             *     requests stored before that feature. Cleared from client input on receipt.
+             */
+            verified?: boolean | null;
         };
         VizierRequestContent: {
             chat: string;
@@ -11894,6 +12050,165 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connected accounts, unverified hand-typed ones and recent changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Connections"];
+                };
+            };
+        };
+    };
+    redeem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Connected; `replaced` is the account that was unlinked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ConnectResult"];
+                };
+            };
+            /** @description `connect_code_unavailable`: unknown, expired or used */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `platform_linked_elsewhere` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `rate_limited`, with `Retry-After` */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description What confirming the code would do. Consumes nothing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ConnectPreview"];
+                };
+            };
+            /** @description `connect_code_unavailable`: unknown, expired or used */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `platform_linked_elsewhere` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `rate_limited`, with `Retry-After` */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `discord` or `telegram` */
+                platform: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `not_linked` */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clear_unverified: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `discord` or `telegram` */
+                platform: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The hand-typed values for that platform are gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

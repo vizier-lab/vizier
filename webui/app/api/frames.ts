@@ -308,6 +308,9 @@ export interface VizierRequestMessage {
   mid_turn?: boolean
   // Set by the server only: said in a live voice call (spec 055).
   spoken?: boolean
+  // Set by the server only, for a Discord or Telegram sender: whether their account is connected
+  // to the Vizier user named in `user` (spec 069). Absent for every other request.
+  verified?: boolean | null
 }
 
 // VizierAttachment - matches backend VizierAttachment

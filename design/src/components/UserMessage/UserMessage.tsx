@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/cx";
 import { Avatar } from "../Avatar/Avatar";
+import { Icon } from "../../icons/Icon";
 import { SkillChip } from "../SkillChip/SkillChip";
 
 export type UserMessageProps = {
@@ -8,6 +9,11 @@ export type UserMessageProps = {
   name?: string;
   /** What the avatar's face is drawn from (the username); the name when absent. */
   seed?: string;
+  /**
+   * In a Discord or Telegram conversation: whether the sender's account is connected to a Vizier
+   * user (the name is then theirs) or not (the name is the platform's, which proves nothing).
+   */
+  sender?: "connected" | "unregistered";
   /** "14:02". */
   time?: ReactNode;
   /** A photo for the avatar. */
@@ -32,8 +38,16 @@ function queuedLabel(queued: NonNullable<UserMessageProps["queued"]>) {
 }
 
 /** A person's message, right-aligned: a meta row (time, name, avatar) above its container (D43). */
-export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attachments, queued, side = "right", mentioned, className, children, ...rest }: UserMessageProps) {
+export function UserMessage({ name = "You", seed, sender, time, avatarSrc, skill, attachments, queued, side = "right", mentioned, className, children, ...rest }: UserMessageProps) {
   const left = side === "left";
+  const tag = sender === "connected" ? (
+    <span className="flex items-center gap-4 type-mono-xs text-live-text">
+      <Icon name="check" size={11} />
+      connected
+    </span>
+  ) : sender === "unregistered" ? (
+    <span className="type-mono-xs text-faint">unregistered</span>
+  ) : null;
   return (
     <div className={cx("flex flex-col gap-10", left ? "items-start" : "items-end", className)} {...rest}>
       <div className="flex items-center gap-8">
@@ -41,11 +55,13 @@ export function UserMessage({ name = "You", seed, time, avatarSrc, skill, attach
         {left ? (
           <>
             <span className="type-body-strong text-fg">{name}</span>
+            {tag}
             <span className="type-mono-xs text-faint">{time}</span>
           </>
         ) : (
           <>
             <span className="type-mono-xs text-faint">{queued ? queuedLabel(queued) : time}</span>
+            {tag}
             <span className="type-body-strong text-fg">{name}</span>
           </>
         )}

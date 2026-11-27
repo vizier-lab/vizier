@@ -1,7 +1,7 @@
 //! The public address people reach this vizier at (`base_url`).
 //!
-//! Nothing reads it yet: it is kept for sign-in redirects and push notifications, which need an
-//! absolute URL to point back at this instance. The server takes it from `--base-url`,
+//! The bots' `/connect` reply builds its one-click link from it (spec 069); sign-in redirects
+//! and push notifications would need the same. The server takes it from `--base-url`,
 //! `VIZIER_BASE_URL` or `vizier.base_url` in the seed config; the desktop app from its Desktop
 //! settings page. Both go through [`normalize`], so a value is judged the same way everywhere.
 

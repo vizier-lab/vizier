@@ -42,7 +42,12 @@ POST /api/v1/auth/login
 | Method | Path | Permission | Description |
 |--------|------|------------|-------------|
 | `GET` | `/auth/users/me` | any | Current user, role, permissions |
-| `GET` / `PUT` | `/auth/users/me/profile` | any | Profile used to build the agent's owner prompt: `discord_id`, `discord_username`, `telegram_id`, `telegram_username`, `alias[]` |
+| `GET` / `PUT` | `/auth/users/me/profile` | any | Profile used to build the agent's owner prompt: `alias[]`. The old `discord_*` and `telegram_*` fields are read-only; a new value is refused with `422 connect_required` |
+| `GET` | `/auth/users/me/connections` | any | `links` (connected accounts), `unverified` (old hand-typed ids), `events` (recent changes). See [Connected Accounts](../configuration/channel-identities.md) |
+| `POST` | `/auth/users/me/connections/preview` | any | `{ "code" }`: what confirming would connect, without using the code |
+| `POST` | `/auth/users/me/connections` | any | `{ "code" }`: connect the account. `404 connect_code_unavailable`, `409 platform_linked_elsewhere`, `429 rate_limited` (10 attempts per person and address in 10 minutes) |
+| `DELETE` | `/auth/users/me/connections/{platform}` | any | Unlink `discord` or `telegram`; `404 not_linked` |
+| `DELETE` | `/auth/users/me/connections/{platform}/unverified` | any | Remove the hand-typed values for a platform |
 | `POST` | `/auth/change-password` | `settings:password` | `{ "current_password", "new_password" }` |
 | `GET` / `POST` | `/auth/api-keys` | `settings:api_keys` | List / create `{ "name", "expires_in_days"? }` → `{ id, name, key, expires_at }` (the `key` is shown once) |
 | `DELETE` | `/auth/api-keys/{key_id}` | `settings:api_keys` | Revoke |
