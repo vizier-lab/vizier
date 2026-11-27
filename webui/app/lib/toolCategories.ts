@@ -47,6 +47,7 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     memory_graph: 'memory',
     memory_delete: 'memory',
     memory_delete_bundle: 'memory',
+    read_dream_journal: 'memory',
     schedule_one_time_task: 'scheduling',
     schedule_cron_task: 'scheduling',
     list_task: 'scheduling',
@@ -142,11 +143,10 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     ui_examples: 'ui',
 }
 
-/** The sandbox's own tools and the dream journal: built in, but in no `ToolCategory`. */
+/** The sandbox's own tools and the journal writer: built in, but in no `ToolCategory`. */
 export const UNCATEGORISED_TOOLS: Record<string, BuiltinCategory> = {
     list_tool_functions: 'lookup',
     describe_tool_function: 'lookup',
-    read_dream_journal: 'dreams',
     write_dream_journal: 'dreams',
 }
 
