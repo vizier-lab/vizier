@@ -1,4 +1,4 @@
-import type { Activity, Breakdown, DailyUsage, MediaCall, PriceSource, Units, UsageKind } from '../api/endpoints/usage'
+import type { Activity, Breakdown, DailyUsage, MediaCall, PriceAlternative, PriceSource, SourceSummary, Units, UsageKind } from '../api/endpoints/usage'
 import { abbreviate, cost, count } from './format'
 
 export type Range = '7' | '30' | 'custom'
@@ -42,19 +42,59 @@ export function formatUnits(units?: Units | null): string | undefined {
     return parts.length ? parts.join(' · ') : undefined
 }
 
-/** How a priced figure is labelled: free for a local model, a note for the shipped table. */
-export function priceNote(source?: PriceSource): string | undefined {
-    if (source === 'local') return 'free · local'
-    if (source === 'table') return "estimated from Vizier's price table"
-    if (source === 'none') return 'unpriced'
-    return undefined
+/** What a price note can say about a row besides its source (spec 068). */
+export interface PriceContext {
+    borrowedFrom?: string | null
+    alternatives?: PriceAlternative[]
+    sources?: SourceSummary[]
+}
+
+/** A source's display name from the report, or its id. */
+export function sourceName(id: string, sources?: SourceSummary[]): string {
+    return sources?.find((s) => s.id === id)?.name ?? id
+}
+
+/** Whether a figure is free by rule (a local model, a subscription), shown as "free". */
+export function isFree(source?: PriceSource): boolean {
+    return source === 'local' || source === 'subscription'
+}
+
+/**
+ * Where a price came from, as the line under a model row (`contracts/webui.md`): a rule's own
+ * words, or the source's name, then what the first disagreeing source says.
+ */
+export function priceNote(source?: PriceSource, ctx: PriceContext = {}): string | undefined {
+    let note: string | undefined
+    if (source === 'local') note = 'free · local'
+    else if (source === 'subscription') note = 'included · subscription'
+    else if (source === 'borrowed') note = ctx.borrowedFrom ? `estimate · borrowed from ${ctx.borrowedFrom}` : 'estimate · borrowed'
+    else if (source === 'none') note = 'unpriced'
+    else if (source === 'inference_profile') note = 'inference profile price'
+    else if (source === 'curated') note = "estimated from Vizier's price table"
+    else if (source) note = sourceName(source, ctx.sources)
+    const first = ctx.alternatives?.[0]
+    if (note && first) note += ` · ${sourceName(first.source, ctx.sources)} says ${cost(first.cost_usd)}`
+    return note
+}
+
+/** Every disagreeing source, for a row's tooltip. */
+export function alternativesTitle(alternatives?: PriceAlternative[], sources?: SourceSummary[]): string | undefined {
+    if (!alternatives?.length) return undefined
+    return alternatives.map((a) => `${sourceName(a.source, sources)}: ${cost(a.cost_usd)}`).join('\n')
 }
 
 /** One line for a chat step's media call: "openai / gpt-image-1 · 1 image (1024x1024) · ~$0.17". */
 export function mediaCallLine(call: MediaCall): string {
     const amount = formatUnits(call.units)
     const variant = call.variant ? ` (${call.variant})` : ''
-    const price = call.local ? 'free · local' : call.cost_usd != null ? cost(call.cost_usd) : 'unpriced'
+    const price =
+        call.local || call.price_source === 'local'
+            ? 'free · local'
+            : call.price_source === 'subscription'
+              ? 'included · subscription'
+              : call.cost_usd != null
+                ? cost(call.cost_usd)
+                : 'unpriced'
     return [`${call.provider} / ${call.model}`, amount ? `${amount}${variant}` : KIND_LABEL[call.kind], price].join(' · ')
 }
 

@@ -523,6 +523,8 @@ where
             vizier_core::schema::usage::ModelRow,
             vizier_core::schema::usage::ConversationRow,
             vizier_core::schema::usage::UnpricedNote,
+            vizier_core::schema::usage::PriceAlternative,
+            vizier_core::schema::usage::SourceSummary,
             vizier_core::schema::usage::UsageActivity,
             vizier_core::schema::usage::ConversationUsage,
             vizier_core::schema::usage::CallRow,

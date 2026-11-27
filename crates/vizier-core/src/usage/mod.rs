@@ -8,7 +8,7 @@ use anyhow::Result;
 use chrono::{DateTime, Duration, NaiveDate, Local};
 
 use crate::{
-    catalogue::{Catalogue, data::Cost},
+    catalogue::{Catalogue, Price, PriceAnswer, SourceId, aggregate::Query, data::Cost},
     config::provider::ProviderId,
     integrations::{IntegrationKinds, kind::ConversationNames},
     llm::DialectKind,
@@ -19,7 +19,8 @@ use crate::{
         usage::{
             BreakdownRow, CallRow, ConversationRow, ConversationUsage, DailyUsage, DayActivity,
             FailedTotals, KindRow, MediaCall, MediaCalls, MediaUnits, ModelRow, NoLinkReason,
-            PeriodTotals, PriceSource, UnpricedNote, Units, UsageActivity, UsageKind, UsageLink,
+            PeriodTotals, PriceAlternative, SourceSummary, UnpricedNote, Units, UsageActivity,
+            UsageKind, UsageLink,
             UsageLinkKind, UsageRange, UsageReport, UsageSummary,
         },
     },
@@ -37,16 +38,20 @@ use crate::{
 
 pub mod record;
 
+#[cfg(test)]
+mod golden_tests;
+
 /// The most expensive conversations the report lists (FR-017).
 const COSTLIEST: usize = 10;
 
-/// Catalogue prices, looked up once per `(provider, model)` per report.
+/// Prices from the catalogue's sources (spec 068), looked up once per `(provider, model, kind)`
+/// per report.
 pub struct Pricer<'a> {
     catalogue: &'a Catalogue,
     /// The saved inference-profile entries, by `(provider, arn)`, read once per report. An ARN is
-    /// priced from its entry before the catalogue is asked (FR-034, FR-034b).
+    /// priced from its entry before the catalogue is asked (FR-034, FR-034b; spec 068 FR-020).
     entries: HashMap<(String, String), ProfileEntry>,
-    prices: HashMap<(String, String), Option<Cost>>,
+    answers: HashMap<(String, String, UsageKind, bool), PriceAnswer>,
     outside: HashMap<String, bool>,
 }
 
@@ -67,13 +72,13 @@ impl<'a> Pricer<'a> {
         Self {
             catalogue,
             entries,
-            prices: HashMap::new(),
+            answers: HashMap::new(),
             outside: HashMap::new(),
         }
     }
 
     /// Whether the provider counts cached tokens outside `input` (Anthropic) rather than inside.
-    fn cache_outside_input(&mut self, provider: &str) -> bool {
+    pub fn cache_outside_input(&mut self, provider: &str) -> bool {
         if let Some(v) = self.outside.get(provider) {
             return *v;
         }
@@ -87,26 +92,49 @@ impl<'a> Pricer<'a> {
         v
     }
 
-    /// Custom providers have no prices yet, and legacy rows may have no model: both unpriced.
-    fn price(&mut self, provider: &str, model: &str) -> Option<Cost> {
-        let key = (provider.to_string(), model.to_string());
-        if let Some(c) = self.prices.get(&key) {
-            return c.clone();
+    /// The catalogue's answer for one record shape. An ARN's own entry comes first and decides
+    /// alone: explicit price, then the paired model, then unpriced — the order `entry_pricing`
+    /// fixes, so a report and the settings row can never disagree (FR-034, FR-034b).
+    pub fn answer(
+        &mut self,
+        kind: UsageKind,
+        provider: &str,
+        model: &str,
+        has_tokens: bool,
+    ) -> PriceAnswer {
+        let key = (provider.to_string(), model.to_string(), kind, has_tokens);
+        if let Some(a) = self.answers.get(&key) {
+            return a.clone();
         }
-        // An ARN's own entry comes first and decides alone: it has no catalogue row, and the order
-        // — explicit price, then the paired model, then unpriced — is the one `entry_pricing`
-        // fixes, so a report and the settings row can never disagree (FR-034, FR-034b).
-        let c = if let Some(entry) = self.entries.get(&key) {
-            entry_pricing(self.catalogue, entry).cost().cloned()
+        let answer = if let Some(entry) =
+            self.entries.get(&(provider.to_string(), model.to_string()))
+        {
+            match entry_pricing(self.catalogue, entry).cost().cloned() {
+                Some(cost) => PriceAnswer {
+                    price: Some(Price::tokens(cost)),
+                    source: SourceId::INFERENCE_PROFILE,
+                    borrowed_from: None,
+                    alternatives: vec![],
+                },
+                None => PriceAnswer::none(),
+            }
         } else {
-            provider
-                .parse::<ProviderId>()
-                .ok()
-                .and_then(|id| self.catalogue.model(&id, model))
-                .and_then(|m| m.cost)
+            match provider.parse::<ProviderId>() {
+                Ok(id) => self.catalogue.price(
+                    &id,
+                    &Query {
+                        model,
+                        kind,
+                        has_tokens,
+                        prefer: None,
+                    },
+                ),
+                // A legacy row with no usable provider id: unpriced.
+                Err(_) => PriceAnswer::none(),
+            }
         };
-        self.prices.insert(key, c.clone());
-        c
+        self.answers.insert(key, answer.clone());
+        answer
     }
 
     /// A group's cost, whatever its kind (spec 065 research R6).
@@ -115,9 +143,8 @@ impl<'a> Pricer<'a> {
             .0
     }
 
-    /// One record's cost and which rule priced it. Completions keep the 018 path; a media call
-    /// is free when local, then priced from the catalogue's token price, then the shipped
-    /// table's token rates, then its unit price, else unpriced.
+    /// One record's cost and which source or rule priced it (spec 068). A media call measured on
+    /// this machine is free whatever its provider; everything else asks the catalogue.
     #[allow(clippy::too_many_arguments)]
     pub fn priced(
         &mut self,
@@ -128,37 +155,48 @@ impl<'a> Pricer<'a> {
         local: bool,
         units: &MediaUnits,
         tokens: &TokenCounts,
-    ) -> (Option<f64>, PriceSource) {
-        if kind == UsageKind::Text {
-            return match self.cost(provider, model, tokens) {
-                Some(c) => (Some(c), PriceSource::Catalogue),
-                None => (None, PriceSource::None),
-            };
-        }
-        if local {
-            return (Some(0.0), PriceSource::Local);
-        }
-        let has_tokens = tokens.total() > 0;
-        if has_tokens && let Some(c) = self.cost(provider, model, tokens) {
-            return (Some(c), PriceSource::Catalogue);
-        }
-        let Some(entry) = crate::catalogue::media_prices::media_prices().lookup(provider, model, kind)
-        else {
-            return (None, PriceSource::None);
-        };
-        if has_tokens && let Some(rates) = &entry.tokens {
-            return (Some(estimate_cost(tokens, rates, false)), PriceSource::Table);
-        }
-        match entry.unit_cost(units, variant) {
-            Some(c) => (Some(c), PriceSource::Table),
-            None => (None, PriceSource::None),
-        }
+    ) -> (Option<f64>, SourceId) {
+        self.priced_with(kind, provider, model, variant, local, units, tokens)
+            .map(|(cost, answer)| (Some(cost), answer.source))
+            .unwrap_or((None, SourceId::NONE))
     }
 
-    pub fn cost(&mut self, provider: &str, model: &str, tokens: &TokenCounts) -> Option<f64> {
+    /// [`Self::priced`] with the whole answer, for rows that show where a price came from.
+    #[allow(clippy::too_many_arguments)]
+    pub fn priced_with(
+        &mut self,
+        kind: UsageKind,
+        provider: &str,
+        model: &str,
+        variant: Option<&str>,
+        local: bool,
+        units: &MediaUnits,
+        tokens: &TokenCounts,
+    ) -> Option<(f64, PriceAnswer)> {
+        if local && kind != UsageKind::Text {
+            return Some((
+                0.0,
+                PriceAnswer {
+                    price: Some(Price::zero()),
+                    source: SourceId::LOCAL,
+                    borrowed_from: None,
+                    alternatives: vec![],
+                },
+            ));
+        }
+        let answer = self.answer(kind, provider, model, tokens.total() > 0);
         let outside = self.cache_outside_input(provider);
-        self.price(provider, model)
-            .map(|c| estimate_cost(tokens, &c, outside))
+        let cost = answer
+            .price
+            .as_ref()?
+            .cost(kind, tokens, units, variant, outside)?;
+        Some((cost, answer))
+    }
+
+    /// A completion's cost.
+    pub fn cost(&mut self, provider: &str, model: &str, tokens: &TokenCounts) -> Option<f64> {
+        self.priced(UsageKind::Text, provider, model, None, false, &MediaUnits::default(), tokens)
+            .0
     }
 
     /// `(cached, whole input)`, so cache rates can be summed across providers.
@@ -486,6 +524,7 @@ pub async fn build_report(
         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
         .map(|d| d.with_timezone(&Local));
 
+    let sources = report_sources(catalogue, &by_model);
     Ok(UsageReport {
         range: UsageRange {
             start: q.start,
@@ -502,9 +541,32 @@ pub async fn build_report(
         by_kind,
         by_model,
         by_place,
+        sources,
         costliest,
         unpriced,
     })
+}
+
+/// The catalogue sources the model rows name (as their price or a disagreeing one), with their
+/// display names; rule labels (`local`, `borrowed`, …) are not sources and are left out.
+fn report_sources(catalogue: &Catalogue, rows: &[ModelRow]) -> Vec<SourceSummary> {
+    let named: BTreeSet<&str> = rows
+        .iter()
+        .flat_map(|r| {
+            std::iter::once(r.price_source.as_str())
+                .chain(r.price_alternatives.iter().map(|a| a.source.as_str()))
+        })
+        .collect();
+    catalogue
+        .sources()
+        .iter()
+        .filter(|s| named.contains(s.id().as_str()))
+        .map(|s| SourceSummary {
+            id: s.id().to_string(),
+            name: s.name().to_string(),
+            fetched_at: s.data().fetched_at,
+        })
+        .collect()
 }
 
 /// One entry per date in range, empty ones included, so the chart's axis is complete.
@@ -545,18 +607,31 @@ fn by_model(
     groups: &[UsageGroup],
     total: Option<f64>,
 ) -> (Vec<ModelRow>, UnpricedNote) {
-    type Bucket = (Tally, BTreeSet<String>, PriceSource);
+    /// A row's tally, served models, the first answer that priced it, and what each disagreeing
+    /// source would have charged for the same groups.
+    type Bucket = (Tally, BTreeSet<String>, Option<PriceAnswer>, BTreeMap<SourceId, f64>);
     let mut buckets: BTreeMap<(String, String, UsageKind), Bucket> = BTreeMap::new();
     for g in groups {
-        let (t, served, source) = buckets
+        let (t, served, answer, alternatives) = buckets
             .entry((g.provider.clone(), g.model.clone(), g.kind))
             .or_default();
         t.add(pricer, g);
-        let this = pricer
-            .priced(g.kind, &g.provider, &g.model, g.variant.as_deref(), g.local, &g.units, &g.tokens)
-            .1;
-        if *source == PriceSource::None {
-            *source = this;
+        if let Some((_, this)) = pricer.priced_with(
+            g.kind,
+            &g.provider,
+            &g.model,
+            g.variant.as_deref(),
+            g.local,
+            &g.units,
+            &g.tokens,
+        ) {
+            let outside = pricer.cache_outside_input(&g.provider);
+            for (source, price) in &this.alternatives {
+                if let Some(c) = price.cost(g.kind, &g.tokens, &g.units, g.variant.as_deref(), outside) {
+                    *alternatives.entry(*source).or_default() += c;
+                }
+            }
+            answer.get_or_insert(this);
         }
         if let Some(s) = &g.served_model
             && s != &g.model
@@ -568,8 +643,13 @@ fn by_model(
     let mut unpriced = UnpricedNote::default();
     let mut rows: Vec<ModelRow> = buckets
         .into_iter()
-        .map(|((provider, model, kind), (t, served, price_source))| {
-            let priced = price_source != PriceSource::None;
+        .map(|((provider, model, kind), (t, served, answer, alternatives))| {
+            let priced = answer.is_some();
+            let price_source = answer.as_ref().map_or(SourceId::NONE, |a| a.source);
+            let borrowed_from = answer
+                .as_ref()
+                .and_then(|a| a.borrowed_from.as_ref())
+                .map(|p| p.to_string());
             let key = model_key(&provider, &model);
             if !priced {
                 match Units::of(kind, &t.media, t.embedding_tokens) {
@@ -598,7 +678,15 @@ fn by_model(
                 failed_tokens: t.failed_tokens,
                 priced,
                 kind,
-                price_source,
+                price_source: price_source.to_string(),
+                borrowed_from,
+                price_alternatives: alternatives
+                    .into_iter()
+                    .map(|(source, cost_usd)| PriceAlternative {
+                        source: source.to_string(),
+                        cost_usd,
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -662,7 +750,7 @@ pub async fn media_calls(
             measured: e.measured,
             local: e.local,
             cost_usd,
-            price_source,
+            price_source: price_source.to_string(),
             at: e.at,
         });
     }
@@ -1414,17 +1502,17 @@ mod tests {
         let tokens = |input| TokenCounts { input, ..Default::default() };
 
         let local = p.priced(UsageKind::Speech, "kokoro", "Kokoro-82M", None, true, &none, &no_tokens);
-        assert_eq!(local, (Some(0.0), PriceSource::Local));
+        assert_eq!(local, (Some(0.0), SourceId::LOCAL));
 
         let catalogue = p.priced(
             UsageKind::Embedding, "amazon-bedrock", "amazon.nova-lite-v1:0", None, false, &none, &tokens(1_000_000),
         );
-        assert_eq!(catalogue.1, PriceSource::Catalogue);
+        assert_eq!(catalogue.1, SourceId::MODELS_DEV);
         assert!((catalogue.0.unwrap() - 0.06).abs() < 1e-9);
 
         let chars = MediaUnits { characters: 1_000_000, ..Default::default() };
         let speech = p.priced(UsageKind::Speech, "openai", "tts-1", None, false, &chars, &no_tokens);
-        assert_eq!(speech.1, PriceSource::Table);
+        assert_eq!(speech.1, SourceId::CURATED);
         assert!((speech.0.unwrap() - 15.0).abs() < 1e-9);
 
         let minute = MediaUnits { audio_ms: 60_000, ..Default::default() };
@@ -1435,12 +1523,12 @@ mod tests {
         let by_tokens = p.priced(
             UsageKind::Transcription, "openai", "gpt-4o-transcribe", None, false, &minute, &tokens(1_000_000),
         );
-        assert_eq!(by_tokens.1, PriceSource::Table);
+        assert_eq!(by_tokens.1, SourceId::CURATED);
         assert!((by_tokens.0.unwrap() - 2.5).abs() < 1e-9);
 
         let image = MediaUnits { images: 3, ..Default::default() };
         let unknown = p.priced(UsageKind::Image, "openai", "dall-e-3", Some("1024x1024"), false, &image, &no_tokens);
-        assert_eq!(unknown, (None, PriceSource::None));
+        assert_eq!(unknown, (None, SourceId::NONE));
     }
 
     #[test]
@@ -1988,6 +2076,60 @@ mod tests {
             assert!(r.by_kind.iter().any(|k| k.kind == UsageKind::Embedding && k.row.cost_usd.is_some()));
             println!("90-day report over 100k completions and 500k embeddings: {took:?}");
             assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+        }
+
+        /// Spec 068 US2, US3, US4 (quickstart steps 1, 3–5): every row names where its price
+        /// came from; local and subscription usage is free and never unpriced; a proxy borrows
+        /// its maker's price; a model nobody prices stays unpriced; the report names its sources.
+        #[tokio::test]
+        async fn rows_name_their_price_source() {
+            let (s, _dir) = storage();
+            let catalogue = Catalogue::standard(crate::catalogue::seed::load_seed());
+            for (provider, model) in [
+                ("dummyplug", "dummyplug"),
+                ("ollama", "llama3.2"),
+                ("chatgpt", "gpt-5.1-codex"),
+                ("my-proxy", "gpt-4o-mini"),
+                ("my-proxy", "mystery-1"),
+                ("openai", "gpt-4o-mini"),
+            ] {
+                s.record_usage(event(DAY, "discord__1", provider, model, 1_000_000)).await.unwrap();
+            }
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q())
+                .await
+                .unwrap();
+            let row = |p: &str, m: &str| {
+                r.by_model
+                    .iter()
+                    .find(|row| row.provider == p && row.model == m)
+                    .unwrap_or_else(|| panic!("{p}/{m} in {:?}", r.by_model))
+            };
+            for (p, m, label) in [
+                ("dummyplug", "dummyplug", "local"),
+                ("ollama", "llama3.2", "local"),
+                ("chatgpt", "gpt-5.1-codex", "subscription"),
+            ] {
+                let row = row(p, m);
+                assert_eq!(row.price_source, label, "{p}/{m}");
+                assert_eq!(row.row.cost_usd, Some(0.0), "{p}/{m} is free");
+                assert!(row.priced);
+            }
+            let borrowed = row("my-proxy", "gpt-4o-mini");
+            assert_eq!(borrowed.price_source, "borrowed");
+            assert_eq!(borrowed.borrowed_from.as_deref(), Some("openai"), "the maker, not a reseller");
+            let own = row("openai", "gpt-4o-mini");
+            assert_eq!(own.price_source, "models_dev");
+            assert_eq!(borrowed.row.cost_usd, own.row.cost_usd, "the maker's price");
+            let unknown = row("my-proxy", "mystery-1");
+            assert_eq!(unknown.price_source, "none");
+            assert_eq!(unknown.row.cost_usd, None, "never shown as $0");
+            assert_eq!(r.unpriced.models, vec!["my-proxy/mystery-1".to_string()]);
+            assert!(r.sources.iter().any(|s| s.id == "models_dev" && s.name == "models.dev"));
+            assert!(
+                r.sources.iter().all(|s| !["local", "subscription", "borrowed", "none"].contains(&s.id.as_str())),
+                "rules are not sources: {:?}",
+                r.sources
+            );
         }
     }
 }

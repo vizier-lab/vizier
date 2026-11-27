@@ -1,6 +1,7 @@
 //! Providers vizier defines in code because the catalogue doesn't have them (data-model §3).
 //! They have the same shape the pickers and resolve read for catalogue providers.
 
+use super::aggregate::Billing;
 use super::data::ProviderKind;
 use crate::config::provider::ProviderId;
 use crate::llm::dialect::DialectKind;
@@ -47,6 +48,8 @@ pub struct BuiltinProvider {
     /// second identity. The SSO Bedrock provider is the only one today: it answers with
     /// `amazon-bedrock`'s models rather than duplicating them (spec 044, FR-030, research D2).
     pub model_source: Option<ProviderId>,
+    /// How its usage is priced before any source is asked (spec 068, research R7).
+    pub billing: Billing,
 }
 
 pub const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
@@ -64,6 +67,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["OLLAMA_BASE_URL"],
                 default_base_url: Some("http://localhost:11434"),
                 model_source: None,
+                billing: Billing::Local,
             },
             BuiltinProvider {
                 id: ProviderId::LLAMA_CPP,
@@ -74,6 +78,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["LLAMA_CPP_BASE_URL"],
                 default_base_url: Some("http://localhost:8080"),
                 model_source: None,
+                billing: Billing::Local,
             },
             BuiltinProvider {
                 id: ProviderId::CHATGPT,
@@ -84,6 +89,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["CHATGPT_ACCESS_TOKEN", "CHATGPT_ACCOUNT_ID", "CHATGPT_API_BASE"],
                 default_base_url: Some(CHATGPT_BASE_URL),
                 model_source: None,
+                billing: Billing::Subscription,
             },
             BuiltinProvider {
                 id: ProviderId::DUMMYPLUG,
@@ -94,6 +100,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["DUMMYPLUG_URL"],
                 default_base_url: Some("http://127.0.0.1:9998/v1"),
                 model_source: None,
+                billing: Billing::Local,
             },
             BuiltinProvider {
                 id: ProviderId::ELEVENLABS,
@@ -104,6 +111,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["ELEVENLABS_API_KEY"],
                 default_base_url: None,
                 model_source: None,
+                billing: Billing::Metered,
             },
             BuiltinProvider {
                 id: ProviderId::VOYAGEAI,
@@ -114,6 +122,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["VOYAGE_API_KEY"],
                 default_base_url: Some("https://api.voyageai.com/v1"),
                 model_source: None,
+                billing: Billing::Metered,
             },
             BuiltinProvider {
                 id: ProviderId::HYPERBOLIC,
@@ -124,6 +133,7 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 env: &["HYPERBOLIC_API_KEY"],
                 default_base_url: Some(crate::llm::media::hyperbolic::HYPERBOLIC_BASE_URL),
                 model_source: None,
+                billing: Billing::Metered,
             },
             sso_bedrock(),
         ]
@@ -153,6 +163,7 @@ pub fn sso_bedrock() -> BuiltinProvider {
         env: &[],
         default_base_url: None,
         model_source: Some(ProviderId::AMAZON_BEDROCK),
+        billing: Billing::Metered,
     }
 }
 

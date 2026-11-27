@@ -24,6 +24,7 @@ mod global_config;
 mod history;
 mod integration;
 mod media_catalogue;
+mod catalogue_source;
 mod memory;
 pub(crate) mod memory_revision;
 mod notification;
@@ -476,6 +477,7 @@ impl SqlStorage {
         init_turn_schema(conn)?;
         init_secret_schema(conn)?;
         init_media_catalogue_schema(conn)?;
+        init_catalogue_source_schema(conn)?;
         init_notification_schema(conn)?;
         init_detached_script_schema(conn)?;
         init_subagent_schema(conn)?;
@@ -1051,6 +1053,25 @@ pub fn init_media_catalogue_schema(conn: &Connection) -> Result<()> {
         "
         CREATE TABLE IF NOT EXISTS media_catalogue_snapshot (
             capability  TEXT PRIMARY KEY CHECK (capability IN ('speech', 'transcription', 'image')),
+            schema      INTEGER NOT NULL,
+            fetched_at  INTEGER NOT NULL,
+            checked_at  INTEGER NOT NULL,
+            last_error  TEXT,
+            failed_at   INTEGER,
+            data        BLOB NOT NULL
+        );
+        ",
+    )?;
+    Ok(())
+}
+
+/// The catalogue sources' refreshed snapshots (spec 068, data-model §10): provider-wide, never
+/// agent-scoped. models.dev keeps `catalogue_snapshot`.
+pub fn init_catalogue_source_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS catalogue_source_snapshot (
+            source      TEXT PRIMARY KEY,
             schema      INTEGER NOT NULL,
             fetched_at  INTEGER NOT NULL,
             checked_at  INTEGER NOT NULL,

@@ -1,19 +1,29 @@
-//! The provider and model catalogue, from models.dev (spec 015): a seed embedded at build
-//! time, a SQLite cache of lazy refreshes, and the in-memory copy every query reads.
+//! The provider and model catalogue (spec 015, spec 068): an aggregate of peer sources —
+//! models.dev, providers' own price lists, vizier's price table — each with a build-time seed,
+//! merged into the in-memory view every query reads.
 
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use serde::Serialize;
 
+pub mod aggregate;
 pub mod builtin;
 pub mod cache;
 pub mod data;
 pub mod guide;
 pub mod media;
 pub mod media_prices;
+pub mod price;
 pub mod refresh;
 pub mod seed;
+pub mod source;
+pub mod source_refresh;
+pub mod sources;
+
+pub use aggregate::Billing;
+pub use price::{Price, PriceAnswer};
+pub use source::{Authority, CatalogueSource, SourceId};
 
 use builtin::{BuiltinProvider, CredentialField, builtins};
 use data::{CatalogueData, CatalogueModel, CatalogueProvider, ModelStatus, ProviderKind};
@@ -63,15 +73,23 @@ pub const POPULAR: &[&str] = &[
     "chatgpt",
 ];
 
-/// The shared catalogue. Readers clone the inner `Arc`, so a refresh's `swap` never makes them
-/// wait, and an agent keeps the data it was built with until its next build.
+/// The shared catalogue: an aggregate of peer sources (spec 068). Readers clone the merged
+/// `Arc`, so a refresh's swap never makes them wait, and an agent keeps the data it was built
+/// with until its next build.
 #[derive(Clone)]
-pub struct Catalogue(
-    Arc<RwLock<Arc<CatalogueData>>>,
-    Arc<refresh::RefreshState>,
-    /// OpenRouter's media model lists (spec 028), separate from the chat/embedding data above.
-    Arc<media::MediaCatalogue>,
-);
+pub struct Catalogue(Arc<Inner>);
+
+struct Inner {
+    /// models.dev, also held typed: its refresh compares and caches its own data.
+    models_dev: Arc<sources::models_dev::ModelsDev>,
+    /// Every source in registration order (`contracts/catalogue-source.md` §2).
+    sources: Vec<Arc<dyn CatalogueSource>>,
+    /// The facts of every source, merged once per swap.
+    merged: RwLock<Arc<CatalogueData>>,
+    refresh: refresh::RefreshState,
+    /// OpenRouter's media model lists (spec 028): the media pickers, not a price source.
+    media: media::MediaCatalogue,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -103,42 +121,118 @@ fn aliased(id: &ProviderId) -> ProviderId {
 }
 
 impl Catalogue {
+    /// models.dev with `data` plus vizier's price table: what tests and tools that have only a
+    /// models.dev snapshot build. The server uses [`Self::standard`].
     pub fn new(data: CatalogueData) -> Self {
-        Self(
-            Arc::new(RwLock::new(Arc::new(data))),
-            Arc::default(),
+        Self::with_sources(data, vec![Arc::new(sources::curated::Curated)])
+    }
+
+    /// Every shipped source, from its build-time seed. Never touches the network.
+    pub fn standard(data: CatalogueData) -> Self {
+        Self::with_sources(data, sources::standard())
+    }
+
+    /// models.dev with `data`, after `others` in registration order: authority decides
+    /// precedence, and this order only breaks ties within one level.
+    pub fn with_sources(data: CatalogueData, others: Vec<Arc<dyn CatalogueSource>>) -> Self {
+        let models_dev = Arc::new(sources::models_dev::ModelsDev::new(data));
+        let mut all = others;
+        all.push(models_dev.clone());
+        let merged = aggregate::merge(&all, &models_dev.raw());
+        Self(Arc::new(Inner {
+            models_dev,
+            sources: all,
+            merged: RwLock::new(Arc::new(merged)),
+            refresh: Default::default(),
             // The media lists are seeded at build time, so a fresh or offline install lists
             // models without a request (spec 028 FR-020).
-            Arc::new(media::MediaCatalogue::new(seed::load_media_seed())),
-        )
+            media: media::MediaCatalogue::new(seed::load_media_seed()),
+        }))
     }
 
     pub fn refresh_state(&self) -> &refresh::RefreshState {
-        &self.1
+        &self.0.refresh
     }
 
     /// OpenRouter's media model lists (spec 028).
     pub fn media(&self) -> &media::MediaCatalogue {
-        &self.2
+        &self.0.media
     }
 
     /// Startup: use each cached media list when it is newer than the seed, and restore the
     /// stored last failure. Never touches the network.
     pub async fn load_media_cache(&self, storage: &crate::storage::VizierStorage) {
-        self.2.load_cache(storage).await;
+        self.0.media.load_cache(storage).await;
+    }
+
+    /// Startup: every source adopts its stored snapshot when newer than its seed, then one
+    /// merge. Never touches the network.
+    pub async fn load_cached(&self, storage: &crate::storage::VizierStorage) {
+        for s in &self.0.sources {
+            s.load_cached(storage).await;
+        }
+        self.remerge();
     }
 
     /// One capability's current list; always available (the seed until a refresh).
     pub fn media_list(&self, capability: media::MediaCapability) -> media::MediaList {
-        self.2.list(capability)
+        self.0.media.list(capability)
     }
 
+    /// The merged view every reader uses.
     pub fn snapshot(&self) -> Arc<CatalogueData> {
-        self.0.read().clone()
+        self.0.merged.read().clone()
     }
 
+    /// models.dev's own data, not the merged view: what its refresh compares and caches.
+    pub fn models_dev(&self) -> Arc<CatalogueData> {
+        self.0.models_dev.raw()
+    }
+
+    /// Replace models.dev's data, then merge again.
     pub fn swap(&self, data: CatalogueData) {
-        *self.0.write() = Arc::new(data);
+        self.0.models_dev.set(data);
+        self.remerge();
+    }
+
+    /// Merge every source's current snapshot; run after any source swaps its data.
+    pub fn remerge(&self) {
+        let merged = aggregate::merge(&self.0.sources, &self.0.models_dev.raw());
+        *self.0.merged.write() = Arc::new(merged);
+    }
+
+    pub fn sources(&self) -> &[Arc<dyn CatalogueSource>] {
+        &self.0.sources
+    }
+
+    /// How `id` is billed (research R7): a built-in says so. A catalogue provider that runs on
+    /// localhost is local only while no source prices any of its models: a local proxy in front
+    /// of a paid service (models.dev's `privatemode-ai`) publishes prices and stays metered.
+    /// Anything else is metered.
+    pub fn billing(&self, id: &ProviderId) -> Billing {
+        let id = aliased(id);
+        if let Some(b) = builtin::builtin(&id) {
+            return b.billing;
+        }
+        match self.snapshot().providers.get(&id) {
+            Some(p) if p.kind == ProviderKind::Local && p.models.values().all(|m| m.cost.is_none()) => {
+                Billing::Local
+            }
+            _ => Billing::Metered,
+        }
+    }
+
+    /// The price of one model's record and where it came from (contract §5).
+    pub fn price(&self, provider: &ProviderId, q: &aggregate::Query<'_>) -> PriceAnswer {
+        let provider = aliased(provider);
+        let merged = self.snapshot();
+        let billing = |p: &ProviderId| self.billing(p);
+        let ctx = aggregate::WalkContext {
+            sources: &self.0.sources,
+            merged: &merged,
+            billing: &billing,
+        };
+        aggregate::price(&ctx, &provider, q)
     }
 
     /// Every selectable provider: catalogue providers with a dialect vizier speaks (FR-008),
@@ -209,6 +303,65 @@ impl Catalogue {
         }
         fallback
     }
+}
+
+/// Start a background check of every source that is due (spec 068 FR-011): models.dev through
+/// its own conditional refresh, every other refreshing source through the shared policy, each
+/// followed by one merge. Returns at once.
+///
+/// Call this only from request handlers serving a person: never from agent, scheduler or dream
+/// code.
+pub fn maybe_refresh(deps: &crate::dependencies::VizierDependencies) {
+    refresh::maybe_refresh(deps);
+    for source in deps.catalogue.sources() {
+        let Some(state) = source.refresh_state() else {
+            continue;
+        };
+        let data = source.data();
+        if !state.is_due(&deps.config.catalogue, data.checked_at.unwrap_or(data.fetched_at))
+            || !state.try_begin()
+        {
+            continue;
+        }
+        let deps = deps.clone();
+        let source = source.clone();
+        tokio::spawn(async move {
+            if source.fetch(&deps).await.is_ok() {
+                deps.catalogue.remerge();
+            }
+            if let Some(state) = source.refresh_state() {
+                state.end();
+            }
+        });
+    }
+}
+
+/// `POST /catalogue/refresh`: check every source now, ignoring TTLs and backoffs, waiting (up
+/// to 30 s each) for a check already running. Answers with models.dev's result, as before spec
+/// 068; another source's failure is in its own status (`contracts/http-api.md`).
+pub async fn refresh_now(
+    deps: &crate::dependencies::VizierDependencies,
+) -> Result<(), refresh::RefreshError> {
+    let others = async {
+        if !deps.config.catalogue.refresh {
+            return;
+        }
+        for source in deps.catalogue.sources() {
+            let Some(state) = source.refresh_state() else {
+                continue;
+            };
+            if !state.try_begin() {
+                let _ = state.wait().await;
+                continue;
+            }
+            if source.fetch(deps).await.is_ok() {
+                deps.catalogue.remerge();
+            }
+            state.end();
+        }
+    };
+    let (models_dev, ()) = tokio::join!(refresh::refresh_now(deps), others);
+    models_dev
 }
 
 pub fn sort_newest_first(models: &mut [CatalogueModel]) {
@@ -454,6 +607,129 @@ mod tests {
         c.swap(CatalogueData::empty());
         assert!(c.snapshot().providers.is_empty());
         assert!(!before.providers.is_empty(), "an old snapshot is unchanged");
+    }
+
+    fn text(model: &str) -> aggregate::Query<'_> {
+        aggregate::Query {
+            model,
+            kind: crate::schema::usage::UsageKind::Text,
+            has_tokens: true,
+            prefer: None,
+        }
+    }
+
+    /// SC-005 (spec 068): models.dev is a peer, not the base. Without it, every model a
+    /// provider's own list carries is still priced and described, by that list.
+    #[test]
+    fn without_models_dev_the_provider_lists_still_answer() {
+        use crate::schema::usage::UsageKind;
+        let c = Catalogue::with_sources(CatalogueData::empty(), sources::standard());
+        let mut checked = 0;
+        for source in c.sources().iter().filter(|s| s.id() != SourceId::MODELS_DEV) {
+            for (pid, p) in &source.data().providers {
+                for (id, facts) in p.models.iter().chain(p.priced.iter()) {
+                    let kind = facts.kind.unwrap_or(UsageKind::Text);
+                    let q = aggregate::Query {
+                        model: id,
+                        kind,
+                        has_tokens: matches!(kind, UsageKind::Text | UsageKind::Embedding),
+                        prefer: None,
+                    };
+                    let a = c.price(pid, &q);
+                    if facts.price.as_ref().is_some_and(|pr| pr.covers(kind, q.has_tokens)) {
+                        assert_eq!(a.source, source.id(), "{pid}/{id} is priced by its own list");
+                        checked += 1;
+                    }
+                }
+                for id in p.models.keys() {
+                    assert!(c.model(pid, id).is_some(), "{pid}/{id} is described");
+                }
+            }
+        }
+        assert!(checked > 500, "{checked}");
+    }
+
+    /// US5 (FR-022, FR-023): a chat model only a provider's own list carries is in that
+    /// provider's model list, with that list's limits, raises no "unknown model" warning, and
+    /// resolves through models.dev's connection for the provider. A media model never lists.
+    #[test]
+    fn a_model_only_a_provider_list_knows_is_listed_and_resolves() {
+        let c = Catalogue::standard(seed::load_seed());
+        let venice = ProviderId::VENICE;
+        let in_models_dev = c.models_dev().providers.get(&venice).map(|p| p.models.clone()).unwrap_or_default();
+        let only = c
+            .sources()
+            .iter()
+            .find(|s| s.id() == SourceId::VENICE)
+            .unwrap()
+            .data()
+            .providers[&venice]
+            .models
+            .iter()
+            .find(|(id, f)| !in_models_dev.contains_key(*id) && f.limit.context.is_some())
+            .map(|(id, f)| (id.clone(), f.limit.context))
+            .expect("the seed has a Venice-only chat model");
+        let (id, context) = only;
+        let listed = c.models(&venice, true);
+        assert!(listed.iter().any(|m| m.id == id), "{id} is listed");
+        assert_eq!(c.model(&venice, &id).unwrap().limit.context, context);
+        assert!(
+            !agent_warnings(&c, None, &agent_config("venice", &id, false))
+                .iter()
+                .any(|w| w.code == "unknown_model"),
+            "{id} is known"
+        );
+        let p = c.provider(&venice).unwrap();
+        let (dialect, api) = data::dialect_for(&p, p.models.get(&id)).expect("venice is speakable");
+        assert_eq!(dialect, DialectKind::OpenAiChat);
+        assert_eq!(api.as_deref(), Some("https://api.venice.ai/api/v1"));
+        assert!(!listed.iter().any(|m| m.id == "venice-sd35"), "an image model is never a chat choice");
+    }
+
+    /// A size recorded as typed (`2k`) finds the tier priced as `2K`.
+    #[test]
+    fn a_lower_case_tier_finds_its_price() {
+        use crate::schema::{metrics::TokenCounts, usage::{MediaUnits, UsageKind}};
+        let price = Price {
+            per_image: Some(media_prices::ImagePrice {
+                default: 0.01,
+                variants: [("2K".to_string(), 0.05)].into(),
+            }),
+            ..Default::default()
+        };
+        let one = MediaUnits { images: 1, ..Default::default() };
+        let none = TokenCounts::default();
+        assert_eq!(price.cost(UsageKind::Image, &none, &one, Some("2k"), false), Some(0.05));
+    }
+
+    /// US1 scenario 2: a model both its provider's own list and models.dev price takes the own
+    /// list's price, and a different models.dev figure is kept as a disagreement (FR-006).
+    #[test]
+    fn a_providers_own_list_wins_over_models_dev() {
+        let c = Catalogue::standard(seed::load_seed());
+        let models_dev = c.models_dev();
+        let Some(or) = models_dev.providers.get(&ProviderId::OPENROUTER) else {
+            return;
+        };
+        let own = c.sources().iter().find(|s| s.id() == SourceId::OPENROUTER).unwrap().data();
+        let own = &own.providers[&ProviderId::OPENROUTER];
+        let mut both = 0;
+        for (id, m) in &or.models {
+            let (Some(md), Some(listed)) = (&m.cost, own.models.get(id).and_then(|f| f.price.as_ref())) else {
+                continue;
+            };
+            let a = c.price(&ProviderId::OPENROUTER, &text(id));
+            assert_eq!(a.source, SourceId::OPENROUTER, "{id}");
+            let differs = listed.tokens.as_ref().is_some_and(|t| (t.input - md.input).abs() > 1e-9 || (t.output - md.output).abs() > 1e-9);
+            if differs {
+                assert!(
+                    a.alternatives.iter().any(|(s, _)| *s == SourceId::MODELS_DEV),
+                    "{id}: models.dev's different figure is kept"
+                );
+            }
+            both += 1;
+        }
+        assert!(both > 50, "{both}");
     }
 }
 

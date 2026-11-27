@@ -98,6 +98,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "0016_media_usage",
         sql: include_str!("migrations/0016_media_usage.sql"),
     },
+    Migration {
+        version: 17,
+        name: "0017_catalogue_sources",
+        sql: include_str!("migrations/0017_catalogue_sources.sql"),
+    },
 ];
 
 /// Bring the schema `conn` sees (its `search_path`) up to the newest embedded migration.

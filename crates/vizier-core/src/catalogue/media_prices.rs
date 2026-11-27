@@ -214,15 +214,12 @@ mod tests {
     /// each with why. Everything else a media provider uses by default must be local or priced.
     const KNOWN_UNPRICED: &[(&str, &str, &str)] = &[
         ("openai", "dall-e-3", "not on OpenAI's API pricing page (2026-11-24)"),
-        ("openrouter", "bytedance-seed/seedream-4.5", "listed only as 'from $0.04'"),
         ("xai", "grok-2-image-1212", "not on xAI's models page; grok-imagine-image is"),
         ("huggingface", "stabilityai/stable-diffusion-xl-base-1.0", "billed by compute, not per image"),
         ("hyperbolic", "SDXL1.0-base", "Hyperbolic's pricing page is gone (404)"),
         ("amazon-bedrock", "amazon.nova-canvas-v1:0", "Bedrock's page did not render its tables"),
         ("togetherai", "black-forest-labs/FLUX.1-schnell", "not on Together's pricing page"),
-        ("openrouter", "hexgrad/kokoro-82m", "no published per-character price"),
         ("hyperbolic", "Melo-TTS", "Hyperbolic's pricing page is gone (404)"),
-        ("openrouter", "openai/whisper-large-v3", "no published per-minute price"),
         ("elevenlabs", "scribe_v1", "only scribe_v2/v3 are listed"),
         ("groq", "whisper-large-v3", "Groq's pricing page shows no table"),
         ("mistral", "voxtral-mini-2507", "Mistral lists no figure for speech"),
@@ -231,16 +228,28 @@ mod tests {
     ];
 
     /// research R5: a media provider cannot ship a default model that is silently unpriced.
+    /// Since spec 068 the question goes to every catalogue source (a provider's own list, this
+    /// table, models.dev), not to this table alone (SC-002); an estimate borrowed from another
+    /// provider does not count.
     #[test]
     fn every_default_media_model_is_priced_or_local() {
-        let table = media_prices();
+        let catalogue = crate::catalogue::Catalogue::standard(crate::catalogue::seed::load_seed());
         let mut missing = vec![];
         let mut check = |provider: Option<ProviderId>, model: &str, kind: UsageKind| {
             let Some(provider) = provider else {
                 return; // local
             };
             let id = provider.to_string();
-            let listed = table.lookup(&id, model, kind).is_some();
+            let answer = catalogue.price(
+                &provider,
+                &crate::catalogue::aggregate::Query {
+                    model,
+                    kind,
+                    has_tokens: false,
+                    prefer: None,
+                },
+            );
+            let listed = answer.price.is_some() && answer.source != crate::catalogue::SourceId::BORROWED;
             let excused = KNOWN_UNPRICED.iter().any(|(p, m, _)| *p == id && *m == model);
             if !listed && !excused {
                 missing.push(format!("{id} / {model} ({})", kind.as_str()));

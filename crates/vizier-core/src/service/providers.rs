@@ -590,7 +590,7 @@ pub async fn list(
     user: &Principal,
 ) -> Result<Vec<ProviderResponse>, ServiceError> {
     crate::access::require(user, PERMISSION)?;
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     Ok(connected(deps).await)
 }
 

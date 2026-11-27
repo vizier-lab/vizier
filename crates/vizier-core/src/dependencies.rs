@@ -189,7 +189,7 @@ impl VizierDependencies {
         )
         .await?;
 
-        let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
+        let catalogue = crate::catalogue::Catalogue::standard(crate::catalogue::seed::load_seed());
         // SQLite-only one-shots: a PostgreSQL database is always created at the current layout,
         // either fresh or by `vizier storage migrate` after these ran on its SQLite source.
         let on_sqlite = sql.backend() == Backend::Sqlite;
@@ -249,7 +249,9 @@ impl VizierDependencies {
         // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never
         // touches the network.
         catalogue
-            .swap(crate::catalogue::cache::newest(&storage, (*catalogue.snapshot()).clone()).await);
+            .swap(crate::catalogue::cache::newest(&storage, (*catalogue.models_dev()).clone()).await);
+        // Every other source's stored snapshot, newer-only; then one merge (spec 068).
+        catalogue.load_cached(&storage).await;
         // The cached OpenRouter media lists, also newer-only, and their stored last failures.
         // Never touches the network (spec 028 FR-019/SC-011).
         catalogue.load_media_cache(&storage).await;

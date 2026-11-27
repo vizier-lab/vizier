@@ -226,7 +226,7 @@ pub async fn list(
     user: &Principal,
 ) -> Result<Vec<CustomProviderResponse>, ServiceError> {
     crate::access::require(user, PERMISSION)?;
-    crate::catalogue::refresh::maybe_refresh(deps);
+    crate::catalogue::maybe_refresh(deps);
     let providers = deps.storage.list_custom_providers().await.map_err(internal)?;
     let mut used = usage::used_by_all(deps).await;
     Ok(providers

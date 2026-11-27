@@ -17,8 +17,10 @@ import {
     ACTIVITY_LABEL,
     KIND_LABEL,
     SERIES_COLOURS,
+    alternativesTitle,
     dailyStacks,
     formatUnits,
+    isFree,
     priceNote,
     rangeDates,
     shareOf,
@@ -205,7 +207,10 @@ export default function Usage() {
                     >
                         {rows.map((r) => {
                             const model = dimension === 'model' ? (r as ModelRowDto) : null
-                            const note = model ? priceNote(model.price_source) : undefined
+                            const note = model
+                                ? priceNote(model.price_source, { borrowedFrom: model.borrowed_from, alternatives: model.price_alternatives, sources: report.sources })
+                                : undefined
+                            const title = model ? alternativesTitle(model.price_alternatives, report.sources) : undefined
                             // A row's media amount in its own unit, beside its detail (spec 065).
                             const second = [r.detail, model?.kind && model.kind !== 'text' ? KIND_LABEL[model.kind] : null, formatUnits(r.units), note]
                                 .filter(Boolean)
@@ -219,11 +224,11 @@ export default function Usage() {
                                             <span className="truncate type-body text-fg">
                                                 {dimension === 'activity' ? (ACTIVITY_LABEL[r.key as Activity] ?? r.label) : dimension === 'kind' ? (KIND_LABEL[r.key as UsageKind] ?? r.label) : r.label}
                                             </span>
-                                            {second && <span className="truncate type-mono-xs text-faint">{second}</span>}
+                                            {second && <span className="truncate type-mono-xs text-faint" title={title}>{second}</span>}
                                         </span>,
                                         count(r.calls),
                                         count(r.tokens),
-                                        model?.price_source === 'local' ? 'free' : usd(r.cost_usd),
+                                        isFree(model?.price_source) ? 'free' : usd(r.cost_usd),
                                         <Meter key="s" share={shareOf(rows, r, measure)} />,
                                     ]}
                                 />
@@ -263,7 +268,7 @@ export default function Usage() {
             </div>
 
             <p className="type-small text-faint">
-                Costs are estimates: from the model catalogue's prices, then from Vizier's own price table for images, speech, transcription and embeddings. Models that run on this machine are free.
+                Costs are estimates: from the provider's own price list where it publishes one, then Vizier's price table, then models.dev; a model priced at another provider says it is borrowed. Models that run on this machine are free, and subscription usage is included.
             </p>
 
             <SlideOver open={open !== null} title={open?.row.label ?? ''} onClose={() => setOpen(null)}>

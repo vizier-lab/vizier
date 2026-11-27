@@ -23,6 +23,7 @@ use crate::{
         history::HistoryStorage,
         integration::IntegrationStorage,
         media_catalogue::{MediaCatalogueSnapshotRow, MediaCatalogueStorage},
+        catalogue_source::{CatalogueSourceRow, CatalogueSourceStorage},
         memory::MemoryStorage,
         notification::NotificationStorage,
         project::ProjectStorage,
@@ -62,6 +63,7 @@ pub mod global_config;
 pub mod history;
 pub mod integration;
 pub mod media_catalogue;
+pub mod catalogue_source;
 pub mod memory;
 pub mod memory_bundle;
 pub mod notification;
@@ -139,6 +141,7 @@ where
         + CustomProviderStorage
         + CatalogueCacheStorage
         + MediaCatalogueStorage
+        + CatalogueSourceStorage
         + GlobalConfigStorage
         + DreamJournalStorage
         + DreamStorage
@@ -479,6 +482,21 @@ impl MediaCatalogueStorage for VizierStorage {
         at: Timestamp,
     ) -> Result<()> {
         self.0.record_media_failure(capability, error, at).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CatalogueSourceStorage for VizierStorage {
+    async fn get_source_snapshot(&self, source: &str) -> Result<Option<CatalogueSourceRow>> {
+        self.0.get_source_snapshot(source).await
+    }
+
+    async fn put_source_snapshot(&self, row: &CatalogueSourceRow) -> Result<()> {
+        self.0.put_source_snapshot(row).await
+    }
+
+    async fn record_source_failure(&self, source: &str, error: &str, at: Timestamp) -> Result<()> {
+        self.0.record_source_failure(source, error, at).await
     }
 }
 

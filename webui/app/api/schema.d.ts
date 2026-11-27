@@ -2241,6 +2241,11 @@ export interface components {
                 refresh: components["schemas"]["RefreshStatus"];
                 /** @description `bundled` (the build-time seed) or `cached` (a refreshed copy). */
                 source: string;
+                /**
+                 * @description Every catalogue source, in registration order (spec 068 FR-012). The fields above stay
+                 *     models.dev's, so existing readers keep working.
+                 */
+                sources: components["schemas"]["SourceStatus"][];
             };
             message?: string | null;
             /** Format: int32 */
@@ -3182,6 +3187,8 @@ export interface components {
                 media_accounting_since?: string | null;
                 previous?: components["schemas"]["PeriodTotals"] | null;
                 range: components["schemas"]["UsageRange"];
+                /** @description The catalogue sources the rows' labels name, for their display names (spec 068). */
+                sources: components["schemas"]["SourceSummary"][];
                 summary: components["schemas"]["UsageSummary"];
                 unpriced: components["schemas"]["UnpricedNote"];
             };
@@ -4212,6 +4219,11 @@ export interface components {
             refresh: components["schemas"]["RefreshStatus"];
             /** @description `bundled` (the build-time seed) or `cached` (a refreshed copy). */
             source: string;
+            /**
+             * @description Every catalogue source, in registration order (spec 068 FR-012). The fields above stay
+             *     models.dev's, so existing readers keep working.
+             */
+            sources: components["schemas"]["SourceStatus"][];
         };
         /**
          * @description What a dream did to one document.
@@ -5266,7 +5278,8 @@ export interface components {
             local: boolean;
             measured: boolean;
             model: string;
-            price_source: components["schemas"]["PriceSource"];
+            /** @description Which source or rule priced the call, as on a model row. */
+            price_source: string;
             provider: string;
             units?: components["schemas"]["Units"] | null;
             variant?: string | null;
@@ -5418,13 +5431,22 @@ export interface components {
             provider: string;
         };
         ModelRow: components["schemas"]["BreakdownRow"] & {
+            /** @description The provider a `borrowed` price came from. */
+            borrowed_from?: string | null;
             /** Format: double */
             cache_hit_rate?: number | null;
             /** Format: int64 */
             failed_tokens: number;
             kind: components["schemas"]["UsageKind"];
             model: string;
-            price_source: components["schemas"]["PriceSource"];
+            /** @description Up to three other sources that price this row differently. */
+            price_alternatives: components["schemas"]["PriceAlternative"][];
+            /**
+             * @description Which source or rule priced the row (spec 068): `models_dev`, `openrouter`, `venice`,
+             *     `curated`, `inference_profile`, `local`, `subscription`, `borrowed`, or `none`. Open: a
+             *     new source adds a value, never a schema change.
+             */
+            price_source: string;
             priced: boolean;
             provider: string;
             served_models: string[];
@@ -5583,11 +5605,11 @@ export interface components {
             /** Format: int64 */
             telegram: number;
         };
-        /**
-         * @description Which rule priced a figure (spec 065 research R6).
-         * @enum {string}
-         */
-        PriceSource: "catalogue" | "table" | "local" | "none";
+        PriceAlternative: {
+            /** Format: double */
+            cost_usd: number;
+            source: string;
+        };
         /**
          * @description One Application Inference Profile a connection may chat through (spec 044, data-model
          *     "profile entry"). Non-secret: the ARN as saved, an optional display name and optional
@@ -6439,6 +6461,29 @@ export interface components {
         };
         /** @enum {string} */
         SortOrder: "asc" | "desc";
+        SourceStatus: {
+            /** Format: date-time */
+            checked_at?: string | null;
+            /** Format: date-time */
+            fetched_at: string;
+            id: string;
+            model_count: number;
+            name: string;
+            /** @description `bundled` (the build-time seed) or `cached` (a refreshed copy). */
+            origin: string;
+            refresh?: components["schemas"]["RefreshStatus"] | null;
+            /**
+             * Format: int32
+             * @description Upstream entries left out because their names did not map onto vizier's ids.
+             */
+            unmapped: number;
+        };
+        SourceSummary: {
+            /** Format: date-time */
+            fetched_at: string;
+            id: string;
+            name: string;
+        };
         /**
          * @description Where the connection stands, as the settings row renders it (data-model "the connection
          *     state machine"). Derived from the stored rows on every read, never stored itself.
@@ -6855,6 +6900,8 @@ export interface components {
             media_accounting_since?: string | null;
             previous?: components["schemas"]["PeriodTotals"] | null;
             range: components["schemas"]["UsageRange"];
+            /** @description The catalogue sources the rows' labels name, for their display names (spec 068). */
+            sources: components["schemas"]["SourceSummary"][];
             summary: components["schemas"]["UsageSummary"];
             unpriced: components["schemas"]["UnpricedNote"];
         };
