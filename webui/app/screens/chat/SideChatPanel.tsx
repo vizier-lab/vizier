@@ -105,7 +105,7 @@ export function SideChatPanel({
                     <p className="text-sm text-fg">{problem}</p>
                 ) : turn?.answer != null ? (
                     <AgentReply>
-                        <Markdown>{turn.answer}</Markdown>
+                        <Markdown entities={agentId}>{turn.answer}</Markdown>
                     </AgentReply>
                 ) : turn?.error ? (
                     <AgentReply

@@ -217,4 +217,21 @@ describe('entity links in markdown (spec 066)', () => {
         const html = drawRouted('[memory](/oz/memory/research/notes)', new Set(['artifact:gone']))
         expect(html).toContain('href="/oz/memory/research/notes"')
     })
+
+    it('links `[[kind:name]]` text for the agent it is given, and leaves it as text without one', () => {
+        const md = 'Ran [[task:weekly-report|the weekly task]].'
+        const linked = renderToString(
+            <MemoryRouter>
+                <Markdown entities="oz">{md}</Markdown>
+            </MemoryRouter>
+        )
+        expect(linked).toContain('href="/oz/tasks/weekly-report"')
+        expect(linked).toContain('the weekly task')
+        const plain = renderToString(
+            <MemoryRouter>
+                <Markdown>{md}</Markdown>
+            </MemoryRouter>
+        )
+        expect(plain).not.toContain('href=')
+    })
 })

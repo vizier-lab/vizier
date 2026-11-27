@@ -245,6 +245,7 @@ export function Run({
 
 function Event({ event, live, compact }: { event: TrailEvent; live: boolean; compact: boolean }) {
     const tools = useContext(Tools)
+    const agentId = useContext(AgentOf)
     switch (event.kind) {
         case 'thought':
             return <Thought>{event.text}</Thought>
@@ -253,7 +254,7 @@ function Event({ event, live, compact }: { event: TrailEvent; live: boolean; com
         case 'narration':
             return (
                 <TrailItem>
-                    <Markdown size="document" tone="muted">
+                    <Markdown size="document" tone="muted" entities={agentId}>
                         {event.text}
                     </Markdown>
                 </TrailItem>

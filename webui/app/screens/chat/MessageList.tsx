@@ -286,6 +286,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                     return (
                         <PlanCard
                             plan={plan}
+                            agentId={agent.id}
                             actionable={planActionsVisible(turn.key, newest)}
                             building={buildingPlan}
                             onBuild={() => onBuildPlan?.(plan)}
@@ -403,7 +404,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                         title="Worked on this"
                         meta={time(e.timestamp)}
                     >
-                        <Markdown size="document">{content.woken}</Markdown>
+                        <Markdown size="document" entities={agent.id}>{content.woken}</Markdown>
                     </BackgroundReportCard>,
                     e.uid
                 )
@@ -458,7 +459,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
                                 <p className="type-small text-faint">
                                     {i + 1}. {en.prompt} · {en.state}
                                 </p>
-                                <Markdown size="document">{en.text || '_No answer._'}</Markdown>
+                                <Markdown size="document" entities={agent.id}>{en.text || '_No answer._'}</Markdown>
                             </div>
                         ))}
                     />,
@@ -483,7 +484,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
             // `/lobotomy` asks for exactly this: a checkpoint that carries nothing over. The
             // divider says which of the two it was, because they read the same without it.
             const kind = lobotomyAt(entries, e) ? 'lobotomy' : 'checkpoint'
-            arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} kind={kind} />, `cp-${e.uid}`)
+            arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} kind={kind} agentId={agent.id} />, `cp-${e.uid}`)
         }
         // A command the person ran: `/checkpoint` and `/lobotomy` are drawn as the message they
         // typed, since the divider alone does not say one was asked for. An abort already has its
@@ -700,7 +701,7 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
     )
 }
 
-function CheckpointEntry({ handover, kind }: { handover: string | null; kind: 'checkpoint' | 'lobotomy' }) {
+function CheckpointEntry({ handover, kind, agentId }: { handover: string | null; kind: 'checkpoint' | 'lobotomy'; agentId: string }) {
     const [open, setOpen] = useState(false)
     return (
         <div className="flex flex-col gap-8">
@@ -715,7 +716,7 @@ function CheckpointEntry({ handover, kind }: { handover: string | null; kind: 'c
                         className="overflow-hidden"
                     >
                         <HandoverSummary>
-                            <Markdown>{handover}</Markdown>
+                            <Markdown entities={agentId}>{handover}</Markdown>
                         </HandoverSummary>
                     </motion.div>
                 )}

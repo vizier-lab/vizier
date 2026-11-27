@@ -65,3 +65,10 @@ it('inserts the complete link in place of the partial token', () => {
     expect(insertEntityLink('see [[sk', 4, 'skill', 'summarize')).toBe('see [[skill:summarize]] ')
     expect(insertEntityLink('', 0, 'artifact', 'report')).toBe('[[artifact:report]] ')
 })
+
+it('keeps a name with an unbalanced parenthesis inside its link', () => {
+    const href = entityHref('oz', 'artifact', 'draft (v2.pdf')
+    expect(href).toBe('/oz/artifacts?artifact=draft%20%28v2.pdf')
+    expect(entityFromHref(href)).toEqual({ kind: 'artifact', name: 'draft (v2.pdf' })
+    expect(entityFromHref(entityHref('oz', 'task', 'a)b'))).toEqual({ kind: 'task', name: 'a)b' })
+})

@@ -5,7 +5,7 @@ import rehypeKatex from 'rehype-katex'
 import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { EntityBroken, entityFromHref, linkKey } from '../../lib/entityLinks'
+import { EntityBroken, entityFromHref, linkKey, rewriteEntityLinks } from '../../lib/entityLinks'
 import { highlightCode } from '../../lib/highlight'
 import { remarkBreaks } from '../../lib/remarkBreaks'
 import { remarkGuardedMath } from '../../lib/remarkGuardedMath'
@@ -18,6 +18,9 @@ type Props = {
     tone?: ComponentProps<typeof Prose>['tone']
     /** A person's message: every `/word` in it is drawn in the live colour. */
     slashWords?: boolean
+    /** The agent whose `[[artifact:x]]`-style entity links the text may carry: they become links
+     * to that agent's pages. Unset, they stay text. */
+    entities?: string
 }
 
 // Module level: a fresh plugin array on every render re-parses the whole document each time.
@@ -107,11 +110,12 @@ const components: ComponentProps<typeof ReactMarkdown>['components'] = {
  * diagram) and math (`$…$` and `$$…$$`, through KaTeX). A fence always wins: `$` inside one is
  * source, because the highlighter reads it as text and KaTeX never sees it.
  */
-export function Markdown({ children, size = 'reply', tone, slashWords }: Props) {
+export function Markdown({ children, size = 'reply', tone, slashWords, entities }: Props) {
+    const text = useMemo(() => (entities ? rewriteEntityLinks(entities, children) : children), [entities, children])
     return (
         <Prose size={size} tone={tone}>
             <ReactMarkdown remarkPlugins={slashWords ? PERSON_PLUGINS : PLUGINS} rehypePlugins={REHYPE} components={components}>
-                {children}
+                {text}
             </ReactMarkdown>
         </Prose>
     )

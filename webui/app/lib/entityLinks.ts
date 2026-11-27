@@ -10,17 +10,21 @@ export const ENTITY_KINDS = ['artifact', 'function', 'skill', 'task'] as const
 
 export type EntityKind = (typeof ENTITY_KINDS)[number]
 
+/** `encodeURIComponent` plus the parentheses it leaves alone: the href goes into a markdown
+ * link's `( )`, which an unbalanced one in the name would end early. */
+const enc = (name: string) => encodeURIComponent(name).replace(/\(/g, '%28').replace(/\)/g, '%29')
+
 /** The single kind→target table (research R5). Names are agent-scoped by context. */
 export function entityHref(agentId: string, kind: EntityKind, name: string): string {
     switch (kind) {
         case 'artifact':
-            return `/${agentId}/artifacts?artifact=${encodeURIComponent(name)}`
+            return `/${agentId}/artifacts?artifact=${enc(name)}`
         case 'function':
-            return `/${agentId}/functions/${encodeURIComponent(name)}`
+            return `/${agentId}/functions/${enc(name)}`
         case 'skill':
-            return `/${agentId}/skills/${encodeURIComponent(name)}`
+            return `/${agentId}/skills/${enc(name)}`
         case 'task':
-            return `/${agentId}/tasks/${encodeURIComponent(name)}`
+            return `/${agentId}/tasks/${enc(name)}`
     }
 }
 

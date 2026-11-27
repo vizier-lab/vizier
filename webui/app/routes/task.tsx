@@ -194,7 +194,7 @@ export default function TaskPage() {
                             {answer === undefined ? (
                                 <Skeleton lines={4} />
                             ) : answer ? (
-                                <Markdown size="document">{answer}</Markdown>
+                                <Markdown size="document" entities={agentId}>{answer}</Markdown>
                             ) : (
                                 <p className="type-small text-muted">This run answered nothing.</p>
                             )}

@@ -134,7 +134,7 @@ function WorkerEntry({
                     <p className="type-small text-faint">{failed ? failedText : 'Loading...'}</p>
                 )
             }
-            result={!unfinished && shown.result ? <Markdown>{shown.result}</Markdown> : undefined}
+            result={!unfinished && shown.result ? <Markdown entities={worker.consultee ?? agentId}>{shown.result}</Markdown> : undefined}
             error={!unfinished && shown.error ? shown.error : undefined}
         />
     )

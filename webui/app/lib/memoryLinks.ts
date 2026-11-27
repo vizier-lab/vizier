@@ -1,4 +1,5 @@
 import type { DocLink } from '@vizier/design'
+import { parseEntityLink } from './entityLinks'
 import { bundleHref, docHref } from './memoryTree'
 
 /** Where a relation points: `other.md` is in this bundle, `bundle/slug` in another. */
@@ -16,7 +17,10 @@ export function linkWikiLinks(agentId: string, bundle: string, markdown: string)
         .map((part, i) =>
             i % 2 === 1
                 ? part
-                : part.replace(/\[\[([^\]\n|]+?)(?:\|([^\]\n]+))?\]\]/g, (_m, target: string, label?: string) => {
+                : part.replace(/\[\[([^\]\n|]+?)(?:\|([^\]\n]+))?\]\]/g, (m, target: string, label?: string) => {
+                      // An entity link (`[[artifact:x]]`, specs/066) is not a memory link: left for
+                      // `rewriteEntityLinks`, which runs after this one.
+                      if (parseEntityLink(target)) return m
                       const t = target.trim()
                       const to = t.includes('/') ? relationLink(agentId, bundle, t).href : bundleHref(agentId, t)
                       return `[${(label ?? t).trim()}](${to})`

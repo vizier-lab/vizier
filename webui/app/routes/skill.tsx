@@ -21,12 +21,20 @@ export default function SkillPage() {
     const [view, setView] = useState<'read' | 'source'>('read')
     const [deleting, setDeleting] = useState(false)
 
+    // No scope named (a `[[skill:slug]]` link, which cannot know it): the agent's skill wins,
+    // as it does when the agent invokes one, and a global skill of that name is the fallback.
+    const scopeNamed = params.has('scope')
     useEffect(() => {
-        getSkill(scope, agentId, slug).then(setSkill, (e) => {
-            if (e instanceof ApiError && e.status === 404) setMissing(true)
+        const notFound = (e: unknown) => e instanceof ApiError && e.status === 404
+        const fail = (e: unknown) => {
+            if (notFound(e)) setMissing(true)
             else toast.error("Couldn't load the skill", e instanceof Error ? e.message : undefined)
+        }
+        getSkill(scope, agentId, slug).then(setSkill, (e) => {
+            if (!notFound(e) || scopeNamed) return fail(e)
+            getSkill('global', agentId, slug).then(() => navigate(`?scope=global`, { replace: true }), fail)
         })
-    }, [agentId, slug, scope])
+    }, [agentId, slug, scope, scopeNamed, navigate])
 
     const remove = async () => {
         try {
