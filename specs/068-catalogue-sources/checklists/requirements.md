@@ -38,4 +38,9 @@
 - The open decisions from the design discussion are settled in Assumptions: subscription = $0,
   borrowed prices count as estimates. Hand-entered prices (overrides and custom-provider model
   prices) were dropped at the user's request on 2026-11-27, so the spec has no new settings screen.
-  The checklist was re-run after that edit and still passes.
+- 2026-11-27: rewritten as an aggregate of peer sources, with models.dev no longer the base, at the
+  user's request. Provider lists (OpenRouter, Venice) are in scope, and LiteLLM's price file is
+  left out. SC-005 (models.dev can be removed) is the test that it is a peer. The checklist was
+  re-run after the rewrite and passes.
+- Example names in the edge cases (`anthropic/claude-sonnet-4.5`) show the naming problem; they
+  are data, not a design.
