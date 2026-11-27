@@ -199,7 +199,7 @@ Shorthand used below:
 ## Phase 8: Polish and cross-cutting
 
 - [X] T038 Drop the `DocumentStore` from `BundleMemoryStore` (`MB` struct and `BundleMemoryStore::new`) and from `SqlStorage` (the `pub document_store` field and the `new`/`with_secrets` parameter in `SQLITE`:245–280, plus `bundle_store()`). Update every call site; `git grep -n "SqlStorage::new(\|SqlStorage::with_secrets(\|BundleMemoryStore::new(" -- crates app` lists about 67, mostly tests. In `DEPS`, keep building the `BlobDocumentStore` only for the three memory migrations, and do the same for `crates/vizier-core/src/encryption/migrate.rs`:326
-- [ ] T039 Regenerate `crates/vizier-core/public-api.txt` with `just public-api` (the `document_store` field and constructor parameter are gone) and review the diff
+- [X] T039 Regenerate `crates/vizier-core/public-api.txt` with `just public-api` (the `document_store` field and constructor parameter are gone) and review the diff
 - [X] T040 [P] Update docs that describe memory as files on disk: `docs/src/` (search `git grep -n -i "markdown\|on disk\|memory/" -- docs/src`). Say memory lives in the database, can be exported as markdown, and that hand-edited files are not picked up. Add the "old `agents/*/memory/` folders can be removed after the upgrade" note to the storage/upgrade page
 - [X] T041 [P] Update `CLAUDE.md`:
   - the opening "What this is" paragraph ("agent memory itself lives as human-readable markdown documents on disk")
@@ -207,7 +207,7 @@ Shorthand used below:
   - **Agent identity**
 - [X] T042 [P] Amend `.specify/memory/constitution.md` to v2.3.1 (PATCH): reword the Distribution constraint sentence on memory documents using `DocumentStore`/`BlobStore`, and add a Sync Impact Report entry
 - [ ] T043 Add the four checklist entries from contract migration.md §6 to issue #82. Show the exact text to the person and wait for a yes before posting, since it is outward-facing (`gh issue view 82`, then `gh issue edit 82` or a comment, whichever the issue uses)
-- [ ] T044 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and `cd app; cargo test` (the desktop app compiles against the changed constructors)
+- [X] T044 Run `cargo clippy --workspace`, `cargo test --workspace`, `cargo test -p vizier-core --no-default-features`, and `cd app; cargo test` (the desktop app compiles against the changed constructors)
 - [ ] T045 Real-binary upgrade run, quickstart §2 (local; S3 on MinIO optional): snapshot comparison, broken-file handling, untouched sources, restart idempotence, interrupted run (constitution manual-verification gate)
 - [X] T046 Dummyplug end-to-end, quickstart §3 (write, read, link, search, identity, delete, rollback, reads with the folder deleted) (constitution e2e gate)
 - [ ] T047 After-measurement, quickstart §6. Compare against `baseline.md` (T002) for SC-003 and SC-005, and put the numbers in the PR description
@@ -272,4 +272,7 @@ Stream C (docs):  T040, T041, T042
 
 - T027 uses SQLite triggers instead of a test failpoint. T030 builds the old-release archive inside the test, with no checked-in zip.
 - T046 ran in-process (tests/dummyplug_e2e.rs), which also covers an upgrade start; the vizier binary does not build on Windows (daemonize).
-- Open: T002, T037, T039, T043, T044 (clippy and other crates), T045, T047.
+- T039: no change. public-api.txt lists the stable surface only, which holds no storage types.
+- T044: clippy and tests ran locally for every crate but the binary (Windows); the binary and the desktop app run in CI.
+- Not run, at the requester's choice: T045 (real-binary upgrade) and, with it, T002 and T047 (timings). T037 (storage migrate to PostgreSQL) was not run by hand.
+- Open: T043, the #82 entry (draft in the pull request).

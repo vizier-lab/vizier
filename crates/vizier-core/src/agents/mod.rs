@@ -826,12 +826,12 @@ impl AgentHost {
         self.deps.session_files.delete_blobs(&files).await;
         self.deps.artifacts.delete_agent_files(agent_id).await;
         self.deps.ui_pages.delete_agent_blobs(agent_id).await;
-        // Its memory documents (`agents/<agent>/memory/...`), on whichever blob backend; on a
-        // local one that is also where the rest of its folder lives.
+        // Its blob folder (`agents/<agent>/...`), which holds the memory files from before memory
+        // moved into the database (#82); on a local backend the rest of its folder lives there.
         match crate::storage::blob::BlobKey::new(&format!("agents/{agent_id}")) {
             Ok(prefix) => {
                 if let Err(e) = self.deps.blobs.delete_prefix(&prefix).await {
-                    tracing::warn!(agent_id, "failed to delete the agent's memory files: {e}");
+                    tracing::warn!(agent_id, "failed to delete the agent's files: {e}");
                 }
             }
             Err(e) => tracing::warn!(agent_id, "no blob prefix for the agent: {e}"),

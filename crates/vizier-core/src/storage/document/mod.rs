@@ -6,11 +6,10 @@ use bytes::Bytes;
 
 use crate::storage::blob::{BlobKey, BlobStore, LocalBlobStore};
 
-/// Where memory document *bytes* live.
+/// Where memory document *bytes* lived before memory moved into the database
+/// (specs/070-memory-in-database). Only the one-time startup migrations read it (#82).
 ///
 /// Keyed by a path-like string (e.g. `andy/notes.md`, `default/friends/bred.md`).
-/// `BundleMemoryStore` is the only caller of this trait — the rest of the codebase never
-/// depends on it directly.
 #[async_trait::async_trait]
 pub trait DocumentStore: Send + Sync {
     /// Read raw bytes at `path`. `Ok(None)` if it doesn't exist.
@@ -28,7 +27,7 @@ pub trait DocumentStore: Send + Sync {
     async fn list(&self, prefix: &str) -> Result<Vec<String>>;
 }
 
-/// The `DocumentStore`: memory documents as blobs. Callers (`BundleMemoryStore`) address
+/// The `DocumentStore`: memory files as blobs. Callers address
 /// `<agent>/memory/...`; with the `agents` prefix that is the blob key
 /// `agents/<agent>/memory/...`, which `LocalBlobStore` maps to `<workspace>/agents/...`.
 pub struct BlobDocumentStore {

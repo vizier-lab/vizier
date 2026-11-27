@@ -27,8 +27,7 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 use vizier_core::config::VizierConfig;
-use vizier_core::storage::blob::{BlobKey, BlobStore};
-use vizier_core::storage::document::BlobDocumentStore;
+use vizier_core::storage::blob::BlobStore;
 use vizier_core::storage::sqlite::SqlStorage;
 use vizier_core::storage::VizierStorage;
 use vizier_schema::testing::ScriptedPeer;
@@ -60,7 +59,6 @@ impl Harness {
         let config = Arc::new(VizierConfig::with_workspace(workspace.path().to_path_buf()));
         let sql = vizier_core::storage::open_store(&config)?;
         let blobs = vizier_core::storage::blob::open(&config).await?;
-        let documents = Arc::new(BlobDocumentStore::new(blobs.clone(), BlobKey::new("agents")?));
         let storage = VizierStorage::new(SqlStorage::new(sql));
         Ok(Self { bus, config, storage, blobs, _workspace: workspace })
     }

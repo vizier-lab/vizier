@@ -2149,12 +2149,17 @@ impl BundleMemoryStore {
                 let bytes = serialize_markdown(&MemoryFrontMatter::from(memory), &content)?;
                 files.push((format!("{}.md", n.path), bytes));
             }
-            files.push((
-                "index.md".to_string(),
-                Self::render_index(&bundle, &nodes).into_bytes(),
-            ));
+            // A document filed at `index` or `log` keeps its name: an archive holds each name
+            // once.
+            let taken = |name: &str| nodes.iter().any(|n| n.path == name);
+            if !taken("index") {
+                files.push((
+                    "index.md".to_string(),
+                    Self::render_index(&bundle, &nodes).into_bytes(),
+                ));
+            }
             let revisions = memory_revision::list_bundle(&conn, &agent_id, &bundle)?;
-            if !revisions.is_empty() {
+            if !revisions.is_empty() && !taken("log") {
                 files.push((
                     "log.md".to_string(),
                     Self::render_log(&bundle, &revisions).into_bytes(),
@@ -2442,8 +2447,8 @@ impl BundleMemoryStore {
         let (fm, body) = parse_memory_canonical(&content)?;
 
         // A rollback is a normal save with rollback provenance: the document is rewritten
-        // (recreated if it was deleted), the graph index, links, embedding, index.md and
-        // log.md all refresh through the one write path — and history only ever grows.
+        // (recreated if it was deleted), its links and embedding refresh through the one write
+        // path — and history only ever grows.
         let origin = origin
             .clone()
             .with_trigger(RevisionTrigger::Rollback { restored_from: seq });
@@ -3771,8 +3776,8 @@ mod tests {
         );
         assert!(!passage_rows(&store, "note").is_empty());
 
-        // Drift: the stored hash no longer matches the body, which is what a hand-edit on disk
-        // looks like. Detected by hash comparison, not by re-deriving spans (research Decision 12).
+        // Drift: the stored hash no longer matches the body, which is what a save while indexing
+        // was failing looks like. Detected by hash comparison, not by re-deriving spans (research Decision 12).
         {
             let conn = store.conn.lock().unwrap();
             conn.execute("UPDATE memory_passage SET content_hash = 'stale'", [])
@@ -4717,6 +4722,22 @@ mod tests {
         }
     }
 
+    /// A memory titled "Log" or "Index" is filed under the name of a generated file.
+    #[tokio::test]
+    async fn a_document_named_like_a_generated_file_is_still_exported() {
+        let (store, indexer) = setup();
+        put(&store, &indexer, "notes", "log", "my own log").await.unwrap();
+        put(&store, &indexer, "notes", "index", "my own index").await.unwrap();
+
+        let files = unzip(&store.export_bundle("a1".into(), "notes".into()).await.unwrap());
+        assert_eq!(
+            files.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["index.md", "log.md"]
+        );
+        assert!(files["log.md"].ends_with("my own log"), "{files:?}");
+        assert!(files["index.md"].ends_with("my own index"), "{files:?}");
+    }
+
     /// An archive as releases before the move wrote it: the files of the bundle's folder, with
     /// the retired attachment keys and a stale `relations` list in the frontmatter.
     #[tokio::test]
@@ -4809,6 +4830,7 @@ mod tests {
         an_unsafe_address_is_refused,
         a_row_without_a_body_is_absent_until_written,
         export_round_trips_through_import,
+        a_document_named_like_a_generated_file_is_still_exported,
         an_archive_from_the_previous_release_imports,
     );
 }

@@ -927,8 +927,8 @@ impl VizierDependencies {
     }
 
     /// One agent's memory files into its rows. An `Err` means the move is not finished: the file
-    /// store could not be read, or holds no file for an agent that has documents still to move.
-    /// Every file that can be moved is moved either way.
+    /// store could not be read, holds no file for an agent that has documents still to move, or
+    /// the database refused a document. Every file that can be moved is moved either way.
     async fn migrate_agent_memory(
         files: &dyn DocumentStore,
         memory: &BundleMemoryStore,
@@ -976,7 +976,8 @@ impl VizierDependencies {
 
         let mut report = MemoryMoved::default();
         let mut seen: HashSet<(&str, &str)> = HashSet::new();
-        let mut unreadable = None;
+        // The first document that could not be moved for a reason a later start may not have.
+        let mut unfinished = None;
         for (bundle, path, file) in &candidates {
             if !seen.insert((bundle, path)) {
                 tracing::warn!(agent_id, bundle, path, file, "a second file for one memory; left alone");
@@ -992,11 +993,19 @@ impl VizierDependencies {
                 Ok(None) => continue,
                 Err(e) => {
                     tracing::warn!(agent_id, bundle, path, "could not read the memory file: {e:#}");
-                    unreadable.get_or_insert(e);
+                    unfinished.get_or_insert(e.context("could not read one of its memory files"));
                     continue;
                 }
             };
-            match memory.migrate_file(agent_id, bundle, path, &bytes)? {
+            let outcome = match memory.migrate_file(agent_id, bundle, path, &bytes) {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, path, "could not save the memory: {e:#}");
+                    unfinished.get_or_insert(e.context("could not save one of its memories"));
+                    continue;
+                }
+            };
+            match outcome {
                 MigratedFile::Moved => report.moved += 1,
                 MigratedFile::AlreadyThere | MigratedFile::DeletedSince => report.already += 1,
                 MigratedFile::Unreadable(why) => {
@@ -1029,8 +1038,8 @@ impl VizierDependencies {
                 "memory moved into the database"
             );
         }
-        match unreadable {
-            Some(e) => Err(e.context("could not read one of its memory files")),
+        match unfinished {
+            Some(e) => Err(e),
             None => Ok(report),
         }
     }
