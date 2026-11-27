@@ -63,9 +63,9 @@ pub struct CustomTurn {
     /// The custom tools already running in this call chain, outermost first.
     pub chain: Vec<String>,
     /// The router scripts in this context dispatch through: the authoring tools check names
-    /// against it and sample-run with it. Set by `RouterBridge::new` and by `dream_call`.
+    /// against it and sample-run with it. Set by `RouterBridge::new`.
     pub script_router: Option<ToolRouter>,
-    /// Set by `dream_call` to the dream cycle id: saves validate against the full toolset, skip
+    /// Set by the dream turn to the dream cycle id: saves validate against the full toolset, skip
     /// the sample run and are authored by the dream.
     pub dream_cycle: Option<String>,
 }

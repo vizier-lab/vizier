@@ -135,7 +135,12 @@ impl VizierTool for ReadDreamJournal {
     type Output = ReadDreamJournalOutput;
 
     fn category() -> Option<ToolCategory> {
-        None
+        Some(ToolCategory::Memory)
+    }
+
+    /// Only a dream's scripts are offered the journal.
+    fn available(&self, ctx: &ToolContext) -> bool {
+        ctx.in_dream()
     }
 
     fn name() -> String {

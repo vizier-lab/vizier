@@ -2048,21 +2048,9 @@ impl VizierAgent {
         };
 
         let snapshot = self.tools.load_full();
-        // Build dream tools
-        let tools = snapshot
-            .dream_tools(self.config.name.clone(), deps.storage.clone())
-            .await?;
-
-        // Prepare system prompts (same as chat). A dream never resolves project context (FR-014).
-        let mut history = self
-            .prepare_system_prompts(&snapshot.categories, &session, None)
-            .await;
-
-        // What came before the window, as chat replays it after a checkpoint, then the window.
-        if let Some(handover) = handover {
-            history.push(checkpoint_context(handover));
-        }
-        history.extend(history_entries_to_messages(&session_history));
+        // A dream is in code mode like any turn: the model is offered the sandbox tools, and its
+        // scripts reach only the dream toolset (`turn_catalogue` filters on `in_dream`).
+        let tools = snapshot.tools().await?;
 
         let mut req = req;
         if let Some(hooks) = hooks.clone() {
@@ -2096,6 +2084,45 @@ impl VizierAgent {
                 .to_string(),
         );
 
+        let ctx = ToolContext {
+            loaded_images: Default::default(),
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(deps.questions.clone()),
+            interactive: false,
+            session,
+            pending_attachments: Arc::new(Mutex::new(vec![])),
+            hooks: hooks.clone(),
+            background_depth: 0,
+            subagent_depth: 0,
+            consultation_chain: vec![],
+            deadline: None,
+            dream_sources,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
+            detached: false,
+            parent_detached_id: None,
+            custom: crate::custom_tools::CustomTurn {
+                dream_cycle,
+                ..Default::default()
+            },
+        };
+
+        // Prepare system prompts (same as chat), listing only the categories the dream's scripts
+        // can reach. A dream never resolves project context (FR-014).
+        let mut history = self
+            .prepare_system_prompts(
+                &turn_categories(&snapshot.categories, &snapshot.router, &ctx),
+                &ctx.session,
+                None,
+            )
+            .await;
+
+        // What came before the window, as chat replays it after a checkpoint, then the window.
+        if let Some(handover) = handover {
+            history.push(checkpoint_context(handover));
+        }
+        history.extend(history_entries_to_messages(&session_history));
+
         let (output, stats) = self
             .dream_prompt(
                 &snapshot,
@@ -2113,28 +2140,7 @@ impl VizierAgent {
                 tools,
                 hooks.clone(),
                 deps,
-                &ToolContext {
-                    loaded_images: Default::default(),
-                    client: None,
-                    questions: crate::questions::QuestionsHandle::new(deps.questions.clone()),
-                    interactive: false,
-                    session,
-                    pending_attachments: Arc::new(Mutex::new(vec![])),
-                    hooks: hooks.clone(),
-                    background_depth: 0,
-                    subagent_depth: 0,
-                    consultation_chain: vec![],
-                    deadline: None,
-                    dream_sources,
-                    secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
-                    project: None,
-                    detached: false,
-                    parent_detached_id: None,
-                    custom: crate::custom_tools::CustomTurn {
-                        dream_cycle,
-                        ..Default::default()
-                    },
-                },
+                &ctx,
             )
             .await?;
 
@@ -2271,8 +2277,10 @@ impl VizierAgent {
                         (function_name, args) = hooks.on_tool_call(function_name, args).await?;
                     }
 
-                    // Use dream_call for dream tool dispatch
-                    let ctx_clone = ctx.clone();
+                    // The sandbox tools, as in chat; scripts reach the dream toolset only.
+                    let mut ctx_clone = ctx.clone();
+                    ctx_clone.deadline =
+                        Some(tokio::time::Instant::now() + *self.config.tools.timeout);
                     let traced_args = args.clone();
                     let mut tool_res = match traced_tool_call(
                         &function_name,
@@ -2282,13 +2290,7 @@ impl VizierAgent {
                         Some(&ctx_clone.secret_redactor),
                         async {
                             snapshot
-                                .dream_call(
-                                    function_name.clone(),
-                                    args,
-                                    &self.config.name,
-                                    &deps.storage,
-                                    &ctx_clone,
-                                )
+                                .call(function_name.clone(), args, &ctx_clone)
                                 .await
                         },
                     )

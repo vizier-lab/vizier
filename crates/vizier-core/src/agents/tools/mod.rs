@@ -383,6 +383,14 @@ pub struct ToolContext {
     pub custom: crate::custom_tools::CustomTurn,
 }
 
+impl ToolContext {
+    /// Whether this is a dream cycle's turn: its scripts reach only
+    /// [`VizierTools::DREAM_TOOL_NAMES`] and the journal reader.
+    pub fn in_dream(&self) -> bool {
+        matches!(self.session.1, crate::schema::VizierChannelId::Dream(..))
+    }
+}
+
 /// Whether somebody is there to answer this turn (`specs/042-agent-asking-question` research R2).
 ///
 /// The test is a whitelist on the request kind and then on the conversation, so a request kind
@@ -844,7 +852,7 @@ pub trait VizierTool {
     fn name() -> String;
 
     /// The category a script lists this tool under; `None` only for the tools the model
-    /// calls directly and the dream-only journal tools, which no script can reach.
+    /// calls directly and `write_dream_journal`, which no script can reach.
     fn category() -> Option<ToolCategory>;
 
     /// Whether a successful call is the turn's final answer, with no further model round.
@@ -945,6 +953,11 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
     if ctx.detached {
         entries.retain(|entry| !entry.ends_turn);
     }
+    // A dream's scripts reach its own toolset only: a guessed name (`delete_custom_tool`, a
+    // custom tool, `set_secret`) is not in the catalogue, so it is never dispatched (spec 061 R14).
+    if ctx.in_dream() {
+        entries.retain(|entry| VizierTools::dream_may_call(&entry.name));
+    }
     entries
 }
 
@@ -965,15 +978,20 @@ pub fn turn_categories(
         .native_tools()
         .chain(router.addon_tools().map(|(_, tool)| tool))
         .filter(|tool| tool.available(ctx))
+        .filter(|tool| !ctx.in_dream() || VizierTools::dream_may_call(&tool.tool_name()))
         .filter_map(|tool| tool.category())
         .collect();
     let mut categories: Vec<CategorySummary> = base
         .iter()
         .filter(|category| {
-            ToolCategory::ALL
+            match ToolCategory::ALL
                 .iter()
                 .find(|built_in| built_in.name() == category.name)
-                .is_none_or(|built_in| offered.contains(built_in))
+            {
+                Some(built_in) => offered.contains(built_in),
+                // A dream reaches no addon or MCP tool, so it lists none of their categories.
+                None => !ctx.in_dream(),
+            }
         })
         .cloned()
         .collect();
@@ -1351,75 +1369,11 @@ impl VizierTools {
         "update_custom_tool_category",
     ];
 
-    /// Whether a dream may call `name`: its toolset plus the journal reader.
+    /// Whether a dream's scripts may call `name`: its toolset plus the journal reader. Applied
+    /// to the script catalogue by [`turn_catalogue`] and to the category lines by
+    /// [`turn_categories`]; a dream is offered the sandbox tools like any other turn.
     pub fn dream_may_call(name: &str) -> bool {
         name == "read_dream_journal" || Self::DREAM_TOOL_NAMES.contains(&name)
-    }
-
-    pub async fn dream_tools(
-        &self,
-        agent_id: AgentId,
-        storage: Arc<VizierStorage>,
-    ) -> Result<Vec<ToolDefinition>> {
-        let mut tools = vec![];
-
-        // Filter default_toolset for dream-relevant tools
-        for name in Self::DREAM_TOOL_NAMES {
-            if let Ok(tool) = self.router.default_toolset.get_tool(name.to_string()) {
-                tools.push(tool.tool_def());
-            }
-        }
-
-        // Add read_dream_journal for API browsing
-        let read_journal = ReadDreamJournal { agent_id, storage };
-        let read_def = <ReadDreamJournal as VizierToolDyn>::tool_def(&read_journal);
-        tools.push(read_def);
-
-        Ok(tools)
-    }
-
-    pub async fn dream_call(
-        &self,
-        function_name: String,
-        params: String,
-        agent_id: &AgentId,
-        storage: &Arc<VizierStorage>,
-        ctx: &ToolContext,
-    ) -> Result<VizierResponse> {
-        // Handle dream journal tools
-        match function_name.as_str() {
-            "read_dream_journal" => {
-                let tool = ReadDreamJournal {
-                    agent_id: agent_id.clone(),
-                    storage: storage.clone(),
-                };
-                let output = tool.tool_call(params, ctx).await?;
-                let res = serde_json::from_str(&output)?;
-                return Ok(VizierResponse {
-                    timestamp: crate::time::now(),
-                    content: crate::schema::VizierResponseContent::ToolResponse { response: res },
-                    attachments: vec![],
-                    ..Default::default()
-                });
-            }
-            _ => {}
-        }
-
-        // Only what the dream was offered: a guessed name (`delete_custom_tool`, a
-        // custom tool, `set_secret`) is refused, not dispatched (spec 061 R14).
-        if !Self::dream_may_call(&function_name) {
-            return Err(VizierError(format!("{function_name} is not in the dream toolset")).into());
-        }
-        // The custom tool authoring tools validate against the agent's full toolset and are
-        // authored by the dream, never sample-run (spec 061 R9, R14).
-        let mut ctx = ctx.clone();
-        ctx.custom.script_router = Some(self.router.clone());
-        if ctx.custom.dream_cycle.is_none() {
-            ctx.custom.dream_cycle = Some("unknown".into());
-        }
-        // Delegate to default_toolset for memory, workspace, scheduler, skill tools. The dream
-        // loop already opened this call's span, so the router's own is skipped.
-        self.router.dispatch(function_name, params, &ctx).await
     }
 }
 
@@ -1480,6 +1434,11 @@ impl BaseTools {
                 storage: deps.storage.clone(),
             })
             .tool(GetTaskRunDetail {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            // Offered in a dream's scripts only (`available`).
+            .tool(ReadDreamJournal {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })
@@ -2088,6 +2047,7 @@ mod tests {
             ("memory_graph", Memory),
             ("memory_delete", Memory),
             ("memory_delete_bundle", Memory),
+            ("read_dream_journal", Memory),
             ("schedule_one_time_task", Scheduling),
             ("schedule_cron_task", Scheduling),
             ("list_task", Scheduling),
@@ -2240,7 +2200,6 @@ mod tests {
             "execute_python",
             "list_tool_functions",
             "describe_tool_function",
-            "read_dream_journal",
             "write_dream_journal",
         ];
 
@@ -2759,6 +2718,43 @@ mod tests {
         assert!(!turn_categories(&base, &router, &closed)
             .iter()
             .any(|category| category.name == "questions"));
+    }
+
+    /// A dream's scripts reach only the dream toolset, and its prompt lists only the categories
+    /// that toolset has: everything else is out of the catalogue, so a script cannot call it.
+    #[tokio::test]
+    async fn a_dream_sees_only_the_dream_toolset() {
+        let router = ToolRouter {
+            default_toolset: VizierToolSet::new()
+                .tool(time::CurrentTime)
+                .tool(UngatedForTests),
+            ..empty_router()
+        };
+        let base = category_summaries(&router);
+        let names = |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+        let lines = |ctx: &ToolContext| {
+            turn_categories(&base, &router, ctx).into_iter().map(|c| c.name).collect::<Vec<_>>()
+        };
+
+        let chat = ctx(None);
+        assert_eq!(names(turn_catalogue(&router, &chat).await), ["ungated_tool", "current_time"]);
+        assert_eq!(lines(&chat), ["memory", "time"]);
+
+        let source = chat.session.clone();
+        let dream = ToolContext {
+            session: VizierSession(
+                "a".into(),
+                crate::schema::VizierChannelId::Dream(
+                    Box::new(source),
+                    crate::schema::DreamStage::Extraction,
+                ),
+                None,
+            ),
+            ..ctx(None)
+        };
+        assert!(dream.in_dream());
+        assert_eq!(names(turn_catalogue(&router, &dream).await), ["current_time"]);
+        assert_eq!(lines(&dream), ["time"]);
     }
 
     /// A tool whose offer depends on the turn, for the test above.

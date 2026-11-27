@@ -2494,3 +2494,76 @@ async fn a_wake_of_a_conversation_it_may_not_reach_is_refused_as_data() {
     assert!(reply.contains("not_wakeable"), "{reply}");
 }
 
+
+/// One dream extraction turn over `source`, carrying `text` as the dream's prompt.
+async fn dream(transport: &VizierTransport, source: &VizierSession, text: &str) -> String {
+    let session = VizierSession(
+        source.0.clone(),
+        VizierChannelId::Dream(
+            Box::new(source.clone()),
+            vizier_core::schema::DreamStage::Extraction,
+        ),
+        None,
+    );
+    let (tx, rx) = transport.reply_channel().await.expect("open a reply stream");
+    let request = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        user: "dream".into(),
+        content: VizierRequestContent::Unattended(text.into()),
+        metadata: serde_json::json!({ "dream_cycle_id": "e2e" }),
+        ..Default::default()
+    };
+    transport
+        .send_request(session, request, Some(tx))
+        .await
+        .expect("send the request");
+    tokio::time::timeout(TURN_TIMEOUT, async {
+        while let Ok(response) = rx.recv_async().await {
+            match response.content {
+                VizierResponseContent::Message { content, .. } => return content,
+                VizierResponseContent::Error { kind, message } => {
+                    panic!("dream {text:?} failed ({kind:?}): {message}")
+                }
+                VizierResponseContent::Abort => panic!("dream {text:?} found nothing to read"),
+                _ => {}
+            }
+        }
+        panic!("dream {text:?} ended without a message");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("dream {text:?} timed out"))
+}
+
+/// A dream is in code mode: it is offered the sandbox tools, and its scripts reach the dream
+/// toolset (and the journal reader) but nothing else the agent has.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dream_calls_its_tools_from_python() {
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else {
+        return;
+    };
+    let transport = runtime.transport();
+    let source = web_session("dreamt");
+    chat(transport, &source, "hello").await;
+
+    let tools = dream(transport, &source, "tools").await;
+    for name in ["think", "execute_python", "list_tool_functions", "describe_tool_function"] {
+        assert!(tools.contains(&format!("`{name}`")), "a dream lists {name}: {tools}");
+    }
+    assert!(!tools.contains("`memory_write`"), "no direct tools in a dream: {tools}");
+
+    let allowed = dream(
+        transport,
+        &source,
+        &run_python("print(current_time()['status'])\nprint(len(read_dream_journal()['entries']))", false, None),
+    )
+    .await;
+    assert!(allowed.starts_with("**Tool result** (`execute_python`)"), "{allowed}");
+    assert!(allowed.contains(r#""ok":true"#), "{allowed}");
+    // The earlier `tools` dream already wrote one journal entry.
+    assert!(allowed.contains(r#""stdout":"ok\n1\n""#), "{allowed}");
+    assert!(allowed.contains(r#""name":"read_dream_journal","ok":true"#), "{allowed}");
+
+    // The agent has a shell, but a dream's scripts cannot reach it.
+    let refused = dream(transport, &source, &run_python("print(shell_exec(command='echo dreamt'))", false, None)).await;
+    assert!(refused.contains("NameError: name 'shell_exec' is not defined"), "{refused}");
+}
