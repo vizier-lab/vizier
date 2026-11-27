@@ -29,7 +29,7 @@ Top level gains:
   { "id": "models_dev", "name": "models.dev", "fetched_at": "2026-11-27T10:00:00Z" },
   { "id": "openrouter", "name": "OpenRouter", "fetched_at": "…" },
   { "id": "venice",     "name": "Venice",     "fetched_at": "…" },
-  { "id": "curated",    "name": "vizier's price table", "fetched_at": "2026-11-24T00:00:00Z" }
+  { "id": "curated",    "name": "Vizier's price table", "fetched_at": "2026-11-24T00:00:00Z" }
 ]
 ```
 

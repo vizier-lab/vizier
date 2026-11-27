@@ -1,7 +1,7 @@
 # Contract: WebUI (usage report)
 
-**Design status**: ASCII mockup below, **to be reviewed before any WebUI code** (constitution:
-design before UI code; FigCraft unreachable this session). There is no new component and no
+**Design status**: ASCII mockup below, **approved by the person on 2026-11-27** (constitution:
+design before UI code; FigCraft was unreachable, so the mockup is ASCII). There is no new component and no
 layout change: the change is the wording of the existing second line under a model row in
 "Where it went", which `priceNote` builds today.
 

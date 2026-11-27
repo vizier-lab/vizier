@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { audioLength, dailyStacks, formatUnits, mediaCallLine, priceNote, rangeDates, shareOf, topSeries, unpricedMedia, versusPrevious } from './usage'
+import { alternativesTitle, audioLength, dailyStacks, formatUnits, isFree, mediaCallLine, priceNote, rangeDates, shareOf, topSeries, unpricedMedia, versusPrevious } from './usage'
 
 it('says a media amount in its own unit', () => {
     expect(formatUnits({ images: 233 })).toBe('233 images')
@@ -16,8 +16,27 @@ it('says a media amount in its own unit', () => {
 it('labels a price by where it came from', () => {
     expect(priceNote('local')).toBe('free · local')
     expect(priceNote('curated')).toMatch(/price table/)
-    expect(priceNote('models_dev')).toBeUndefined()
+    expect(priceNote(undefined)).toBeUndefined()
     expect(unpricedMedia({ image: { images: 12 }, transcription: { audio_seconds: 60 } })).toBe('12 images, 1 min audio')
+})
+
+it('labels every source and rule the mockup names (spec 068)', () => {
+    const sources = [
+        { id: 'models_dev', name: 'models.dev', fetched_at: '' },
+        { id: 'venice', name: 'Venice', fetched_at: '' },
+        { id: 'openrouter', name: 'OpenRouter', fetched_at: '' },
+    ]
+    expect(priceNote('subscription')).toBe('included · subscription')
+    expect(priceNote('borrowed', { borrowedFrom: 'anthropic' })).toBe('estimate · borrowed from anthropic')
+    expect(priceNote('inference_profile')).toBe('inference profile price')
+    expect(priceNote('models_dev', { sources })).toBe('models.dev')
+    expect(priceNote('venice', { sources })).toBe('Venice')
+    expect(priceNote('someday_source')).toBe('someday_source')
+    const alternatives = [{ source: 'models_dev', cost_usd: 0.02 }, { source: 'curated', cost_usd: 0.03 }]
+    expect(priceNote('openrouter', { sources, alternatives })).toBe('OpenRouter · models.dev says ~$0.02')
+    expect(alternativesTitle(alternatives, sources)).toBe('models.dev: ~$0.02\ncurated: ~$0.03')
+    expect(alternativesTitle([], sources)).toBeUndefined()
+    expect(isFree('local') && isFree('subscription') && !isFree('borrowed')).toBe(true)
 })
 
 it('writes one line per media call on a step', () => {
@@ -25,6 +44,7 @@ it('writes one line per media call on a step', () => {
     expect(mediaCallLine(call)).toBe('openai / gpt-image-1-mini · 1 image (1024x1024) · ~$0.17')
     expect(mediaCallLine({ ...call, local: true, cost_usd: 0, price_source: 'local' })).toMatch(/free · local$/)
     expect(mediaCallLine({ ...call, cost_usd: null, price_source: 'none' })).toMatch(/unpriced$/)
+    expect(mediaCallLine({ ...call, cost_usd: 0, price_source: 'subscription' })).toMatch(/included · subscription$/)
 })
 
 it('takes the last 7 or 30 days, or what was picked', () => {

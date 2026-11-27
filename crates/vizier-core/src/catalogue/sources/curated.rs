@@ -30,7 +30,7 @@ impl CatalogueSource for Curated {
     }
 
     fn name(&self) -> &'static str {
-        "vizier's price table"
+        "Vizier's price table"
     }
 
     fn authority(&self, _provider: &ProviderId) -> Authority {
