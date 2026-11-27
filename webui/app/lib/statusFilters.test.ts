@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import type { DetachedScriptSnapshot, SessionFileRecord } from '../api/frames.ts'
 import {
   fileKinds,
+  fileType,
   filterFiles,
   filterWork,
   workCounts,
@@ -93,4 +94,17 @@ test('the file kind tab keeps only that kind', () => {
   assert.equal(filterFiles(files, '', 'images').length, 1)
   assert.equal(filterFiles(files, '', 'pdf').length, 1)
   assert.equal(filterFiles(files, '', null).length, 2)
+})
+
+test('a name without an extension is typed by its MIME type, never by its name', () => {
+  const png = { ...file('f1', 'artifact-103dde73-45d3'), mime_type: 'image/png' }
+  const pdf = { ...file('f2', 'artifact-9f'), mime_type: 'application/pdf' }
+  const blob = file('f3', 'artifact-7a')
+  assert.equal(fileType(png), 'png')
+  assert.equal(fileType(blob), undefined)
+  assert.deepEqual(
+    fileKinds([png, pdf, blob]).map((k) => k.value),
+    ['images', 'other', 'pdf'],
+  )
+  assert.equal(filterFiles([png, pdf, blob], '', 'images').length, 1)
 })

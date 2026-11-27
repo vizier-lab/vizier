@@ -46,12 +46,34 @@ export function filterWork(scripts: DetachedScriptSnapshot[], query: string, tab
   return rows
 }
 
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+
+/** A file's kind for the tabs: `images`, else its extension, else its MIME subtype, else `other`.
+ *  A name without a dot has no extension, so it never becomes a kind of its own. */
+export function fileKind(f: Pick<SessionFileRecord, 'filename' | 'mime_type'>): string {
+  const ext = extensionOf(f.filename)
+  if (IMAGE_EXTENSIONS.has(ext) || (!ext && f.mime_type?.startsWith('image/'))) return 'images'
+  return fileType(f) ?? 'other'
+}
+
+/** What a file's type tag shows: its extension, else its MIME subtype, else nothing. */
+export function fileType(f: Pick<SessionFileRecord, 'filename' | 'mime_type'>): string | undefined {
+  const ext = extensionOf(f.filename)
+  if (ext) return ext
+  const sub = f.mime_type?.split(';')[0].split('/')[1]?.trim().toLowerCase()
+  return sub && sub !== 'octet-stream' ? sub : undefined
+}
+
+function extensionOf(filename: string): string {
+  const dot = filename.lastIndexOf('.')
+  return dot > 0 ? filename.slice(dot + 1).toLowerCase() : ''
+}
+
 /** The file kinds the files tabs count, by extension. */
 export function fileKinds(files: SessionFileRecord[]): { value: string; label: string; count: number }[] {
   const counts = new Map<string, number>()
   for (const f of files) {
-    const ext = (f.filename.split('.').pop() ?? '').toLowerCase()
-    const kind = ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp' ? 'images' : ext
+    const kind = fileKind(f)
     counts.set(kind, (counts.get(kind) ?? 0) + 1)
   }
   return [...counts.entries()]
@@ -67,9 +89,7 @@ export function filterFiles(
 ): StatusRow[] {
   const rows: StatusRow[] = []
   for (const f of files) {
-    const ext = (f.filename.split('.').pop() ?? '').toLowerCase()
-    const fileKind = ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp' ? 'images' : ext
-    if (kind && fileKind !== kind) continue
+    if (kind && fileKind(f) !== kind) continue
     if (!matches(query, f.filename, f.mime_type, f.sender)) continue
     rows.push({ kind: 'file', key: f.id, file: f })
   }

@@ -23,6 +23,7 @@ import { fileSize } from '../../lib/upload'
 import {
   PAGE,
   fileKinds,
+  fileType,
   filterFiles,
   filterWork,
   workCounts,
@@ -347,7 +348,7 @@ export function ChatStatusStrip({
                       {canPromote && (
                         <TextLink onClick={() => void doPromote(row.file.filename)}>Promote</TextLink>
                       )}
-                      <FileTypeTag file={row.file.filename} />
+                      <FileTypeTag file={fileType(row.file) ?? 'file'} />
                     </span>
                   }
                 />

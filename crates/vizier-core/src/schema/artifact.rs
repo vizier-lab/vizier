@@ -175,7 +175,7 @@ fn extension_of(name: &str) -> Option<&str> {
 }
 
 /// The usual extension for a MIME type; `None` for `application/octet-stream` or one unknown.
-fn extension_for_mime(mime: &str) -> Option<&'static str> {
+pub(crate) fn extension_for_mime(mime: &str) -> Option<&'static str> {
     let base = mime.split(';').next().unwrap_or(mime).trim().to_ascii_lowercase();
     // The common ones by hand: mime_guess lists extensions alphabetically (`jfif` before `jpg`).
     let known = match base.as_str() {

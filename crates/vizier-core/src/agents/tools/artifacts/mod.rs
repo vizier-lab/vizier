@@ -301,7 +301,7 @@ impl VizierTool for LoadArtifactAsSessionFile {
             .artifacts
             .read_content(&ctx.session.0, &artifact.id)
             .await?;
-        let safe = crate::artifacts::session_filename(&artifact.id, &artifact.name);
+        let safe = crate::artifacts::session_filename(&artifact.id, &artifact.name, &artifact.mime_type);
         let record = self
             .file_manager
             .upload(&safe, bytes)

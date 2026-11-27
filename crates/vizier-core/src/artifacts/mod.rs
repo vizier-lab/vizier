@@ -527,14 +527,29 @@ impl AttachmentResolver for Artifacts {
 
 /// The safe, server-derived session-file name used when an artifact is copied into a
 /// conversation (`artifact-<id><ext>`); the artifact's display name never becomes a path.
-pub fn session_filename(artifact_id: &str, name: &str) -> String {
+/// The extension comes from the name, else from the MIME type, so a file named without one
+/// (a generated image, say) still reads as its kind.
+pub fn session_filename(artifact_id: &str, name: &str, mime_type: &str) -> String {
     let ext = std::path::Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()));
+        .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .or_else(|| crate::schema::artifact::extension_for_mime(mime_type));
     match ext {
         Some(ext) => format!("artifact-{artifact_id}.{ext}"),
         None => format!("artifact-{artifact_id}"),
+    }
+}
+
+#[cfg(test)]
+mod session_filename_tests {
+    use super::session_filename;
+
+    #[test]
+    fn the_extension_comes_from_the_name_then_the_mime_type() {
+        assert_eq!(session_filename("a1", "chart.svg", "image/png"), "artifact-a1.svg");
+        assert_eq!(session_filename("a1", "sunset", "image/png"), "artifact-a1.png");
+        assert_eq!(session_filename("a1", "blob", "application/octet-stream"), "artifact-a1");
     }
 }
 
