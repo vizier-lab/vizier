@@ -22,7 +22,7 @@
 **Purpose**: matching branches and the design pass the constitution requires before UI code.
 
 - [X] T001 Create the matching `069-platform-account-linking` branch in every submodule with `just checkout 069-platform-account-linking`, and confirm with `just status`
-- [ ] T002 [P] Draw the **Connected accounts** card for Settings › Profile in `C:\Users\ganes\OneDrive\Dokumen\Vizier shell.figcraft`, matching the existing settings pages in both themes. It needs:
+- [X] T002 [P] Draw the **Connected accounts** card for Settings › Profile in `C:\Users\ganes\OneDrive\Dokumen\Vizier shell.figcraft`, matching the existing settings pages in both themes. It needs:
   - a linked row: platform icon, handle, id, connected date, a ⋯ menu with Unlink
   - an Unlink confirmation dialog
   - a not-linked row with the "Send /connect to any agent's bot on Discord" hint
@@ -31,7 +31,7 @@
   - the recent-changes list
 
   Copy the file to `C:\Users\ganes\AppData\Local\Temp\opencode` first. If FigCraft is unreachable, use an HTML mockup in `design/explorations/069-connected-accounts.html` instead.
-- [ ] T003 [P] Draw the **`/connect` confirmation** in the same file: the platform account, the Vizier username, the "only confirm a code you requested yourself" warning, the "replaces your current Discord account" variant, and the expired/used and already-linked-elsewhere states. Get review before Phase 3's WebUI tasks start.
+- [ ] T003 [P] Draw the **`/connect` confirmation** in the same file: the platform account, the Vizier username, the "only confirm a code you requested yourself" warning, the "replaces your current Discord account" variant, and the expired/used and already-linked-elsewhere states. Get review before Phase 3's WebUI tasks start. *Drawn 2026-11-27 on `Shell · chosen` (frames 069 A–E, dark theme); awaiting review.*
 
 ---
 
