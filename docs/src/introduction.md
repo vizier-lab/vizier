@@ -3,7 +3,7 @@
 > **A digital steward for Your Majesty.**\
 > AI agents that remember who they are, and who you are. Hosted by you.
 
-Vizier is an AI agent framework written in Rust. One Vizier runs many agents at once, each with its own model provider, tools, memory and identity, and reaches them over the WebUI, Discord, Telegram and an HTTP API. Everything is stored in an embedded SQLite database and plain markdown files, so there is nothing else to run.
+Vizier is an AI agent framework written in Rust. One Vizier runs many agents at once, each with its own model provider, tools, memory and identity, and reaches them over the WebUI, Discord, Telegram and an HTTP API. Everything is stored in an embedded SQLite database and a folder of files, so there is nothing else to run.
 
 It comes in two editions that share one engine and one WebUI:
 
@@ -16,7 +16,7 @@ Not sure which? See [Choose an Edition](./getting-started/editions.md).
 
 ## What you get
 
-- **Agents that remember.** Long-term memory is plain markdown you can read and edit, organised into bundles with a link graph and semantic search. An agent's identity (its Core) is one of those documents. See [Memory](./configuration/memory.md).
+- **Agents that remember.** Long-term memory is markdown you can read, edit and export, organised into bundles with a link graph and semantic search. An agent's identity (its Core) is one of those documents. See [Memory](./configuration/memory.md).
 - **Any model.** Providers come from the models.dev catalogue (OpenAI, Anthropic, Google, OpenRouter, Ollama, Bedrock and many more), plus any OpenAI- or Anthropic-compatible endpoint. See [Providers](./configuration/providers.md).
 - **Where you already talk.** The WebUI, Discord and Telegram. Each agent has its own bot. See [Channels](./configuration/channels.md).
 - **Tools you choose.** Shell, HTTP, web search, Office files and any [MCP server](./configuration/mcp.md), added per agent. Reusable [skills](./configuration/skills.md) and saved [functions](./configuration/custom-tools.md).

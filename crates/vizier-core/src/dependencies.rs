@@ -1,7 +1,8 @@
 use crate::time::Timestamp;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use rusqlite::OptionalExtension;
 
 use crate::storage::turn::TurnStorage;
@@ -17,12 +18,12 @@ use crate::{
         VizierStorage,
         agent::AgentStorage,
         client_call::ClientCallStorage,
-        document::BlobDocumentStore,
+        document::{BlobDocumentStore, DocumentStore},
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
         fs::FileSystemStorage,
         global_config::GlobalConfigStorage,
-        memory_bundle::BundleMemoryStore,
+        memory_bundle::{BundleMemoryStore, MigratedFile, normalize_path},
         scratch::ScratchStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
@@ -34,12 +35,20 @@ use crate::{
         user::{AVAILABLE_PERMISSIONS, UserStorage},
     },
     transport::VizierTransport,
-    utils::build_path,
 };
 
 const MIGRATION_MEMORY_TO_BUNDLES: &str = "migration_memory_to_bundles_v1";
 const MIGRATION_FS_TO_SQLITE: &str = "migration_fs_to_sqlite_v1";
 const LEGACY_GLOBAL_AGENT_ID: &str = "_global";
+
+/// What moving one agent's memory files into the database did (spec 070, #82).
+#[derive(Debug, Default, PartialEq)]
+struct MemoryMoved {
+    moved: usize,
+    already: usize,
+    failed: usize,
+    missing: usize,
+}
 
 #[derive(Clone)]
 pub struct VizierDependencies {
@@ -48,7 +57,7 @@ pub struct VizierDependencies {
     pub sql: SqlStore,
     pub transport: VizierTransport,
     pub file_manager: FileManager,
-    /// Where uploads, artifact versions and memory documents live (`specs/045-pluggable-storage`
+    /// Where uploads and artifact versions live (`specs/045-pluggable-storage`
     /// contracts/blob-store.md).
     pub blobs: Arc<dyn crate::storage::blob::BlobStore>,
     /// Permanent artifacts (`specs/035-add-artifacts`): metadata in SQLite, content in `blobs`,
@@ -152,11 +161,11 @@ impl VizierDependencies {
         let sql = crate::storage::open_store(&config)?;
 
         let blobs = crate::storage::blob::open(&config).await?;
-        let document_store: Arc<dyn crate::storage::document::DocumentStore> =
-            Arc::new(BlobDocumentStore::new(
-                blobs.clone(),
-                crate::storage::blob::BlobKey::new("agents")?,
-            ));
+        // Where memory used to live. Only the one-time move into the database reads it (#82).
+        let memory_files = BlobDocumentStore::new(
+            blobs.clone(),
+            crate::storage::blob::BlobKey::new("agents")?,
+        );
 
         // The workspace key must exist and match before anything can write a secret. Loading it
         // here also means a missing/wrong/malformed key fails before the filesystem import adds
@@ -182,7 +191,7 @@ impl VizierDependencies {
             );
         }
 
-        Self::migrate_memory_to_bundles(&config, document_store.clone(), sql.clone()).await?;
+        Self::migrate_memory_to_bundles(&config, sql.clone()).await?;
         Self::migrate_filesystem_backend_to_sqlite(
             &config,
             sql.clone(),
@@ -212,10 +221,15 @@ impl VizierDependencies {
 
         let storage = VizierStorage::new(SqlStorage::with_secrets(
             sql.clone(),
-            document_store,
             cipher,
             secret_paths,
         ));
+
+        // Spec 070: memory moved into the database. Before any agent starts. It never blocks
+        // startup: it is retried on the next start until it has finished.
+        if let Err(e) = Self::migrate_memory_into_database(&memory_files, &storage, &sql).await {
+            tracing::error!("failed to move memory into the database: {e:#}");
+        }
 
         Self::migrate_users(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
@@ -615,11 +629,7 @@ impl VizierDependencies {
     /// becomes a concept document in its owning agent's default bundle. Runs for every
     /// deployment (a fresh sqlite install with no legacy `memory` rows, or one already
     /// migrated, is a no-op).
-    async fn migrate_memory_to_bundles(
-        config: &VizierConfig,
-        document_store: Arc<dyn crate::storage::document::DocumentStore>,
-        sql: SqlStore,
-    ) -> Result<()> {
+    async fn migrate_memory_to_bundles(config: &VizierConfig, sql: SqlStore) -> Result<()> {
         if sql.backend() != Backend::Sqlite {
             return Ok(());
         }
@@ -629,13 +639,12 @@ impl VizierDependencies {
             return Ok(());
         }
 
-        let bundle_store = BundleMemoryStore::new(document_store, sql.clone());
+        let bundle_store = BundleMemoryStore::new(sql.clone());
 
         // A cheap, storage-agnostic embedder placeholder for the migration loop itself — real
         // per-agent indexers are resolved lazily below once the sqlite-backed VizierStorage
         // exists (agents must already be readable via AgentStorage to look up embedding config).
-        let mut touched: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
+        let mut touched: HashSet<String> = HashSet::new();
 
         match &config.storage {
             StorageConfig::Sqlite => {
@@ -732,7 +741,7 @@ impl VizierDependencies {
                         );
                         continue;
                     }
-                    touched.insert((target_agent, "default".to_string()));
+                    touched.insert(target_agent);
                 }
             }
             // Unreachable: the function returns early on any backend but SQLite.
@@ -838,17 +847,16 @@ impl VizierDependencies {
                         tracing::error!("failed to migrate legacy memory file {:?}: {}", entry, e);
                         continue;
                     }
-                    touched.insert((target_agent, "default".to_string()));
+                    touched.insert(target_agent);
                 }
             }
         }
 
-        for (agent_id, bundle) in &touched {
-            if let Err(e) = bundle_store.finalize_bundle(agent_id, bundle).await {
+        for agent_id in &touched {
+            if let Err(e) = bundle_store.finalize_migration(agent_id).await {
                 tracing::error!(
-                    "failed to finalize migrated bundle '{}/{}': {}",
+                    "failed to finalize the migrated memory of '{}': {}",
                     agent_id,
-                    bundle,
                     e
                 );
             }
@@ -859,6 +867,172 @@ impl VizierDependencies {
         })?;
 
         Ok(())
+    }
+
+    /// Set once every agent's memory has been moved from files into the database (spec 070).
+    pub const MEMORY_IN_DATABASE: &'static str = "migration.memory_in_database_v1";
+
+    /// Spec 070: memory moved from files (the workspace or the bucket) into the database. Every
+    /// stored agent's documents are copied into their rows once. The files are kept, no revision
+    /// is recorded and nothing is deleted.
+    ///
+    /// A file store that cannot be read, or that holds nothing for an agent with documents still
+    /// to move (a wrong file-store setting), is an error that leaves the marker unset, so the
+    /// next start tries again. The caller logs it and never lets it stop startup. Written over
+    /// the SQL connection so it runs on SQLite and PostgreSQL alike. Tracked for removal in #82.
+    async fn migrate_memory_into_database(
+        files: &dyn DocumentStore,
+        storage: &VizierStorage,
+        sql: &SqlStore,
+    ) -> Result<()> {
+        let key = Self::MEMORY_IN_DATABASE.to_string();
+        if storage.get_state(key.clone()).await?.is_some() {
+            return Ok(());
+        }
+        let agents: Vec<String> = {
+            let conn = sql.lock()?;
+            let rows = conn.query_all(
+                "SELECT agent_id FROM agent_config ORDER BY agent_id",
+                crate::storage::sql::params![],
+            )?;
+            rows.iter()
+                .map(|row| row.get::<_, String>(0))
+                .collect::<std::result::Result<_, _>>()?
+        };
+        let memory = BundleMemoryStore::new(sql.clone());
+
+        let mut moved = 0;
+        let mut unfinished = Vec::new();
+        for agent_id in &agents {
+            match Self::migrate_agent_memory(files, &memory, agent_id).await {
+                Ok(report) => moved += report.moved,
+                Err(e) => unfinished.push(format!("{agent_id}: {e:#}")),
+            }
+        }
+        if !unfinished.is_empty() {
+            return Err(anyhow!(
+                "some memory is not in the database yet and does not show until it is; the move \
+                 is retried on the next start: {}",
+                unfinished.join("; ")
+            ));
+        }
+        storage.save_state(key, serde_json::json!(true)).await?;
+        if moved > 0 {
+            tracing::info!(
+                "moved {moved} memory document(s) into the database; the files under \
+                 agents/*/memory/ are no longer read and can be removed after a backup"
+            );
+        }
+        Ok(())
+    }
+
+    /// One agent's memory files into its rows. An `Err` means the move is not finished: the file
+    /// store could not be read, or holds no file for an agent that has documents still to move.
+    /// Every file that can be moved is moved either way.
+    async fn migrate_agent_memory(
+        files: &dyn DocumentStore,
+        memory: &BundleMemoryStore,
+        agent_id: &str,
+    ) -> Result<MemoryMoved> {
+        let rows = memory.memory_rows(agent_id)?;
+        let filled: HashSet<(&str, &str)> = rows
+            .iter()
+            .filter(|(_, _, has_content)| *has_content)
+            .map(|(bundle, path, _)| (bundle.as_str(), path.as_str()))
+            .collect();
+
+        let prefix = format!("{agent_id}/memory");
+        let mut listed = files
+            .list(&prefix)
+            .await
+            .context("could not list its memory files")?;
+        listed.sort();
+        // `<bundle>/<path>.md`. A file directly under `memory/` predates bundles (the older
+        // migration's), and `index.md`/`log.md` are generated, not documents.
+        let candidates: Vec<(String, String, String)> = listed
+            .into_iter()
+            .filter_map(|file| {
+                let (bundle, rest) = file.split_once('/')?;
+                if !rest.ends_with(".md") {
+                    return None;
+                }
+                let bundle = bundle.to_string();
+                let path = normalize_path(rest);
+                let leaf = path.rsplit('/').next().unwrap_or(&path);
+                if path.is_empty() || leaf == "index" || leaf == "log" {
+                    return None;
+                }
+                Some((bundle, path, file))
+            })
+            .collect();
+
+        let pending = rows.len() - filled.len();
+        if candidates.is_empty() && pending > 0 {
+            return Err(anyhow!(
+                "{pending} memory document(s) are recorded but the file store holds none of its \
+                 memory files; check the file store setting and that the files were copied"
+            ));
+        }
+
+        let mut report = MemoryMoved::default();
+        let mut seen: HashSet<(&str, &str)> = HashSet::new();
+        let mut unreadable = None;
+        for (bundle, path, file) in &candidates {
+            if !seen.insert((bundle, path)) {
+                tracing::warn!(agent_id, bundle, path, file, "a second file for one memory; left alone");
+                report.failed += 1;
+                continue;
+            }
+            if filled.contains(&(bundle.as_str(), path.as_str())) {
+                report.already += 1;
+                continue;
+            }
+            let bytes = match files.get(&format!("{prefix}/{file}")).await {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, path, "could not read the memory file: {e:#}");
+                    unreadable.get_or_insert(e);
+                    continue;
+                }
+            };
+            match memory.migrate_file(agent_id, bundle, path, &bytes)? {
+                MigratedFile::Moved => report.moved += 1,
+                MigratedFile::AlreadyThere | MigratedFile::DeletedSince => report.already += 1,
+                MigratedFile::Unreadable(why) => {
+                    tracing::warn!(
+                        agent_id,
+                        bundle,
+                        path,
+                        "could not parse the memory file, which is kept where it is: {why}"
+                    );
+                    report.failed += 1;
+                }
+            }
+        }
+        for (bundle, path, has_content) in &rows {
+            if !has_content && !seen.contains(&(bundle.as_str(), path.as_str())) {
+                tracing::warn!(agent_id, bundle, path, "a recorded memory has no file to move");
+                report.missing += 1;
+            }
+        }
+        // Links may point at documents moved after them.
+        memory.finalize_migration(agent_id).await?;
+
+        if report != MemoryMoved::default() {
+            tracing::info!(
+                agent_id,
+                moved = report.moved,
+                already = report.already,
+                failed = report.failed,
+                missing = report.missing,
+                "memory moved into the database"
+            );
+        }
+        match unreadable {
+            Some(e) => Err(e.context("could not read one of its memory files")),
+            None => Ok(report),
+        }
     }
 
     /// Part B (contracts/migration.md, FR-025): for a deployment that was on `--storage
@@ -880,10 +1054,7 @@ impl VizierDependencies {
         }
 
         let fs = FileSystemStorage::new(config.workspace.clone()).await?;
-        let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
-            BlobDocumentStore::local(build_path(&config.workspace, &["agents"])),
-        );
-        let sql = SqlStorage::with_secrets(store.clone(), document_store, cipher, secret_paths);
+        let sql = SqlStorage::with_secrets(store.clone(), cipher, secret_paths);
 
         tracing::info!("migrating filesystem-backend entities into sqlite");
 
@@ -1460,7 +1631,6 @@ mod usage_migration_tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (storage, conn, dir)
     }
@@ -1724,7 +1894,6 @@ mod one_time_task_tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (storage, conn, dir)
     }
@@ -1821,7 +1990,6 @@ mod drop_workspaces_tests {
         let sql = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             sql.clone(),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         let files = crate::session_files::SessionFiles::new(
             Arc::new(storage.clone()),
@@ -1865,5 +2033,357 @@ mod drop_workspaces_tests {
         storage.save_session_history(topic.clone(), chat("late")).await.unwrap();
         VizierDependencies::migrate_drop_workspaces(&storage, &sql, &files).await.unwrap();
         assert_eq!(storage.list_session_history(topic, None, None, None).await.unwrap().len(), 1);
+    }
+}
+
+/// Spec 070: the one-time move of memory files into the database.
+#[cfg(test)]
+mod memory_migration_tests {
+    use anyhow::{Result, anyhow};
+
+    use super::VizierDependencies;
+    use crate::{
+        config::{ChunkLimits, VizierConfig},
+        indexer::{VizierIndexer, noop::NoopIndexer},
+        schema::RevisionOrigin,
+        storage::{
+            VizierStorage,
+            document::{BlobDocumentStore, DocumentStore},
+            memory_bundle::BundleMemoryStore,
+            sql::{SqlStore, params},
+            sqlite::SqlStorage,
+            state::StateStorage,
+        },
+    };
+
+    struct Fixture {
+        files: BlobDocumentStore,
+        storage: VizierStorage,
+        sql: SqlStore,
+        memory: BundleMemoryStore,
+        dir: tempfile::TempDir,
+    }
+
+    fn fixture(agents: &[&str]) -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        SqlStorage::init_schema(&conn).unwrap();
+        for agent in agents {
+            conn.execute(
+                "INSERT INTO agent_config (agent_id, data) VALUES (?1, '{}')",
+                [agent],
+            )
+            .unwrap();
+        }
+        let sql = SqlStore::sqlite(conn);
+        Fixture {
+            files: BlobDocumentStore::local(dir.path().to_path_buf()),
+            storage: VizierStorage::new(SqlStorage::new(sql.clone())),
+            memory: BundleMemoryStore::new(sql.clone()),
+            sql,
+            dir,
+        }
+    }
+
+    /// A concept file as earlier releases wrote it.
+    fn concept(path: &str, title: &str, body: &str) -> String {
+        format!(
+            "---\nslug: {path}\ntitle: {title}\ncreated_at: 2024-01-01T10:00:00Z\n\
+             updated_at: 2024-02-02T10:00:00Z\nagent_id: a\nbundle: default\ntags:\n- t\n\
+             keywords: []\nrelations: []\nattachments: []\nattachment_count: 0\n\
+             read_count: 3\n---\n{body}"
+        )
+    }
+
+    impl Fixture {
+        async fn file(&self, path: &str, text: &str) {
+            self.files.put(path, text.as_bytes().to_vec()).await.unwrap();
+        }
+
+        /// A cached row as earlier releases kept one beside a file: no body.
+        fn cached_row(&self, agent: &str, bundle: &str, path: &str) {
+            self.sql
+                .lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO memory_node
+                        (agent_id, bundle, path, slug, title, tags_json, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?3, 'cached', '[]',
+                             '2024-01-01T00:00:00+00:00', '2024-01-01T00:00:00+00:00')",
+                    params![agent, bundle, path],
+                )
+                .unwrap();
+        }
+
+        fn count(&self, sql: &str) -> i64 {
+            self.sql
+                .lock()
+                .unwrap()
+                .query_row(sql, params![], |row| row.get(0))
+                .unwrap()
+        }
+
+        async fn run(&self, files: &dyn DocumentStore) -> Result<()> {
+            VizierDependencies::migrate_memory_into_database(files, &self.storage, &self.sql).await
+        }
+
+        async fn done(&self) -> bool {
+            self.storage
+                .get_state(VizierDependencies::MEMORY_IN_DATABASE.into())
+                .await
+                .unwrap()
+                .is_some()
+        }
+
+        async fn read(&self, agent: &str, bundle: &str, path: &str) -> Option<crate::schema::Memory> {
+            self.memory
+                .get_memory_detail(agent.into(), Some(bundle.into()), path.into())
+                .await
+                .unwrap()
+        }
+    }
+
+    /// A file store that fails to list one agent, or to read one file.
+    struct Flaky<'a> {
+        inner: &'a BlobDocumentStore,
+        no_list: &'a str,
+        no_get: &'a str,
+    }
+
+    #[async_trait::async_trait]
+    impl DocumentStore for Flaky<'_> {
+        async fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+            if path == self.no_get {
+                return Err(anyhow!("unreachable"));
+            }
+            self.inner.get(path).await
+        }
+        async fn put(&self, _path: &str, _bytes: Vec<u8>) -> Result<()> {
+            panic!("the migration never writes a file");
+        }
+        async fn delete(&self, _path: &str) -> Result<()> {
+            panic!("the migration never deletes a file");
+        }
+        async fn list(&self, prefix: &str) -> Result<Vec<String>> {
+            if prefix == self.no_list {
+                return Err(anyhow!("unreachable"));
+            }
+            self.inner.list(prefix).await
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_files_move_into_the_database() {
+        let f = fixture(&["a", "b"]);
+        let note = concept("note", "Note", "the body, linking [[other/x]]");
+        let broken = "---\ntitle: [unclosed\n---\nbody";
+        f.file("a/memory/default/note.md", &note).await;
+        f.file("a/memory/default/people/bred.md", &concept("people/bred", "Bred", "runs"))
+            .await;
+        f.file("a/memory/other/x.md", &concept("x", "X", "x")).await;
+        f.file("a/memory/default/broken.md", broken).await;
+        f.file("a/memory/default/index.md", "# default\n").await;
+        f.file("a/memory/default/log.md", "# default log\n").await;
+        f.file("a/memory/flat.md", &concept("flat", "Flat", "pre-bundle")).await;
+        f.file("nobody/memory/default/y.md", &concept("y", "Y", "orphan")).await;
+        f.cached_row("a", "default", "note");
+        f.cached_row("a", "default", "gone");
+
+        // Through the guard that panics on any write or delete.
+        let guarded = Flaky { inner: &f.files, no_list: "", no_get: "" };
+        f.run(&guarded).await.unwrap();
+
+        let moved = f.read("a", "default", "note").await.unwrap();
+        assert_eq!(moved.title, "Note");
+        assert_eq!(moved.content, "the body, linking [[other/x]]");
+        assert_eq!(moved.tags, vec!["t".to_string()]);
+        assert_eq!(moved.read_count, 3);
+        assert_eq!(moved.created_at.timestamp(), 1_704_103_200);
+        assert_eq!(moved.updated_at.timestamp(), 1_706_868_000);
+        assert!(f.read("a", "default", "people/bred").await.is_some());
+        let related = f
+            .memory
+            .get_related_memories("a".into(), Some("default".into()), "note".into())
+            .await
+            .unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].slug, "x");
+
+        assert!(f.read("a", "default", "broken").await.is_none());
+        assert!(f.read("a", "default", "gone").await.is_none());
+        assert_eq!(
+            f.count("SELECT COUNT(*) FROM memory_node WHERE content IS NULL"),
+            2,
+            "the unparseable and the missing document keep their rows"
+        );
+        assert_eq!(f.count("SELECT COUNT(*) FROM memory_node"), 5);
+        assert_eq!(f.count("SELECT COUNT(*) FROM memory_revision"), 0);
+        assert!(f.done().await);
+        assert_eq!(
+            std::fs::read_to_string(f.dir.path().join("a/memory/default/note.md")).unwrap(),
+            note
+        );
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_memory_migration_finishes_without_duplicates() {
+        let f = fixture(&["a"]);
+        for path in ["one", "two", "three"] {
+            f.file(&format!("a/memory/default/{path}.md"), &concept(path, path, path))
+                .await;
+        }
+        let flaky = Flaky {
+            inner: &f.files,
+            no_list: "",
+            no_get: "a/memory/default/two.md",
+        };
+        assert!(f.run(&flaky).await.is_err());
+        assert!(!f.done().await);
+        assert!(f.read("a", "default", "one").await.is_some());
+        assert!(f.read("a", "default", "two").await.is_none());
+
+        // Between the runs one moved document is edited and another deleted.
+        let indexer = VizierIndexer::build(NoopIndexer);
+        let origin = RevisionOrigin::system(crate::schema::RevisionTrigger::Conversation);
+        f.memory
+            .write_memory(
+                "a".into(),
+                None,
+                Some("one".into()),
+                false,
+                "one".into(),
+                "edited since".into(),
+                vec![],
+                &origin,
+                &indexer,
+                &ChunkLimits::default(),
+            )
+            .await
+            .unwrap();
+        f.memory
+            .delete_memory("a".into(), None, "three".into(), &origin, &indexer)
+            .await
+            .unwrap();
+
+        f.run(&f.files).await.unwrap();
+        assert!(f.done().await);
+        assert_eq!(
+            f.read("a", "default", "one").await.unwrap().content,
+            "edited since",
+            "never overwritten"
+        );
+        assert!(f.read("a", "default", "two").await.is_some());
+        assert!(f.read("a", "default", "three").await.is_none(), "not brought back");
+        assert_eq!(f.count("SELECT COUNT(*) FROM memory_node"), 2);
+
+        // Once: a later file is not picked up.
+        f.file("a/memory/default/late.md", &concept("late", "Late", "late")).await;
+        f.run(&f.files).await.unwrap();
+        assert!(f.read("a", "default", "late").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_store_failure_leaves_the_marker_unset() {
+        let f = fixture(&["a", "b"]);
+        f.file("a/memory/default/note.md", &concept("note", "A", "a")).await;
+        f.file("b/memory/default/note.md", &concept("note", "B", "b")).await;
+        let flaky = Flaky {
+            inner: &f.files,
+            no_list: "a/memory",
+            no_get: "",
+        };
+        let err = f.run(&flaky).await.unwrap_err();
+        assert!(err.to_string().contains("a: "), "{err}");
+        assert!(!f.done().await);
+        assert!(f.read("b", "default", "note").await.is_some(), "the others move");
+
+        f.run(&f.files).await.unwrap();
+        assert!(f.done().await);
+        assert!(f.read("a", "default", "note").await.is_some());
+    }
+
+    /// A wrong file-store setting, or files that were not copied.
+    #[tokio::test]
+    async fn an_agent_with_rows_and_no_files_leaves_the_marker_unset() {
+        let f = fixture(&["a", "fresh"]);
+        f.cached_row("a", "core", "soul");
+        assert!(f.run(&f.files).await.is_err());
+        assert!(!f.done().await);
+
+        // The identity seed leaves the recorded document alone, so nothing is lost.
+        let indexer = VizierIndexer::build(NoopIndexer);
+        let seeded = f
+            .memory
+            .seed_identity("a", None, &indexer, &ChunkLimits::default())
+            .await
+            .unwrap();
+        assert!(!seeded);
+        // An agent with no recorded memory is seeded as usual, and being only in the database
+        // does not make it look unfinished.
+        assert!(
+            f.memory
+                .seed_identity("fresh", None, &indexer, &ChunkLimits::default())
+                .await
+                .unwrap()
+        );
+
+        f.file("a/memory/core/soul.md", &concept("soul", "Core", "who I am")).await;
+        f.run(&f.files).await.unwrap();
+        assert!(f.done().await);
+        assert_eq!(f.read("a", "core", "soul").await.unwrap().content, "who I am");
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_identity_is_never_overwritten_by_the_seed() {
+        let f = fixture(&["a"]);
+        f.file("a/memory/core/soul.md", "---\ntitle: [unclosed\n---\nwho I am").await;
+        f.run(&f.files).await.unwrap();
+        let indexer = VizierIndexer::build(NoopIndexer);
+        let seeded = f
+            .memory
+            .seed_identity("a", Some("template".into()), &indexer, &ChunkLimits::default())
+            .await
+            .unwrap();
+        assert!(!seeded);
+        assert!(f.read("a", "core", "soul").await.is_none());
+    }
+
+    /// The whole startup, on a workspace whose memory files cannot be found.
+    #[tokio::test]
+    async fn startup_goes_on_when_the_move_cannot_finish() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        {
+            let deps = VizierDependencies::new(config.clone()).await.unwrap();
+            let conn = deps.sql.lock().unwrap();
+            conn.execute(
+                "INSERT INTO agent_config (agent_id, data) VALUES ('a', '{}')",
+                params![],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO memory_node
+                    (agent_id, bundle, path, slug, title, tags_json, created_at, updated_at)
+                 VALUES ('a', 'core', 'soul', 'soul', 'Core', '[]',
+                         '2024-01-01T00:00:00+00:00', '2024-01-01T00:00:00+00:00')",
+                params![],
+            )
+            .unwrap();
+            conn.execute(
+                "DELETE FROM state WHERE key = ?1",
+                params![VizierDependencies::MEMORY_IN_DATABASE],
+            )
+            .unwrap();
+        }
+        let deps = VizierDependencies::new(config).await.expect("startup goes on");
+        let marker = deps
+            .storage
+            .get_state(VizierDependencies::MEMORY_IN_DATABASE.into())
+            .await
+            .unwrap();
+        assert!(marker.is_none());
     }
 }

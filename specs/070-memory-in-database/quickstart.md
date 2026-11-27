@@ -50,9 +50,10 @@ Run this on `master` and keep the numbers.
    - **Expect** responses unchanged.
 7. **Interrupted run** (SC-004): restore the copy and start the binary. Kill it mid-migration, using a large corpus or a debugger breakpoint after N documents. Start again.
    - **Expect** the same end state as step 4, with `already=<N>` on the agent that was cut.
-8. *S3, optional*: repeat steps 1–4 with the workspace's `agents/` uploaded to MinIO.
-   - Then stop MinIO and restart a fresh copy. **Expect** an `error` line saying the migration will retry, no marker, and the server still serving.
-   - Start MinIO and restart. **Expect** completion.
+8. **Unreadable store**: on a fresh copy, point the server at a file store that holds none of the memory (e.g. an empty S3 bucket, or rename `agents/` to `agents.bak`).
+   - **Expect** the server to **start**, an `error` line naming the agents, and no marker. Memory reads as absent, and `core/soul` is not rewritten (the template is rendered).
+   - Put the files back and restart. **Expect** completion, with the original identity.
+9. *S3, optional*: repeat steps 1–4 with the workspace's `agents/` uploaded to MinIO.
 
 **Fail conditions**:
 - Any difference in step 4 other than the broken file.

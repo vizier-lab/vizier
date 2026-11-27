@@ -629,7 +629,6 @@ mod tests {
         });
         SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(std::env::temp_dir())),
         )
     }
 

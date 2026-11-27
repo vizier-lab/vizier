@@ -240,9 +240,6 @@ mod tests {
         crate::storage::sqlite::init_secret_schema(&conn).unwrap();
         let storage = crate::storage::sqlite::SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            std::sync::Arc::new(crate::storage::document::BlobDocumentStore::local(
-                dir.path().to_path_buf(),
-            )),
         );
         (
             std::sync::Arc::new(crate::storage::VizierStorage::new(storage)),

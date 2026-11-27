@@ -12,7 +12,7 @@ fn setup() -> (SqlStorage, tempfile::TempDir) {
         init_ui_page_schema(&conn).unwrap();
         crate::storage::sql::SqlStore::sqlite(conn)
     });
-    let storage = SqlStorage::new(store, Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())));
+    let storage = SqlStorage::new(store);
     (storage, dir)
 }
 

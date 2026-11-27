@@ -37,9 +37,12 @@ The existing derived graph table becomes the document's home. One row per docume
     ▲                                           │  write → present (content replaced)
     │ delete / bundle delete                    │  read  → present (read_count + 1 only)
     └───────────────────────────────────────────┘
- migration: file unparseable ─▶ row kept, content NULL (absent; restorable by rollback)
- migration: file missing     ─▶ row deleted (with edges, passages)
+ migration: file unparseable or missing ─▶ row kept, content NULL
+                              (absent to reads; restorable by rollback; never deleted
+                               by the migration)
 ```
+
+`seed_identity` treats any row at `core/soul`, including a NULL-content one, as "present" and writes nothing.
 
 ## memory_edge, memory_passage, memory_revision (unchanged)
 

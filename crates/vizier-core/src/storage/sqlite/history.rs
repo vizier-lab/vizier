@@ -887,7 +887,6 @@ mod tests {
         });
         let storage = SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -1320,7 +1319,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let storage = SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
 
         std::thread::scope(|scope| {

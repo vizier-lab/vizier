@@ -205,9 +205,6 @@ pub fn node_storage(
     let dir = tempfile::tempdir().expect("temp dir");
     let storage = crate::storage::sqlite::SqlStorage::new(
         store,
-        std::sync::Arc::new(crate::storage::document::BlobDocumentStore::local(
-            dir.path().to_path_buf(),
-        )),
     );
     (storage, dir)
 }

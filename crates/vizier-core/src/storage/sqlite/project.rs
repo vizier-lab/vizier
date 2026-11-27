@@ -569,9 +569,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         SqlStorage::new(
             store,
-            Arc::new(crate::storage::document::BlobDocumentStore::local(
-                dir.path().to_path_buf(),
-            )),
         )
     }
 
@@ -629,9 +626,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         SqlStorage::with_secrets(
             store,
-            Arc::new(crate::storage::document::BlobDocumentStore::local(
-                dir.path().to_path_buf(),
-            )),
             crate::encryption::SecretCipher::from_key_for_test([7; 32]),
             Arc::new(crate::encryption::NoIntegrationSecretPaths),
         )

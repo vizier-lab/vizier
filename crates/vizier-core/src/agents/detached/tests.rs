@@ -28,7 +28,6 @@ fn fixture() -> Fixture {
     SqlStorage::init_schema(&conn).unwrap();
     let storage = Arc::new(VizierStorage::new(SqlStorage::new(
         crate::storage::sql::SqlStore::sqlite(conn),
-        Arc::new(crate::storage::document::BlobDocumentStore::local(dir.path().to_path_buf())),
     )));
     let scripts = DetachedScripts::new(
         storage.clone(),

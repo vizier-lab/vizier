@@ -48,13 +48,12 @@ With no file, the defaults are SQLite storage, HTTP on port `9999` with `jwt_sec
 ```
 <workspace>/
   agents/<agent_id>/
-    memory/<bundle>/        # markdown memory concepts + index.md + log.md
     skills/<slug>/          # per-agent skills
   skills/<slug>/            # global skills
   artifacts/<agent_id>/<artifact_id>/  # permanent artifacts (content.v<n>)
   uploads/<file_id>/        # transient session files
   .runtime/
-    vizier.db               # SQLite database (agents, sessions, history, users, memory index…)
+    vizier.db               # SQLite database (agents, sessions, history, users, memory…)
     .vizier.sock            # command socket used by `vizier shutdown` / `agent ps`
     logs/                   # stdout/stderr when running detached
 ```

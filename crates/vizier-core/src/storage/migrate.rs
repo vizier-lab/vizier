@@ -755,6 +755,14 @@ mod tests {
         assert!(schema_mismatch(&old).unwrap().is_some());
     }
 
+    /// Memory moved into the database (spec 070): the offline copy takes it with the table.
+    #[test]
+    fn memory_content_is_a_copied_column() {
+        let conn = SqlStorage::expected_schema().unwrap();
+        let columns = sqlite_columns(&conn, "memory_node").unwrap();
+        assert!(columns.iter().any(|c| c == "content"), "{columns:?}");
+    }
+
     #[test]
     fn persisted_report_round_trips_when_optional_false_fields_are_omitted() {
         let json = serde_json::to_string(&MigrationReport::default()).unwrap();

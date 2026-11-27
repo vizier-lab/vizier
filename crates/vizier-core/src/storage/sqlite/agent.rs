@@ -569,7 +569,7 @@ mod delete_tests {
             })
             .unwrap();
         let dir = tempfile::tempdir().unwrap().keep();
-        SqlStorage::new(store, Arc::new(crate::storage::document::BlobDocumentStore::local(dir)))
+        SqlStorage::new(store)
     }
 
     fn agent() -> AgentConfig {

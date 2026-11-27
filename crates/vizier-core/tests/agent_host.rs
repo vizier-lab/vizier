@@ -215,9 +215,7 @@ async fn the_health_the_host_answers_carries_that_agents_id() {
 /// stops, so a requester finds no owner here.
 #[tokio::test]
 async fn ownership_lost_releases_agent() {
-    use std::sync::Arc;
     use vizier_core::schema::{SessionHistoryContent, VizierChannelId, VizierRequest, VizierSession};
-    use vizier_core::storage::document::BlobDocumentStore;
     use vizier_core::storage::fence::{FenceStorage, Scope, is_ownership_lost};
     use vizier_core::storage::history::HistoryStorage;
     use vizier_core::storage::sqlite::SqlStorage;
@@ -236,11 +234,7 @@ async fn ownership_lost_releases_agent() {
     let running = tokio::spawn(async move { host.run().await });
 
     // Another node of the same database claims the agent.
-    let other_dir = tempfile::tempdir().unwrap();
-    let other = SqlStorage::new(
-        vizier_core::storage::open_store(&config).unwrap(),
-        Arc::new(BlobDocumentStore::local(other_dir.path().to_path_buf())),
-    );
+    let other = SqlStorage::new(vizier_core::storage::open_store(&config).unwrap());
     other.claim(&Scope::Agent("alpha".into()), "other", None).await.unwrap();
 
     // The host's next fenced write is refused.

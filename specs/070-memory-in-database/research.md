@@ -41,7 +41,7 @@ On local disk each is a syscall served from the page cache. On S3 each is an HTT
 - `relations` — derived from the body by `parse_relations` on every write and already stored as `memory_edge` rows; `relations_for` serves it.
 - `keywords` — always written as `[]` by every write path. Not stored.
 
-Old files written by earlier releases may carry keys outside this set (for example `attachments`/`attachment_count`, present in test fixtures and in `public-api.txt`). Serde already ignores them on every read today, so nothing currently visible reads them. **Decision**: the migration does not carry unknown keys, and logs a per-agent count of documents that had any, so an operator can tell. *Verify during implementation* (task): grep for any reader of memory `attachments` before relying on this; if one exists, add a column for it rather than dropping it.
+Old files written by earlier releases may carry keys outside this set (`attachments`/`attachment_count`). **Verified (T003)**: there is no reader. Spec 066 (`#218`, "remove memory artifact attachments") removed memory attachments on purpose; a memory now cites an artifact with `[[artifact:name]]` in its body, and the old keys "parse fine — the key is ignored and drops on the next rewrite". `public-api.txt` still lists `MemoryAttachment` only because it was not regenerated. **Decision**: unknown keys are dropped, with no count or log line (nothing is lost that vizier still uses, and the source files are kept). The unused `memory_node.attachment_count` column is left alone. `CLAUDE.md` still describes memory attachments and is corrected with the docs task.
 
 ## Decision 3: atomic writes — one transaction for content and graph, passages after commit
 
@@ -74,14 +74,19 @@ Both are written per bundle on every write and delete (`regenerate_index`, `appe
 
 **Where**: a new `migrate_memory_into_database` in `dependencies.rs`, run in `VizierDependencies::new` right after the two existing memory migrations (`migrate_memory_to_bundles`, `migrate_filesystem_backend_to_sqlite`) and before `migrate_agent_cores`/any agent start (FR-014). It is written over the SQL connection, so it runs on SQLite and PostgreSQL alike (FR-010), and keyed by a `state` row `migration.memory_in_database_v1` read and written through `StateStorage`, the cross-backend marker pattern of `migrate_drop_workspaces` (FR-011).
 
-**Steps**, per agent row in `agent` (orphan folders with no agent are not read — spec edge case):
-1. `list("{agent}/memory")` once. A failed LIST is a store failure: stop, do not set the marker (FR-016), log, and continue startup with memory as it is in the database. (Startup is not refused: an S3 outage must not take the whole instance down; the next start retries.)
-2. For each `*.md` path whose leaf is not `index`/`log`: skip if its `memory_node` row already has non-NULL `content` (resumable, never overwrites — FR-011). Otherwise GET and parse. On a parse error: log agent/bundle/path/reason, count it as failed, leave the file (FR-015). On success: upsert the row with the file's own `title`, `tags`, `created_at`, `updated_at`, `read_count` and body (FR-012), rewrite its edges from the body; **no revision** (FR-013).
-3. Rows of this agent that still have `content IS NULL` after the scan are documents whose file is gone or unreadable. A *missing* file means the node was stale (today's reconcile would have deleted it): delete the node, its edges and passages. An *unparseable* file keeps its row with NULL content; reads treat NULL content as absent (detail returns `None`, list skips it), and its revisions remain, so it can be restored with rollback.
+**Steps**, per agent in `agent_config` (orphan folders with no agent are not read — spec edge case):
+1. `list("{agent}/memory")` once. A failed LIST is a store failure. So is an agent that has `memory_node` rows while the store holds no document of theirs at all: today's reads reconcile rows against files constantly, so that state means the configured file store is wrong or the files were not copied.
+2. For each `<bundle>/<path>.md` whose leaf is not `index`/`log` (files directly under `memory/` are pre-bundle files, handled by the older migration): skip if its row already has non-NULL `content` (resumable, never overwrites — FR-011). Otherwise GET and parse. A GET error is a store failure. On a parse error: log agent/bundle/path/reason, count it as failed, leave the file, and make sure a row with NULL content exists at the address (FR-015). On success: upsert the row with the file's own `title`, `tags`, `created_at`, `updated_at`, `read_count` and body (FR-012), rewrite its edges from the body; **no revision** (FR-013).
+3. Rows that still have `content IS NULL` are documents whose file is missing or unparseable. They are **kept**, never deleted: reads treat them as absent, their revisions remain for rollback, and a missing file is logged.
 4. `recompute_broken(agent)` once.
-5. Log `migrated / skipped (already in db) / failed` per agent.
+5. Log `migrated / already / failed / missing` per agent.
 
-When every agent finished step 1–4 without a store failure, set the marker. Failed parses do not hold the marker back: retrying them cannot succeed, and they are logged with their path.
+After all agents are attempted: with no store failure, set the marker. Otherwise log an error naming the agents and causes, and leave the marker unset so the next start retries. **Startup never fails because of this migration** (decided by the requester: a temporary migration, to be deleted before 1.0.0, must not be able to stop the server). Failures of any other kind (a SQL error) are caught at the call site the same way, like `migrate_reply_usage`.
+
+**What protects the data while it is half-migrated**:
+- `seed_identity` does nothing when any row, even a NULL-content one, exists at `core/soul`. Every instance that ran an earlier release has that row, so an unmigrated identity is never replaced by the template. It reads as absent (the template is rendered) until the next start migrates it.
+- The migration never deletes a row.
+- Source files are never changed. A write made to an unmigrated address fills the row, and the later run counts it as `already`; the file is still there.
 
 Two files that normalise to one path (`a.md` and `a/.md`, a trailing separator): the first wins by sorted order, the second is logged as a duplicate. Source files are never deleted (FR-017).
 
@@ -90,6 +95,8 @@ Two files that normalise to one path (`a.md` and `a/.md`, a trailing separator):
 **Alternatives considered**: running per agent in `AgentHost::start`, like the passage conversion. Rejected: a gateway or the HTTP memory routes may read an agent's memory before its host starts, and the passage conversion is per agent only because it needs that agent's embedder, which this migration does not.
 
 ## Decision 7: `DocumentStore` after the change
+
+**Verified (T004)**: the only code that reads memory files is `BundleMemoryStore`, the legacy migrations in `dependencies.rs` and `encryption/migrate.rs` (which only constructs the store for `SqlStorage`), and tests. One more writer exists: deleting an agent removes the whole `agents/{id}` blob prefix (`agents/mod.rs`), which also removes its old memory files. That stays, since deleting an agent deletes its data.
 
 After the move, the only reader of memory files is the migration (and the two older migrations). `BundleMemoryStore` stops holding a `DocumentStore`; `SqlStorage::with_secrets`/`SqlStorage::new` lose the parameter; `dependencies.rs` builds a `BlobDocumentStore` only for the three migrations. The trait and `BlobDocumentStore` stay (the migration uses them) and are listed on #82 with the migration (FR-019). No new trait is added (Principle I).
 

@@ -25,7 +25,7 @@ for another agent creates a separate project: a project belongs to one agent, an
 belong to one person.
 
 The application's own workspace, and anything inside it, is refused: `.runtime` holds the
-database and encryption key, `agents/` the memory documents, and `uploads/` session files.
+database and encryption key, `agents/` the agents' skills and other files, and `uploads/` session files.
 
 ## Sessions
 

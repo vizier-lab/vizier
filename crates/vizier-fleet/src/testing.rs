@@ -61,7 +61,7 @@ impl Harness {
         let sql = vizier_core::storage::open_store(&config)?;
         let blobs = vizier_core::storage::blob::open(&config).await?;
         let documents = Arc::new(BlobDocumentStore::new(blobs.clone(), BlobKey::new("agents")?));
-        let storage = VizierStorage::new(SqlStorage::new(sql, documents));
+        let storage = VizierStorage::new(SqlStorage::new(sql));
         Ok(Self { bus, config, storage, blobs, _workspace: workspace })
     }
 

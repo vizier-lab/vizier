@@ -6,8 +6,8 @@
 
 Vizier stores two kinds of data, and each has its own backend:
 
-- **Database**: agents, sessions, history, tasks, users/roles/API keys, providers, dream journals, file records, the memory graph index and the memory vectors.
-- **Files**: uploads, artifacts, and memory documents (markdown, see [Memory](./memory.md)).
+- **Database**: agents, sessions, history, tasks, users/roles/API keys, providers, dream journals, file records, [memory documents](./memory.md), their graph index and their vectors.
+- **Files**: uploads and artifacts.
 
 The defaults need no setup and no external service:
 
@@ -29,7 +29,7 @@ A server deployment can move either one to a managed service. The two choices ar
 
 | `objects.type` | What it is |
 |---|---|
-| `local` | Default. Files under the workspace (`uploads/`, `artifacts/`, `agents/<id>/memory/`). |
+| `local` | Default. Files under the workspace (`uploads/`, `artifacts/`). |
 | `s3` | Any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2, …). |
 
 The desktop app always uses `sqlite` and `local`.
@@ -99,7 +99,7 @@ Exit codes: `0` done, `1` failed (rerun to resume), `2` refused (source running,
 
 ### Upgrading
 
-Older workspaces are upgraded in place the first time a new version starts (flat memory files, the old `filesystem` backend, legacy provider names and similar). There is nothing to run. Back up the workspace first, as for any upgrade.
+Older workspaces are upgraded in place the first time a new version starts (flat memory files, the old `filesystem` backend, legacy provider names, memory files moved into the database and similar). There is nothing to run. Back up the workspace first, as for any upgrade. The memory move reads your file store; see [Memory → Upgrading from files](./memory.md#upgrading-from-files) for what to do afterwards.
 
 ## Shell
 

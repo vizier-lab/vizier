@@ -18,11 +18,11 @@ People already view and edit memory through the WebUI and the HTTP API, never by
 
 ### User Story 1 - Existing memory survives the upgrade unchanged (Priority: P1)
 
-An operator upgrades a Vizier instance that already has agents with months of memory, stored on local disk or object storage. On first start after the upgrade, every agent still has every memory document, bundle, identity, link, tag, attachment and revision history it had before. Nothing in the WebUI or in agent behaviour looks different.
+An operator upgrades a Vizier instance that already has agents with months of memory, stored on local disk or object storage. On first start after the upgrade, every agent still has every memory document, bundle, identity, link, tag and revision history it had before. Nothing in the WebUI or in agent behaviour looks different.
 
 **Why this priority**: Memory is what an agent knows about its people and itself. Losing or corrupting any of it on upgrade is the worst outcome this feature can have, and it applies to every existing instance.
 
-**Independent Test**: Take a workspace with several agents and bundles (local files, and separately an S3-backed one). Upgrade, start, and compare every document's content, metadata, links, attachments and revision list with a snapshot taken before.
+**Independent Test**: Take a workspace with several agents and bundles (local files, and separately an S3-backed one). Upgrade, start, and compare every document's content, metadata, links and revision list with a snapshot taken before.
 
 **Acceptance Scenarios**:
 
@@ -30,7 +30,8 @@ An operator upgrades a Vizier instance that already has agents with months of me
 2. **Given** an instance whose memory lives in object storage, **When** it starts for the first time on the new version, **Then** the same holds, and no memory read afterwards contacts object storage.
 3. **Given** the migration was interrupted partway (crash, power loss), **When** the instance starts again, **Then** the migration finishes without duplicating or losing documents.
 4. **Given** the migration already completed, **When** the instance restarts, **Then** it does not run again.
-5. **Given** a file that cannot be read or parsed during migration, **When** the migration runs, **Then** the remaining documents still migrate, the failure is logged with the agent, bundle and path, and the original file is left in place for recovery.
+5. **Given** a file that cannot be parsed during migration, **When** the migration runs, **Then** the remaining documents still migrate, the failure is logged with the agent, bundle and path, and the original file is left in place for recovery.
+6. **Given** the file store cannot be listed or a file cannot be read, **When** the instance starts, **Then** it starts anyway, logs an error naming the agent and the cause, records no completion, and migrates what is left on the next start once the store is readable.
 
 ---
 
@@ -102,8 +103,11 @@ An operator moves an instance from SQLite to PostgreSQL with the existing offlin
 - An agent deleted while its memory was still in files, leaving orphan files with no agent row: not migrated. The files are left alone.
 - Someone hand-edits a memory file on disk after the upgrade: the edit is not picked up. The database is the only source.
 - An agent whose identity document was deleted: it still renders from the template with the existing note, as today.
-- The file store is unreachable at first start (object storage down): the migration does not mark itself complete. The instance reports the problem clearly, and the migration retries on the next start. Memory it has not migrated yet is not presented as empty without a warning.
-- Memory attachments (links to artifacts, legacy session files): preserved exactly, still counted in the artifact reference index.
+- The file store is unreachable at first start (object storage down): the migration does not mark itself complete and the instance **starts anyway** (scenario 6). Memory not yet migrated reads as absent until a later start finishes the move, and the log says so. The identity is not overwritten: the identity seed leaves a recorded identity document alone even while its content is still in the file.
+- A document written by an agent or a person while its file is still unmigrated: the new write wins, and the file is kept on disk.
+- An agent has memory recorded in the database but the configured file store holds none of its documents (a wrong file-store setting, or files not copied): treated like an unreadable store, so nothing is silently lost.
+- A document that is recorded but whose file is missing: it stays absent to every read, as today, and is logged.
+- Old files that still carry attachment keys in their frontmatter: attachments were removed in an earlier release, so the keys are ignored.
 
 ## Requirements *(mandatory)*
 
@@ -115,8 +119,8 @@ An operator moves an instance from SQLite to PostgreSQL with the existing offlin
 - **FR-002**: Memory reads (list, detail, related, graph, search, identity load, bundle list) MUST NOT read from or list the file store.
 - **FR-003**: Search results MUST return passage text without loading whole documents from outside the database.
 - **FR-004**: A memory read MUST NOT rewrite the document or its links. Only access counters may change on read.
-- **FR-005**: A write, delete, rollback, bundle delete or import MUST update the content, its derived data (metadata, links, broken-link marks, passages, artifact references) and its revision in one atomic operation. Semantic-index updates may still follow the commit, as today, and their failure MUST NOT fail the write.
-- **FR-006**: Every existing behaviour of memory MUST be preserved: addressing by `(bundle, path)`, the reserved `core` bundle and `core/soul`, size limits and warnings, links and broken-link detection, tags, attachments, version history and rollback, read counts, the eight `memory_*` tools, the HTTP routes and their response shapes, the deprecated `/core` projection, and dream-cycle access.
+- **FR-005**: A write, delete, rollback, bundle delete or import MUST update the content, its derived data (metadata, links, broken-link marks) and its revision in one atomic operation. Search passages and semantic-index updates may still follow the commit, as today, and their failure MUST NOT fail the write.
+- **FR-006**: Every existing behaviour of memory MUST be preserved: addressing by `(bundle, path)`, the reserved `core` bundle and `core/soul`, size limits and warnings, links and broken-link detection, tags, version history and rollback, read counts, the eight `memory_*` tools, the HTTP routes and their response shapes, the deprecated `/core` projection, and dream-cycle access.
 - **FR-007**: Memory MUST NOT be written to the file store any more. Bundle export MUST still produce the same markdown archive format, and import MUST still accept archives from previous versions.
 - **FR-008**: Deleting an agent MUST delete all its memory content from the database in the same operation that deletes its other memory data.
 - **FR-009**: The reconciliation of documents added or removed in the file store, and the per-read repair of links, MUST be removed from the read paths. The only path that turns markdown files into memory is the migration, plus import.
@@ -125,11 +129,11 @@ An operator moves an instance from SQLite to PostgreSQL with the existing offlin
 
 - **FR-010**: On first start after the upgrade, the system MUST migrate every agent's memory documents from the configured file store (local or object storage) into the database, on both database backends.
 - **FR-011**: The migration MUST be resumable and idempotent. A document already migrated MUST NOT be duplicated or overwritten by a rerun, and completion MUST be recorded once, with a marker, so it never runs again.
-- **FR-012**: The migration MUST preserve each document's content, title, tags, timestamps, links, attachments and read count exactly. Existing revision history and passages MUST stay attached to the same document.
+- **FR-012**: The migration MUST preserve each document's content, title, tags, timestamps, links and read count exactly. Existing revision history and passages MUST stay attached to the same document.
 - **FR-013**: The migration MUST NOT create new revisions. Moving storage is not an edit.
-- **FR-014**: The migration MUST finish before any agent is started, so no turn reads memory that is half-migrated.
-- **FR-015**: A document that fails to migrate MUST be logged with agent, bundle, path and reason. It MUST NOT stop the others, and its file MUST be kept. The migration's summary (migrated, skipped, failed counts per agent) MUST be logged.
-- **FR-016**: If the file store cannot be reached, the migration MUST NOT record completion and MUST be retried on the next start.
+- **FR-014**: The migration MUST run before any agent is started. When it finishes, no turn reads memory that is half-migrated.
+- **FR-015**: A document that cannot be parsed MUST be logged with agent, bundle, path and reason. It MUST NOT stop the others, and its file MUST be kept. The migration's summary (migrated, already present, failed and missing counts per agent) MUST be logged.
+- **FR-016**: A failing migration MUST NOT stop or crash the instance. If the file store cannot be listed or a file cannot be read, or an agent has recorded memory and no files at all, the migration MUST NOT record completion, MUST log a clear error, and MUST be retried on the next start. The identity seed MUST NOT write over a recorded identity document that has not been migrated.
 - **FR-017**: The migration MUST NOT delete the source files. Removing them is left to the operator, and the documentation MUST say when that is safe.
 - **FR-018**: The offline SQLite→PostgreSQL migration command MUST carry memory content across (User Story 5).
 - **FR-019**: The migration, its completion marker, the source-file reading it needs, and any compatibility code it keeps MUST be added to the pre-1.0 removal checklist in issue #82, naming the code and what depends on it.
@@ -140,7 +144,7 @@ An operator moves an instance from SQLite to PostgreSQL with the existing offlin
 
 ### Key Entities
 
-- **Memory document**: one note of one agent, addressed by `(agent, bundle, path)`. It has a body, a title, tags, links to other documents, attachments, timestamps and a read count. It now also holds its content, which used to live in a separate file.
+- **Memory document**: one note of one agent, addressed by `(agent, bundle, path)`. It has a body, a title, tags, links to other documents, timestamps and a read count. It now also holds its content, which used to live in a separate file.
 - **Bundle**: a named group of an agent's documents. `core` is reserved and holds only the identity document `soul`. A bundle now exists because it has documents in the database, not because a folder exists.
 - **Passage**: a searchable slice of a document, already stored as coordinates. Its text can now be served from the stored content.
 - **Memory revision**: an existing record of every change to a document. Unchanged, and untouched by the migration.
@@ -150,7 +154,7 @@ An operator moves an instance from SQLite to PostgreSQL with the existing offlin
 
 ### Measurable Outcomes
 
-- **SC-001**: After upgrading, 100% of readable memory documents on a test corpus (local and object storage, at least 3 agents and 1,000 documents) are present with byte-identical content and identical metadata, links, attachments and revision lists.
+- **SC-001**: After upgrading, 100% of readable memory documents on a test corpus (local and object storage, at least 3 agents and 1,000 documents) are present with byte-identical content and identical metadata, links and revision lists.
 - **SC-002**: A memory search, a document read, a memory list and a turn's identity load make zero requests to the file store.
 - **SC-003**: On an object-storage deployment, a memory search over 1,000 documents returns at least 5× faster than before the change (median of 20 runs), and memory list and detail pages open with no wait attributable to storage.
 - **SC-004**: A migration interrupted at any point and restarted ends with the same result as an uninterrupted one (no duplicates, nothing missing).

@@ -183,9 +183,6 @@ fn a_listing_holds_the_callers_own_conversations() {
     let conn = crate::storage::sql::SqlStore::sqlite(conn);
     let storage = Arc::new(VizierStorage::new(SqlStorage::new(
         conn,
-        Arc::new(crate::storage::document::BlobDocumentStore::local(
-            dir.path().to_path_buf(),
-        )),
     )));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

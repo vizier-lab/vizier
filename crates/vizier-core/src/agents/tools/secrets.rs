@@ -221,7 +221,6 @@ mod tests {
         init_secret_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (Arc::new(VizierStorage::new(storage)), dir)
     }

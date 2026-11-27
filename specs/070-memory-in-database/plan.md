@@ -116,7 +116,7 @@ CLAUDE.md                          # Storage + Agent identity paragraphs
   - Rows are only filled where `content IS NULL`.
   - Unparseable documents keep their row and revisions.
   - The quickstart compares a full pre/post snapshot (SC-001).
-- **S3 down at first start**: memory read from the database would look partial. The migration logs a clear error, leaves the marker unset and retries on the next start. Startup is not refused (research Decision 6).
+- **File store unreadable at first start** (S3 down, wrong setting): the server **starts anyway**, memory not yet moved reads as absent, a clear error is logged, the marker stays unset and the next start retries. The identity seed never writes over a recorded identity row, so an identity cannot be lost (research Decision 6).
 - **Hidden readers of memory files** outside `BundleMemoryStore`: a task greps for `agents/*/memory` / `DocumentStore` users before the constructor change.
 - **Unknown frontmatter keys** (`attachments` in old files): a verification task first, then decide (research Decision 2).
 

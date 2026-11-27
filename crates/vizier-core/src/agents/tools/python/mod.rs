@@ -335,7 +335,6 @@ mod tests {
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let questions = Arc::new(Questions::new());
 
