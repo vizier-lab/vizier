@@ -451,5 +451,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information for the current feature, read
-`specs/067-wake-session/plan.md`.
+`specs/068-catalogue-sources/plan.md`.
 <!-- SPECKIT END -->

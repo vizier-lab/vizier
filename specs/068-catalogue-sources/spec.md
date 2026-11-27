@@ -163,9 +163,9 @@ picker, set it on an agent, and check that no "unknown model" warning is shown a
   good copy, or is skipped with a logged warning. The other sources still answer, and no report or
   picker fails because of one source.
 - A borrowed price for a local or subscription provider: never. Those rules come first.
-- Two providers list the same model id at different prices when borrowing: the provider that speaks
-  the same protocol wins, then a fixed, documented order, so the same model always borrows the same
-  price.
+- Two providers list the same model id at different prices when borrowing: the model's maker wins
+  (OpenAI for an OpenAI model, never a reseller), then a provider that speaks the same protocol,
+  then a fixed, documented order, so the same model always borrows the same price.
 - A provider alias (the SSO identity of Amazon Bedrock) resolves through the same sources as the
   provider it stands for, so it gets one price, not two.
 - A local model that really costs something (for example one rented by the hour): it is still
