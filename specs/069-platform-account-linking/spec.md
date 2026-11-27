@@ -96,9 +96,6 @@ A person opens *Settings › Profile* and sees a **Connected accounts** section:
 1. **Given** a person with a connected Telegram account, **When** they open their profile, **Then** they see it listed with username, id and connected date, and no editable id or username fields.
 2. **Given** they choose Unlink from the row's menu and confirm, **Then** the account is removed from the list and its next message to any agent reads as `Unregistered User`.
 3. **Given** a person who has not connected a platform, **Then** that platform's row says how to connect: "Send /connect to any agent's bot on Discord".
-4. **Given** a connected Discord account, **When** its owner sends `/unlink` to any agent's bot, **Then** the bot asks privately "Unlink this Discord account from Vizier user rin?" with Unlink and Cancel controls; pressing Unlink removes the link at once and the bot confirms privately.
-5. **Given** an account that is not connected, **When** it sends `/unlink`, **Then** the bot answers privately "This Discord account isn't linked to a Vizier user" and changes nothing.
-6. **Given** `/unlink` in a Telegram group, **Then** the bot asks the person to send it in a direct message and changes nothing there.
 
 ---
 
@@ -123,7 +120,6 @@ A person who had typed their Discord or Telegram id into their profile before th
 - **A platform account already connected to another Vizier user**: redeeming its code is refused with "this Discord account is already connected to another Vizier user", naming no one; the other person's link is untouched. The current owner must unlink it first.
 - **A Vizier user who already has a Discord account connected redeems a code from a different Discord account**: the confirmation says the new account replaces the current one; confirming swaps them.
 - **A forwarded link** (someone sends their link to another person to make their platform account read as that person): the confirmation names the platform account and warns "only confirm a code you requested yourself"; nothing is linked without the explicit confirm by the signed-in person.
-- **`/unlink` from a platform account the person no longer controls** (a lost or stolen Discord account): unlinking is also always available from the Vizier profile, so the Vizier side can cut the link without the platform account.
 - **Guessing codes**: codes are long enough and redemption attempts are rate-limited per person and per address so guessing a live code is impractical.
 - **Two agents on the same platform**: a link is to the platform account, not the bot, so connecting once through any agent's bot stamps that account's messages to every agent on that platform.
 - **A Vizier user is deleted**: their connected accounts go with them, and those platform accounts read as `Unregistered User`.
@@ -152,7 +148,6 @@ A person who had typed their Discord or Telegram id into their profile before th
 **Managing**
 
 - **FR-011**: The profile MUST show a Connected accounts section listing each connected account (platform, username, id, connected date) with an Unlink item in each row's menu (asking for confirmation, then taking effect at once), and a field to enter a connect code.
-- **FR-011a**: Every Discord and Telegram integration MUST also answer `/unlink`: from a connected account it asks privately for confirmation, naming the Vizier user, and unlinks on confirm; from an unconnected account it says so and changes nothing. Its replies follow the same privacy rule as `/connect` (FR-003), and it needs no Vizier sign-in, because holding the platform account is enough to give it up.
 - **FR-012**: The hand-entered Discord/Telegram id and username fields MUST be removed from the profile form and from the profile update operation for new values.
 - **FR-013**: Deleting a Vizier user MUST remove their connected accounts.
 - **FR-014**: Values entered by hand before this feature MUST NOT identify anyone; they MUST be shown as "Not verified — send /connect to confirm", MUST be removable, and MUST be replaced when the same platform is connected. (Compatibility kept until removal before 1.0.0, tracked in #82.)
@@ -197,5 +192,5 @@ A person who had typed their Discord or Telegram id into their profile before th
 - Platform username/display name is refreshed from each new message and shown as last seen; it is never used to identify anyone, only the platform id is.
 - The connect code is about 8 characters from an unambiguous alphabet (no 0/O, 1/I) so it is easy to type on a phone, with rate limiting making guessing impractical within its 10-minute life.
 - UI work (Connected accounts section, confirmation page, the code field) is drawn first per the "Design first" rule: in FigCraft when reachable, otherwise as an HTML or ASCII mockup, before any WebUI code.
-- `connect` and `unlink` become reserved command names so neither can be shadowed by a skill of that name.
+- `connect` becomes a reserved command name so it cannot be shadowed by a skill called `connect`.
 - Existing agent prompts that read the sender label (BOOT.md guidance, side-chat limits keyed by platform identity) keep working on the platform identity in metadata.
