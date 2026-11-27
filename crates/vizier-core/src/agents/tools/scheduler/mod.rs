@@ -42,7 +42,7 @@ fn resolve_requester(
 /// structs because a `#[serde(flatten)]`ed struct renders as an `allOf` in the JSON schema
 /// and not every provider accepts one in a tool definition.
 const ON_OWN_INITIATIVE_DESC: &str = "Set true when you are setting this task up on your own initiative, with nobody having asked. Set false when someone asked you to.";
-const REQUESTED_BY_DESC: &str = "Who asked for this task, as you know them (e.g. '@dani (DiscordId: 182...)'). Required unless on_own_initiative is true; it does not need to be an account.";
+const REQUESTED_BY_DESC: &str = "Who asked for this task, as you know them: their Vizier username, or for an unconnected chat user their platform name (e.g. '@dani on Discord'). Required unless on_own_initiative is true; it does not need to be an account.";
 
 pub struct ScheduleOneTimeTask {
     pub storage: Arc<VizierStorage>,

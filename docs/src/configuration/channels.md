@@ -65,6 +65,7 @@ Add a **Discord** connection on the agent's **Channels** (agent menu → Connect
 | Command | Description |
 |---------|-------------|
 | `/ping` | Health check |
+| `/connect` | Connect your Discord account to your Vizier user; the reply is private (see [Connected Accounts](./channel-identities.md)) |
 | `/new` | Start a fresh session (new topic) in this channel |
 | `/session [topic_id]` | List sessions, or switch to `topic_id` (`DEFAULT` for the default topic) |
 | `/abort` | Abort the agent's current in-flight response |
@@ -88,6 +89,7 @@ Add a **Telegram** connection the same way, with the token from @BotFather (`"ki
 | Command | Description |
 |---------|-------------|
 | `/ping` | Health check |
+| `/connect` | Connect your Telegram account to your Vizier user; direct message only (see [Connected Accounts](./channel-identities.md)) |
 | `/new` | Start a fresh session |
 | `/session [topic_id]` | List sessions or switch (`DEFAULT` = default topic) |
 | `/abort` | Abort the current response |
@@ -96,6 +98,10 @@ Add a **Telegram** connection the same way, with the token from @BotFather (`"ki
 | `/thinking` | Toggle thinking output and the activity trail (tool calls) |
 | `/btw <text>` | Ask a side question: not saved, and deleted after 2 minutes of inactivity (see [Side chats](#side-chats-btw)) |
 | `/queue <text>` | While the agent is working: run the message as a new turn after the current one (see [Messages sent while the agent works](#messages-sent-while-the-agent-works)) |
+
+## Who sent a message
+
+The agent reads a Discord or Telegram message as sent by the person's Vizier username when their account is [connected](./channel-identities.md), and as `Unregistered User` otherwise, with the platform id and names alongside.
 
 ## Messages sent while the agent works
 

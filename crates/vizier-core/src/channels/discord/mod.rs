@@ -27,6 +27,11 @@ use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 pub mod questions;
 mod questions_handlers;
 
+use crate::platform_links::{
+    self, PlatformPerson, PlatformSender,
+    sender::{command_request, stamp_or_unregistered},
+};
+use crate::schema::ChannelPlatform;
 use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::channels::side_chat::{
@@ -277,6 +282,7 @@ fn builtin_commands() -> Vec<CommandEntry> {
                 ..CommandOption::text("message", "Your question")
             },
         ),
+        CommandEntry::new("connect", "link this account to your Vizier user"),
         // spec 062: a message for after the current turn, instead of the turn in progress.
         CommandEntry::new("queue", "send this after my current turn, as a new one").option(
             CommandOption {
@@ -400,13 +406,14 @@ fn side_chat_chunks(body: &str) -> Vec<String> {
         .collect()
 }
 
-/// How the agent is told who asked, as for every other Discord request.
-fn user_label(user: &twilight_model::user::User) -> String {
-    format!(
-        "@{} (DiscordId: {})",
-        user.global_name.as_deref().unwrap_or(&user.name),
-        user.id
-    )
+/// Who a Discord event is from, for linking and labelling (spec 069).
+fn person_of(user: &twilight_model::user::User) -> PlatformPerson {
+    PlatformPerson {
+        platform: ChannelPlatform::Discord,
+        id: user.id.to_string(),
+        username: Some(user.name.clone()),
+        display_name: Some(user.global_name.clone().unwrap_or_else(|| user.name.clone())),
+    }
 }
 
 /// What a person reads when the side chat gave no answer. The full message names `/btw`,
@@ -616,6 +623,7 @@ If I am halucinating, feel free to `/lobotomy` me
 • `/new` — Create new session
 • `/session` — List or switch sessions
 • `/btw <message>` — Ask me a side question; public, not remembered
+• `/connect` — Link this Discord account to your Vizier user
 
 **Skills:**
 • `/skills` — List the skills you can run
@@ -629,29 +637,11 @@ If I am halucinating, feel free to `/lobotomy` me
             "abort" => {
                 let topic_id = self.load_state(&channel).await.active_topic;
                 let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let sender = self.sender_of(interaction.author()).await;
                 let _ = self
                     .deps
                     .transport
-                    .send_request(
-                        session,
-                        VizierRequest {
-                            trace: Default::default(),
-                            client_tools: vec![],
-                            client_categories: vec![],
-                            client: None,
-                            timestamp: crate::time::now(),
-                            user: agent_id.clone(),
-                            content: VizierRequestContent::Command("abort".to_string()),
-                            platform_message_id: None,
-                            metadata: serde_json::json!({}),
-                            attachments: vec![],
-                            expect_audio_reply: None,
-                            scheduled_task: None,
-                            background_depth: 0,
-                            ..Default::default()
-                        },
-                        None,
-                    )
+                    .send_request(session, command_request("abort", sender.as_ref()), None)
                     .await;
 
                 self.respond(&interaction, "aborting...").await;
@@ -754,6 +744,21 @@ If I am halucinating, feel free to `/lobotomy` me
                     .await;
             }
 
+            // Spec 069: a code only the person asking can read, in a server or a direct message.
+            "connect" => {
+                let Some(author) = interaction.author() else {
+                    return;
+                };
+                let person = person_of(author);
+                let reply =
+                    platform_links::connect::issue(&self.deps, &person, true, None).await;
+                self.respond_privately(
+                    &interaction,
+                    platform_links::text::reply(ChannelPlatform::Discord, &reply),
+                )
+                .await;
+            }
+
             "btw" => {
                 let Some(author) = interaction.author() else {
                     return;
@@ -763,23 +768,11 @@ If I am halucinating, feel free to `/lobotomy` me
                 let person = format!("discord:{}", author.id.get());
                 if let Some(wait) = self.deps.side_chat_limits.retry_after(&person.to_string()) {
                     let secs = wait.max(std::time::Duration::from_secs(1)).as_secs();
-                    let response = InteractionResponse {
-                        kind: InteractionResponseType::ChannelMessageWithSource,
-                        data: Some(
-                            InteractionResponseDataBuilder::new()
-                                .content(format!("Slow down — try again in {secs}s."))
-                                .flags(MessageFlags::EPHEMERAL)
-                                .build(),
-                        ),
-                    };
-                    if let Err(err) = self
-                        .http
-                        .interaction(interaction.application_id)
-                        .create_response(interaction.id, &interaction.token, &response)
-                        .await
-                    {
-                        tracing::error!("failed to respond to discord interaction: {:?}", err);
-                    }
+                    self.respond_privately(
+                        &interaction,
+                        format!("Slow down — try again in {secs}s."),
+                    )
+                    .await;
                     return;
                 }
                 // Public, not ephemeral: Discord cannot reply to an ephemeral message.
@@ -812,6 +805,33 @@ If I am halucinating, feel free to `/lobotomy` me
                 let text = skill_command_text(command, &data.options);
                 self.run_skill_command(&interaction, channel, text).await;
             }
+        }
+    }
+
+    /// Who the event is from, linked or not.
+    async fn sender_of(&self, user: Option<&twilight_model::user::User>) -> Option<PlatformSender> {
+        let user = user?;
+        Some(platform_links::sender::resolve(&*self.deps.storage, person_of(user)).await)
+    }
+
+    /// Answer an interaction with a message only the person who made it can see.
+    async fn respond_privately(&self, interaction: &Interaction, content: impl Into<String>) {
+        let response = InteractionResponse {
+            kind: InteractionResponseType::ChannelMessageWithSource,
+            data: Some(
+                InteractionResponseDataBuilder::new()
+                    .content(content.into())
+                    .flags(MessageFlags::EPHEMERAL)
+                    .build(),
+            ),
+        };
+        if let Err(err) = self
+            .http
+            .interaction(interaction.application_id)
+            .create_response(interaction.id, &interaction.token, &response)
+            .await
+        {
+            tracing::error!("failed to respond to discord interaction: {:?}", err);
         }
     }
 
@@ -887,17 +907,9 @@ If I am halucinating, feel free to `/lobotomy` me
         } = self.load_state(&channel).await;
         let show_tool_calls = show_thinking;
         let session = VizierSession(self.agent_id.clone(), channel, active_topic);
-        let user = match interaction.author() {
-            Some(author) => format!(
-                "@{} (DiscordId: {})",
-                author.global_name.as_deref().unwrap_or(&author.name),
-                author.id
-            ),
-            None => "unknown".to_string(),
-        };
-        let request = VizierRequest {
+        let sender = self.sender_of(interaction.author()).await;
+        let mut request = VizierRequest {
             timestamp: crate::time::now(),
-            user,
             content: VizierRequestContent::Chat(text.clone()),
             metadata: json!({
                 "is_reply_message": false,
@@ -907,6 +919,7 @@ If I am halucinating, feel free to `/lobotomy` me
             }),
             ..Default::default()
         };
+        stamp_or_unregistered(&mut request, sender.as_ref());
         let renderer = TurnRenderer {
             http: self.http.clone(),
             file_manager: self.deps.file_manager.clone(),
@@ -981,11 +994,14 @@ If I am halucinating, feel free to `/lobotomy` me
             _ => std::time::Duration::from_secs(120),
         };
         let question = question.trim().to_string();
+        let sender =
+            platform_links::sender::resolve(&*self.deps.storage, person_of(author)).await;
         let result = side_chat::ask(
             &self.deps,
             session,
             &person,
-            user_label(author),
+            sender.label.clone(),
+            Some(&sender),
             SideChat {
                 question: question.clone(),
                 turns,
@@ -1100,27 +1116,13 @@ If I am halucinating, feel free to `/lobotomy` me
             tracing::error!("could not open a reply stream");
             return;
         };
+        let sender = self.sender_of(interaction.author()).await;
         let _ = self
             .deps
             .transport
             .send_request(
                 session,
-                VizierRequest {
-                    trace: Default::default(),
-                    client_tools: vec![],
-                    client_categories: vec![],
-                    client: None,
-                    timestamp: crate::time::now(),
-                    user: agent_id,
-                    content: VizierRequestContent::Command(command.to_string()),
-                    platform_message_id: None,
-                    metadata: serde_json::json!({}),
-                    attachments: vec![],
-                    expect_audio_reply: None,
-                    scheduled_task: None,
-                    background_depth: 0,
-                    ..Default::default()
-                },
+                command_request(command, sender.as_ref()),
                 Some(response_tx),
             )
             .await;
@@ -1376,12 +1378,8 @@ If I am halucinating, feel free to `/lobotomy` me
                 tracing::error!("could not open a reply stream");
                 return;
             };
-            let request = VizierRequest {
-                timestamp: crate::time::now(),
-                user: self.agent_id.clone(),
-                content: VizierRequestContent::Command("abort".to_string()),
-                ..Default::default()
-            };
+            let sender = self.sender_of(Some(&msg.author)).await;
+            let request = command_request("abort", sender.as_ref());
             if let Err(err) = self
                 .deps
                 .transport
@@ -1456,21 +1454,17 @@ If I am halucinating, feel free to `/lobotomy` me
             VizierRequestContent::Chat(content)
         };
 
-        let author_name = msg
-            .author
-            .global_name
-            .as_deref()
-            .unwrap_or(&msg.author.name);
+        let sender = self.sender_of(Some(&msg.author)).await;
 
-        let request = VizierRequest {
+        let mut request = VizierRequest {
             timestamp: crate::time::now(),
-            user: format!("@{} (DiscordId: {})", author_name, msg.author.id),
             content: request_content,
             platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),
             metadata,
             attachments,
             ..Default::default()
         };
+        stamp_or_unregistered(&mut request, sender.as_ref());
 
         let renderer = TurnRenderer {
             http: self.http.clone(),
@@ -1896,6 +1890,29 @@ mod tests {
         );
         let other = SideChatError::RateLimited { retry_after_secs: 7 };
         assert_eq!(side_chat_error_text(&other), "Slow down — try again in 7s.");
+    }
+
+    /// Spec 069: `/connect` is built in, so a skill of that name cannot shadow it.
+    #[test]
+    fn connect_is_a_builtin_that_a_skill_cannot_take() {
+        assert!(builtin_commands().iter().any(|entry| entry.name == "connect"));
+        let skill = crate::schema::Skill {
+            name: "connect".into(),
+            agent_id: None,
+            author: "test".into(),
+            description: "mine".into(),
+            content: String::new(),
+            keywords: vec![],
+            version: Default::default(),
+            resources: vec![],
+            user_invocable: true,
+            disable_model_invocation: false,
+            argument_hint: None,
+        };
+        let (menu, _) = commands::build(&[skill], &discord_rules());
+        let named: Vec<_> = menu.iter().filter(|entry| entry.name == "connect").collect();
+        assert_eq!(named.len(), 1);
+        assert_ne!(named[0].description, "mine");
     }
 
     #[test]

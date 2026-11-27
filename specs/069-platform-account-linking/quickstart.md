@@ -4,7 +4,7 @@
 
 ```sh
 cargo test -p vizier-core platform_links            # codes, resolve, stamp, owner_md, storage contract
-cargo test -p vizier-core --test dummyplug_e2e sender
+cargo test -p vizier-core --test dummyplug_e2e connect_code
 cargo test -p vizier-http --test platform_links      # routes, refusals, limits, unlink, user delete
 cargo test -p vizier-http --test conformance
 cd webui && npm run typecheck && npx vitest run lib/connect
@@ -18,7 +18,7 @@ cd webui && npm run typecheck && npx vitest run lib/connect
 | linked | issue + redeem a code for discord `381926457021` as `rin` | `sender: rin`, `verified: true`, `platform_username: rin_dev` |
 | unlink is immediate | then `DELETE …/connections/discord` | the next request reads `Unregistered User` |
 | web unchanged | a WebUI chat request | no `verified` line |
-| owner | agent owned by `rin`, linked | `context`/system prompt shows `discord: "rin_dev" (id "381926457021"), verified link`; a legacy hand-typed telegram id is absent |
+| owner | unit tests in `system_prompt/user.rs` (dummyplug doesn't echo system prompts) | OWNER.md lists `discord: "rin_dev" (id "381926457021"), verified link`; a hand-typed id is absent |
 
 ## 1. Live: Discord (needs a bot token)
 

@@ -275,6 +275,8 @@ mod tests {
             share_creates: crate::state::share_creates_limiter(),
             share_misses: crate::state::share_misses_limiter(),
             share_searches: crate::state::share_searches_limiter(),
+            connect_attempts_user: crate::state::connect_attempts_limiter(),
+            connect_attempts_addr: crate::state::connect_attempts_limiter(),
             share_idempotency: crate::state::share_idempotency_cache(),
         };
         (state, dir)

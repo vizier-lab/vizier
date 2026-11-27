@@ -44,6 +44,8 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.consultation_chain.clear();
     // Only a live voice session marks a message as spoken (spec 055 FR-011); a typed one never is.
     request.spoken = false;
+    // Only a platform reader says whether a sender is proven (spec 069).
+    request.verified = None;
 }
 
 /// Whether this caller owns that call (T110, FR-063).
@@ -186,6 +188,7 @@ mod tests {
         request.background_depth = 3;
         request.mid_turn = true;
         request.spoken = true;
+        request.verified = Some(true);
 
         let before = vizier_core::time::now();
         stamp_on_receipt(&mut request);
@@ -197,6 +200,7 @@ mod tests {
             "only the engine marks a message as read mid-turn"
         );
         assert!(!request.spoken, "only a live voice session marks a message as spoken");
+        assert_eq!(request.verified, None, "only a platform reader marks a sender verified");
     }
 
     // ---- T110 round 2 (GI-07): the expiry check, reached through the socket -------------------

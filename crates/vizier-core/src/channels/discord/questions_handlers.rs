@@ -17,6 +17,7 @@ use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::Message;
 
 use super::Handler;
+use crate::platform_links::{PlatformSender, UNREGISTERED_USER, sender::stamp_or_unregistered};
 use crate::questions::{
     model::{Answer, QuestionAnswer, QuestionSetRecord},
     press::{self, Outcome, Pressed},
@@ -53,13 +54,6 @@ fn selected(values: &[String]) -> Vec<usize> {
 }
 
 impl Handler {
-    fn answerer(interaction: &Interaction) -> String {
-        match interaction.author() {
-            Some(user) => format!("@{} (DiscordId: {})", user.name, user.id),
-            None => "a Discord member".to_string(),
-        }
-    }
-
     /// Acknowledge a component interaction inside Discord's deadline, before any work (FR-023).
     async fn acknowledge(&self, interaction: &Interaction) {
         let response = InteractionResponse {
@@ -180,7 +174,10 @@ impl Handler {
     }
 
     async fn finish_question(&self, interaction: &Interaction, record: QuestionSetRecord, outcome: Outcome) {
-        let who = Self::answerer(interaction);
+        let sender = self.sender_of(interaction.author()).await;
+        let who = sender
+            .as_ref()
+            .map_or_else(|| UNREGISTERED_USER.to_string(), |s| s.label.clone());
         match outcome {
             // The set stays open; nothing to redraw, because Discord's own controls already show
             // what was picked.
@@ -194,7 +191,7 @@ impl Handler {
                     answerer: Some(who.clone()),
                     declined: true,
                 };
-                if let Err(error) = self.submit_answer(&record, declined, &who).await {
+                if let Err(error) = self.submit_answer(&record, declined, sender.as_ref()).await {
                     self.notice(interaction, error.message()).await;
                 }
             }
@@ -206,7 +203,7 @@ impl Handler {
                     answerer: Some(who.clone()),
                     declined: false,
                 };
-                if let Err(error) = self.submit_answer(&record, answer, &who).await {
+                if let Err(error) = self.submit_answer(&record, answer, sender.as_ref()).await {
                     self.notice(interaction, error.message()).await;
                 }
             }
@@ -269,9 +266,10 @@ impl Handler {
         &self,
         record: &QuestionSetRecord,
         answer: QuestionAnswer,
-        who: &str,
+        sender: Option<&PlatformSender>,
     ) -> Result<(), SubmitError> {
-        let request = submit::submit(
+        let who = sender.map_or(UNREGISTERED_USER, |s| s.label.as_str());
+        let mut request = submit::submit(
             &self.deps.storage,
             &self.deps.transport,
             &self.deps.questions,
@@ -280,6 +278,7 @@ impl Handler {
             who,
         )
         .await?;
+        stamp_or_unregistered(&mut request, sender);
         // The reply streams through the session-event broadcast, which this reader's woken-turn
         // watcher renders into the channel.
         let responses = self
@@ -319,7 +318,10 @@ impl Handler {
             return false;
         };
 
-        let who = format!("@{} (DiscordId: {})", msg.author.name, msg.author.id);
+        let sender = self.sender_of(Some(&msg.author)).await;
+        let who = sender
+            .as_ref()
+            .map_or_else(|| UNREGISTERED_USER.to_string(), |s| s.label.clone());
         let answers: Result<Vec<Answer>, Vec<String>> = text_form::parse(&record.set, &msg.content);
         let reply = match answers {
             Ok(answers) => {
@@ -330,7 +332,7 @@ impl Handler {
                     answerer: Some(who.clone()),
                     declined: false,
                 };
-                match self.submit_answer(&record, answer, &who).await {
+                match self.submit_answer(&record, answer, sender.as_ref()).await {
                     Ok(()) => return true,
                     Err(error) => error.message(),
                 }

@@ -1548,6 +1548,7 @@ pub vizier_core::prelude::VizierRequest::timestamp: chrono::datetime::DateTime<c
 pub vizier_core::prelude::VizierRequest::trace: crate::telemetry::RequestTrace
 pub vizier_core::prelude::VizierRequest::transient: bool
 pub vizier_core::prelude::VizierRequest::user: alloc::string::String
+pub vizier_core::prelude::VizierRequest::verified: core::option::Option<bool>
 impl vizier_core::prelude::VizierRequest
 pub fn vizier_core::prelude::VizierRequest::generate_frontmatter(&self) -> anyhow::Result<alloc::string::String>
 pub fn vizier_core::prelude::VizierRequest::is_durable(&self, &vizier_core::prelude::VizierSession) -> bool
@@ -10143,6 +10144,7 @@ pub vizier_core::schema::VizierRequest::timestamp: chrono::datetime::DateTime<ch
 pub vizier_core::schema::VizierRequest::trace: crate::telemetry::RequestTrace
 pub vizier_core::schema::VizierRequest::transient: bool
 pub vizier_core::schema::VizierRequest::user: alloc::string::String
+pub vizier_core::schema::VizierRequest::verified: core::option::Option<bool>
 impl vizier_core::prelude::VizierRequest
 pub fn vizier_core::prelude::VizierRequest::generate_frontmatter(&self) -> anyhow::Result<alloc::string::String>
 pub fn vizier_core::prelude::VizierRequest::is_durable(&self, &vizier_core::prelude::VizierSession) -> bool

@@ -33,7 +33,7 @@ metadata:
 
 Rules:
 
-- `verified` comes right after `sender` and appears **only** on platform requests. Web, scheduler, background, subagent, consultation and wake frontmatter is byte-identical to before.
+- `verified` sits beside `sender` (keys are written in the frontmatter's usual alphabetical order) and appears **only** on platform requests. Web, scheduler, background, subagent, consultation and wake frontmatter is byte-identical to before.
 - `sender` is the Vizier **username**, the same string a WebUI turn from that person shows.
 - Requests saved before 069 render as saved: no `verified`, and the old `@name (DiscordId: …)` sender.
 - Mentions inside message text stay `@alice (DiscordId: 2)`.

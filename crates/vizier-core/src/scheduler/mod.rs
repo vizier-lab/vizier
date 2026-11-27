@@ -12,7 +12,7 @@ use crate::{
         Task, TaskRunState, TaskSchedule, VizierChannelId, VizierRequest, VizierResponse,
         VizierResponseContent, VizierSession,
     },
-    storage::{task::TaskStorage, task_run::TaskRunStorage},
+    storage::{platform_link::PlatformLinkStorage, task::TaskStorage, task_run::TaskRunStorage},
 };
 
 mod dream;
@@ -128,6 +128,11 @@ impl VizierScheduler {
                             Ok(0) => {}
                             Ok(purged) => tracing::info!("purged {} notification(s) past retention", purged),
                             Err(e) => tracing::warn!("failed to purge old notifications: {}", e),
+                        }
+                        // Connect codes nobody redeemed (spec 069).
+                        let now_ms = crate::time::now().timestamp_millis();
+                        if let Err(e) = self.deps.storage.purge_expired_connect_codes(now_ms).await {
+                            tracing::warn!("failed to purge expired connect codes: {}", e);
                         }
                     }
                 }

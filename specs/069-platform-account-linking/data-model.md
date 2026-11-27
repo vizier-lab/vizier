@@ -112,7 +112,7 @@ pub enum RedeemOutcome { Linked(PlatformLink), Replaced { link: PlatformLink, pr
 | Redeem refuses `linked_elsewhere` without naming the other user | storage tx |
 | Link and unlink are visible to the next `resolve` (no cache) | `sender` |
 | `resolve` failure means unregistered, plus a warning; never drops the message | `sender` |
-| Legacy profile values identify no one; new non-null values are refused (`422 connect_required`); `null` clears | `service::profile` (#82) |
+| Legacy profile values identify no one; new non-null values are refused (`422 connect_required`); `null` keeps; removal is the `unverified` DELETE | `service::profile`, `service::platform_links` (#82) |
 | Deleting a user deletes their links and events | `delete_user` tx (and FK cascade) |
 
 ## State: a connect code

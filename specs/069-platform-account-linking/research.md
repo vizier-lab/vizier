@@ -94,7 +94,8 @@ BOOT.md gets one sentence: a `verified: true` sender is a Vizier user proven by 
 ### R10. Legacy hand-typed values
 
 **Decision**: `UserProfile` keeps its four fields, read-only, on the wire as `unverified: { discord_id, discord_username, telegram_id, telegram_username }` in the connections listing.
-- `PUT /auth/users/me/profile` refuses non-null values for them with `422 connect_required`, and accepts `null` to clear them (FR-014 "removable").
+- `PUT /auth/users/me/profile` refuses non-null values for them with `422 connect_required`; `null` or absent keeps what is stored.
+- Removing one (FR-014 "removable") is `DELETE /auth/users/me/connections/{platform}/unverified`.
 - A successful link of a platform clears that platform's legacy pair in the same transaction.
 - Nothing reads them for identity.
 

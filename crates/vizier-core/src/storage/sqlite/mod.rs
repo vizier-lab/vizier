@@ -28,6 +28,7 @@ mod catalogue_source;
 mod memory;
 pub(crate) mod memory_revision;
 mod notification;
+mod platform_link;
 mod project;
 mod provider;
 mod question;
@@ -485,6 +486,7 @@ impl SqlStorage {
         init_ui_page_schema(conn)?;
         project::init_project_schema(conn)?;
         share::init_share_schema(conn)?;
+        platform_link::init_platform_link_schema(conn)?;
         init_ownership_schema(conn)?;
 
         Ok(())

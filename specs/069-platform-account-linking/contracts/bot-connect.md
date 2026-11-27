@@ -18,7 +18,12 @@ Or enter {code} in Vizier under Settings › Profile › Connected accounts.
 The code works once and expires in 10 minutes. Only use a code you asked for yourself.
 ```
 
-Without `base_url`, the link line is left out.
+Without `base_url`:
+
+```text
+To link this Discord account to your Vizier user, enter {code} in Vizier under Settings › Profile › Connected accounts.
+The code works once and expires in 10 minutes. Only use a code you asked for yourself.
+```
 
 Rate-limited (more than 5 in 10 minutes for this account):
 

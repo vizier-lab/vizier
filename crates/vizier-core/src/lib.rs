@@ -106,6 +106,10 @@ pub mod llm;
 /// switch is the per-agent `live_voice.enabled` setting, off by default (FR-041).
 pub mod live_voice;
 pub(crate) mod notifications;
+/// Platform account linking (`specs/069-platform-account-linking`): who a Discord or Telegram
+/// sender is, proven by a one-time code.
+#[doc(hidden)]
+pub mod platform_links;
 #[doc(hidden)]
 pub mod projects;
 pub(crate) mod provider_keys;

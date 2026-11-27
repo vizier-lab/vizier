@@ -2567,3 +2567,133 @@ async fn a_dream_calls_its_tools_from_python() {
     let refused = dream(transport, &source, &run_python("print(shell_exec(command='echo dreamt'))", false, None)).await;
     assert!(refused.contains("NameError: name 'shell_exec' is not defined"), "{refused}");
 }
+
+// ---- Spec 069: platform account linking (quickstart §0) ----------------------------------------
+
+fn discord_person(id: &str, handle: &str) -> vizier_core::platform_links::PlatformPerson {
+    vizier_core::platform_links::PlatformPerson {
+        platform: vizier_core::schema::ChannelPlatform::Discord,
+        id: id.into(),
+        username: Some(handle.into()),
+        display_name: Some(handle.into()),
+    }
+}
+
+/// Ask dummyplug who it was told sent a message built the way the Discord reader builds one.
+async fn sender_of_a_discord_message(
+    runtime: &VizierRuntime,
+    topic: &str,
+    id: &str,
+    handle: &str,
+) -> String {
+    use vizier_core::platform_links::sender;
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::DiscordChanel(1100),
+        Some(topic.into()),
+    );
+    let mut request = VizierRequest {
+        timestamp: vizier_core::time::now(),
+        content: VizierRequestContent::Chat("sender".into()),
+        metadata: serde_json::json!({ "discord_channel_id": "1100", "is_dm": false }),
+        ..Default::default()
+    };
+    let who = sender::resolve(&*runtime.deps().storage, discord_person(id, handle)).await;
+    sender::stamp(&mut request, &who);
+    let (tx, rx) = runtime.transport().reply_channel().await.expect("open a reply stream");
+    runtime
+        .transport()
+        .send_request(session, request, Some(tx))
+        .await
+        .expect("send the request");
+    tokio::time::timeout(TURN_TIMEOUT, async {
+        while let Ok(response) = rx.recv_async().await {
+            if let VizierResponseContent::Message { content, .. } = response.content {
+                return content;
+            }
+        }
+        panic!("the turn ended without a message");
+    })
+    .await
+    .expect("the turn timed out")
+}
+
+/// `/connect` on Discord, then the person confirming the code while signed in.
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_code_links_once_and_agents_read_the_vizier_username() {
+    use vizier_core::{
+        auth::AuthMethod,
+        platform_links::connect::{ConnectReply, issue},
+        service::{Services, platform_links as service},
+        storage::user::UserProfile,
+    };
+    let Some((_dummyplug, runtime, _dir)) = detached_harness().await else { return };
+    let storage = runtime.deps().storage.clone();
+    let role = storage.create_role("chatter", vec![], false).await.unwrap();
+    let rin = storage.create_user("rin", "", &role.role_id).await.unwrap();
+    // An id typed into the profile by hand proves nothing.
+    storage
+        .upsert_user_profile(
+            &rin.user_id,
+            &UserProfile {
+                user_id: rin.user_id.clone(),
+                discord_id: Some("381926457021".into()),
+                discord_username: Some("rin_dev".into()),
+                telegram_id: None,
+                telegram_username: None,
+                alias: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+    let reply = sender_of_a_discord_message(&runtime, "before", "381926457021", "rin_dev").await;
+    for line in [
+        "sender: Unregistered User",
+        "verified: false",
+        "platform_user_id: '381926457021'",
+        "platform_username: rin_dev",
+        "discord_channel_id: '1100'",
+    ] {
+        assert!(reply.contains(line), "{line} in {reply}");
+    }
+
+    let ConnectReply::Code { code, .. } = issue(
+        runtime.deps(),
+        &discord_person("381926457021", "rin_dev"),
+        true,
+        None,
+    )
+    .await
+    else {
+        panic!("expected a code");
+    };
+    let services = Services::new(runtime.deps().clone());
+    let principal = services.resolve(&rin.user_id, AuthMethod::Jwt).await.unwrap();
+    service::redeem(&services, &principal, &code).await.unwrap();
+    let again = service::redeem(&services, &principal, &code).await.unwrap_err();
+    assert_eq!(again.code(), Some("connect_code_unavailable"));
+
+    // The very next message, with no restart.
+    let reply = sender_of_a_discord_message(&runtime, "linked", "381926457021", "rin_dev").await;
+    assert!(reply.contains("sender: rin\n"), "{reply}");
+    assert!(reply.contains("verified: true"), "{reply}");
+    let stranger = sender_of_a_discord_message(&runtime, "stranger", "552013874411", "kai.k").await;
+    assert!(stranger.contains("sender: Unregistered User"), "{stranger}");
+    assert!(stranger.contains("platform_user_id: '552013874411'"), "{stranger}");
+
+    service::unlink(
+        &services,
+        &principal,
+        vizier_core::schema::ChannelPlatform::Discord,
+    )
+    .await
+    .unwrap();
+    let reply = sender_of_a_discord_message(&runtime, "unlinked", "381926457021", "rin_dev").await;
+    assert!(reply.contains("sender: Unregistered User"), "{reply}");
+
+    // A person in the WebUI reads as before.
+    let web = chat(runtime.transport(), &web_session("web"), "sender").await;
+    assert!(web.contains("sender: e2e"), "{web}");
+    assert!(!web.contains("verified"), "{web}");
+}

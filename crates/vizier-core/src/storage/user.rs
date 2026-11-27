@@ -67,6 +67,21 @@ pub struct UserProfile {
     pub alias: Vec<String>,
 }
 
+impl UserProfile {
+    /// Forget the id and username typed by hand for `platform`, which a proven link replaces
+    /// (spec 069); `false` when there were none. Tracked for removal in #82.
+    pub fn clear_platform(&mut self, platform: crate::schema::ChannelPlatform) -> bool {
+        use crate::schema::ChannelPlatform;
+        let (id, username) = match platform {
+            ChannelPlatform::Discord => (&mut self.discord_id, &mut self.discord_username),
+            ChannelPlatform::Telegram => (&mut self.telegram_id, &mut self.telegram_username),
+        };
+        let had_id = id.take().is_some();
+        let had_username = username.take().is_some();
+        had_id || had_username
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKey {
     pub id: String,

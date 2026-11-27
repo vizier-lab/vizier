@@ -138,6 +138,9 @@ impl UserStorage for SqlStorage {
         )?;
         conn.execute("DELETE FROM shared_snapshot WHERE creator_id = ?1", params![user_id])?;
         conn.execute("DELETE FROM shared_snapshot_audience WHERE user_id = ?1", params![user_id])?;
+        // Spec 069 FR-013: their platform accounts read as unregistered from now on.
+        conn.execute("DELETE FROM platform_link WHERE user_id = ?1", params![user_id])?;
+        conn.execute("DELETE FROM platform_link_event WHERE user_id = ?1", params![user_id])?;
         let deleted = conn.execute(r#"DELETE FROM "user" WHERE user_id = ?1"#, params![user_id])?;
         if deleted == 0 {
             return Err(anyhow::anyhow!("User not found"));

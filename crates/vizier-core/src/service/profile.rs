@@ -37,19 +37,39 @@ pub struct ProfileChanges {
     pub alias: Option<Vec<String>>,
 }
 
+/// A platform account is connected with `/connect`, never typed in, so a new value for any of
+/// the four old fields is refused (spec 069, #82). `None` keeps what is stored; removing an old
+/// value is `service::platform_links::clear_unverified`.
+fn refuse_hand_typed(changes: &ProfileChanges) -> Result<(), ServiceError> {
+    let typed = [
+        &changes.discord_id,
+        &changes.discord_username,
+        &changes.telegram_id,
+        &changes.telegram_username,
+    ]
+    .into_iter()
+    .any(Option::is_some);
+    if typed {
+        return Err(ServiceError::Invalid {
+            status: 422,
+            message: "Connect accounts with /connect on Discord or Telegram.".into(),
+            code: Some("connect_required".into()),
+        });
+    }
+    Ok(())
+}
+
 pub async fn update(
     services: &Services,
     principal: &Principal,
     changes: ProfileChanges,
 ) -> Result<UserProfile, ServiceError> {
+    refuse_hand_typed(&changes)?;
     let existing = get(services, principal).await?;
     let updated = UserProfile {
         user_id: principal.user_id.clone(),
-        discord_id: changes.discord_id.or(existing.discord_id),
-        discord_username: changes.discord_username.or(existing.discord_username),
-        telegram_id: changes.telegram_id.or(existing.telegram_id),
-        telegram_username: changes.telegram_username.or(existing.telegram_username),
-        alias: changes.alias.unwrap_or(existing.alias),
+        alias: changes.alias.unwrap_or(existing.alias.clone()),
+        ..existing
     };
     services
         .deps()

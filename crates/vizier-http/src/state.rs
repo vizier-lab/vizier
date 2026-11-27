@@ -38,6 +38,10 @@ pub struct HTTPState {
     pub share_misses: Arc<vizier_core::utils::rate_limit::RateLimiter>,
     /// People searches per person: 30 a minute.
     pub share_searches: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// Attempts at a connect code per person (spec 069): 10 per 10 minutes.
+    pub connect_attempts_user: Arc<vizier_core::utils::rate_limit::RateLimiter>,
+    /// The same budget per client address.
+    pub connect_attempts_addr: Arc<vizier_core::utils::rate_limit::RateLimiter>,
     /// In-memory cache for POST /shares idempotency (FR-050/FR-051).
     pub share_idempotency: Arc<
         parking_lot::Mutex<
@@ -75,6 +79,18 @@ pub(crate) fn share_misses_limiter() -> Arc<vizier_core::utils::rate_limit::Rate
         vizier_core::utils::rate_limit::RateLimiter::new(
             vizier_core::service::shares::MISSES_PER_MINUTE,
             std::time::Duration::from_secs(60),
+        )
+        .with_max_keys(10_000),
+    )
+}
+
+/// 10 connect-code attempts per key per 10 minutes, which makes guessing a live code hopeless.
+/// The table is capped so that many addresses cannot grow it without bound.
+pub(crate) fn connect_attempts_limiter() -> Arc<vizier_core::utils::rate_limit::RateLimiter> {
+    Arc::new(
+        vizier_core::utils::rate_limit::RateLimiter::new(
+            10,
+            std::time::Duration::from_secs(10 * 60),
         )
         .with_max_keys(10_000),
     )

@@ -151,6 +151,12 @@ instead of the §4 tool-result echo. A part whose frontmatter says `sender: back
 
 **Compatibility**: additive. It exists because which messages reached the turn's next step is otherwise unobservable offline.
 
+## 9. `sender`: echo the frontmatter
+
+Added by `specs/069-platform-account-linking` (`contracts/agent-sender.md`).
+
+**Behaviour**: when the command text of the incoming user message, trimmed, is exactly `sender` (case-insensitive), the reply is that message's frontmatter block verbatim, the text between its `---` lines, so a test can read who the agent was told sent it. A message without frontmatter gets `(no frontmatter)`.
+
 ## Provider API
 
 | Endpoint | Behavior for `dummyplug` |

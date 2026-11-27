@@ -180,8 +180,8 @@ pub struct VizierConfig {
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
     /// The public address people reach this instance at, e.g. `https://vizier.example.com`
-    /// (no trailing `/`). Not read by anything yet; kept for sign-in redirects and push
-    /// notifications. Checked by [`base_url::normalize`].
+    /// (no trailing `/`). Read by the `/connect` link (spec 069); also kept for sign-in
+    /// redirects and push notifications. Checked by [`base_url::normalize`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 }
