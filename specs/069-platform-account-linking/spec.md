@@ -143,7 +143,7 @@ A person who had typed their Discord or Telegram id into their profile before th
 - **FR-007**: One platform account MUST be connected to at most one Vizier user; a Vizier user MUST have at most one connected account per platform. Redeeming a code for an account connected to someone else MUST be refused without revealing who; redeeming a code for a second account of the same platform MUST state that it replaces the current one.
 - **FR-008**: Redemption attempts MUST be rate-limited per person and per address, and a wrong, expired or used code MUST give one indistinguishable "expired or already used" answer.
 - **FR-009**: Connecting and unlinking MUST take effect on the next message without restarting any agent or bot.
-- **FR-010**: Connecting and unlinking MUST be recorded (who, which platform account, when) for the person's own review; no code value is ever recorded or logged.
+- **FR-010**: Connecting and unlinking MUST be recorded (who, which platform account, when) and be readable by that person; no code value is ever recorded or logged. The profile page does not list this history (decided at design review).
 
 **Managing**
 
@@ -159,6 +159,7 @@ A person who had typed their Discord or Telegram id into their profile before th
 - **FR-017**: The agent's owner information MUST list the owner's connected platform accounts only, never hand-typed values, so an agent recognises its owner on a platform only through a verified link.
 - **FR-018**: The same labelling MUST apply to every path on which a platform person reaches an agent: messages, mentions, silent reads, slash/skill commands, side chats, question answers and any other request built from a platform user.
 - **FR-019**: History saved before this feature MUST be shown as saved; the new labels apply to new requests only.
+- **FR-019a**: Where a person reads a Discord or Telegram conversation in the WebUI, a connected sender MUST show as their Vizier username marked as connected, and an unconnected one by their platform name marked as unregistered, so that two unconnected people can be told apart. (Added at design review.)
 
 **Out of scope**
 

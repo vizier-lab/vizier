@@ -41,7 +41,7 @@ See [research.md](research.md) for the decisions (R1–R13).
 | Feature flags | ✅ | `platform_links` is core and unflagged (storage, routes, resolver). The `/connect` handlers sit inside the already-flagged `channel-discord` / `channel-telegram` readers. No API shape changes by flag. |
 | Roles independent | ✅ | Codes live in storage, so the channels role issues and gateway-http redeems with no direct link between them. |
 | E2E through dummyplug | ✅ | Planned: dummyplug §9 `sender` (submodule, matching branch) and `tests/dummyplug_e2e.rs` cases. |
-| Design before UI code | ⏳ | Required before WebUI work: the Connected accounts card (with its row menu, code field and not-verified rows) and the `/connect` confirmation page. FigCraft is reachable now, so draw on `Vizier shell.figcraft` (settings pages) first. This is the first implementation task. |
+| Design before UI code | ✅ | Done and approved before WebUI work: the Connected accounts card (with its row menu, code field and not-verified rows; no recent-changes list) and the `/connect` confirmation page. |
 | Migration code tracked (#82) | ✅ | Legacy profile fields, the `422 connect_required` refusal and the clear-on-link step get #82 entries. |
 
 Post-design re-check: unchanged, all gates pass. The design gate is satisfied by the first task, before any `webui/` change.

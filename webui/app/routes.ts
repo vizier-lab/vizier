@@ -10,6 +10,10 @@ export default [
     // Public, read only: a shared conversation. No sign-in gate, no app shell.
     layout('layouts/ShareLayout.tsx', [route('share/:shareId', 'routes/share.tsx')]),
 
+    // The link `/connect` sends on Discord and Telegram. It handles signing in itself, because the
+    // code in its address has to survive the trip to the login page.
+    route('connect', 'routes/connect.tsx'),
+
     // Signed in
     layout('layouts/RequireAuth.tsx', [
         layout('layouts/AppShell.tsx', [

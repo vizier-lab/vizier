@@ -45,6 +45,8 @@ The platform id and names are always there, so an agent can address people by th
 
 Messages saved before this feature keep the sender they were saved with.
 
+Where you read a Discord or Telegram conversation in the WebUI, a connected person shows as their Vizier username marked **connected**; anyone else shows by their platform name marked **unregistered**.
+
 ## Unlink
 
 On **Settings › Profile › Connected accounts**, open an account's menu and choose **Unlink**. Its next message reads as Unregistered User. Deleting a Vizier user removes their connections.

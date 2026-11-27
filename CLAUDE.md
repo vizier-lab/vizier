@@ -225,6 +225,7 @@ A Discord or Telegram account belongs to a Vizier user only when **proven**: `/c
 - Telegram's identity is `msg.from`, never the chat id.
 - `owner_md` is built per turn from the owner's links; the old hand-typed `UserProfile` platform fields identify nobody, are refused on new input (`422 connect_required`), are shown as unverified and cleared by linking (#82).
 - Offline check: dummyplug's `sender` command (§9) echoes the frontmatter; `tests/dummyplug_e2e.rs`, `vizier-http/tests/platform_links.rs`.
+- **WebUI**: `routes/connect.tsx` (outside `RequireAuth`; the code waits in `sessionStorage` through sign-in, and `loginRedirectFor` returns there after a 401), `screens/settings/ConnectedAccountsCard.tsx` and `useConnect.ts` over design `ConnectedAccountRow` / `ConnectConfirm`; pure logic in `lib/connect.ts`. A platform chat read view names senders with `shownSender` (the stored `user` is "Unregistered User" for every unlinked person, so it shows the platform name from `metadata`).
 
 ### Session tools (`specs/067-wake-session/`, `crates/vizier-core/src/agents/tools/sessions/`)
 

@@ -20,6 +20,10 @@ cd webui && npm run typecheck && npx vitest run lib/connect
 | web unchanged | a WebUI chat request | no `verified` line |
 | owner | unit tests in `system_prompt/user.rs` (dummyplug doesn't echo system prompts) | OWNER.md lists `discord: "rin_dev" (id "381926457021"), verified link`; a hand-typed id is absent |
 
+## Checked without a bot (Windows)
+
+`vizier-http`'s `dev_serve` test serves the real runtime and WebUI where the `vizier` binary does not build. With a code written into `platform_connect_code` in the dev workspace (its SHA-256, as the bot would store it), `/connect#CODE` signed out → sign-in → confirm, the profile card (replace, unlink, remove an unverified id, expired code, phone and light theme) and the sender names of a Discord conversation were checked in a browser on 2026-11-27.
+
 ## 1. Live: Discord (needs a bot token)
 
 1. `just run` with `base_url: http://localhost:9999` set in `dev.vizier.yaml`. Use a dummyplug agent with a Discord integration.

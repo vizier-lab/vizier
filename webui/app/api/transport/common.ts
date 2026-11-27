@@ -127,10 +127,12 @@ export function setToken(token: string | null) {
 /**
  * Where a 401 sends the person. `/share/*` is exempt: that page renders its own neutral
  * "sign in" button carrying `returnTo=/share/<id>`, and a hard redirect to a bare `/login` would
- * lose the link they came for. `/login` itself never redirects to itself.
+ * lose the link they came for. `/connect` comes back after signing in, to the confirmation it was
+ * opened for. `/login` itself never redirects to itself.
  */
 export function loginRedirectFor(pathname: string): string | null {
     if (pathname === '/login' || pathname.startsWith('/share/')) return null
+    if (pathname === '/connect') return `/login?returnTo=${encodeURIComponent(pathname)}`
     return '/login'
 }
 

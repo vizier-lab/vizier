@@ -35,7 +35,7 @@ import { splitDelivery } from '../../lib/subagents'
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { blockDurationMs, groupHistory, lastBlockOf, orderTurnsBySent, outcomeDurationMs } from '../../lib/trail'
-import { personName } from '../../lib/tasks'
+import { shownSender } from '../../lib/connect'
 import { useSession } from '../../stores/session'
 import { Markdown } from '../shared/Markdown'
 import { PendingAudio, ReplyMedia } from './ReplyMedia'
@@ -229,13 +229,15 @@ export function MessageList({ liveCall, liveSpeaking, state, agent, topicId, gre
         const attachments = requestAttachments(content, request.attachments)
         const spoken = requestSpoken(content)
         const text = requestText(content)
+        const from = byPlatformName && request.user ? shownSender(request) : undefined
         return (
             <UserMessage
                 key={e.uid}
                 data-prompt-uid={e.uid}
                 className="scroll-mt-24"
-                name={byPlatformName && request.user ? personName(request.user) : 'You'}
-                seed={request.user || me?.username}
+                name={from?.name ?? 'You'}
+                seed={from?.seed ?? (request.user || me?.username)}
+                sender={from?.sender}
                 time={time(request.timestamp)}
                 attachments={
                     attachments.length ? (

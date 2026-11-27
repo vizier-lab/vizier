@@ -28,10 +28,9 @@
   - a not-linked row with the "Send /connect to any agent's bot on Discord" hint
   - a "Not verified — send /connect to confirm" row with a remove action
   - the code field
-  - the recent-changes list
 
   Copy the file to `C:\Users\ganes\AppData\Local\Temp\opencode` first. If FigCraft is unreachable, use an HTML mockup in `design/explorations/069-connected-accounts.html` instead.
-- [ ] T003 [P] Draw the **`/connect` confirmation** in the same file: the platform account, the Vizier username, the "only confirm a code you requested yourself" warning, the "replaces your current Discord account" variant, and the expired/used and already-linked-elsewhere states. Get review before Phase 3's WebUI tasks start. *Drawn 2026-11-27 on `Shell · chosen` (frames 069 A–E, dark theme); awaiting review.*
+- [X] T003 [P] Draw the **`/connect` confirmation** in the same file: the platform account, the Vizier username, the "only confirm a code you requested yourself" warning, the "replaces your current Discord account" variant, and the expired/used and already-linked-elsewhere states. Get review before Phase 3's WebUI tasks start. *Drawn 2026-11-27 on `Shell · chosen` (frames 069 A–E, dark theme); reviewed and approved the same day, without a recent-changes list.*
 
 ---
 
@@ -111,14 +110,14 @@
 
 ### Design and WebUI (after T003 is reviewed)
 
-- [ ] T029 [P] [US1] Build `ConnectConfirm` in `design/src/components/ConnectConfirm.tsx` with a story per state (ready, replaces, unavailable, linked elsewhere, busy), as drawn in T003
-- [ ] T030 [P] [US1] Add `normalizeCode`, `stashCode`, `takeCode` (sessionStorage in try/catch) and `codeFromHash` in `webui/app/lib/connect.ts`, with vitest cases in `webui/app/lib/connect.test.ts`
-- [ ] T031 [P] [US1] Add `listConnections`, `previewConnection` and `redeemConnection` in `webui/app/api/endpoints/connections.ts`, through the transport seam only
-- [ ] T032 [US1] Add `webui/app/routes/connect.tsx`, registered in `webui/app/routes.ts` **outside** `RequireAuth`:
+- [X] T029 [P] [US1] Build `ConnectConfirm` in `design/src/components/ConnectConfirm.tsx` with a story per state (ready, replaces, unavailable, linked elsewhere, busy), as drawn in T003
+- [X] T030 [P] [US1] Add `normalizeCode`, `stashCode`, `takeCode` (sessionStorage in try/catch) and `codeFromHash` in `webui/app/lib/connect.ts`, with vitest cases in `webui/app/lib/connect.test.ts`
+- [X] T031 [P] [US1] Add `listConnections`, `previewConnection` and `redeemConnection` in `webui/app/api/endpoints/connections.ts`, through the transport seam only
+- [X] T032 [US1] Add `webui/app/routes/connect.tsx`, registered in `webui/app/routes.ts` **outside** `RequireAuth`:
   - read the code from `location.hash`, stash it and clear the hash with `history.replaceState`
   - when signed out, navigate to `/login?returnTo=/connect` (no code in the URL)
   - when signed in, `takeCode` → preview → `ConnectConfirm` → redeem → navigate to `/settings/profile`
-- [ ] T033 [US1] Add the code field to `webui/app/routes/settings-profile.tsx`, opening the same `ConnectConfirm` flow in a `Dialog` (with ×, Escape, outside press)
+- [X] T033 [US1] Add the code field to `webui/app/routes/settings-profile.tsx`, opening the same `ConnectConfirm` flow in a `Dialog` (with ×, Escape, outside press)
 
 ### E2E
 
@@ -158,6 +157,8 @@
 - [X] T045 [P] [US2] Unit tests for `owner_md` in `crates/vizier-core/src/agents/agent/system_prompt/user.rs`: a verified link is listed, a hand-typed legacy id is absent, and no links gives the existing "No additional profile data" line
 - [X] T046 [US2] `dummyplug_e2e` cases in `crates/vizier-core/tests/dummyplug_e2e.rs`, each building the request with `resolve` + `stamp` and asking `sender`: `unregistered_sender_reads_unregistered_user`, `linked_sender_reads_vizier_username`, `unlink_applies_on_next_message`, and `web_request_has_no_verified_line`
 
+- [X] T061 [US2] Show platform senders in the WebUI's read-only chat view (FR-019a): a `sender` tag on `design` `UserMessage` with a story, `shownSender` in `webui/app/lib/connect.ts` with tests, used by `webui/app/screens/chat/MessageList.tsx`
+
 **Checkpoint**: US1 and US2 together are the MVP. Run quickstart §1–§2 live.
 
 ---
@@ -170,8 +171,8 @@
 
 - [X] T047 [US3] Add `service::platform_links::unlink(principal, platform)` (`404 not_linked` when absent; writes an `unlinked` event) in `crates/vizier-core/src/service/platform_links.rs`, and `DELETE /auth/users/me/connections/{platform}` in `crates/vizier-http/src/api/v1/connections.rs`, with a conformance vector in `crates/vizier-http/tests/conformance/groups/connections.rs`
 - [X] T048 [P] [US3] Route tests in `crates/vizier-http/tests/platform_links.rs`: unlink returns `204` and the next `resolve` is unregistered; a second unlink is `404`; unlink only touches the caller's own link
-- [ ] T049 [P] [US3] Build `ConnectedAccountRow` (linked with ⋯ menu → Unlink, not linked with hint, busy) in `design/src/components/ConnectedAccountRow.tsx`, with stories, as drawn in T002. The menu and the confirmation follow the dismissal convention (`useDismiss`, `Dialog`)
-- [ ] T050 [US3] In `webui/app/routes/settings-profile.tsx`, replace the four `TextField`s and the "Who you are on other channels" card with a Connected accounts card: one `ConnectedAccountRow` per platform, the code field from T033, and the recent-changes list from `listConnections().events`. Unlink confirms, calls `DELETE`, then refreshes. Keep the alias field. Add `unlinkConnection` to `webui/app/api/endpoints/connections.ts`
+- [X] T049 [P] [US3] Build `ConnectedAccountRow` (linked with ⋯ menu → Unlink, not linked with hint, busy) in `design/src/components/ConnectedAccountRow.tsx`, with stories, as drawn in T002. The menu and the confirmation follow the dismissal convention (`useDismiss`, `Dialog`)
+- [X] T050 [US3] In `webui/app/routes/settings-profile.tsx`, replace the four `TextField`s and the "Who you are on other channels" card with a Connected accounts card: one `ConnectedAccountRow` per platform and the code field from T033. Unlink confirms, calls `DELETE`, then refreshes. Keep the alias field. Add `unlinkConnection` to `webui/app/api/endpoints/connections.ts`
 
 **Checkpoint**: people can see and remove their links.
 
@@ -186,7 +187,7 @@
 - [X] T051 [US4] In `crates/vizier-core/src/service/profile.rs`: a non-null `discord_id`/`discord_username`/`telegram_id`/`telegram_username` in `ProfileChanges` is refused with a `ServiceError` that maps to `422 connect_required`; `null` keeps what is stored (removal is T052's route). Map the kind in `crates/vizier-http/src/error.rs` if it is a new one, and update the `PUT /auth/users/me/profile` handler and OpenAPI in `crates/vizier-http/src/api/v1/auth.rs`
 - [X] T052 [US4] Add `DELETE /auth/users/me/connections/{platform}/unverified` (clears that platform's legacy pair) in `crates/vizier-http/src/api/v1/connections.rs` with its service function, and expose `unverified` in the `list` response (T020), with a conformance vector
 - [X] T053 [P] [US4] Tests: `crates/vizier-http/tests/platform_links.rs`, where a profile PUT with a Discord id is `422` and with `null` keeps; and `dummyplug_e2e` case `legacy_id_is_unregistered`, where a profile with a hand-typed Discord id gives `Unregistered User` for that id
-- [ ] T054 [US4] Draw the not-verified row from T002 in `webui/app/routes/settings-profile.tsx` with a remove action calling the `unverified` DELETE
+- [X] T054 [US4] Draw the not-verified row from T002 in `webui/app/routes/settings-profile.tsx` with a remove action calling the `unverified` DELETE
 - [ ] T055 [US4] Add #82 checklist entries naming the legacy `UserProfile` platform fields, the `422 connect_required` refusal, the clear-on-link step in `redeem_connect_code`, and the `unverified` route and listing
 
 ---

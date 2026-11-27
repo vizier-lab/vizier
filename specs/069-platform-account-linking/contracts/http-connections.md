@@ -20,7 +20,7 @@ All routes are under `/api/v1`, behind `require_auth`, and act only on the signe
 }
 ```
 
-`unverified` holds the legacy hand-typed values (#82). It is empty once they are cleared or replaced.
+`unverified` holds the legacy hand-typed values (#82). It is empty once they are cleared or replaced. `events` is the person's own history of changes; the WebUI does not list it.
 
 ## `POST /auth/users/me/connections/preview`
 
