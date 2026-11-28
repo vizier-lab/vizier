@@ -170,19 +170,26 @@ Agents and apps share one list on the rail. The person drags a tile to a new pla
 
 ---
 
-### User Story 8 - Files go in and out of an app (Priority: P3)
+### User Story 8 - Files and messages go from the app to its chat (Priority: P3)
 
 The person drops a CSV into the app's chat: "import my old habits from this". The driver reads it and saves the result into the app. The page can also hand one of its own files to the driver ("look at this export"), and the person can pick a file from their computer directly in the page.
 
-**Why this priority**: Files make apps practical for real data, but apps are useful without them.
+An app can also talk to its own chat on the person's behalf. A "Receipts" app has a file picker and a **Send to Archivist** button: the person picks a scan, presses the button, and a message with the scan attached appears in the app's chat as theirs, marked as sent from the app, and the driver answers it as an ordinary turn.
 
-**Independent Test**: Drop a file into an app's chat and ask the driver to keep it. It appears among the app's files and survives deleting that chat thread or switching drivers.
+**Why this priority**: Files make apps practical for real data, and sending from the page lets an app hand work to its driver in one click, but apps are useful without either.
+
+**Independent Test**: Drop a file into an app's chat and ask the driver to keep it. It appears among the app's files and survives deleting that chat thread or switching drivers. Separately, in an app with a file picker and a send button, pick a file and press the button: the chat shows the message with the file attached and the "from the app" mark, and the driver replies.
 
 **Acceptance Scenarios**:
 
 1. **Given** a file uploaded in an app's chat, **When** the driver copies it into the app, **Then** it is kept with the app and survives a driver switch.
 2. **Given** an app page, **When** it lists files, **Then** it sees its own files and the uploads of its own chat thread, never uploads from any other conversation.
 3. **Given** an app file, **When** the page shares it with the driver, **Then** it appears in the app's chat as an attachment the driver can read.
+4. **Given** a file the person picked in the page, **When** the page sends it to the chat, **Then** it is added to the app's current chat thread as an upload (without becoming an app file unless the page or driver also keeps it).
+5. **Given** an app page, **When** the person presses a button that sends a message (with or without attachments), **Then** the message appears in the app's chat as the person's, marked as sent from the app, and starts an ordinary turn with the driver.
+6. **Given** an app page, **When** it tries to send a message without a press or key from the person (on load, on a timer, from a background task), **Then** nothing is sent and the page is told why.
+7. **Given** an app page that sends messages faster than the per-app limit, **When** the limit is reached, **Then** further sends are refused with a reason until the limit resets.
+8. **Given** an app with no driver, **When** the page tries to send a message, **Then** it is refused with the same reason the chat shows.
 
 ---
 
@@ -258,7 +265,8 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **FR-018**: An app MUST be able to keep structured data (named collections of records) that its page and its driver can read and write, saved immediately, with no model call for page reads and writes.
 - **FR-019**: App data and files MUST have size limits. A write over a limit MUST be refused with a reason given to whoever made it.
 - **FR-020**: Changes to app data MUST appear in every open view of that app without a reload.
-- **FR-021**: An app MUST be able to keep files. Its page MUST be able to read its own files and the uploads of its own current chat thread, and MUST NOT be able to read any other conversation's files. The driver MUST be able to copy a chat upload into the app, and the page MUST be able to share an app file into the chat.
+- **FR-021**: An app MUST be able to keep files. Its page MUST be able to read its own files and the uploads of its own current chat thread, and MUST NOT be able to read any other conversation's files. The driver MUST be able to copy a chat upload into the app, and the page MUST be able to share an app file into the chat, or add a file the person picked in the page straight to the current chat thread as an upload.
+- **FR-021a**: The page MUST be able to send a message to its own app's chat, optionally with attachments, only as the direct result of a press or key from the person. The message MUST appear as the person's, visibly marked as sent from the app, and MUST start an ordinary turn with the driver. Sends MUST be rate-limited per app, and MUST be refused with a reason when there is no driver or the gesture rule or the limit is not met. A page MUST NOT be able to send to any other conversation.
 
 **Manifest, requirements and drivers**
 
