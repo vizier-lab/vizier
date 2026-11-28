@@ -1,5 +1,6 @@
 import { Badge, EmptyState, LoadMore, PanelHeader, RunRow, Skeleton, Status, Table, TableRow } from '@vizier/design'
 import { useCallback, useEffect, useState } from 'react'
+import { ApiError } from '../../api/client'
 import { PAGE, triggerEvents, triggerRun, triggerRuns, type TriggerEvent, type TriggerRun, type TriggerRunDetail } from '../../api/endpoints/triggers'
 import { absoluteTime, duration } from '../../lib/format'
 import { replyText } from '../../lib/messages'
@@ -21,7 +22,9 @@ function usePages<T>(load: (before?: T) => Promise<T[]>, version: number) {
                 setItems((have) => (before ? [...(have ?? []), ...page] : page))
                 setMore(page.length === PAGE)
             } catch (e) {
-                toast.error("Couldn't load what happened", e instanceof Error ? e.message : undefined)
+                // A trigger deleted under this list isn't a failed load: the page says it is gone.
+                const gone = e instanceof ApiError && e.status === 404
+                if (!gone) toast.error("Couldn't load what happened", e instanceof Error ? e.message : undefined)
                 setItems((have) => have ?? [])
             } finally {
                 setLoading(false)

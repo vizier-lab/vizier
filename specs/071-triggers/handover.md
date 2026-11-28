@@ -1,13 +1,12 @@
 # Handover: Triggers (071)
 
-**Date**: 2026-11-28 · **Branch**: `071-triggers` (local only) · **Issue**:
+**Date**: 2026-11-28 · **Branch**: `071-triggers` · **Issue**:
 [vizier-lab/vizier#220](https://github.com/vizier-lab/vizier/issues/220)
 
 ## Status
 
-Phases 1 to 5 are built: the backend, and the Triggers page in `design/` and `webui/`. All of it is
-one local commit on `071-triggers`, not pushed, rebased on 2026-11-28 onto upstream master
-`8b00ba7e`. Upstream had taken spec number 068 and migration 17, so this spec is now **071** and its
+Phases 1 to 5 are built: the backend, and the Triggers page in `design/` and `webui/`. The branch
+was rebased on 2026-11-28 onto upstream master `8b00ba7e` and pushed to the fork. Upstream had taken spec number 068 and migration 17, so this spec is now **071** and its
 PostgreSQL migration **0020**. Spec 069 replaced typed platform ids with proven links, which the
 trigger tools now use; offering them on Discord is not looked at again yet.
 
@@ -17,8 +16,8 @@ trigger tools now use; offering them on Discord is not looked at again yet.
 | 2 Webhook | Done |
 | 3 Monitor | Done (skipping a check that overruns its interval has no test) |
 | 4 Agent tools, addon hook | Done; not offered on Discord |
-| 5 WebUI | Done; checked by hand against a seeded demo server |
-| 6 Finish | `CLAUDE.md` updated; quickstart run except steps 15 and 16 |
+| 5 WebUI | Done; checked by hand in a browser after the rebase |
+| 6 Finish | `CLAUDE.md` updated; quickstart run again after the rebase, except steps 15 and 16 |
 
 ## Read first
 
@@ -44,6 +43,7 @@ trigger tools now use; offering them on Discord is not looked at again yet.
 | WebUI tool list | Trigger tools named on the activity trail; `scripts/trail-tool-categories.test.mjs` was failing and passes |
 | `webui/openapi.json`, `app/api/schema.d.ts` | Regenerated |
 | Trigger storage tests | Also run on PostgreSQL now |
+| False error after deleting a trigger | The open list read the deleted trigger again and reported "Couldn't load what happened". A `404` there is no longer reported |
 
 ## Gaps left
 
@@ -78,9 +78,7 @@ trigger tools now use; offering them on Discord is not looked at again yet.
 | `design` vitest | 26 failed in 10 files, the same count as on `0b708d63`; CI does not block on it |
 | `node --test scripts/*.test.mjs` | 11 passed |
 | Clippy (CI lints) | clean |
-| Quickstart | before the rebase: 22 of 24 steps on SQLite with stand-in models; 15 and 16 not run |
-
-The page has not been looked at in a browser since the rebase.
+| Quickstart | 22 of 24 steps on SQLite with stand-in models; 15 and 16 not run |
 
 ## Run it
 
@@ -136,7 +134,7 @@ HTTP: `crates/vizier-http/src/api/v1/hooks.rs` (public address) and `agents/trig
 
 1. Finish T043: `just check` where `cmake` is installed (or in CI), and the quickstart on
    PostgreSQL.
-2. Push to the fork, and discuss the differences from the issue with its author.
+2. Discuss the differences from the issue with its author.
 
 ## The page
 
@@ -158,9 +156,20 @@ code and screenshots. What that settled, all from using existing components:
 A saved signing secret cannot be removed from the form: a blank secret keeps it. Sending `null`
 removes it through the API.
 
-Checked by hand: list, webhook and monitor pages, create with its secret, test, restart, approve
-with a model, edit, a view-only person, phone width and the light theme. Not checked: replace
-secret, delete, a monitor created from the form, destinations, the desktop app.
+Checked by hand in a browser on 2026-11-28, after the rebase, against a local server with a
+stand-in model:
+
+- List: empty state, search, filters, the row switch, "Needs you" and the sidebar count.
+- Webhook: create, secret shown once, accepted, duplicate, filtered and refused requests, events and
+  runs, edit with triage, a destination, limits and tool access, pause, replace secret, signed
+  requests with a timestamp, delete.
+- Monitor: create from the form, one firing, test, failing script, stopped notice, restart, delete.
+- Approval: an agent-made webhook (choosing its triage model) and monitor (script tools, test).
+- A view-only person, phone width (list and detail) and the light theme.
+
+Not checked: sort order, "Load older", cooldown and "events are dropped" timing, the desktop app.
+Open pages read again on an inbox notice or the person's own action, so an ignored event shows on
+the next of those or on reload.
 
 ## The mockup (2026-11-28)
 

@@ -41,3 +41,6 @@ Steps 1 to 14 and 17 to 24 passed over HTTP on SQLite, with a driver script whos
 needs `cmake`, which was not installed). Substitutions: step 7 raised the limit instead of waiting
 an hour; step 21 backdated the trigger two hours in the database; step 22 filled the queue in the
 database. Steps 15 and 16 need a real bot and were **not run**. The driver script was not kept.
+
+Run again on 2026-11-28 after the rebase onto `8b00ba7e`, with the same substitutions: steps 1 to 14
+and 17 to 24 passed.
