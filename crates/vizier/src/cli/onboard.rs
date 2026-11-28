@@ -114,6 +114,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         catalogue: Default::default(),
         lsp: Default::default(),
         subagents: Default::default(),
+        triggers: Default::default(),
     };
 
     config.save(config_path.clone(), "".into())?;

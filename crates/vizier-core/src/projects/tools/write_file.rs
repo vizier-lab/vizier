@@ -129,6 +129,7 @@ mod tests {
             lsp: Default::default(),
         };
         ToolContext {
+            tool_scope: None,
             session: VizierSession(
                 "dp-a".into(),
                 VizierChannelId::Project("alice".into(), "p".into()),

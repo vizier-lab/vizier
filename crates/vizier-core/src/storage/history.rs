@@ -14,6 +14,7 @@ pub(crate) fn is_non_user_channel(channel_slug: &str) -> bool {
         || channel_slug == "SUBAGENT"
         || channel_slug.starts_with("DREAM__")
         || channel_slug.starts_with("task__")
+        || channel_slug.starts_with("trigger__")
         || channel_slug.starts_with("inter_agent__")
 }
 

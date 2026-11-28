@@ -176,6 +176,9 @@ pub struct VizierConfig {
     /// Subagents as temporary workers (spec 059).
     #[serde(default)]
     pub subagents: SubagentsConfig,
+    /// Triggers (spec 071).
+    #[serde(default)]
+    pub triggers: TriggersConfig,
     /// Trusted reverse proxy addresses or CIDRs for forwarded headers.
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
@@ -203,6 +206,31 @@ impl Default for SubagentsConfig {
     fn default() -> Self {
         Self {
             max_depth: default_subagents_max_depth(),
+        }
+    }
+}
+
+/// Triggers (`specs/071-triggers` FR-025, FR-029, FR-048): the limits an operator may change.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(default)]
+pub struct TriggersConfig {
+    /// Seconds between a monitor's checks when its settings name none.
+    pub monitor_interval_secs: u64,
+    /// The shortest interval a monitor may ask for.
+    pub monitor_min_interval_secs: u64,
+    /// Failed checks in a row before a monitor stops.
+    pub monitor_max_failures: u32,
+    /// Triggers an agent may have.
+    pub max_per_agent: usize,
+}
+
+impl Default for TriggersConfig {
+    fn default() -> Self {
+        Self {
+            monitor_interval_secs: 60,
+            monitor_min_interval_secs: 5,
+            monitor_max_failures: 10,
+            max_per_agent: 20,
         }
     }
 }
@@ -422,6 +450,7 @@ impl Default for VizierConfig {
             catalogue: CatalogueConfig::default(),
             lsp: LspConfig::default(),
             subagents: SubagentsConfig::default(),
+            triggers: TriggersConfig::default(),
             trusted_proxies: Vec::new(),
             base_url: None,
         }

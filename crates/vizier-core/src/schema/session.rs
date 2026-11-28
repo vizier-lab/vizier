@@ -24,6 +24,12 @@ impl VizierSession {
         matches!(self.1, VizierChannelId::Task(..))
     }
 
+    /// A trigger run (`specs/071-triggers`). Like [`Self::is_scheduled_task`], the framing is
+    /// selected on the channel, never on the request content kind.
+    pub fn is_trigger_run(&self) -> bool {
+        matches!(self.1, VizierChannelId::Trigger(..))
+    }
+
     /// The Channel-breakdown key of the usage page (`specs/018-usage-accounting/` R9): one per
     /// Discord channel, Telegram chat and WebUI topic; every run of one task together; dreams and
     /// background work each as one place.
@@ -46,6 +52,7 @@ impl VizierSession {
                 format!("consultation:{from}:{}", self.2.as_deref().unwrap_or(""))
             }
             VizierChannelId::Task(slug, _) => format!("task:{slug}"),
+            VizierChannelId::Trigger(slug, _) => format!("trigger:{slug}"),
             VizierChannelId::Subagent | VizierChannelId::InterAgent(_) => "background".into(),
             VizierChannelId::Dream(..) => "dreams".into(),
             VizierChannelId::System => "system".into(),
@@ -81,6 +88,9 @@ pub enum VizierChannelId {
     /// The time stays UTC when serialized: the channel's JSON is a text key in several tables, so
     /// its form must not depend on the instance's zone.
     Task(String, #[serde(serialize_with = "crate::time::serialize_utc")] DateTime<Local>),
+    /// One run of a trigger (`specs/071-triggers`): the trigger's slug and when the run started.
+    /// The time stays UTC when serialized, as a task's does.
+    Trigger(String, #[serde(serialize_with = "crate::time::serialize_utc")] DateTime<Local>),
     InterAgent(Vec<String>),
     System,
     Subagent,
@@ -142,6 +152,7 @@ impl VizierChannelId {
             Self::Workspace(_) => UsageActivity::Workspace,
             Self::Consultation(_) => UsageActivity::Consultation,
             Self::Task(..) => UsageActivity::Scheduled,
+            Self::Trigger(..) => UsageActivity::Trigger,
             Self::Subagent | Self::InterAgent(_) => UsageActivity::Background,
             Self::Dream(..) => UsageActivity::Dreams,
             Self::System => UsageActivity::Other,
@@ -162,6 +173,10 @@ impl VizierChannelId {
                 // a second-truncated time, which is always `0` — so every run of a
                 // task collided into `task__{id}__0`.
                 format!("task__{}__{}", id, datetime.timestamp_millis())
+            }
+            // The full time, so each run gets its own conversation (see `Task`).
+            Self::Trigger(slug, datetime) => {
+                format!("trigger__{}__{}", slug, datetime.timestamp_millis())
             }
             Self::InterAgent(set) => {
                 let participants = set.join("__");
@@ -248,6 +263,18 @@ mod tests {
         assert_ne!(first, third);
 
         assert_eq!(first, "agent-1__task__tick__1700000000000__DEFAULT");
+    }
+
+    #[test]
+    fn each_trigger_run_has_its_own_conversation() {
+        let run = |seconds| {
+            VizierSession("agent-1".into(), VizierChannelId::Trigger("ci".into(), at(seconds)), None)
+        };
+        assert_ne!(run(1_700_000_000).to_slug(), run(1_700_000_001).to_slug());
+        assert_eq!(run(1_700_000_000).to_slug(), "agent-1__trigger__ci__1700000000000__DEFAULT");
+        assert!(run(1).is_trigger_run());
+        assert!(!run(1).is_scheduled_task());
+        assert!(!task_session("ci", 1).is_trigger_run());
     }
 
     /// Two tasks firing at the same instant stay separate, so the timestamp is not the whole

@@ -153,6 +153,7 @@ mod tests {
 
     fn ctx(project: Option<ProjectTurnContext>) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session: VizierSession(
                 "dp-a".into(),
                 VizierChannelId::Project("alice".into(), "p3xY9aQ2mZ".into()),

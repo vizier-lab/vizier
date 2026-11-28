@@ -261,6 +261,7 @@ mod tests {
 
     fn ctx(interactive: bool) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session: VizierSession(
                 "agent-1".into(),
                 VizierChannelId::HTTP("alice".into(), "webui".into()),

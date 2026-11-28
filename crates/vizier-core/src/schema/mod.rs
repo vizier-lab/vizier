@@ -24,6 +24,8 @@ pub mod subagent;
 pub mod sso;
 mod storage;
 mod task;
+/// Triggers (spec 071).
+pub mod trigger;
 pub mod usage;
 
 pub use agent::{
@@ -100,6 +102,10 @@ pub use storage::{
     SkillFrontMatter, SkillVersion, default_bundle, is_core_bundle, is_identity_address,
 };
 pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};
+pub use trigger::{
+    AdmitOutcome, Admission, EventStatus, OverlapPolicy, TriageConfig, Trigger, TriggerEvent,
+    TriggerRun, TriggerRunState, WhenFull,
+};
 
 use serde::{Deserialize, Serialize};
 

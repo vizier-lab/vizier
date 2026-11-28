@@ -110,6 +110,7 @@ pub enum AgentCommandRequest {
     RefreshIntegrations { agent_id: String },
     IntegrationStatus { agent_id: String },
     Restart { agent_id: String },
+    RunCheck { agent_id: String, check: crate::schema::trigger::MonitorCheck },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +120,7 @@ pub enum AgentCommandReply {
     /// One agent's health.
     AgentHealth(AgentHealthStatus),
     Status(HashMap<String, IntegrationStatus>),
+    Check(crate::schema::trigger::CheckOutcome),
     Done,
     /// The manager took the command and dropped its slot without answering.
     Dropped,
@@ -130,6 +132,7 @@ pub enum Awaiting {
     Health(oneshot::Sender<Vec<AgentHealthStatus>>),
     AgentHealth(oneshot::Sender<AgentHealthStatus>),
     Status(oneshot::Sender<HashMap<String, IntegrationStatus>>),
+    Check(oneshot::Sender<crate::schema::trigger::CheckOutcome>),
     Nothing,
 }
 
@@ -148,6 +151,9 @@ impl Awaiting {
             }
             (Self::Status(tx), AgentCommandReply::Status(s)) => {
                 let _ = tx.send(s);
+            }
+            (Self::Check(tx), AgentCommandReply::Check(c)) => {
+                let _ = tx.send(c);
             }
             _ => {}
         }
@@ -185,6 +191,9 @@ pub fn split_agent_command(cmd: AgentCommand) -> (AgentCommandRequest, Awaiting)
         AgentCommand::Restart { agent_id, resp } => {
             (AgentCommandRequest::Restart { agent_id }, Awaiting::Result(resp))
         }
+        AgentCommand::RunCheck { agent_id, check, resp } => {
+            (AgentCommandRequest::RunCheck { agent_id, check }, Awaiting::Check(resp))
+        }
     }
 }
 
@@ -194,6 +203,7 @@ pub enum Answer {
     Health(oneshot::Receiver<Vec<AgentHealthStatus>>),
     AgentHealth(oneshot::Receiver<AgentHealthStatus>),
     Status(oneshot::Receiver<HashMap<String, IntegrationStatus>>),
+    Check(oneshot::Receiver<crate::schema::trigger::CheckOutcome>),
     Nothing,
 }
 
@@ -206,6 +216,7 @@ impl Answer {
             Self::Health(rx) => rx.await.ok().map(AgentCommandReply::Health),
             Self::AgentHealth(rx) => rx.await.ok().map(AgentCommandReply::AgentHealth),
             Self::Status(rx) => rx.await.ok().map(AgentCommandReply::Status),
+            Self::Check(rx) => rx.await.ok().map(AgentCommandReply::Check),
             Self::Nothing => Some(AgentCommandReply::Done),
         }
     }
@@ -244,6 +255,10 @@ pub fn open_agent_command(request: AgentCommandRequest) -> (AgentCommand, Answer
         AgentCommandRequest::Restart { agent_id } => {
             let (resp, rx) = oneshot::channel();
             (AgentCommand::Restart { agent_id, resp }, Answer::Result(rx))
+        }
+        AgentCommandRequest::RunCheck { agent_id, check } => {
+            let (resp, rx) = oneshot::channel();
+            (AgentCommand::RunCheck { agent_id, check, resp }, Answer::Check(rx))
         }
     }
 }

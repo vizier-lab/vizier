@@ -28,6 +28,17 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Triggers',
+        items: [
+            { permission: 'all_agents:view_triggers', label: 'See every agent’s triggers and their runs' },
+            { permission: 'owned_agents:view_triggers', label: 'See triggers of agents they own' },
+            { permission: 'all_agents:manage_triggers', label: 'Create, change and delete every agent’s triggers' },
+            { permission: 'owned_agents:manage_triggers', label: 'Create, change and delete triggers of agents they own' },
+            { permission: 'all_agents:public_webhooks', label: 'Open public webhooks on every agent' },
+            { permission: 'owned_agents:public_webhooks', label: 'Open public webhooks on agents they own' },
+        ],
+    },
+    {
         title: 'Projects',
         items: [
             { permission: 'all_agents:projects', label: 'Use and manage projects for every agent' },

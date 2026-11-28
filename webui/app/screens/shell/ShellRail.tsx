@@ -8,7 +8,7 @@ import { useAgents } from '../../stores/agents'
 import { useNotifications } from '../../stores/notifications'
 import { hasBothVariants, useAppearance } from '../../stores/appearance'
 import { useSession } from '../../stores/session'
-import { canManageSecrets, canViewArtifacts } from '../../lib/access'
+import { canManageSecrets, canViewArtifacts, canViewTriggers } from '../../lib/access'
 import { assetSrc } from '../../lib/fileUrls'
 import { unreadByAgent } from '../../lib/notifications'
 import { pendingAgents } from '../../lib/pendingAgents'
@@ -55,6 +55,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             hiddenPages: [
                 ...(canViewArtifacts(a) ? [] : (['artifacts'] as const)),
                 ...(canManageSecrets(a) ? [] : (['secrets'] as const)),
+                ...(canViewTriggers(a) ? [] : (['triggers'] as const)),
             ],
             disabledPages: canEditAgent(a) ? [] : (['config'] as const),
         })),

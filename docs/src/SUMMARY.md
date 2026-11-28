@@ -40,6 +40,7 @@
 - [Usage and Spend](./configuration/usage.md)
 - [Live Voice](./configuration/live-voice.md)
 - [Agent Secrets](./configuration/secrets.md)
+- [Triggers](./configuration/triggers.md)
 - [Artifacts](./configuration/artifacts.md)
 - [Office Addon](./configuration/office-addon.md)
 - [Consultations](./configuration/consultations.md)

@@ -8,6 +8,7 @@ export const PAGE_PATH: Record<AgentPage, string> = {
     memory: '/memory',
     artifacts: '/artifacts',
     tasks: '/tasks',
+    triggers: '/triggers',
     skills: '/skills',
     functions: '/functions',
     dreams: '/dream',

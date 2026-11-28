@@ -43,6 +43,12 @@ pub enum FieldType {
     SecretMap,
     /// One of `options`.
     Select,
+    /// A whole number.
+    Number,
+    /// A script, edited as code.
+    Code,
+    /// A list of tool category names.
+    ToolCategories,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,11 +65,27 @@ pub struct KindField {
     pub default: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<&'static str>,
+    /// The server fills it in, so a form never asks for it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub generated: bool,
+    /// Rarely needed, so a form may keep it folded away.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub advanced: bool,
 }
 
 impl KindField {
     pub fn new(key: &'static str, label: &'static str, field_type: FieldType) -> Self {
-        Self { key, label, field_type, required: false, default: None, options: vec![] }
+        Self { key, label, field_type, required: false, default: None, options: vec![], generated: false, advanced: false }
+    }
+
+    pub fn generated(mut self) -> Self {
+        self.generated = true;
+        self
+    }
+
+    pub fn advanced(mut self) -> Self {
+        self.advanced = true;
+        self
     }
 
     pub fn required(mut self) -> Self {
@@ -117,6 +139,12 @@ pub struct AgentToolContext {
 pub trait IntegrationKind: Send + Sync {
     /// The `integration.kind` value: `discord`, `telegram`, `brave_search`, `mcp`.
     fn id(&self) -> &'static str;
+
+    /// The trigger kinds this addon contributes (`specs/071-triggers` FR-004, FR-005), each named
+    /// `<addon id>_<name>`. Usable only on agents that have the addon. Default: none.
+    fn trigger_kinds(&self) -> Vec<Arc<dyn crate::triggers::TriggerKind>> {
+        vec![]
+    }
 
     fn family(&self) -> IntegrationFamily;
 

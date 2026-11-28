@@ -570,7 +570,7 @@ async fn agent_takeover_rearms_consultations_and_delivers_their_outcome_once() {
 
     assert_eq!(deps.subagents.timer_count(), 1, "the running consultation's time limit is armed again");
     assert_eq!(pokes(&inbox, 1).await, vec![session("x", "b")]);
-    let delivered = deps.deliveries.claim(&session("x", "b")).await.expect("the answer is delivered");
+    let delivered = deps.deliveries.claim(&session("x", "b")).await.expect("the answer is delivered").text;
     assert!(delivered.contains("[Consultation update] c_done") && delivered.contains("pong"), "{delivered}");
     assert!(deps.deliveries.claim(&session("x", "b")).await.is_none(), "once");
     assert!(deps.deliveries.claim(&session("x", "a")).await.is_none(), "a running one has nothing to hand over");

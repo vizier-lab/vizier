@@ -1,3 +1,4 @@
+import { useTriggers } from './triggers'
 import { create } from 'zustand'
 import {
     listNotifications,
@@ -287,6 +288,8 @@ export const useNotifications = create<NotificationStore>()((set, get) => {
                 for (const id of markRead) void setNotificationRead(id, true).catch(() => {})
                 // A reply to the chat on screen is read on arrival: its `read` frame counts again.
                 if (frame.item.category === 'chat_reply' && !markRead.length) void get().loadChats()
+                // A trigger reported or ran into something: its pages and badge read again.
+                if (frame.item.category.startsWith('trigger_')) useTriggers.getState().changed(frame.item.agent_id)
                 break
             }
             case 'read':

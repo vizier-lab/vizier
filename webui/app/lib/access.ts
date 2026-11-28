@@ -62,6 +62,39 @@ export function canManageArtifacts(agent: { owner_id?: string }): boolean {
     )
 }
 
+/** Whether the current person may see `agent`'s triggers, events and runs. Mirrors
+ * `crates/vizier-core/src/triggers/access.rs`: manage implies view, and seeing the agent grants
+ * nothing. */
+export function canViewTriggers(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:view_triggers') ||
+        (can('owned_agents:view_triggers') && agent.owner_id === user.user_id) ||
+        canManageTriggers(agent)
+    )
+}
+
+/** Whether the current person may create, change, test, approve and delete `agent`'s triggers. */
+export function canManageTriggers(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:manage_triggers') ||
+        (can('owned_agents:manage_triggers') && agent.owner_id === user.user_id)
+    )
+}
+
+/** Whether the current person may create, switch on or approve a webhook, or replace its secret. */
+export function canPublishWebhooks(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        canManageTriggers(agent) &&
+        (can('all_agents:public_webhooks') || (can('owned_agents:public_webhooks') && agent.owner_id === user.user_id))
+    )
+}
+
 /** Whether the current person may see and use `agent`'s projects. Mirrors
  * `crates/vizier-core/src/projects/access.rs`: view + one project permission. The server is
  * still the authority for a direct URL. */

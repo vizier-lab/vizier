@@ -47,6 +47,7 @@ fn fixture() -> Fixture {
 
 fn ctx() -> ToolContext {
     ToolContext {
+        tool_scope: None,
         session: VizierSession("dp-a".into(), VizierChannelId::System, None),
         pending_attachments: Default::default(),
         hooks: None,

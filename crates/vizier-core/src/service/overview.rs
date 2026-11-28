@@ -275,10 +275,11 @@ pub async fn activity(
                 // usage report is where project work is broken out (FR-016).
                 // A Workspace turn is a chat turn too.
                 Chat | Project | Workspace => kinds.chat += n,
-                Scheduled => kinds.scheduled += n,
+                // A trigger run is unattended work like a scheduled one.
+                Scheduled | Trigger => kinds.scheduled += n,
                 Dreams => kinds.dream_stages += n,
                 Background | Consultation => kinds.background += n,
-                Compaction | Vision | Other | Indexing => {}
+                Compaction | Vision | Other | Indexing | TriggerTriage => {}
             }
         }
         Some(kinds)

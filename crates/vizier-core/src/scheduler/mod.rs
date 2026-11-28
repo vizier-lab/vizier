@@ -96,7 +96,11 @@ impl VizierScheduler {
     pub async fn run(&mut self) -> Result<()> {
         if self.gate.may_run() {
             self.recover().await;
+            // Trigger runs a resumed turn carries on, then whatever waits (spec 071 R3).
+            crate::triggers::resume(&self.deps).await;
         }
+        // Every monitor's checks (spec 071 research R10): one source, asking the same gate.
+        tokio::spawn(crate::triggers::monitor::run_source(self.deps.clone(), self.gate.clone()));
         let mut schedules: HashMap<(Timestamp, String), Task> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_mins(1));
         // Startup already purged, so the first daily purge is a day from now.
@@ -115,6 +119,8 @@ impl VizierScheduler {
                     if let Err(e) = self.tick_tasks(&mut schedules).await {
                         tracing::error!("Task scheduler error: {}", e);
                     }
+                    // Trigger events waiting for a window, and summaries due (spec 071).
+                    crate::triggers::tick(&self.deps).await;
                     // Dream cron scheduling
                     if let Err(e) = self.dream_scheduler.tick().await {
                         tracing::error!("Dream scheduler error: {}", e);
@@ -124,6 +130,7 @@ impl VizierScheduler {
                         last_purge = crate::time::now();
                         let cutoff = crate::time::now()
                             - chrono::Duration::days(crate::storage::notification::RETENTION_DAYS);
+                        crate::triggers::purge(&self.deps).await;
                         match self.deps.notifications.purge_before(cutoff).await {
                             Ok(0) => {}
                             Ok(purged) => tracing::info!("purged {} notification(s) past retention", purged),

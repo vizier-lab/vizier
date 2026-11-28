@@ -343,6 +343,7 @@ mod tests {
             reserved: Arc::new(vec![]),
         };
         let ctx = ToolContext {
+            tool_scope: None,
             session: VizierSession(
                 "agent-1".into(),
                 VizierChannelId::HTTP("alice".into(), "webui".into()),

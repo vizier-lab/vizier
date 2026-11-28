@@ -21,6 +21,13 @@ vizier:
   subagents:
     max_depth: 1                      # default 1: only the main agent hires workers
 
+  # ── Triggers (read every start) ──
+  triggers:
+    monitor_interval_secs: 60         # when a monitor names no interval
+    monitor_min_interval_secs: 5      # the shortest a monitor may ask for
+    monitor_max_failures: 10          # failed checks in a row before a monitor stops
+    max_per_agent: 20                 # triggers an agent may have
+
   # ── Storage (read every start) ──
   storage:
     type: sqlite            # the only supported backend
@@ -67,6 +74,17 @@ See [Projects](./projects.md#language-intelligence).
 | `max_depth` | number | `1` | How deep workers may hire workers. At `1` only the main agent can hire workers. Raise it to let workers hire their own. |
 
 See [Agents](./agents.md#subagents).
+
+### `triggers`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `monitor_interval_secs` | number | `60` | Seconds between a monitor's checks when it names no interval. |
+| `monitor_min_interval_secs` | number | `5` | The shortest interval a monitor may ask for. |
+| `monitor_max_failures` | number | `10` | Failed checks in a row before a monitor stops and its setter is told. |
+| `max_per_agent` | number | `20` | Triggers one agent may have. |
+
+See [Triggers](./triggers.md).
 
 ### `storage`
 

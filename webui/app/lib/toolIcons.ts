@@ -63,6 +63,7 @@ const BUILTIN: Record<BuiltinCategory, Described> = {
     custom_tools: { label: 'Managing functions', icon: 'functions', phrase: 'managed its functions' },
     ui: { label: 'Page', icon: 'layout', phrase: 'drew a page' },
     sessions: { label: 'Conversations', icon: 'activity', phrase: 'worked in a conversation' },
+    triggers: { label: 'Triggers', icon: 'bell', phrase: 'worked with triggers' },
     lookup: { label: 'Tool lookup', icon: 'list-tree', phrase: 'looked up its tools' },
     dreams: { label: 'Dream journal', icon: 'dreams', phrase: 'wrote in its journal' },
 }

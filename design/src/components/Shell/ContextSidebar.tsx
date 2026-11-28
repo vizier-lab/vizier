@@ -4,7 +4,7 @@ import { cx } from "../../lib/cx";
 import { NavItem } from "../NavItem/NavItem";
 
 /** The agent's essentials (Artifacts shows only to people who may view them), always one click away; everything else lives in the agent card's menu. */
-export type EssentialPage = "memory" | "artifacts" | "tasks" | "skills" | "functions" | "dreams";
+export type EssentialPage = "memory" | "artifacts" | "tasks" | "triggers" | "skills" | "functions" | "dreams";
 
 /** The pages behind the agent card, in the menu's groups. */
 export type MenuPage = "channels" | "addons" | "mcp" | "usage" | "secrets" | "config";
@@ -13,6 +13,7 @@ export const ESSENTIALS: { page: EssentialPage; label: string; icon: IconName }[
   { page: "memory", label: "Memory", icon: "memory" },
   { page: "artifacts", label: "Artifacts", icon: "folder" },
   { page: "tasks", label: "Schedule", icon: "calendar" },
+  { page: "triggers", label: "Triggers", icon: "zap" },
   { page: "skills", label: "Skills", icon: "skills" },
   { page: "functions", label: "Functions", icon: "functions" },
   { page: "dreams", label: "Dreams", icon: "dreams" },
@@ -44,6 +45,8 @@ export type ContextSidebarProps = {
   /** Pages the person may not see. */
   hiddenPages?: EssentialPage[];
   hrefFor: (page: EssentialPage) => string;
+  /** How many things on a page wait for the person; a page without one shows nothing. */
+  counts?: Partial<Record<EssentialPage, { value: number; label: string }>>;
   /** Starts a new conversation: a "New" item above the essentials. Omit it to hide the item. */
   onNew?: () => void;
   /** Below the essentials: the session list. It takes the rest of the height and scrolls itself. */
@@ -51,7 +54,7 @@ export type ContextSidebarProps = {
 } & HTMLAttributes<HTMLElement>;
 
 /** The 208px column beside the rail: the agent, its essentials, and what the page puts below them. */
-export function ContextSidebar({ agent, active, hiddenPages, hrefFor, onNew, children, className, ...rest }: ContextSidebarProps) {
+export function ContextSidebar({ agent, active, hiddenPages, hrefFor, counts, onNew, children, className, ...rest }: ContextSidebarProps) {
   const hidden = new Set(hiddenPages);
   return (
     <nav aria-label="Agent" className={cx("flex h-full w-256 shrink-0 flex-col gap-8 bg-shell pr-12 pl-0 pt-12 pb-14", className)} {...rest}>
@@ -59,7 +62,15 @@ export function ContextSidebar({ agent, active, hiddenPages, hrefFor, onNew, chi
       <div className="flex shrink-0 flex-col gap-2 pt-4">
         {onNew && <NavItem icon="chat-plus" label="New" onSelect={onNew} />}
         {ESSENTIALS.filter((p) => !hidden.has(p.page)).map((p) => (
-          <NavItem key={p.page} icon={p.icon} label={p.label} href={hrefFor(p.page)} active={active === p.page} />
+          <NavItem
+            key={p.page}
+            icon={p.icon}
+            label={p.label}
+            href={hrefFor(p.page)}
+            active={active === p.page}
+            count={counts?.[p.page]?.value}
+            countLabel={counts?.[p.page]?.label}
+          />
         ))}
       </div>
       {children}

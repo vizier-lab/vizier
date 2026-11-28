@@ -108,6 +108,66 @@ impl Notifications {
     // Sources
     // -----------------------------------------------------------------------------------------
 
+    /// A trigger run's reply, addressed to one person (`specs/071-triggers` FR-046). The reply
+    /// itself is the excerpt; the run page holds the whole of it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn trigger_result(
+        &self,
+        agent_id: &str,
+        audience: Option<String>,
+        trigger_slug: &str,
+        title: &str,
+        run_id: i64,
+        session: VizierSession,
+        reply: &str,
+        at: Timestamp,
+    ) {
+        let mut draft = draft(
+            format!("trigger_result:{run_id}"),
+            agent_id,
+            NotificationCategory::TriggerResult,
+            NotificationTone::Default,
+            text::trigger_result(title),
+            text::trigger_href(agent_id, trigger_slug, Some(run_id)),
+            at,
+        );
+        draft.audience_user_id = audience;
+        draft.source_title = Some(title.to_string());
+        draft.source_session = Some(session);
+        draft.excerpt = excerpt::from_markdown(reply);
+        self.record(draft).await;
+    }
+
+    /// A notice about a trigger itself, at most one per `key` (FR-047). The caller builds `key` so
+    /// a repeat within the same hour is the same row.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn trigger_notice(
+        &self,
+        agent_id: &str,
+        audience: Option<String>,
+        key: String,
+        trigger_slug: &str,
+        title: &str,
+        summary: String,
+        detail: Option<String>,
+        tone: NotificationTone,
+        at: Timestamp,
+    ) {
+        let mut draft = draft(
+            key,
+            agent_id,
+            NotificationCategory::TriggerNotice,
+            tone,
+            summary,
+            text::trigger_href(agent_id, trigger_slug, None),
+            at,
+        );
+        draft.audience_user_id = audience;
+        draft.source_title = Some(title.to_string());
+        draft.excerpt = detail;
+        self.record(draft).await;
+    }
+
     /// A task run that has just closed. `title` falls back to the slug when the task is gone.
     pub async fn task_run_ended(
         &self,

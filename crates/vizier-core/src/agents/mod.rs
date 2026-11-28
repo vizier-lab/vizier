@@ -483,6 +483,17 @@ impl AgentHost {
                 }
             }
             AgentCommand::RefreshIntegrations { agent_id } => self.refresh_integrations(&agent_id),
+            AgentCommand::RunCheck { agent_id, check, resp } => match self.current(&agent_id) {
+                // Off the command loop: a check runs a script.
+                Some(agent) => {
+                    tokio::spawn(async move {
+                        let _ = resp.send(agent.run_check(check).await);
+                    });
+                }
+                None => {
+                    let _ = resp.send(crate::schema::trigger::CheckOutcome::failed("the agent is not running"));
+                }
+            },
             AgentCommand::IntegrationStatus { agent_id, resp } => match self.current(&agent_id) {
                 // Off the command loop: it reads storage.
                 Some(agent) => {

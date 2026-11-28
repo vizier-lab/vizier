@@ -439,6 +439,10 @@ pub async fn delete(
         )
         .await;
     publish(&deps.transport, &integration, affected.clone());
+    // Triggers of a kind this addon contributed stop with it, and are kept (spec 071 FR-005).
+    for agent_id in &affected {
+        crate::triggers::addon_removed(deps, agent_id, &integration.kind).await;
+    }
     Ok(affected)
 }
 

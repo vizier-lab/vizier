@@ -12,16 +12,17 @@ import { nanoid } from 'nanoid'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentState } from '../../api/endpoints/agents'
-import { canManageSecrets, canViewArtifacts } from '../../lib/access'
+import { canManageSecrets, canViewArtifacts, canViewTriggers } from '../../lib/access'
 import { assetSrc } from '../../lib/fileUrls'
 import { relativeTime } from '../../lib/format'
 import { withNewAgent } from '../agents/NewAgentDialog'
 import { useAgents } from '../../stores/agents'
 import { useSession } from '../../stores/session'
+import { useTriggers } from '../../stores/triggers'
 import { AgentConversations } from './AgentConversations'
 import { PAGE_PATH, pageOf } from './pages'
 
-const ESSENTIAL = new Set<string>(['memory', 'artifacts', 'tasks', 'skills', 'dreams'])
+const ESSENTIAL = new Set<string>(['memory', 'artifacts', 'tasks', 'triggers', 'skills', 'dreams'])
 
 /**
  * The agent's column: the agent card with its menu, the four essentials, and the conversations.
@@ -39,6 +40,14 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const state = agent ? agentState(health[agentId]) : 'stopped'
     const page = pageOf(pathname)
     const newConversation = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
+
+    // The badge beside Triggers: asked only of someone who may see them.
+    const seesTriggers = !!agent && canViewTriggers(agent)
+    const waiting = useTriggers((s) => s.summary[agentId]?.needs_person ?? 0)
+    const refreshTriggers = useTriggers((s) => s.refresh)
+    useEffect(() => {
+        if (seesTriggers) void refreshTriggers(agentId)
+    }, [agentId, seesTriggers, refreshTriggers])
 
     // Ctrl K (or ⌘K) opens the list of agents to switch to.
     useEffect(() => {
@@ -120,7 +129,11 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 </div>
             }
             active={page && ESSENTIAL.has(page) ? (page as EssentialPage) : undefined}
-            hiddenPages={agent && canViewArtifacts(agent) ? undefined : ['artifacts']}
+            hiddenPages={[
+                ...(agent && canViewArtifacts(agent) ? [] : (['artifacts'] as const)),
+                ...(seesTriggers ? [] : (['triggers'] as const)),
+            ]}
+            counts={seesTriggers && waiting ? { triggers: { value: waiting, label: `${waiting} need you` } } : undefined}
             hrefFor={(p) => `/${agentId}${PAGE_PATH[p]}`}
             onNew={newConversation}
         >

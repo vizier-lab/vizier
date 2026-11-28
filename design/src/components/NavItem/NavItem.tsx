@@ -13,6 +13,13 @@ export type NavItemProps = {
   collapsed?: boolean;
   /** An emerald ring at the end, e.g. Chat while a reply is streaming. */
   live?: boolean;
+  /**
+   * How many things at the end wait for the person, in the waiting colour. Nothing is drawn for
+   * 0. In the collapsed rail it is left out; the name carries it.
+   */
+  count?: number;
+  /** What the count means, for assistive tech: "2 need you". */
+  countLabel?: string;
   /** Shown but not reachable, e.g. an agent page while no agent is chosen. */
   disabled?: boolean;
   href?: string;
@@ -20,7 +27,7 @@ export type NavItemProps = {
 } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "onSelect">;
 
 /** One sidebar destination (D2). Renders a link with `href`, else a button. */
-export function NavItem({ icon, label, active, collapsed, live, disabled, href, onSelect, className, ...rest }: NavItemProps) {
+export function NavItem({ icon, label, active, collapsed, live, count, countLabel, disabled, href, onSelect, className, ...rest }: NavItemProps) {
   const classes = cx(
     "group flex h-31 items-center gap-10 rounded-md text-left transition-colors",
     collapsed ? "w-44 justify-center" : "w-full px-10",
@@ -35,6 +42,12 @@ export function NavItem({ icon, label, active, collapsed, live, disabled, href, 
     <>
       {icon && <Icon name={icon} className={disabled ? undefined : active ? "text-fg" : "group-hover:text-fg"} />}
       <span className={collapsed ? "sr-only" : "min-w-0 flex-1 truncate"}>{label}</span>
+      {!!count && !collapsed && (
+        <span className="flex h-16 min-w-20 shrink-0 items-center justify-center rounded-pill bg-retrying-bg px-6 type-mono-xs-medium text-retrying">
+          <span aria-hidden>{count}</span>
+          <span className="sr-only">, {countLabel ?? `${count} waiting`}</span>
+        </span>
+      )}
       {live && (
         <span
           aria-label="live"

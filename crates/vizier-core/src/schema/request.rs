@@ -351,6 +351,14 @@ pub struct VizierRequest {
     /// site, so no interactive turn's frontmatter changes.
     #[serde(default)]
     pub scheduled_task: Option<String>,
+    /// The slug of the trigger this request is a run of (`specs/071-triggers`). Set by the
+    /// trigger service and by nothing else; cleared from client input on receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+    /// The tool categories this turn, and everything it causes, may use (`specs/071-triggers`
+    /// FR-030); `None` is every tool. Never taken from a client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_scope: Option<Vec<String>>,
     /// How many background hops led to this turn: 0 for anything a person or the scheduler
     /// started, `job.depth + 1` for a background piece or a background report. Carried on the
     /// request rather than the session, because a woken turn runs in the same session as the
@@ -551,6 +559,17 @@ impl VizierRequest {
             return Ok(serde_yaml::to_string(&json!({
                 "sender": "scheduler",
                 "task": task,
+                "requested_by": self.user,
+                "sent_at": self.sent_at(),
+                "metadata": self.shown_metadata(),
+            }))?);
+        }
+
+        // A trigger run (spec 071): started by a trigger on behalf of the person who set it up.
+        if let Some(trigger) = &self.trigger {
+            return Ok(serde_yaml::to_string(&json!({
+                "sender": "trigger",
+                "trigger": trigger,
                 "requested_by": self.user,
                 "sent_at": self.sent_at(),
                 "metadata": self.shown_metadata(),

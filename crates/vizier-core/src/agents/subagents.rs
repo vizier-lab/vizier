@@ -30,6 +30,7 @@ use crate::{
         },
     },
     storage::{
+        trigger::TriggerStorage,
         VizierStorage,
         subagent::{Settled, StopOutcome, SubagentStorage},
     },
@@ -388,6 +389,15 @@ impl Subagents {
             .await
             .map_err(|e| VizierError(format!("could not record the workers: {e}")))?;
 
+        if let Some(tool_scope) = &ctx.tool_scope {
+            for row in &rows {
+                self.inner
+                    .storage
+                    .set_work_scope(&row.id, &row.agent_id, tool_scope)
+                    .await
+                    .map_err(|e| VizierError(format!("could not record the workers: {e}")))?;
+            }
+        }
         let scope = project_scope(ctx);
         let frame = on_behalf.as_ref().map(|who| ConsultationFrame {
             on_behalf_of: who.display.clone(),
@@ -556,7 +566,19 @@ impl Subagents {
                 ConsultationReplyKind::Reply
             }),
         });
-        let request = first_request(ctx, &replied, project_scope(ctx), content);
+        let mut request = first_request(ctx, &replied, project_scope(ctx), content);
+        // Replying never widens the work: it keeps the scope it was started with, narrowed by the
+        // replying turn's own, and its next outcome is delivered under the same.
+        let stored = crate::agents::delivery::stored_scope(&self.inner.storage, &replied.id).await;
+        request.tool_scope =
+            crate::agents::tools::scope::intersect(stored.as_deref(), request.tool_scope.as_deref());
+        if let Some(tool_scope) = &request.tool_scope {
+            self.inner
+                .storage
+                .set_work_scope(&replied.id, &replied.agent_id, tool_scope)
+                .await
+                .map_err(|e| VizierError(format!("could not record the reply: {e}")))?;
+        }
         if let Err(e) = self
             .inner
             .transport
@@ -1025,6 +1047,8 @@ fn first_request(
         project_scope: scope,
         parent_detached_id: ctx.parent_detached_id.clone(),
         consultation_chain: ctx.consultation_chain.clone(),
+        // A worker or consultee of a scoped turn keeps its scope (spec 071 FR-030).
+        tool_scope: ctx.tool_scope.as_deref().cloned(),
         ..Default::default()
     };
     if row.is_consultation() {
@@ -1064,7 +1088,7 @@ pub async fn delete_worker_conversations(
 /// Workers are the second delivery source (research D9).
 #[async_trait::async_trait]
 impl crate::agents::delivery::DeliverySource for Subagents {
-    async fn claim(&self, session: &VizierSession) -> Vec<String> {
+    async fn claim(&self, session: &VizierSession) -> Vec<crate::agents::delivery::Section> {
         let watched: Vec<SubagentId> = self.inner.watched.lock().keys().cloned().collect();
         match self
             .inner
@@ -1072,13 +1096,17 @@ impl crate::agents::delivery::DeliverySource for Subagents {
             .claim_subagent_deliveries(session, &watched)
             .await
         {
-            Ok(rows) => rows
-                .iter()
-                .map(|row| {
+            Ok(rows) => {
+                let mut sections = vec![];
+                for row in &rows {
                     self.inner.publish(row);
-                    render_update(row)
-                })
-                .collect(),
+                    sections.push(crate::agents::delivery::Section {
+                        text: render_update(row),
+                        scope: crate::agents::delivery::stored_scope(&self.inner.storage, &row.id).await,
+                    });
+                }
+                sections
+            }
             Err(e) => {
                 tracing::warn!(session = %session.to_slug(), "could not claim worker outcomes: {e}");
                 vec![]

@@ -107,6 +107,8 @@ fn wakeable_channel(slug: &str) -> Result<VizierChannelId, access::Refusal> {
 fn machinery_kind(slug: &str) -> Option<&'static str> {
     if slug.starts_with("task__") {
         Some("a scheduled run's own conversation, which the scheduler owns")
+    } else if slug.starts_with("trigger__") {
+        Some("a trigger run's own conversation, which the trigger owns")
     } else if slug.eq_ignore_ascii_case("SUBAGENT") {
         Some("a subagent worker's conversation, which the hiring turn owns")
     } else if slug.starts_with("consultation__") {
@@ -336,6 +338,8 @@ impl VizierTool for WakeSession {
             content: VizierRequestContent::Woken(args.instruction.clone()),
             metadata: serde_json::json!({}),
             background_depth: ctx.background_depth.saturating_add(1),
+            // A woken turn keeps the waking turn's scope (spec 071 FR-030).
+            tool_scope: ctx.tool_scope.as_deref().cloned(),
             ..Default::default()
         };
 

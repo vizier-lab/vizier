@@ -5,18 +5,20 @@ import { PAGE_PATH } from '../screens/shell/pages'
 export type AgentAccess = {
     viewArtifacts: boolean
     manageSecrets: boolean
+    viewTriggers: boolean
     editAgent: boolean
 }
 
 /**
  * Which of an agent's pages its details hide and which it shows but cannot open: the same
- * rules as the desktop's agent column and menu (Artifacts without view, Secrets without
- * access, Config without the right to edit).
+ * rules as the desktop's agent column and menu (Artifacts and Triggers without view, Secrets
+ * without access, Config without the right to edit).
  */
 export function detailsAccess(access: AgentAccess): { hidden: AgentDetailsPage[]; disabled: AgentDetailsPage[] } {
     const hidden: AgentDetailsPage[] = []
     if (!access.viewArtifacts) hidden.push('artifacts')
     if (!access.manageSecrets) hidden.push('secrets')
+    if (!access.viewTriggers) hidden.push('triggers')
     return { hidden, disabled: access.editAgent ? [] : ['config'] }
 }
 

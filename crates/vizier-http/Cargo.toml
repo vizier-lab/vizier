@@ -51,6 +51,7 @@ utoipa-swagger-ui.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite.workspace = true
 # The trait the faked speech engines implement in the live voice tests, used exactly as the

@@ -129,6 +129,27 @@ pub fn integrations_href(agent_id: &str, family: IntegrationFamily) -> String {
     format!("/{agent_id}/integrations/{}", integrations_page(family))
 }
 
+pub fn trigger_href(agent_id: &str, slug: &str, run_id: Option<i64>) -> String {
+    match run_id {
+        Some(run) => format!("/{agent_id}/triggers?trigger={slug}&run={run}"),
+        None => format!("/{agent_id}/triggers?trigger={slug}"),
+    }
+}
+
+pub fn trigger_result(title: &str) -> String {
+    format!("Trigger \u{201c}{title}\u{201d} reported")
+}
+
+pub fn trigger_run_failed(title: &str) -> String {
+    format!("Trigger \u{201c}{title}\u{201d}: a run did not finish")
+}
+
+pub fn trigger_summary(title: &str, unimportant: usize, quiet: usize) -> String {
+    format!(
+        "Trigger \u{201c}{title}\u{201d}: {unimportant} unimportant event(s), {quiet} run(s) with nothing to report"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

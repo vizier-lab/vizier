@@ -23,6 +23,11 @@ pub enum NotificationCategory {
     /// A WebUI conversation's reply. Addressed to the person whose conversation it is
     /// (`audience_user_id`), not to everyone who can see the agent.
     ChatReply,
+    /// A trigger run's delivered reply (`specs/071-triggers` FR-046), addressed to the person who
+    /// set the trigger up.
+    TriggerResult,
+    /// A notice about a trigger itself: drops, failures, triage failing, a summary (FR-047, FR-050).
+    TriggerNotice,
 }
 
 impl NotificationCategory {
@@ -35,6 +40,8 @@ impl NotificationCategory {
             Self::BackgroundWork => "background_work",
             Self::Integration => "integration",
             Self::ChatReply => "chat_reply",
+            Self::TriggerResult => "trigger_result",
+            Self::TriggerNotice => "trigger_notice",
         }
     }
 
@@ -47,6 +54,8 @@ impl NotificationCategory {
             "background_work" => Some(Self::BackgroundWork),
             "integration" => Some(Self::Integration),
             "chat_reply" => Some(Self::ChatReply),
+            "trigger_result" => Some(Self::TriggerResult),
+            "trigger_notice" => Some(Self::TriggerNotice),
             _ => None,
         }
     }

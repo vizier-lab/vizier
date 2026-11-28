@@ -227,6 +227,14 @@ pub trait AgentsClient: Send + Sync {
 
     /// Ask the agent to rebuild its integration tools, without a restart.
     async fn refresh_integrations(&self, agent_id: &str) -> Result<()>;
+
+    /// Run one monitor check in the agent's instance (`specs/071-triggers` research R1). A
+    /// check that cannot reach the agent is a failed check, never an error.
+    async fn run_check(
+        &self,
+        agent_id: &str,
+        check: crate::schema::trigger::MonitorCheck,
+    ) -> crate::schema::trigger::CheckOutcome;
 }
 
 /// The seam's local implementation: it reaches the agent manager over the in-process bus.
@@ -394,6 +402,29 @@ impl AgentsClient for LocalAgentsClient {
         // An agent that is not running has no integrations to report, which is what the
         // manager answers today.
         Ok(rx.await.unwrap_or_default())
+    }
+
+    async fn run_check(
+        &self,
+        agent_id: &str,
+        check: crate::schema::trigger::MonitorCheck,
+    ) -> crate::schema::trigger::CheckOutcome {
+        use crate::schema::trigger::CheckOutcome;
+        // The reply comes when the script ends, so the wait covers the check's own limit.
+        let wait = std::time::Duration::from_secs(check.timeout_secs + 5);
+        let (resp, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = self
+            .transport
+            .send_agent_command_to(
+                agent_id,
+                AgentCommand::RunCheck { agent_id: agent_id.to_string(), check, resp },
+                wait,
+            )
+            .await
+        {
+            return CheckOutcome::failed(format!("could not reach the agent: {}", self.failure(agent_id, e)));
+        }
+        rx.await.unwrap_or_else(|_| CheckOutcome::failed("the agent stopped before the check ended"))
     }
 
     async fn refresh_integrations(&self, agent_id: &str) -> Result<()> {
@@ -658,6 +689,15 @@ impl AgentsClient for FakeAgentsClient {
             Some(message) => Err(VizierError(message.clone())),
             None => Ok(()),
         }
+    }
+
+    /// The fake runs no scripts: every check fails, saying so.
+    async fn run_check(
+        &self,
+        _agent_id: &str,
+        _check: crate::schema::trigger::MonitorCheck,
+    ) -> crate::schema::trigger::CheckOutcome {
+        crate::schema::trigger::CheckOutcome::failed("the fake agent client runs no checks")
     }
 }
 

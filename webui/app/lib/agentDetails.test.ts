@@ -3,12 +3,12 @@ import { detailsAccess, detailsHref, detailsPath } from './agentDetails'
 
 describe('detailsAccess', () => {
     it('shows every page to a person with every right', () => {
-        expect(detailsAccess({ viewArtifacts: true, manageSecrets: true, editAgent: true })).toEqual({ hidden: [], disabled: [] })
+        expect(detailsAccess({ viewArtifacts: true, manageSecrets: true, viewTriggers: true, editAgent: true })).toEqual({ hidden: [], disabled: [] })
     })
 
-    it('hides Artifacts and Secrets, and disables Config, as the agent menu does', () => {
-        expect(detailsAccess({ viewArtifacts: false, manageSecrets: false, editAgent: false })).toEqual({
-            hidden: ['artifacts', 'secrets'],
+    it('hides Artifacts, Secrets and Triggers, and disables Config, as the agent menu does', () => {
+        expect(detailsAccess({ viewArtifacts: false, manageSecrets: false, viewTriggers: false, editAgent: false })).toEqual({
+            hidden: ['artifacts', 'secrets', 'triggers'],
             disabled: ['config'],
         })
     })

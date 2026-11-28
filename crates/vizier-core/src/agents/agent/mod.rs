@@ -26,6 +26,7 @@ use crate::{
                 reactions::reaction_digest,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
+                trigger_run::trigger_run_md,
                 consultation::consultation_md,
                 user::owner_md,
                 worker::{employer_identity_md, served_owner_md, worker_md},
@@ -298,6 +299,68 @@ impl VizierAgent {
         tracing::debug!(agent_id = %self.agent_id, "integration tools refreshed");
     }
 
+    /// Run one monitor check (`specs/071-triggers` research R1): the script with its saved state
+    /// bound as `input`, through this instance's tools under the check's scope, with no model
+    /// call. Model-backed and turn-ending tools are kept out (FR-028); the wall clock is the
+    /// check's own limit, since the sandbox's counts CPU time only.
+    pub async fn run_check(&self, check: crate::schema::trigger::MonitorCheck) -> crate::schema::trigger::CheckOutcome {
+        use crate::schema::trigger::CheckOutcome;
+        let tools = self.tools.load_full();
+        let mut scope = check.scope.clone();
+        scope.extend(tools.router.model_backed_names().iter().map(|name| crate::agents::tools::scope::exclude_tool(name)));
+        let session = VizierSession(
+            self.agent_id.clone(),
+            crate::schema::VizierChannelId::Trigger(check.trigger_slug.clone(), crate::triggers::now_ms()),
+            None,
+        );
+        let timeout = std::time::Duration::from_secs(check.timeout_secs.max(1));
+        let ctx = ToolContext {
+            tool_scope: Some(Arc::new(scope)),
+            loaded_images: Default::default(),
+            session,
+            pending_attachments: Arc::new(Mutex::new(vec![])),
+            hooks: None,
+            background_depth: 1,
+            subagent_depth: 0,
+            consultation_chain: vec![],
+            deadline: Some(tokio::time::Instant::now() + timeout),
+            client: None,
+            questions: crate::questions::QuestionsHandle::new(self.deps.questions.clone()),
+            interactive: false,
+            dream_sources: vec![],
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
+            project: None,
+            // Drops every turn-ending tool: a check has no turn to end.
+            detached: true,
+            parent_detached_id: None,
+            custom: crate::custom_tools::CustomTurn {
+                tools: Some(self.deps.custom_tools.clone()),
+                ..Default::default()
+            },
+        };
+        let limits = crate::sandbox::SandboxLimits { timeout, tools_enabled: true };
+        let input = serde_json::json!({ "state": check.state });
+        let run = crate::agents::tools::python::run_script(
+            &tools.router,
+            &check.script,
+            limits,
+            timeout,
+            &ctx,
+            None,
+            Some(input),
+        );
+        match tokio::time::timeout(timeout, run).await {
+            Err(_) => CheckOutcome::failed(format!("the check ran past its {}s limit", timeout.as_secs())),
+            Ok((report, _)) => {
+                let calls = report.tool_calls.iter().map(|call| call.name.clone()).collect();
+                match report.error {
+                    Some(error) => CheckOutcome { value: None, error: Some(error.message), calls },
+                    None => CheckOutcome { value: Some(report.result), error: None, calls },
+                }
+            }
+        }
+    }
+
     /// This agent's view of each integration attached to it (research R9).
     pub async fn integration_status(&self) -> HashMap<String, IntegrationStatus> {
         let snapshot = self.tools.load_full();
@@ -472,6 +535,26 @@ impl VizierAgent {
         Some(owner_md(&user.username, profile.as_ref(), &links))
     }
 
+    /// The tool scope of a turn (`specs/071-triggers` FR-030). A request carries the scope of the
+    /// turn that caused it; a turn on a trigger's own conversation takes its trigger's, whatever
+    /// started it, so a delivery poked into that conversation cannot escape it. A trigger that
+    /// can no longer be read is treated as the narrow default: the scope fails closed.
+    async fn turn_tool_scope(
+        &self,
+        session: &VizierSession,
+        req: &VizierRequest,
+    ) -> Option<Arc<Vec<String>>> {
+        use crate::{agents::tools::scope, storage::trigger::TriggerStorage};
+        let crate::schema::VizierChannelId::Trigger(slug, _) = &session.1 else {
+            return req.tool_scope.clone().map(Arc::new);
+        };
+        let own = match self.storage.get_trigger(&self.agent_id, slug).await {
+            Ok(Some(trigger)) => trigger.tool_scope,
+            _ => Some(scope::narrow_default()),
+        };
+        scope::intersect(own.as_deref(), req.tool_scope.as_deref()).map(Arc::new)
+    }
+
     /// Takes the session because one section is conditional on it: the scheduled-run
     /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
     /// nowhere else — selecting on the request content kind would catch the dream cycle,
@@ -583,6 +666,7 @@ impl VizierAgent {
             vizier.topic = session.2.as_deref(),
             vizier.http.user = tracing::field::Empty,
             vizier.task.slug = tracing::field::Empty,
+            vizier.trigger.slug = tracing::field::Empty,
             vizier.inter_agent.participants = tracing::field::Empty,
             vizier.dream.stage = tracing::field::Empty,
             vizier.dream.source = tracing::field::Empty,
@@ -783,7 +867,9 @@ impl VizierAgent {
         // conversation before anything is offered (`specs/042-agent-asking-question` R2). It is
         // built before the client tools because naming them reads the turn's catalogue, and the
         // catalogue is what the availability rule filters (R1).
+        let tool_scope = self.turn_tool_scope(&session, &req).await;
         let mut ctx = ToolContext {
+            tool_scope,
             loaded_images: Default::default(),
             session: session.clone(),
             pending_attachments: Arc::new(Mutex::new(vec![])),
@@ -1699,7 +1785,10 @@ impl VizierAgent {
             // step. The delivery is saved first and the messages after it, which is the order a
             // replay rebuilds (`history_entries_to_messages`).
             let mut arrived: Vec<Part> = vec![];
-            if let Some(text) = self.deps.deliveries.claim(&ctx.session).await {
+            // A turn already running keeps the scope it started with; the scope of finished work
+            // applies to a turn that work opens.
+            if let Some(delivery) = self.deps.deliveries.claim(&ctx.session).await {
+                let text = delivery.text;
                 let request = VizierRequest {
                     timestamp: crate::time::now(),
                     user: ctx.session.0.clone(),
@@ -2091,6 +2180,7 @@ impl VizierAgent {
         );
 
         let ctx = ToolContext {
+            tool_scope: None,
             loaded_images: Default::default(),
             client: None,
             questions: crate::questions::QuestionsHandle::new(deps.questions.clone()),
@@ -2864,6 +2954,10 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
             span.record("vizier.task.slug", slug.as_str());
             "task"
         }
+        VizierChannelId::Trigger(slug, _) => {
+            span.record("vizier.trigger.slug", slug.as_str());
+            "trigger"
+        }
         VizierChannelId::InterAgent(participants) => {
             span.record("vizier.inter_agent.participants", participants.join(","));
             "inter_agent"
@@ -3251,6 +3345,9 @@ fn system_prompt_layout(parts: PromptParts, session: &VizierSession) -> Vec<Stri
     // prefix stays byte-identical to an interactive turn's.
     if session.is_scheduled_task() {
         res.push(scheduled_run_md());
+    }
+    if session.is_trigger_run() {
+        res.push(trigger_run_md());
     }
     // A consultation (spec 064 D6): the consulted agent keeps its own layout, told last who is
     // asking, so its cacheable prefix matches its other turns.

@@ -250,6 +250,7 @@ struct Env {
 fn env() -> Env {
     let (storage, manager, dir) = super::tests::files();
     let ctx = ToolContext {
+        tool_scope: None,
         session: VizierSession("agent-pdf".into(), VizierChannelId::HTTP("u".into(), "c".into()), None),
         pending_attachments: Default::default(),
         hooks: None,

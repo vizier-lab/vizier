@@ -223,11 +223,11 @@ pub async fn agent_process(
                     && text.is_empty()
                     && !session_is_busy(&turns, &session_queues, &session)
                 {
-                    let Some(text) = deps.deliveries.claim(&session).await else {
+                    let Some(delivery) = deps.deliveries.claim(&session).await else {
                         tracing::debug!(agent_id = %agent_id, session = %session.to_slug(), "background delivery: nothing to deliver");
                         continue;
                     };
-                    request.content = VizierRequestContent::DetachedDelivery(text);
+                    apply_delivery(&mut request, delivery);
                 }
 
                 // A side chat must leave no trace (FR-006): it never creates or titles the
@@ -734,6 +734,7 @@ async fn refresh_session_detail(
         request_prompt
     );
     let ctx = ToolContext {
+        tool_scope: None,
         loaded_images: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
@@ -1227,6 +1228,7 @@ async fn run_checkpoint(
     let messages = history_entries_to_messages(&history);
     let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
     let ctx = ToolContext {
+        tool_scope: None,
         loaded_images: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(
@@ -1585,11 +1587,11 @@ pub async fn handle_request(
     if let VizierRequestContent::DetachedDelivery(text) = &request.content
         && text.is_empty()
     {
-        let Some(text) = deps.deliveries.claim(&session).await else {
+        let Some(delivery) = deps.deliveries.claim(&session).await else {
             tracing::debug!(agent_id = %session.0, session = %session.to_slug(), "background delivery: nothing to deliver");
             return Ok(());
         };
-        request.content = VizierRequestContent::DetachedDelivery(text);
+        apply_delivery(&mut request, delivery);
     }
 
     match &request.content {
@@ -2133,6 +2135,14 @@ async fn save_dream_entry(
 /// for a kind of request that does not start one. The chat arm lists these kinds in one place and
 /// this answers for each, so adding a kind to that arm without a prompt is a test failure, not a
 /// panic on the first real use.
+/// Turn a poke into the delivery turn it claimed. Work a scoped turn started keeps that scope on
+/// the turn that reads its outcome (`specs/071-triggers` FR-030).
+fn apply_delivery(request: &mut VizierRequest, delivery: crate::agents::delivery::Delivery) {
+    request.tool_scope =
+        crate::agents::tools::scope::intersect(request.tool_scope.as_deref(), delivery.scope.as_deref());
+    request.content = VizierRequestContent::DetachedDelivery(delivery.text);
+}
+
 fn chat_turn_prompt(
     content: &VizierRequestContent,
     invoked: Option<&crate::skill::invocation::Invoked>,

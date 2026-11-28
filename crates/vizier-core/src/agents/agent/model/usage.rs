@@ -20,6 +20,8 @@ pub enum UsagePurpose {
     Vision,
     /// An image, speech, transcription or embedding call (`specs/065-media-usage-accounting`).
     Media,
+    /// A trigger's triage call (`specs/071-triggers` FR-010).
+    Triage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -124,8 +126,14 @@ impl UsageScope {
         }
     }
 
+    /// A trigger's triage call, recorded under the agent the trigger belongs to.
+    pub fn triage() -> Self {
+        Self { session: None, purpose: UsagePurpose::Triage, turn: None, round: None, call_id: None }
+    }
+
     pub fn activity(&self) -> UsageActivity {
         match (self.purpose, &self.session) {
+            (UsagePurpose::Triage, _) => UsageActivity::TriggerTriage,
             (UsagePurpose::Handover, _) => UsageActivity::Compaction,
             (UsagePurpose::Vision, _) => UsageActivity::Vision,
             (UsagePurpose::Turn, Some(session)) => session.1.usage_activity(),

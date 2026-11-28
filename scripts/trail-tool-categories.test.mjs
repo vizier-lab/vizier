@@ -1,7 +1,7 @@
 // The WebUI names the calls on an activity trail from their tool names alone, with its own copy of
 // which built-in tool is in which category (webui/app/lib/toolCategories.ts). This keeps that copy
-// in step with the engine: the `every_tool_is_in_its_category` test in
-// crates/vizier-core/src/agents/tools/mod.rs (its EXPECTED, ADDON and UNCATEGORISED tables) and
+// in step with the engine: the `EVERY_TOOL` table and the ADDON and UNCATEGORISED tables of
+// `every_tool_is_in_its_category` in crates/vizier-core/src/agents/tools/mod.rs, and
 // the project coding tools in crates/vizier-core/src/projects/tools/. A tool added to core without
 // the WebUI entry fails here and would otherwise be drawn as an unknown MCP server's tool.
 //
@@ -29,10 +29,17 @@ function table(source, name) {
     return match[1]
 }
 
+/** The body of the `EVERY_TOOL` table the category tests share. */
+function everyTool(source) {
+    const match = source.match(/const EVERY_TOOL: [^=]+= \{[\s\S]*?&\[([\s\S]*?)\n\s*\]\s*\n\s*\};/)
+    assert.ok(match, `EVERY_TOOL table not found in ${toolsMod}`)
+    return match[1]
+}
+
 /** The engine's tables, as the WebUI's shapes. */
 export function engineTables(source) {
     const expected = Object.fromEntries(
-        [...table(source, 'EXPECTED').matchAll(/\("([a-z0-9_]+)",\s*([A-Za-z]+)\)/g)].map((m) => [m[1], snake(m[2])])
+        [...everyTool(source).matchAll(/\("([a-z0-9_]+)",\s*([A-Za-z]+)\)/g)].map((m) => [m[1], snake(m[2])])
     )
     const addons = [...new Set([...table(source, 'ADDON').matchAll(/\("[a-z0-9_]+",\s*"([a-z0-9_]+)"\)/g)].map((m) => m[1]))]
     const uncategorised = [...table(source, 'UNCATEGORISED').matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1])

@@ -1007,6 +1007,7 @@ mod tests {
         let (storage, manager, _dir) = files();
         let session = VizierSession("agent-1".into(), crate::schema::VizierChannelId::HTTP("u".into(), "c".into()), None);
         let ctx = ToolContext {
+            tool_scope: None,
             session: session.clone(),
             pending_attachments: Default::default(),
             hooks: None,

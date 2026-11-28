@@ -85,10 +85,13 @@ pub fn check_depth(ctx: &ToolContext) -> crate::Result<()> {
 
 /// Why a launch is refused before any row is written (contracts/detached-flag.md §2).
 pub fn check_launch(ctx: &ToolContext) -> crate::Result<()> {
-    if ctx.session.is_scheduled_task() || matches!(ctx.session.1, VizierChannelId::Dream(..)) {
+    if ctx.session.is_scheduled_task()
+        || ctx.session.is_trigger_run()
+        || matches!(ctx.session.1, VizierChannelId::Dream(..))
+    {
         return Err(VizierError(
-            "cannot detach here: nobody is waiting to be told. A scheduled run or a dream \
-             cycle ends with its turn, so run the script inline."
+            "cannot detach here: nobody is waiting to be told. A scheduled run, a trigger run or \
+             a dream cycle ends with its turn, so run the script inline."
                 .into(),
         ));
     }
@@ -178,6 +181,14 @@ impl DetachedScripts {
             .open_detached_script(script.clone())
             .await
             .map_err(|e| VizierError(format!("could not record the detached script: {e}")))?;
+        if let Some(scope) = &ctx.tool_scope {
+            use crate::storage::trigger::TriggerStorage;
+            self.inner
+                .storage
+                .set_work_scope(&script.id, &script.agent_id, scope)
+                .await
+                .map_err(|e| VizierError(format!("could not record the detached script: {e}")))?;
+        }
         self.inner.publish(&script);
 
         let task_ctx = detached_context(ctx, &script);
@@ -308,13 +319,17 @@ impl DetachedScripts {
 /// Detached scripts are one of the two delivery sources (spec 059 research D9).
 #[async_trait::async_trait]
 impl crate::agents::delivery::DeliverySource for DetachedScripts {
-    async fn claim(&self, session: &VizierSession) -> Vec<String> {
+    async fn claim(&self, session: &VizierSession) -> Vec<crate::agents::delivery::Section> {
         let claimed = DetachedScripts::claim(self, session).await;
         if claimed.is_empty() {
-            vec![]
-        } else {
-            vec![render_delivery(&claimed)]
+            return vec![];
         }
+        let mut scope = None;
+        for script in &claimed {
+            let own = crate::agents::delivery::stored_scope(&self.inner.storage, &script.id).await;
+            scope = crate::agents::tools::scope::intersect(scope.as_deref(), own.as_deref());
+        }
+        vec![crate::agents::delivery::Section { text: render_delivery(&claimed), scope }]
     }
 
     async fn sessions_with_deliveries(&self, agent_id: &AgentId) -> Vec<VizierSession> {
