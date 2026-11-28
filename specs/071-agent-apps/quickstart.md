@@ -66,6 +66,17 @@
 | (T) | after three failed runs of schedule `tick`: `S(app_schedules(name="tick"))` and `context` | an `episode` with `failures: 3`; `## App state` names `tick` as failing |
 | (T) | `node --test scripts/ui-kit-reference.test.mjs` | passes; it fails if `GUIDE.md`'s ability list and `runtime.ts` disagree |
 
+## 3d. Locking (FR-017a)
+
+| Step | Do | Expect |
+|---|---|---|
+| (T) | `PATCH /apps/{id} {"locked":true}`, then in a conversation `context` | `SANDBOX.md` has no `app_edit`; `## App state` starts with `locked`; `S(app_read())`, `S(app_query(sql="select 1"))` and a function still work |
+| (T) | `S(app_edit(...))` | `NameError` (not offered) |
+| (T) | an `app_edit` that started before the lock saves after it | `{"status":"locked"}`; no new version |
+| (T) | `POST /apps/{id}/current {"version":1}` while locked | works (owner actions ignore the lock) |
+| (T) | `PATCH` a draft with `locked: true` | `422 draft_cannot_lock` |
+| (UI) | press the lock button, then Unlock in the note | matches frame L; the next turn offers `app_edit` again |
+
 ## 3b. Conversations and waking (Story 3, FR-012 to FR-012b)
 
 | Step | Do | Expect |

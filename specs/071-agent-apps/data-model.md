@@ -18,6 +18,8 @@ All tables live in the main SQLite database. They are created by `storage/sqlite
 | `driver_agent_id` | TEXT NULL | NULL = no driver (FR-026) |
 | `last_topic` | TEXT NOT NULL | The conversation the app reopens on; conversations themselves are topics of the `app__<id>` channel with the current driver |
 | `badge` | INTEGER NULL | The tile count (FR-032) |
+| `locked` | INTEGER NOT NULL DEFAULT 0 | 1 = the driver may not change the app's definition (FR-017a); a draft cannot be locked |
+| `locked_at` | INTEGER NULL | When it was last locked, shown in the header tooltip |
 | `db_bytes` / `files_bytes` | INTEGER NOT NULL DEFAULT 0 | Cached sizes for limits and the owner view |
 | `created_at`, `updated_at` | INTEGER | |
 

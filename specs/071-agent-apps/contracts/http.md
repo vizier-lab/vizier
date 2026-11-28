@@ -16,7 +16,7 @@ Errors use the existing envelope (`vizier-http/src/error.rs`). An app the caller
 | `POST /apps` | `{"driver": agent_id?}` | `201 AppDetail` | Creates a **draft**. `driver` defaults to the caller's most recently used agent the caller may chat with |
 | `POST /apps/from-page` | `{"agent_id", "channel_id", "topic_id", "page_id", "version"}` | `201 AppDetail` | Add to rail: copies that ui_page version as v1, with the page's agent as driver. The caller must own the conversation |
 | `GET /apps/{id}` | | `AppDetail` | |
-| `PATCH /apps/{id}` | `{"name"?, "icon"?, "description"?}` | `AppDetail` | Rename etc. by the owner |
+| `PATCH /apps/{id}` | `{"name"?, "icon"?, "description"?, "locked"?: bool}` | `AppDetail` | Rename etc. by the owner. `locked: true` on a draft is `422 draft_cannot_lock`. Locking publishes `AppEvent::LockChanged` so open tabs and the driver's next turn see it |
 | `DELETE /apps/{id}` | `?if_draft_unused=1` optional | `204` | With the flag: refused `409 draft_in_use` once any of its conversations has a request (research D14) |
 | `GET /apps/{id}/versions` | `?before&limit` | `[VersionSummary]` | |
 | `POST /apps/{id}/current` | `{"version": n}` | `AppDetail` | Rollback / forward. Data untouched (FR-017) |
@@ -30,7 +30,7 @@ Errors use the existing envelope (`vizier-http/src/error.rs`). An app the caller
 // AppSummary (rail tiles, lists)
 {"id":"ap_…","name":"Habits","icon":"square-check","draft":false,
  "driver":{"agent_id":"archivist","name":"Archivist"} /* or null */,
- "badge":3,"status":"ready" /* ready | no_driver | missing */}
+ "badge":3,"locked":false,"status":"ready" /* ready | no_driver | missing */}
 
 // AppDetail = AppSummary + 
 {"description":"…","current_version":4,"latest_version":4,

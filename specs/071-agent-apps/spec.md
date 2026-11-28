@@ -31,6 +31,7 @@ The design was drawn first (constitution: design before code), in `Vizier shell.
 - **Frame I**: a new app as a draft, before anything is built.
 - **Frame J**: the top of the chat inset: the open conversation's title (switches conversations), the driving agent under it (switches driver), and + for a new conversation. It supersedes the driver-only header drawn in F, D, E and I.
 - **Frame K**: the conversation list open.
+- **Frame L**: a locked app: the lock button on, "locked" in the header, and a note above the composer with Unlock.
 
 The alternatives that were not chosen (apps in their own rail section, apps listed under their agent, the chat inset on the left) were removed from the file.
 
@@ -103,6 +104,8 @@ This conversation **is the ordinary chat**: every chat feature (the activity tra
 7. **Given** an app page that keeps state per conversation, **When** the person switches conversation, **Then** the page is told the new conversation and can show that conversation's state.
 8. **Given** a scheduled task of the driving agent that works for the app's owner, **When** it wakes one of the app's conversations, **Then** a turn runs there with the app's tools and its answer lands in that conversation. **Given** any other agent, or a turn working for another person, **When** it tries the same wake, **Then** it is refused with a reason.
 9. **Given** the person is elsewhere in Vizier (or the window is in the background), **When** the driver replies in one of the app's conversations (to the person, to a wake, or to an `ask` schedule), **Then** a notification appears like any chat reply, titled with the app and the conversation, and selecting it opens the app on exactly that conversation and marks it read.
+11. **Given** an app the person has locked, **When** they ask the driver to change it, **Then** the driver has no tool to change the page, functions, schedules, page tools, migrations, name or icon, says the app is locked, and still answers questions, reads the app, works with its data and runs its functions.
+12. **Given** a locked app, **When** the person unlocks it, **Then** the driver can change it again from its next turn, and no version or data was lost either way.
 10. **Given** the person is looking at that app conversation, **When** the reply arrives, **Then** no notification toast or unread count is added for it.
 
 ---
@@ -273,6 +276,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 **Data and files**
 
+- **FR-017a**: The owner MUST be able to lock and unlock an app (not a draft) from the app header. While it is locked, the driver MUST NOT be offered any way to change the app's definition (page, functions, page-callable functions, schedules, page tools, migrations, name, icon, description), in any conversation, wake or schedule run; everything else (reading the app, its data, its files, running its functions and schedules, answering page tools) MUST keep working. The driver MUST be told at the start of each turn that the app is locked. The owner's own actions (rollback, rename, approvals) MUST still work while locked. The app header and the chat MUST show that the app is locked, with a way to unlock.
 - **FR-018**: Every app MUST have its own SQLite database, separate from Vizier's own storage and from every other app's. Its page, its functions and its driver MUST be able to query and change it (the page and functions only their own app's database), with changes saved immediately and no model call for page reads and writes. Page and function queries MUST be bounded in time and result size.
 - **FR-018a**: Changes to the database's tables MUST be made by the driver as migrations saved with the app version that introduced them. Rolling back to an earlier version MUST NOT undo a migration or change data; an earlier version that no longer fits the current tables shows its errors like any broken version, and the driver can add a migration to fix it.
 - **FR-018b**: The owner MUST be able to see the app's tables and their row counts, and to download the database as a file.

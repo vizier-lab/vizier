@@ -169,6 +169,8 @@ The kit details stay in `ui_describe_elements` and `ui_examples`. `scripts/ui-ki
 
 The App state block also carries schedule health: one line per schedule with an open failure episode, so a failing schedule is noticed without asking.
 
+**Locking** (FR-017a): `app.locked` is read into `AppTurnContext`. `AppSource::entries` leaves `app_edit` out when it is set. The save path in `apps::Apps::save_version` re-checks the lock inside the version-saving transaction and refuses with `locked`, so a turn that started unlocked cannot save after the owner locks. Owner routes (rollback, `PATCH`, approvals) ignore the lock. `## App state` starts with a `locked` line. The WebUI shows the header lock button, `locked` in the subline, and a note above the composer with Unlock (frame L).
+
 App tools are absent from `DREAM_TOOL_NAMES`. `offered_in` limits them to `App` sessions, never Discord or Telegram (FR-014).
 
 ## D8. The requirement check
