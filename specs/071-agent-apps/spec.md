@@ -30,7 +30,7 @@ The design was drawn first (constitution: design before code), in `Vizier shell.
 - **Frame H**: the rail's + opening New agent / New app.
 - **Frame I**: a new app as a draft, before anything is built.
 
-Frames A, C and G are alternatives that were not chosen.
+The alternatives that were not chosen (apps in their own rail section, apps listed under their agent, the chat inset on the left) were removed from the file.
 
 ## User Scenarios & Testing *(mandatory)*
 
