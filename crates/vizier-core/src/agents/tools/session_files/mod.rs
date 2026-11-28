@@ -22,7 +22,7 @@ pub const PDF_MIME: &str = "application/pdf";
 pub const PNG_MIME: &str = "image/png";
 
 mod send_attachment;
-pub use send_attachment::SendAttachment;
+pub use send_attachment::{SendAttachment, SendSessionFile};
 
 mod paths;
 pub use paths::{GetSessionFilePath, LoadPathAsSessionFile};

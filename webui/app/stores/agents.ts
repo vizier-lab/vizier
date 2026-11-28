@@ -68,8 +68,17 @@ export const useAgents = create<AgentStore>()((set, get) => ({
     },
 
     applySetup: (state) => {
+        const before = get().setups[state.agent_id]?.phase
         set(onSetup(get(), state, Date.now()))
         watchTerminal(state)
+        // The rail tile and the chat's "Starting" line read health, which is otherwise polled
+        // every 10 s: follow the setup's phase changes at once instead.
+        if (before !== state.phase) void followHealth(state)
+        // An agent is stored once its build succeeds. After a reload no create call is waiting
+        // to refresh the list, so the busy tile would vanish with no agent in its place.
+        if (state.phase === 'ready' && !get().agents.some((a) => a.agent_id === state.agent_id)) {
+            void awaitStored(state.agent_id)
+        }
     },
 
     clearSetup: (agentId) => {
@@ -110,6 +119,28 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         return () => clearInterval(health)
     },
 }))
+
+/** `ready` is announced when the build ends, a moment before the agent is saved: re-read a few times. */
+async function awaitStored(agentId: string) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        await useAgents.getState().refresh()
+        if (useAgents.getState().agents.some((a) => a.agent_id === agentId)) return
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+}
+
+/**
+ * Re-read health after a setup changed phase. A finished build is announced just before the
+ * supervisor marks the agent running, so a terminal phase re-reads until health leaves `starting`.
+ */
+async function followHealth(state: SetupState) {
+    const attempts = isTerminal(state) ? 5 : 1
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000))
+        await useAgents.getState().refreshHealth()
+        if (useAgents.getState().health[state.agent_id]?.state !== 'starting') return
+    }
+}
 
 function cancelTerminal(agentId: string) {
     const timer = terminalTimers.get(agentId)

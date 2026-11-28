@@ -29,7 +29,7 @@ use crate::{
         secrets::{GetSecret, SetSecret},
         session_files::{
             GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile,
-            SendAttachment,
+            SendAttachment, SendSessionFile,
         },
         shell::ShellExec,
         skill::{
@@ -1506,6 +1506,9 @@ impl BaseTools {
             .tool(SendAttachment {
                 storage: deps.storage.clone(),
             })
+            .tool(SendSessionFile {
+                storage: deps.storage.clone(),
+            })
             .tool(GetSessionFilePath {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
@@ -1517,6 +1520,9 @@ impl BaseTools {
                 artifacts: deps.artifacts.clone(),
             })
             .tool(artifacts::ListArtifacts {
+                artifacts: deps.artifacts.clone(),
+            })
+            .tool(artifacts::DeleteArtifact {
                 artifacts: deps.artifacts.clone(),
             })
             .tool(artifacts::LoadArtifactAsSessionFile {
@@ -1863,7 +1869,9 @@ async fn build_read_image_vision(
 mod tests {
     use super::*;
     use crate::agents::tools::{
-        artifacts::{ListArtifacts, LoadArtifactAsSessionFile, PromoteArtifact, UpdateArtifact},
+        artifacts::{
+            DeleteArtifact, ListArtifacts, LoadArtifactAsSessionFile, PromoteArtifact, UpdateArtifact,
+        },
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         dream_journal::WriteDreamJournal,
         vector_memory::{
@@ -1940,11 +1948,13 @@ mod tests {
             entry::<ReadDocumentFile>(),
             entry::<ReadImageFile>(),
             entry::<SendAttachment>(),
+            entry::<SendSessionFile>(),
             entry::<GetSessionFilePath>(),
             entry::<LoadPathAsSessionFile>(),
             entry::<PromoteArtifact>(),
             entry::<UpdateArtifact>(),
             entry::<ListArtifacts>(),
+            entry::<DeleteArtifact>(),
             entry::<LoadArtifactAsSessionFile>(),
             entry::<CurrentTime>(),
             entry::<ConvertTime>(),
@@ -2085,11 +2095,13 @@ mod tests {
             ("read_document_file", Files),
             ("read_image_file", Files),
             ("send_attachment", Files),
+            ("send_session_file", Files),
             ("get_session_file_path", Files),
             ("load_path_as_session_file", Files),
             ("promote_artifact", Files),
             ("update_artifact", Files),
             ("list_artifacts", Files),
+            ("delete_artifact", Files),
             ("load_artifact_as_session_file", Files),
             ("current_time", Time),
             ("convert_time", Time),

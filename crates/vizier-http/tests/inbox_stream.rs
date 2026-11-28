@@ -254,6 +254,41 @@ async fn a_person_who_no_longer_exists_loses_the_stream_at_the_next_event() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_download_is_pushed_as_it_starts_and_as_it_moves() {
+    use vizier_core::setup::DownloadKind;
+    let fx = start(300).await;
+    let (_, token) = fx.person("olive", true).await;
+    fx.runtime.deps().storage.create_agent("alpha", &agent(None)).await.unwrap();
+
+    let mut socket = fx.connect(&token).await;
+    assert_eq!(frame(&mut socket).await["type"], "hello");
+
+    let setup = fx.runtime.deps().setup.clone();
+    let guard = setup.build_started("alpha", "Alpha", None, "Building");
+    let started = frame(&mut socket).await;
+    assert_eq!(started["type"], "setup", "{started}");
+    assert_eq!(started["state"]["phase"], "starting");
+
+    setup.download_started("alpha", DownloadKind::Model, "llama");
+    let downloading = frame(&mut socket).await;
+    assert_eq!(downloading["state"]["phase"], "downloading", "{downloading}");
+
+    for step in 1..=3u64 {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        setup.download_progress("alpha", DownloadKind::Model, step * 10, 100, "pulling");
+        let moved = frame(&mut socket).await;
+        assert_eq!(moved["state"]["downloads"][0]["completed"], step * 10, "{moved}");
+    }
+
+    setup.download_finished("alpha", DownloadKind::Model);
+    guard.finished();
+    let mut last = frame(&mut socket).await;
+    while last["state"]["phase"] != "ready" {
+        last = frame(&mut socket).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_missing_token_is_refused() {
     let fx = start(300).await;
     let (_, token) = fx.person("olive", true).await;

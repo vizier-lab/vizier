@@ -21,6 +21,7 @@ import {
     type AgentForm,
 } from '../../lib/agentForm'
 import { MediaModelSelect } from './MediaModelSelect'
+import { MediaProviderSelect } from './MediaProviderSelect'
 import { MediaVoiceSelect } from './MediaVoiceSelect'
 import { ModelSelect } from './ModelSelect'
 import { useMediaModels } from './useMediaModels'
@@ -30,8 +31,6 @@ type Props = {
     errors: Record<string, string>
     set: (patch: Partial<AgentForm>) => void
 }
-
-const options = (values: string[]) => values.map((v) => ({ value: v, label: v }))
 
 /** The list, plus the saved value when it is not in it (an older name stays visible). */
 const withCurrent = (list: { value: string; label: string }[], current: string) =>
@@ -146,13 +145,7 @@ export function ModelsFields({ form, errors, set }: Props) {
             <Card title="Voice" description="Hear and answer voice messages. Both are off until you switch them on.">
                 <div className="flex flex-col gap-20">
                     <ToggleSection title="Text-to-Speech" description="Reply with a voice message." checked={form.tts} onCheckedChange={(tts) => set({ tts })}>
-                        <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
-                            <Select
-                                label="Provider"
-                                options={options(TTS_PROVIDERS)}
-                                value={form.ttsProvider}
-                                onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}
-                            />
+                        <MediaProviderSelect values={TTS_PROVIDERS} value={form.ttsProvider} onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}>
                             {form.ttsProvider === 'openrouter' ? (
                                 <MediaModelSelect capability="speech" model={form.ttsModel} fallbackDefault={TTS_DEFAULT_MODELS.openrouter} media={ttsMedia} onChange={(ttsModel) => set({ ttsModel })} />
                             ) : form.ttsProvider === 'kokoro' ? (
@@ -174,12 +167,11 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 <TextField label="Voice" mono value={form.ttsVoice} placeholder={TTS_DEFAULT_VOICES[form.ttsProvider] ?? 'Provider default'} onChange={(e) => set({ ttsVoice: e.target.value })} />
                             )}
                             <TextField label="Speed" inputMode="decimal" value={form.ttsSpeed} placeholder="1.0" invalid={!!errors.ttsSpeed} helper={errors.ttsSpeed} onChange={(e) => set({ ttsSpeed: e.target.value })} />
-                        </div>
+                        </MediaProviderSelect>
                     </ToggleSection>
 
                     <ToggleSection title="Speech-to-Text" description="Understand voice messages." checked={form.stt} onCheckedChange={(stt) => set({ stt })}>
-                        <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
-                            <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '' })} />
+                        <MediaProviderSelect values={STT_PROVIDERS} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider, sttModel: '' })}>
                             {form.sttProvider === 'openrouter' ? (
                                 <MediaModelSelect
                                     capability="transcription"
@@ -194,7 +186,7 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 <TextField label="Model" mono value={form.sttModel} placeholder={STT_DEFAULT_MODELS[form.sttProvider] ?? 'Provider default'} onChange={(e) => set({ sttModel: e.target.value })} />
                             )}
                             <TextField label="Language" mono value={form.sttLanguage} placeholder="Detect automatically" helper="A language code such as en." onChange={(e) => set({ sttLanguage: e.target.value })} />
-                        </div>
+                        </MediaProviderSelect>
                     </ToggleSection>
                 </div>
             </Card>
@@ -220,8 +212,7 @@ export function ModelsFields({ form, errors, set }: Props) {
                     </ToggleSection>
 
                     <ToggleSection title="Image Generation" description="Draw pictures on request." checked={form.imageGen} onCheckedChange={(imageGen) => set({ imageGen })}>
-                        <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
-                            <Select label="Provider" options={options(IMAGE_GEN_PROVIDERS)} value={form.imageGenProvider} onChange={(imageGenProvider) => set({ imageGenProvider, imageGenModel: '' })} />
+                        <MediaProviderSelect values={IMAGE_GEN_PROVIDERS} value={form.imageGenProvider} onChange={(imageGenProvider) => set({ imageGenProvider, imageGenModel: '' })}>
                             {form.imageGenProvider === 'openrouter' ? (
                                 <MediaModelSelect
                                     capability="image"
@@ -240,7 +231,7 @@ export function ModelsFields({ form, errors, set }: Props) {
                                 />
                             )}
                             <TextField label="Size" mono value={form.imageGenSize} placeholder="Provider default" helper="Such as 1024x1024." onChange={(e) => set({ imageGenSize: e.target.value })} />
-                        </div>
+                        </MediaProviderSelect>
                     </ToggleSection>
                 </div>
             </Card>
@@ -248,38 +239,40 @@ export function ModelsFields({ form, errors, set }: Props) {
             <Card title="Memory index" description="Embeddings let the agent find passages from its memory. Changing them re-indexes memory when the agent starts.">
                 <div className="flex flex-col gap-16">
                     <Select label="Indexer" options={[{ value: 'sqlite', label: 'SQLite (vector store)' }]} value="sqlite" onChange={() => {}} disabled />
-                    <Select
+                    <MediaProviderSelect
                         label="Embedding provider"
-                        options={EMBEDDING_PROVIDERS.map((p) => ({ value: p, label: p }))}
+                        grid="grid grid-cols-1 gap-16 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
+                        values={EMBEDDING_PROVIDERS}
                         value={form.embeddingProvider}
                         onChange={(embeddingProvider) => set({ embeddingProvider, embeddingModel: '' })}
-                    />
-                    {form.embeddingProvider === 'local' ? (
-                        <Select
-                            label="Embedding model"
-                            mono
-                            options={[{ value: '', label: `Built-in · ${LOCAL_EMBEDDING_DEFAULT}` }, ...withCurrent(LOCAL_EMBEDDING_MODELS, form.embeddingModel)]}
-                            value={form.embeddingModel}
-                            invalid={!!errors.embeddingModel}
-                            helper={errors.embeddingModel ?? 'Empty uses the built-in model, downloaded once on first start.'}
-                            onChange={(embeddingModel) => set({ embeddingModel })}
-                        />
-                    ) : (
-                        <TextField
-                            label="Embedding model"
-                            mono
-                            value={form.embeddingModel}
-                            invalid={!!errors.embeddingModel}
-                            placeholder={EMBEDDING_DEFAULT_MODELS[form.embeddingProvider]}
-                            helper={
-                                errors.embeddingModel ??
-                                (form.embeddingProvider === 'bedrock'
-                                    ? 'Empty uses Titan Text Embeddings V2.'
-                                    : 'Changing it re-indexes memory when the agent starts.')
-                            }
-                            onChange={(e) => set({ embeddingModel: e.target.value })}
-                        />
-                    )}
+                    >
+                        {form.embeddingProvider === 'local' ? (
+                            <Select
+                                label="Embedding model"
+                                mono
+                                options={[{ value: '', label: `Built-in · ${LOCAL_EMBEDDING_DEFAULT}` }, ...withCurrent(LOCAL_EMBEDDING_MODELS, form.embeddingModel)]}
+                                value={form.embeddingModel}
+                                invalid={!!errors.embeddingModel}
+                                helper={errors.embeddingModel ?? 'Empty uses the built-in model, downloaded once on first start.'}
+                                onChange={(embeddingModel) => set({ embeddingModel })}
+                            />
+                        ) : (
+                            <TextField
+                                label="Embedding model"
+                                mono
+                                value={form.embeddingModel}
+                                invalid={!!errors.embeddingModel}
+                                placeholder={EMBEDDING_DEFAULT_MODELS[form.embeddingProvider]}
+                                helper={
+                                    errors.embeddingModel ??
+                                    (form.embeddingProvider === 'bedrock'
+                                        ? 'Empty uses Titan Text Embeddings V2.'
+                                        : 'Changing it re-indexes memory when the agent starts.')
+                                }
+                                onChange={(e) => set({ embeddingModel: e.target.value })}
+                            />
+                        )}
+                    </MediaProviderSelect>
                 </div>
             </Card>
         </div>
