@@ -551,8 +551,6 @@ mod encryption_tests {
 
 #[cfg(test)]
 mod delete_tests {
-    use std::sync::Arc;
-
     use super::*;
     use crate::storage::sql::SqlStore;
 
@@ -568,7 +566,6 @@ mod delete_tests {
                 SqlStorage::init_schema(c).unwrap();
             })
             .unwrap();
-        let dir = tempfile::tempdir().unwrap().keep();
         SqlStorage::new(store)
     }
 

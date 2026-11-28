@@ -6,7 +6,7 @@ use super::*;
 use crate::{
     schema::VizierChannelId,
     storage::{
-        blob::LocalBlobStore, document::BlobDocumentStore, sqlite::SqlStorage,
+        blob::LocalBlobStore, sqlite::SqlStorage,
     },
 };
 

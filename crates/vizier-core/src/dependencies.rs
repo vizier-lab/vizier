@@ -1621,7 +1621,6 @@ mod usage_migration_tests {
             VizierSession, usage::UsageActivity,
         },
         storage::{
-            document::BlobDocumentStore,
             history::HistoryStorage,
             sqlite::SqlStorage,
             usage::{UsageGrouping, UsageQuery, UsageStorage},
@@ -1893,7 +1892,7 @@ mod encryption_startup_tests {
 #[cfg(test)]
 mod one_time_task_tests {
     use super::*;
-    use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
+    use crate::storage::sqlite::SqlStorage;
 
     fn setup() -> (VizierStorage, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -1976,7 +1975,7 @@ mod drop_workspaces_tests {
     use crate::{
         schema::{SessionHistoryContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierSession},
         storage::{
-            VizierStorage, document::BlobDocumentStore, history::HistoryStorage, sql::SqlStore,
+            VizierStorage, history::HistoryStorage, sql::SqlStore,
             sqlite::SqlStorage, state::StateStorage, user::UserStorage,
         },
     };

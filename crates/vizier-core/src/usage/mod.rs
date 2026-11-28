@@ -1620,14 +1620,12 @@ mod tests {
     }
 
     mod report {
-        use std::sync::Arc;
-
         use rusqlite::Connection;
 
         use super::super::*;
         use crate::{
             schema::usage::UsageEvent,
-            storage::{document::BlobDocumentStore, sqlite::SqlStorage},
+            storage::sqlite::SqlStorage,
         };
 
         const DAY: i64 = 86_400_000;

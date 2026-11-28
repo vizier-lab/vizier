@@ -1,9 +1,7 @@
 //! The storage contract of `specs/063-html-generative-ui/data-model.md` (tasks T009, T011).
 
-use std::sync::Arc;
-
 use super::*;
-use crate::storage::{document::BlobDocumentStore, sqlite::init_ui_page_schema};
+use crate::storage::sqlite::init_ui_page_schema;
 
 fn setup() -> (SqlStorage, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();

@@ -377,7 +377,6 @@ mod tests {
                 .unwrap();
             store
         });
-        let dir = tempfile::tempdir().unwrap().keep();
         SqlStorage::new(store)
     }
 

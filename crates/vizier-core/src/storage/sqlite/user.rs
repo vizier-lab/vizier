@@ -437,10 +437,8 @@ impl UserStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::storage::{document::BlobDocumentStore, sql::SqlStore};
+    use crate::storage::sql::SqlStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

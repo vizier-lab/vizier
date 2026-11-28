@@ -189,7 +189,7 @@ mod tests {
     use crate::{
         sandbox::{ExecutionError, ExecutionErrorKind, ExecutionReport, ToolInvocationRecord},
         schema::VizierChannelId,
-        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::sqlite::SqlStorage,
     };
 
     const TOKEN: &str = "ghp_super-secret-token-123";
@@ -460,7 +460,6 @@ mod tests {
     #[tokio::test]
     async fn a_storage_failure_does_not_leak_the_conversations_slot() {
         let mut f = fixture();
-        let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap(); // no sensitive_ask table
         f.storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),

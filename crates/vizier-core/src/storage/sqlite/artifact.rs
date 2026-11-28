@@ -482,10 +482,7 @@ fn map_reference(row: &Row) -> sql::Result<ArtifactReference> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::storage::document::BlobDocumentStore;
     use crate::storage::sql::SqlStore;
 
     fn storage() -> (SqlStorage, tempfile::TempDir) {

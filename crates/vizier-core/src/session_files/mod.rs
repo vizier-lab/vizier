@@ -180,7 +180,6 @@ mod tests {
 
     use super::*;
     use crate::schema::VizierChannelId;
-    use crate::storage::document::BlobDocumentStore;
     use crate::storage::sqlite::SqlStorage;
 
     struct Harness {

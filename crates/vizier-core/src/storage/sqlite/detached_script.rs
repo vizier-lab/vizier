@@ -465,7 +465,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::storage::document::BlobDocumentStore;
     use crate::storage::sql::SqlStore;
 
     pub(crate) fn setup() -> (SqlStorage, tempfile::TempDir) {

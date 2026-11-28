@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use super::*;
 use crate::{
     platform_links::code,
     schema::{ChannelPlatform, VizierRequestContent},
     storage::{
-        document::BlobDocumentStore, platform_link::PlatformLinkStorage, sql::SqlStore,
+        platform_link::PlatformLinkStorage, sql::SqlStore,
         sqlite::SqlStorage, user::UserStorage,
     },
 };

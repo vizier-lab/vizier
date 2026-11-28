@@ -197,7 +197,7 @@ mod tests {
     use crate::storage::sql::SqlStore;
 
     use super::*;
-    use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
+    use crate::storage::sqlite::SqlStorage;
 
     fn storage() -> (Arc<VizierStorage>, SqlStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

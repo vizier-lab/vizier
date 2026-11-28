@@ -566,7 +566,6 @@ mod tests {
             .unwrap();
             crate::storage::sql::SqlStore::sqlite(conn)
         });
-        let dir = tempfile::tempdir().unwrap();
         SqlStorage::new(
             store,
         )
@@ -623,7 +622,6 @@ mod tests {
             init_project_schema(&conn).unwrap();
             crate::storage::sql::SqlStore::sqlite(conn)
         });
-        let dir = tempfile::tempdir().unwrap();
         SqlStorage::with_secrets(
             store,
             crate::encryption::SecretCipher::from_key_for_test([7; 32]),

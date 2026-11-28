@@ -126,13 +126,10 @@ pub async fn events(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
     use crate::{
         schema::SecretAction,
         storage::{
-            document::BlobDocumentStore,
             sqlite::{SqlStorage, init_secret_schema},
         },
     };
@@ -301,7 +298,6 @@ mod tests {
     #[tokio::test]
     async fn a_storage_failure_is_mapped_not_swallowed() {
         // No schema at all: the read fails at the database, not at validation.
-        let dir = tempfile::tempdir().unwrap();
         let storage = VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(rusqlite::Connection::open_in_memory().unwrap()),
         ));

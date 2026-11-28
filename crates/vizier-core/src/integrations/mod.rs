@@ -260,7 +260,7 @@ mod tests {
     use super::*;
     use crate::{
         agents::tools::{BaseTools, compose},
-        storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::{VizierStorage, sqlite::SqlStorage},
     };
 
     fn ctx() -> AgentToolContext {

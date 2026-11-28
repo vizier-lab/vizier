@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use super::*;
-use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage};
+use crate::storage::sqlite::SqlStorage;
 
 fn service() -> (CustomTools, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();

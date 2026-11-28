@@ -395,7 +395,6 @@ mod tests {
     use crate::{
         schema::{NotificationFilter, SessionHistoryContent},
         storage::{
-            document::BlobDocumentStore,
             notification::NotificationStorage,
             sqlite::{SqlStorage, init_history_schema, init_notification_schema},
         },

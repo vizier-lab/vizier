@@ -613,12 +613,10 @@ impl IntegrationStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use serde_json::json;
 
     use super::*;
-    use crate::storage::{document::BlobDocumentStore, sqlite::init_integration_schema};
+    use crate::storage::sqlite::init_integration_schema;
 
     fn storage() -> SqlStorage {
         let store = crate::tests_support::test_store(|| {

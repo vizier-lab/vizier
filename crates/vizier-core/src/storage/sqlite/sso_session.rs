@@ -124,7 +124,7 @@ mod tests {
     use super::*;
     use crate::{
         encryption::{IntegrationSecretPaths, SecretCipher},
-        storage::{document::BlobDocumentStore, sql::SqlStore},
+        storage::sql::SqlStore,
     };
 
     /// An encrypted store over an in-memory database, so a test can see the envelope itself.
