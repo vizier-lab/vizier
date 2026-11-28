@@ -1,9 +1,7 @@
 //! The storage contract of `specs/061-agent-custom-tools/data-model.md` (task T015).
 
-use std::sync::Arc;
-
 use super::*;
-use crate::storage::{document::BlobDocumentStore, sqlite::init_custom_tool_schema};
+use crate::storage::sqlite::init_custom_tool_schema;
 
 fn setup() -> (SqlStorage, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();

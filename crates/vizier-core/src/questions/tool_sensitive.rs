@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use crate::{
         schema::{VizierChannelId, VizierSession},
-        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::sqlite::SqlStorage,
     };
 
     fn tool() -> (AskSensitiveInput, tempfile::TempDir) {

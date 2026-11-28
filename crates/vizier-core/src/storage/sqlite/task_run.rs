@@ -332,13 +332,10 @@ impl TaskRunStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

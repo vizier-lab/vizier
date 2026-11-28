@@ -177,7 +177,6 @@ fn a_listing_holds_the_callers_own_conversations() {
         session::SessionStorage, sqlite::SqlStorage, user::UserStorage,
     };
 
-    let dir = tempfile::tempdir().unwrap();
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     SqlStorage::init_schema(&conn).unwrap();
     let conn = crate::storage::sql::SqlStore::sqlite(conn);

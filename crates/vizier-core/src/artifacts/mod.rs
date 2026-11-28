@@ -557,7 +557,6 @@ mod session_filename_tests {
 mod tests {
     use super::*;
     use crate::storage::blob::LocalBlobStore;
-    use crate::storage::document::BlobDocumentStore;
     use std::sync::Arc;
 
     fn service() -> (Artifacts, Arc<VizierStorage>, tempfile::TempDir) {

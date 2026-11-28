@@ -10,7 +10,7 @@ use crate::{
     agents::tools::{ToolRouter, VizierToolSet, python::run_script},
     sandbox::{ExecutionReport, SandboxLimits},
     schema::{VizierChannelId, VizierSession},
-    storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
+    storage::{VizierStorage, sqlite::SqlStorage},
 };
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]

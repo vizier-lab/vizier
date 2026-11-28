@@ -180,8 +180,6 @@ fn with_reactions(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
@@ -191,7 +189,6 @@ mod tests {
         VizierSession,
     };
     use crate::storage::{
-        document::BlobDocumentStore,
         history::HistoryStorage,
         sqlite::{init_history_schema, init_reaction_schema},
     };

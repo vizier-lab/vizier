@@ -239,7 +239,7 @@ mod tests {
     use super::*;
     use crate::{
         agents::tools::{ENDS_TURN_NOTICE, with_ends_turn_notice},
-        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::sqlite::SqlStorage,
     };
 
     fn tool() -> (AskQuestion, tempfile::TempDir) {

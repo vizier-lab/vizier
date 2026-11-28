@@ -511,12 +511,9 @@ impl UsageStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
 
     use super::*;
-    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

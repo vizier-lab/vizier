@@ -258,10 +258,8 @@ impl SecretStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::storage::{document::BlobDocumentStore, sqlite::init_secret_schema};
+    use crate::storage::sqlite::init_secret_schema;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

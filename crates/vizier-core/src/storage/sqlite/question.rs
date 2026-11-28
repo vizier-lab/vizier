@@ -438,15 +438,12 @@ impl crate::storage::question::SensitiveAskStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use rusqlite::Connection;
 
     use super::*;
     use crate::{
         questions::model::{AnswerState, AnswerValue, ChoiceOption, Question, QuestionType},
         schema::VizierChannelId,
-        storage::document::BlobDocumentStore,
     };
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {

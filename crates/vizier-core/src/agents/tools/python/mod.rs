@@ -310,7 +310,7 @@ mod tests {
             SessionHistory, SessionHistoryContent, VizierChannelId, VizierSession,
             history_entries_to_messages,
         },
-        storage::{VizierStorage, document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::{VizierStorage, sqlite::SqlStorage},
         transport::VizierTransport,
     };
 
@@ -329,7 +329,6 @@ mod tests {
     /// reads, not what the next turn is built from (SC-014, SC-015, SC-022, FR-041).
     #[tokio::test]
     async fn a_supplied_value_reaches_the_script_and_no_copy_that_leaves_the_turn() {
-        let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();

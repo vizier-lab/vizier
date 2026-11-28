@@ -1,12 +1,10 @@
 //! The storage rules of spec 069: single use, one owner per account, one account per platform.
 
-use std::sync::Arc;
-
 use super::*;
 use crate::{
     platform_links::code,
     storage::{
-        document::BlobDocumentStore, platform_link::PlatformLinkStorage, sql::SqlStore,
+        platform_link::PlatformLinkStorage, sql::SqlStore,
         user::UserStorage,
     },
 };

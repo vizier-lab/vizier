@@ -10,7 +10,7 @@ use crate::agents::tools::{ToolContext, VizierTool};
 use crate::schema::{
     NotificationCategory, NotificationFilter, SessionHistoryContent, TOPIC_ID_LEN,
 };
-use crate::storage::{document::BlobDocumentStore, sqlite::SqlStorage, user::UserStorage};
+use crate::storage::{sqlite::SqlStorage, user::UserStorage};
 
 struct Fixture {
     storage: Arc<VizierStorage>,

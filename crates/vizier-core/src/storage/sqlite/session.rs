@@ -461,13 +461,10 @@ impl SessionStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
-    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -530,7 +527,6 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_a_session_deletes_its_messages_and_nothing_else() {
-        let dir = tempfile::tempdir().unwrap();
         let store = crate::tests_support::test_store(|| {
             let conn = Connection::open_in_memory().unwrap();
             SqlStorage::init_schema(&conn).unwrap();

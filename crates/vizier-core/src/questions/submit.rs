@@ -235,7 +235,7 @@ mod tests {
             Answer, AnswerState, AnswerValue, ChoiceOption, Question, QuestionSet, QuestionType,
         },
         schema::VizierChannelId,
-        storage::{document::BlobDocumentStore, sqlite::SqlStorage},
+        storage::sqlite::SqlStorage,
     };
 
     fn session(topic: &str) -> VizierSession {

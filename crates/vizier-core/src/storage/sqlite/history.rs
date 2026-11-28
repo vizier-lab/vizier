@@ -866,14 +866,11 @@ impl HistoryStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
     use crate::schema::{VizierChannelId, VizierRequest, VizierRequestContent};
-    use crate::storage::document::BlobDocumentStore;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -1316,7 +1313,6 @@ mod tests {
         };
         const WRITERS: usize = 50;
         const EACH: usize = 200;
-        let dir = tempfile::tempdir().unwrap();
         let storage = SqlStorage::new(
             store,
         );

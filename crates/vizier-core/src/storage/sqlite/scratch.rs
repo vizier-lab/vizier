@@ -170,13 +170,11 @@ impl ScratchStorage for SqlStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::storage::sql::SqlStore;
     use rusqlite::Connection;
 
     use super::*;
-    use crate::{schema::VizierChannelId, storage::document::BlobDocumentStore};
+    use crate::schema::VizierChannelId;
 
     fn setup() -> (SqlStorage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

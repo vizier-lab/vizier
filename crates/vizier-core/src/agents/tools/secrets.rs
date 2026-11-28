@@ -207,7 +207,6 @@ mod tests {
     use crate::{
         schema::{VizierChannelId, VizierSession},
         storage::{
-            document::BlobDocumentStore,
             secret::SecretStorage,
             sqlite::{SqlStorage, init_secret_schema},
         },
