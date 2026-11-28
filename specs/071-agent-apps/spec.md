@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; the driver is switched from the agent's name at the top of that chat, not from the app window; a person can also start an app from scratch from the rail's +, with a minimal empty state ("tell your agent what to build"); desktop edition only (including the server the desktop app can expose); export and import are out of scope.
+**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; the driver is switched from the agent's name at the top of that chat, not from the app window; a person can also start an app from scratch from the rail's +, with a minimal empty state ("tell your agent what to build"); desktop edition only (including the server the desktop app can expose); every app has its own SQLite database for its data; export and import are out of scope.
 
 ## Context
 
@@ -114,7 +114,7 @@ The top of the app's chat shows the driving agent: **Archivist ▾**, "drives th
 2. **Given** an agent missing some requirements, **When** the person makes it the driver, **Then** the switch succeeds; the functions and background work that need the missing items are turned off and say why, and everything else works.
 3. **Given** a switch to a new driver, **When** it completes, **Then** a new chat thread with the new driver starts beside the app, the previous thread is kept and readable by people allowed to read the previous agent's conversations, and the app's data and versions are unchanged.
 4. **Given** a switch to a new driver, **When** the app has approved functions that use secrets or have outside effects, **Then** those approvals are asked again before they run under the new driver.
-5. **Given** a new driver's first turn, **When** it starts, **Then** the driver is given the app's description, requirements, current version and the shape of its data, so it can work on the app without having built it.
+5. **Given** a new driver's first turn, **When** it starts, **Then** the driver is given the app's description, requirements, current version and its database's tables, so it can work on the app without having built it.
 
 ---
 
@@ -217,6 +217,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **The person loses the right to chat with the driving agent** (permission removed): the app treats it as having no driver until the person picks one they may use.
 - **Two windows or tabs open the same app**: both stay in step. Data written in one appears in the other, and only one chat thread exists.
 - **An app version breaks the page but the data is fine**: the person can roll back from version history, which stays reachable when the page cannot load.
+- **A migration fails** (bad SQL, or it would break existing rows): it is not applied, the version that carried it is not saved, and the driver is told why in the same turn.
 - **App data grows past its limit**: the write is refused with a clear reason that the page and the driver both receive. Nothing is silently truncated.
 - **A schedule's function fails or exceeds its time limit**: the run is recorded as failed with the reason and the next run still happens. No notification storm: a repeating failure notifies once per episode.
 - **The person removes an app**: it is deleted with its versions, data, files, approvals and schedules after a confirmation that names what is lost; its chat threads remain readable as ordinary conversations of their agents.
@@ -237,7 +238,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **FR-003a**: The rail's + MUST offer New agent and New app (in the desktop edition; the server edition keeps opening New agent directly). New app MUST open a draft at once, with the person's most recently used agent as driver, a minimal empty state inviting the person to tell the driver what to build, and the chat composer focused.
 - **FR-003b**: A draft MUST become an ordinary app when its driver saves the first version, at which point the driver gives it a name and icon (both changeable by the owner later). A draft with no message sent MUST be discarded when the person leaves it.
 - **FR-004**: An app MUST be self-contained. Its pages, functions, data, files, manifest and version history MUST be stored with the app, and nothing in it MUST depend on any one agent's memory, custom tools, artifacts or conversations.
-- **FR-005**: An app MUST carry no memory of its own. What a driver needs to work on it MUST come from the app's description, manifest, current version and the shape of its data.
+- **FR-005**: An app MUST carry no memory of its own. What a driver needs to work on it MUST come from the app's description, manifest, current version and its database's tables.
 
 **Rail and layout**
 
@@ -251,7 +252,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 - **FR-011**: The app's chat MUST be the ordinary conversation experience (the same components and behaviour as a conversation with an agent), so that any chat behaviour present now or added later applies to it without app-specific work.
 - **FR-012**: Each app MUST have one chat thread per driver. Switching driver MUST start a new thread with the new driver and keep the previous one readable by those allowed to read that agent's conversations.
-- **FR-013**: When a driver's turn starts in an app's chat, the driver MUST be given the app's description, requirements, current version, available functions and data shape.
+- **FR-013**: When a driver's turn starts in an app's chat, the driver MUST be given the app's description, requirements, current version, available functions and database tables.
 - **FR-014**: App tools (to edit the app, read and write its data and files, and manage its functions and schedules) MUST be offered to the driver only in that app's chat and in that app's own background work. They MUST NOT be offered in other conversations, scheduled tasks, dreams, Discord or Telegram.
 
 **Versions and changes**
@@ -262,15 +263,17 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 **Data and files**
 
-- **FR-018**: An app MUST be able to keep structured data (named collections of records) that its page and its driver can read and write, saved immediately, with no model call for page reads and writes.
-- **FR-019**: App data and files MUST have size limits. A write over a limit MUST be refused with a reason given to whoever made it.
+- **FR-018**: Every app MUST have its own SQLite database, separate from Vizier's own storage and from every other app's. Its page, its functions and its driver MUST be able to query and change it (the page and functions only their own app's database), with changes saved immediately and no model call for page reads and writes. Page and function queries MUST be bounded in time and result size.
+- **FR-018a**: Changes to the database's tables MUST be made by the driver as migrations saved with the app version that introduced them. Rolling back to an earlier version MUST NOT undo a migration or change data; an earlier version that no longer fits the current tables shows its errors like any broken version, and the driver can add a migration to fix it.
+- **FR-018b**: The owner MUST be able to see the app's tables and their row counts, and to download the database as a file.
+- **FR-019**: The app database and app files MUST have size limits. A write over a limit MUST be refused with a reason given to whoever made it.
 - **FR-020**: Changes to app data MUST appear in every open view of that app without a reload.
 - **FR-021**: An app MUST be able to keep files. Its page MUST be able to read its own files and the uploads of its own current chat thread, and MUST NOT be able to read any other conversation's files. The driver MUST be able to copy a chat upload into the app, and the page MUST be able to share an app file into the chat, or add a file the person picked in the page straight to the current chat thread as an upload.
 - **FR-021a**: The page MUST be able to send a message to its own app's chat, optionally with attachments, only as the direct result of a press or key from the person. The message MUST appear as the person's, visibly marked as sent from the app, and MUST start an ordinary turn with the driver. Sends MUST be rate-limited per app, and MUST be refused with a reason when there is no driver or the gesture rule or the limit is not met. A page MUST NOT be able to send to any other conversation.
 
 **Manifest, requirements and drivers**
 
-- **FR-022**: Every app MUST have a manifest stating its name, description, icon, entry page, data collections, functions, page-callable functions, schedules, manifest tools and requirements.
+- **FR-022**: Every app MUST have a manifest stating its name, description, icon, entry page, database migrations, functions, page-callable functions, schedules, manifest tools and requirements.
 - **FR-023**: Requirements MUST cover tool categories, addons, connected servers (and the tools needed from them), secrets by name only (never values), and model features. Tool needs MUST be derived from what the app's functions call. Only what cannot be derived MAY be declared.
 - **FR-024**: The system MUST be able to check any agent against an app's requirements and report ready, or the exact missing items, each with where to fix it.
 - **FR-025**: The person MUST be able to make any agent they may chat with the app's driver, whether ready or not. Functions and background work that need missing items MUST be turned off with a stated reason, and everything else MUST keep working.
@@ -298,10 +301,10 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 - **App**: a named, person-owned thing on the rail. It has an icon, a description, a current version, a driver (or none), a tile count, and a place in its owner's rail order. It is a **draft** until its first version is saved.
 - **App version**: one saved state of the app's page, functions and manifest. Versions are ordered, and one is current.
-- **Manifest**: the app's own description of itself: entry page, data collections, functions, page-callable functions, schedules, manifest tools and requirements.
+- **Manifest**: the app's own description of itself: entry page, database migrations, functions, page-callable functions, schedules, manifest tools and requirements.
 - **Requirement**: something a driver must have for part of an app to work: a tool category, an addon, a connected server's tools, a named secret, or a model feature. It is derived or declared.
 - **Driver**: the agent currently assigned to an app. It changes over time, and each driver has its own chat thread.
-- **App data**: named collections of records belonging to the app, with size limits, shared by its page and its driver.
+- **App database**: the app's own SQLite database, with size limits, shared by its page, its functions and its driver; its tables change only through migrations kept with app versions.
 - **App file**: a file kept with the app, as opposed to an upload in one of its chat threads.
 - **App function**: a saved script belonging to the app that runs with the driver's tools.
 - **Page approval**: the owner's consent for the page to call a given function, kept per app and per driver.
@@ -331,7 +334,8 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **Export and import are out of scope.** The manifest and the self-contained rule (FR-004) are designed so they can be added later without reworking apps.
 - **No sharing.** An app is seen and used only by its owner. Sharing with other people is out of scope.
 - **The rail's + changes from spec 064** in the desktop edition: it opens a two-item menu instead of going straight to New agent. New agent is one click further away, which is accepted.
+- **No per-agent database addon.** A SQLite addon giving each agent its own database was considered and set aside; only apps get a database here.
 - **Every app is on the rail.** There is no hidden or archived app list in this feature: removing an app deletes it.
 - **Icons come from a fixed icon set.** Custom drawn icons (for example an agent-written SVG) are out of scope until import exists, because they would need a sanitizer.
 - **One open chat thread per app at a time**, belonging to the current driver. Previous drivers' threads are reachable from those agents' conversation lists.
-- **Defaults chosen without asking:** the chat inset defaults to 380 px wide; data limits follow the existing scratchpad and page-state order of magnitude, to be fixed in planning; schedule time limits follow the detached-script limits (spec 058).
+- **Defaults chosen without asking:** the chat inset defaults to 380 px wide; database and file size limits and query time limits are fixed in planning; schedule time limits follow the detached-script limits (spec 058).
