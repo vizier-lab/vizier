@@ -25,7 +25,7 @@ The design was drawn first (constitution: design before code), in `Vizier shell.
 - **Frame F (chosen)**: the app with its chat as a separate inset on the right, the resize handle, and the rail as one mixed list.
 - **Rail strip beside frame G**: drag to reorder.
 - **Frame B**: adding a page from a chat to the rail.
-- **Frame D**: the driver picker's contents with the requirement check. Its placement is superseded: the picker opens from the agent's name at the top of the chat inset (frames F and I).
+- **Frame D**: the driver picker with the requirement check, opened from the driving agent's name at the top of the chat inset.
 - **Frame E**: an app whose driver was deleted.
 - **Frame H**: the rail's + opening New agent / New app.
 - **Frame I**: a new app as a draft, before anything is built.
@@ -76,7 +76,7 @@ The person clicks the app's tile. The app fills the main panel; its chat with th
 2. **Given** an open app, **When** the page saves or reads its data, **Then** the change lasts across reloads and restarts and no model call is made.
 3. **Given** an open app, **When** the person drags the handle between the two insets, **Then** the chat inset changes width within its limits (chat at least 320 px, app at least 560 px). The width is remembered for that app, and a double-click on the handle restores the default.
 4. **Given** an open app, **When** its page script fails to start or keeps crashing, **Then** the app shows the same paused state and "Run anyway" as a page in a reply, and the chat inset keeps working.
-5. **Given** an open app, **When** its page tries to reach the network, the WebUI, storage or the sign-in token, **Then** the attempt fails exactly as it does for a page in a reply (spec 063).
+5. **Given** an open app, **When** its page script tries to reach the network directly, or the WebUI, storage or the sign-in token, **Then** the attempt fails exactly as it does for a page in a reply (spec 063). Outside data still reaches the app, through its functions (Story 6).
 
 ---
 
@@ -271,7 +271,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 **Functions, approvals and background work**
 
-- **FR-028**: An app's functions MUST run with the current driver's tools and secrets, within time and frequency limits, and MUST be usable by the driver from the app's chat and background work.
+- **FR-028**: An app's functions MUST run with the current driver's tools and secrets, within time and frequency limits, and MUST be usable by the driver from the app's chat and background work. Functions are how an app reaches the outside: depending on the driver's addons, connected servers and tools, they MAY use the network and external data sources, so an app can show live outside data even though its page script cannot reach the network itself. The app MUST NOT describe itself to the person as having no network access.
 - **FR-029**: The page MUST be able to call only functions the owner has approved for it. Approval MUST be asked again for functions added to that list and, on a driver switch, for functions that use secrets or have outside effects.
 - **FR-030**: Function results and app data MUST reach any model as data, never as instructions.
 - **FR-031**: An app MUST be able to have schedules that run its functions or ask its driver to act, without any open app or conversation. Each run's outcome MUST be recorded. A repeating failure MUST notify the owner once per episode.
