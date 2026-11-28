@@ -376,7 +376,9 @@ impl VizierDependencies {
             integration_health: Default::default(),
             channel_board: Default::default(),
             sso_failures: Arc::new(Default::default()),
-            setup: Default::default(),
+            // The board built above, with its view publisher and inbox hook installed: a fresh
+            // one here would report every download to nobody until the page was reloaded.
+            setup,
             notifications,
             side_chat_limits: Arc::new(crate::utils::rate_limit::RateLimiter::new(
                 crate::channels::side_chat::ASKS_PER_WINDOW,

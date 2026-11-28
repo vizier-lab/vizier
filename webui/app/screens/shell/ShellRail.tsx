@@ -11,6 +11,7 @@ import { useSession } from '../../stores/session'
 import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { assetSrc } from '../../lib/fileUrls'
 import { unreadByAgent } from '../../lib/notifications'
+import { pendingAgents } from '../../lib/pendingAgents'
 import { read, write } from '../../lib/remember'
 import { useMobile } from '../../lib/useMobile'
 import { useNav } from '../../stores/nav'
@@ -33,7 +34,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
     // Only a theme with both variants has anything to switch between.
     const canSwitch = useAppearance((s) => hasBothVariants(s.paint))
     const toggleMode = useAppearance((s) => s.toggleMode)
-    const { agents, health, creating } = useAgents()
+    const { agents, health, creating, setups } = useAgents()
     const resetNotifications = useNotifications((s) => s.reset)
     const unread = unreadByAgent(useNotifications((s) => s.chats))
     const mobile = useMobile()
@@ -60,8 +61,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
         order
     )
     const page = pageOf(pathname)
-    const pending = creating
-        .filter((c) => !agents.some((a) => a.agent_id === c.agentId))
+    const pending = pendingAgents(creating, setups, (id) => agents.some((a) => a.agent_id === id))
         .map((c) => ({
             agentId: c.agentId,
             name: c.name,

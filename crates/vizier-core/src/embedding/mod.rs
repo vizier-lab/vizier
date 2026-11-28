@@ -105,13 +105,17 @@ impl VizierEmbedder {
         let Some(id) = provider.credentials() else {
             let variant = crate::config::embedding::LocalEmbeddingModelVariant::from_name(&model)
                 .ok_or_else(|| anyhow::anyhow!("unknown local embedding model: {model}"))?;
-            return Ok(Self::build(fastembed::LocalEmbedder::new(
-                &variant.to_fastembed(),
-                workspace,
-                &deps.setup,
-                agent_id,
-            )?)
-            .metered(meter));
+            // fastembed downloads and loads the model synchronously, for as long as the download
+            // takes: on an async worker that stalls the tasks queued behind it there, the inbox
+            // pump that pushes this very download's progress included.
+            let (model, workspace, setup, agent) =
+                (variant.to_fastembed(), workspace.to_string(), deps.setup.clone(), agent_id.to_string());
+            let embedder = tokio::task::spawn_blocking(move || {
+                fastembed::LocalEmbedder::new(&model, &workspace, &setup, &agent)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("local embedding model task: {e}"))??;
+            return Ok(Self::build(embedder).metered(meter));
         };
         let endpoint = media::endpoint(deps, &id, model.clone()).await?;
         Ok((match provider {

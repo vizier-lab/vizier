@@ -70,6 +70,11 @@ export const useAgents = create<AgentStore>()((set, get) => ({
     applySetup: (state) => {
         set(onSetup(get(), state, Date.now()))
         watchTerminal(state)
+        // An agent is stored once its build succeeds. After a reload no create call is waiting
+        // to refresh the list, so the busy tile would vanish with no agent in its place.
+        if (state.phase === 'ready' && !get().agents.some((a) => a.agent_id === state.agent_id)) {
+            void awaitStored(state.agent_id)
+        }
     },
 
     clearSetup: (agentId) => {
@@ -110,6 +115,15 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         return () => clearInterval(health)
     },
 }))
+
+/** `ready` is announced when the build ends, a moment before the agent is saved: re-read a few times. */
+async function awaitStored(agentId: string) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        await useAgents.getState().refresh()
+        if (useAgents.getState().agents.some((a) => a.agent_id === agentId)) return
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+}
 
 function cancelTerminal(agentId: string) {
     const timer = terminalTimers.get(agentId)
