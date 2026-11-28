@@ -6,7 +6,7 @@ Decisions taken while planning [spec.md](spec.md). Each one resolves a question 
 
 **Decision**: Two layers.
 
-1. **Compile time.** A `vizier-core` Cargo feature `addon-apps`, listed in `full`, with the matching `changes`/flag entries in CI. It compiles the `apps` module, the app storage, the tools and the routes.
+1. **Compile time.** A `vizier-core` Cargo feature `subapp`, listed in `full`. It is ungrouped (like `utoipa` and `telemetry`) because an app is not an agent addon, and the constitution's naming rule covers only channels, addons, providers and gateways. The feature is listed with the matching `changes`/flag entries in CI. It compiles the `apps` module, the app storage, the tools and the routes.
 2. **Run time.** A new `RuntimeOptions.apps: bool`, default `false`. Only the desktop host sets it: `app/src-tauri/src/engine.rs` sets it for the window, and for its opt-in web access server too. `vizier run` never sets it.
 
 With the switch off, the following stay off:
@@ -31,7 +31,9 @@ The WebUI shows app surfaces only when that endpoint says `apps: true`.
 - Web wire id: `app__<id>`, parsed by `from_web`, as projects do with `project__<id>`.
 - `web_user()` returns the owner, so `is_interactive_turn`, `session_has_person`, the generative-UI offer and shares follow without extra code.
 
-The **session** is `(driver agent, App(owner, app), topic)`. A different driver means a different agent id, so switching drivers starts a new thread on its own (FR-012). The app row stores the current thread's topic. The topic is a fresh id when the thread starts and again whenever the thread is deleted.
+The **session** is `(driver agent, App(owner, app), topic)`. Each topic is one **conversation**, so an app has as many conversations with its driver as it has topics (FR-012), listed and opened through the existing topic routes with channel id `app__<id>`, exactly as projects do. A new conversation is a new topic id, chosen by the client as for agent chats. A different driver means a different agent id, so switching drivers starts a separate set of conversations on its own, and the earlier driver's stay with that agent. The app row remembers `last_topic` so the app reopens where the person left it.
+
+**Waking** (FR-012b): `agents/tools/sessions/mod.rs::wakeable_channel` accepts `app__{user}__{id}` when the app's current driver is the calling agent **and** `access::belongs_to_person` holds for the app's owner (the rule spec 067 already applies to WebUI conversations). Anything else is `not_wakeable` or `other_person`. `list_sessions` lists the agent's app conversations with the app's name. The woken turn runs in the app conversation, so `apps::context::for_turn` loads the app as for any turn there. The page learns which conversation is open from the boot data and a `conversation` host message (contracts/frame-protocol.md), so an app can key state by conversation (FR-012a).
 
 **Every place a new kind touches**, from the projects precedent:
 - `schema/session.rs`: `usage_place`, `from_web`, `web_user`, `web_channel_id`, `usage_activity`, `to_slug`, plus a new `app_id()`.
@@ -150,7 +152,7 @@ It returns `Arc<AppTurnContext>`, stored on a new `ToolContext.app` field and se
 
 The functions that need missing requirements are listed with `status: "unavailable"` and the reason (FR-025).
 
-The **stable** facts (app name, description, how app chat works) go in a system prompt section, `system_prompt/app.rs`, which stays the same for the whole thread. The **volatile** facts go in a `## App state` section of `context_md`, as projects do with `## Project state`, so a change never breaks the provider prompt cache: current version, tables and row counts, requirement gaps, and whether the app is open in a tab.
+The **stable** facts (app name, description, how app chat works) go in a system prompt section, `system_prompt/app.rs`, which stays the same for the whole conversation. The **volatile** facts go in a `## App state` section of `context_md`, as projects do with `## Project state`, so a change never breaks the provider prompt cache: current version, tables and row counts, requirement gaps, and whether the app is open in a tab.
 
 App tools are absent from `DREAM_TOOL_NAMES`. `offered_in` limits them to `App` sessions, never Discord or Telegram (FR-014).
 
@@ -179,7 +181,7 @@ The check runs in three places:
 
 A due schedule is one of two kinds:
 - **`run: <function>`**: a page-less function call (D6) with the schedule as caller.
-- **`ask: <instruction>`**: a request on the app's current thread, `VizierRequestContent::AppScheduled(String)`, with frontmatter `sender: scheduler`, `via: app_schedule`. It runs in the history arm so the driver sees the thread, as `Woken` does (spec 067).
+- **`ask: <instruction>`**: a request in the schedule's **own conversation** (topic `sched-<schedule name>`, created on the first run and reused, so a daily schedule never interrupts the person's conversation; FR-031), `VizierRequestContent::AppScheduled(String)`, with frontmatter `sender: scheduler`, `via: app_schedule`. It runs in the history arm so the driver sees the thread, as `Woken` does (spec 067).
 
 Every run is one `app_schedule_run` row, `running → ok | failed | skipped(no_driver | missing)`. The `running` row is the overlap lock, as for task runs. A failure opens one notification per episode (`app_schedule_failed`, key `{app}:{schedule}:{episode}`), and the next success closes the episode (FR-031).
 
@@ -209,10 +211,10 @@ The server re-validates the declarations against the current version's manifest 
 
 ## D12. Messages from the page
 
-**Decision**: `chat.send` produces an ordinary `Chat` request on the app's thread, with a new field `VizierRequest.app_origin: Option<AppOrigin{app_id, version}>`. The field is journaled. `stamp_on_receipt` clears it from client input, and only the `/apps/{id}/chat` route sets it.
+**Decision**: `chat.send` produces an ordinary `Chat` request in the app's open conversation, with a new field `VizierRequest.app_origin: Option<AppOrigin{app_id, version}>`. The field is journaled. `stamp_on_receipt` clears it from client input, and only the `/apps/{id}/chat` route sets it.
 - Frontmatter adds `via: app`.
 - The WebUI draws the bubble as the person's, with a "from <app name>" mark.
-- Attachments ride the existing request attachment path as session files of the thread.
+- Attachments ride the existing request attachment path as session files of that conversation.
 
 **Rationale**: The message really is the person's (FR-021a), so it must be a `Chat` and steer or queue like one, not a `ClientEvent`, whose frontmatter and rendering say "the client did this".
 
@@ -230,8 +232,8 @@ The server re-validates the declarations against the current version's manifest 
 ## D14. Drafts
 
 **Decision**: A draft is an `app` row with `current_version = 0`.
-- `POST /apps` creates it with the driver and opens the thread.
-- The route discards a draft when the person navigates away if the thread has no request (`DELETE /apps/{id}?if_draft_unused=1`, refused once a message exists).
+- `POST /apps` creates it with the driver and a first conversation id.
+- The route discards a draft when the person navigates away if none of its conversations has a request (`DELETE /apps/{id}?if_draft_unused=1`, refused once a message exists).
 - Startup sweeps drafts older than a day that have no history row (a crashed window).
 - The first saved version turns a draft into an app. The driver must name it and give it an icon in that save, and `app_edit` refuses a first version without them.
 
@@ -248,8 +250,8 @@ The server re-validates the declarations against the current version's manifest 
   - the `app`, `app_version`, `app_approval`, `app_schedule` and `app_schedule_run` rows;
   - the rail entry.
 
-  It then deletes the blobs and the database file. Chat threads stay as conversations of their agents (FR-034), shown as "App: <name> (removed)".
-- **Deleting an agent** sets `driver_agent_id = NULL` on its apps in the same transaction as the agent delete (FR-027), and records `app_driver_lost`. The agent's own conversations, the app threads included, go with the agent as today.
+  It then deletes the blobs and the database file. Its conversations stay as conversations of their agents (FR-034), shown as "App: <name> (removed)".
+- **Deleting an agent** sets `driver_agent_id = NULL` on its apps in the same transaction as the agent delete (FR-027), and records `app_driver_lost`. The agent's own conversations, the app conversations included, go with the agent as today.
 
 ## D17. Tests and the offline check
 

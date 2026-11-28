@@ -17,12 +17,12 @@ Errors use the existing envelope (`vizier-http/src/error.rs`). An app the caller
 | `POST /apps/from-page` | `{"agent_id", "channel_id", "topic_id", "page_id", "version"}` | `201 AppDetail` | Add to rail: copies that ui_page version as v1, with the page's agent as driver. The caller must own the conversation |
 | `GET /apps/{id}` | | `AppDetail` | |
 | `PATCH /apps/{id}` | `{"name"?, "icon"?, "description"?}` | `AppDetail` | Rename etc. by the owner |
-| `DELETE /apps/{id}` | `?if_draft_unused=1` optional | `204` | With the flag: refused `409 draft_in_use` once the thread has a request (research D14) |
+| `DELETE /apps/{id}` | `?if_draft_unused=1` optional | `204` | With the flag: refused `409 draft_in_use` once any of its conversations has a request (research D14) |
 | `GET /apps/{id}/versions` | `?before&limit` | `[VersionSummary]` | |
 | `POST /apps/{id}/current` | `{"version": n}` | `AppDetail` | Rollback / forward. Data untouched (FR-017) |
 | `GET /apps/{id}/frame-ticket` | `?version` | `{"ticket", "expires_at_ms"}` | For `/ui-frames/{ticket}` |
 | `GET /apps/{id}/drivers` | | `[DriverOption]` | Every agent the caller may chat with, each with its `Report` (research D8) |
-| `PUT /apps/{id}/driver` | `{"agent_id": string\|null}` | `AppDetail` | Starts a new thread. Approvals: non-sensitive ones are carried over (data-model) |
+| `PUT /apps/{id}/driver` | `{"agent_id": string\|null}` | `AppDetail` | Opens a new conversation with the new driver. Approvals: non-sensitive ones are carried over (data-model) |
 | `GET /apps/{id}/approvals` / `PUT /apps/{id}/approvals` | `{"function", "granted": bool}` | `[Approval]` | Owner consent per function for the current driver |
 | `GET /apps/{id}/schedules` | | `[ScheduleSummary]` | With last runs and open episodes |
 
@@ -34,7 +34,7 @@ Errors use the existing envelope (`vizier-http/src/error.rs`). An app the caller
 
 // AppDetail = AppSummary + 
 {"description":"…","current_version":4,"latest_version":4,
- "thread":{"channel_id":"app__ap_…","topic_id":"…"},
+ "conversations":{"channel_id":"app__ap_…","last_topic":"…"},  // list/open through the existing topic routes with this channel id
  "abilities":["state","send","files","worker","db","fn","chat","tools"],
  "manifest":{ /* contracts/manifest.md, current version */ },
  "report":{"ready":false,"gaps":[{"requirement":"secret:CAL_TOKEN","reason":"not set","fix":{"kind":"secrets","agent_id":"quill"}}]}}
@@ -52,9 +52,9 @@ Errors use the existing envelope (`vizier-http/src/error.rs`). An app the caller
 | `GET /apps/{id}/db/download` | | `application/vnd.sqlite3` | A consistent snapshot (`VACUUM INTO` a temp file) |
 | `POST /apps/{id}/functions/{name}/call` | `{"input": {..}}` | `{"status":"ok","output"}` \| `{"status": "not_approved"\|"unavailable"\|"no_driver"\|"rate_limited"\|"error", "reason"}` | Runs in the driver's host through `AgentsClient::app_function` |
 | `POST /apps/{id}/chat` | `{"text", "attachments": [file ids], "gesture_at_ms"}` | `202 {"request_id"}` | Gesture window and rate limits; refused `no_driver`. Becomes a `Chat` with `app_origin` (research D12) |
-| `GET /apps/{id}/files` | | `[AppFile]` | App files + the current thread's uploads (FR-021) |
-| `POST /apps/{id}/files` | multipart `file`, `?to=app\|thread` | `AppFile` | `thread` adds a session file to the current thread |
-| `POST /apps/{id}/files/{fid}/share` | | `{"session_file_id"}` | Copies an app file into the thread |
+| `GET /apps/{id}/files` | | `[AppFile]` | App files + the uploads of conversation `?topic` (FR-021) |
+| `POST /apps/{id}/files` | multipart `file`, `?to=app\|conversation&topic` | `AppFile` | `conversation` adds a session file to that conversation |
+| `POST /apps/{id}/files/{fid}/share` | | `{"session_file_id"}` | Copies an app file into conversation `?topic` |
 | `GET /apps/{id}/files/{fid}` | | bytes | Also through `vizier-asset://` on desktop |
 
 ## Rail order

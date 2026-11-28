@@ -31,7 +31,7 @@ pub enum AppCallOutcome {
   1. the app still names this agent as driver;
   2. the function exists in `version`;
   3. the requirement report for this function is `Ready`.
-- **The host** builds a `ToolContext` for session `(agent, App(owner, app), current thread topic)` with:
+- **The host** builds a `ToolContext` for session `(agent, App(owner, app), last_topic)` with:
   - `interactive: false`
   - `detached: false`
   - `client: None`
@@ -39,5 +39,5 @@ pub enum AppCallOutcome {
   - a usage turn id `app-fn:<uuid>`
 
   It runs the function with `custom_tools::run` against the agent's current `VizierTools` snapshot. The secret redactor applies to the output and the report.
-- It never writes to the thread's history: a page call is not a turn.
+- It never writes to any conversation's history: a page call is not a turn.
 - `FakeAgentsClient` records the call and answers from its script, so `vizier-http/tests/apps.rs` tests the route with no agent host.

@@ -1,6 +1,6 @@
 # Data Model: Agent Apps
 
-All tables live in the main SQLite database. They are created by `storage/sqlite/app.rs::init_app_schema` and only when the `addon-apps` feature is compiled in. Times are epoch milliseconds unless noted. Ids are prefixed base62: `ap_` for apps, `as_` for schedules, `af_` for files.
+All tables live in the main SQLite database. They are created by `storage/sqlite/app.rs::init_app_schema` and only when the `subapp` feature is compiled in. Times are epoch milliseconds unless noted. Ids are prefixed base62: `ap_` for apps, `as_` for schedules, `af_` for files.
 
 ## Tables
 
@@ -16,7 +16,7 @@ All tables live in the main SQLite database. They are created by `storage/sqlite
 | `current_version` | INTEGER NOT NULL DEFAULT 0 | 0 = **draft** (no version yet) |
 | `latest_version` | INTEGER NOT NULL DEFAULT 0 | Rollback moves `current_version` only |
 | `driver_agent_id` | TEXT NULL | NULL = no driver (FR-026) |
-| `thread_topic` | TEXT NOT NULL | The current thread's topic; a new value starts a new thread |
+| `last_topic` | TEXT NOT NULL | The conversation the app reopens on; conversations themselves are topics of the `app__<id>` channel with the current driver |
 | `badge` | INTEGER NULL | The tile count (FR-032) |
 | `db_bytes` / `files_bytes` | INTEGER NOT NULL DEFAULT 0 | Cached sizes for limits and the owner view |
 | `created_at`, `updated_at` | INTEGER | |
@@ -35,7 +35,7 @@ Index: `(owner_user_id)`, `(driver_agent_id)`.
 | `base_version` | INTEGER NULL | NULL for v1 |
 | `origin` | TEXT NOT NULL | `driver:{agent_id}` or `rollback:{from}` (a rollback adds no row; this is reserved for imports) |
 | `verification` | TEXT NOT NULL | `pending`, `ok`, `problems:{json}`, `unverified:{reason}` (as spec 063) |
-| `history_uid` | TEXT NULL | The step entry in the thread that made it |
+| `history_uid` | TEXT NULL | The step entry in the conversation that made it |
 | `created_at` | INTEGER | |
 
 ### `app_approval`
@@ -52,7 +52,7 @@ Rule: a page call to `f` is allowed only when `f` is in the current manifest's `
 
 ### `app_schedule` / `app_schedule_run`
 
-`app_schedule` is rebuilt from the current version's manifest whenever `current_version` changes, keyed `(app_id, name)`, with `cron`, `kind` (`run` | `ask`), `target`, `episode` (NULL or an open failure episode id) and `last_run_at`.
+`app_schedule` is rebuilt from the current version's manifest whenever `current_version` changes, keyed `(app_id, name)`, with `cron`, `kind` (`run` | `ask`), `target`, `topic` (for `ask`: `sched-<name>`, the schedule's own conversation), `episode` (NULL or an open failure episode id) and `last_run_at`.
 
 `app_schedule_run(id, app_id, schedule, driver_agent_id NULL, started_at, finished_at NULL, state, reason NULL)`:
 
@@ -110,7 +110,7 @@ Inside each app database, Vizier keeps two tables that page and driver SQL canno
 
   App:  driver set ◄──► no driver   (agent deleted, access lost, or the owner clears it)
         current_version: any saved version (rollback / forward); latest_version only grows
-        removed ──► rows, blobs and database file deleted; threads stay with their agents
+        removed ──► rows, blobs and database file deleted; conversations stay with their agents
 ```
 
 ## Validation rules (from the spec)

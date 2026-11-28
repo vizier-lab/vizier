@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; the driver is switched from the agent's name at the top of that chat, not from the app window; a person can also start an app from scratch from the rail's +, with a minimal empty state ("tell your agent what to build"); desktop edition only (including the server the desktop app can expose); every app has its own SQLite database for its data; export and import are out of scope.
+**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; the driver is switched from the agent's name at the top of that chat, not from the app window; a person can also start an app from scratch from the rail's +, with a minimal empty state ("tell your agent what to build"); desktop edition only (including the server the desktop app can expose); every app has its own SQLite database for its data; an app can have several conversations with its driver, and the driver can wake one of them; export and import are out of scope.
 
 ## Context
 
@@ -29,6 +29,8 @@ The design was drawn first (constitution: design before code), in `Vizier shell.
 - **Frame E**: an app whose driver was deleted.
 - **Frame H**: the rail's + opening New agent / New app.
 - **Frame I**: a new app as a draft, before anything is built.
+- **Frame J**: the top of the chat inset: the open conversation's title (switches conversations), the driving agent under it (switches driver), and + for a new conversation. It supersedes the driver-only header drawn in F, D, E and I.
+- **Frame K**: the conversation list open.
 
 The alternatives that were not chosen (apps in their own rail section, apps listed under their agent, the chat inset on the left) were removed from the file.
 
@@ -97,12 +99,15 @@ This conversation **is the ordinary chat**: every chat feature (the activity tra
 3. **Given** an app with several versions, **When** the person picks an earlier version in the version history and confirms, **Then** the app runs that version and its data is unchanged.
 4. **Given** a feature added to the ordinary chat after this one ships, **When** the person uses an app's chat, **Then** the feature is there with no app-specific work.
 5. **Given** the driver's other conversations, a scheduled task or a dream, **When** they run, **Then** they cannot read or change this app's data or versions; only the app's own chat and the app's own background work can.
+6. **Given** an app, **When** the person presses + at the top of its chat inset, **Then** a new conversation with the current driver opens, the earlier ones stay in the conversation list, and the app's data is the same in all of them.
+7. **Given** an app page that keeps state per conversation, **When** the person switches conversation, **Then** the page is told the new conversation and can show that conversation's state.
+8. **Given** a scheduled task of the driving agent that works for the app's owner, **When** it wakes one of the app's conversations, **Then** a turn runs there with the app's tools and its answer lands in that conversation. **Given** any other agent, or a turn working for another person, **When** it tries the same wake, **Then** it is refused with a reason.
 
 ---
 
 ### User Story 4 - Switch the agent that drives the app (Priority: P2)
 
-The top of the app's chat shows the driving agent: **Archivist ▾**, "drives this app". The person opens it and sees what the app needs (for example "time tools", "Google Calendar connection", "secret CAL_TOKEN") and every agent they can use, each marked **ready** or **missing N**. Expanding an agent shows what it lacks and offers a link to set it up on that agent. The person picks Scout. Scout becomes the driver, a new chat thread starts with Scout, and the old thread stays readable from Archivist's conversations.
+The top of the app's chat shows the open conversation's title and, under it, the driving agent: **Archivist ▾**. The person opens it and sees what the app needs (for example "time tools", "Google Calendar connection", "secret CAL_TOKEN") and every agent they can use, each marked **ready** or **missing N**. Expanding an agent shows what it lacks and offers a link to set it up on that agent. The person picks Scout. Scout becomes the driver, a new chat thread starts with Scout, and the old thread stays readable from Archivist's conversations.
 
 **Why this priority**: Apps that are tied to one agent cannot outlive it or move to a better-suited one, and that is the core reason they belong to the person. It comes after creating, using and changing an app, which are useful on their own.
 
@@ -112,7 +117,7 @@ The top of the app's chat shows the driving agent: **Archivist ▾**, "drives th
 
 1. **Given** an app, **When** the person opens the driver picker from the agent's name at the top of the chat inset, **Then** it lists the app's requirements and every agent the person may chat with, each marked ready or with the exact missing items.
 2. **Given** an agent missing some requirements, **When** the person makes it the driver, **Then** the switch succeeds; the functions and background work that need the missing items are turned off and say why, and everything else works.
-3. **Given** a switch to a new driver, **When** it completes, **Then** a new chat thread with the new driver starts beside the app, the previous thread is kept and readable by people allowed to read the previous agent's conversations, and the app's data and versions are unchanged.
+3. **Given** a switch to a new driver, **When** it completes, **Then** a new conversation with the new driver opens beside the app, the previous driver's conversations are kept and readable by people allowed to read that agent's conversations, and the app's data and versions are unchanged.
 4. **Given** a switch to a new driver, **When** the app has approved functions that use secrets or have outside effects, **Then** those approvals are asked again before they run under the new driver.
 5. **Given** a new driver's first turn, **When** it starts, **Then** the driver is given the app's description, requirements, current version and its database's tables, so it can work on the app without having built it.
 
@@ -178,14 +183,14 @@ An app can also talk to its own chat on the person's behalf. A "Receipts" app ha
 
 **Why this priority**: Files make apps practical for real data, and sending from the page lets an app hand work to its driver in one click, but apps are useful without either.
 
-**Independent Test**: Drop a file into an app's chat and ask the driver to keep it. It appears among the app's files and survives deleting that chat thread or switching drivers. Separately, in an app with a file picker and a send button, pick a file and press the button: the chat shows the message with the file attached and the "from the app" mark, and the driver replies.
+**Independent Test**: Drop a file into an app's chat and ask the driver to keep it. It appears among the app's files and survives deleting that conversation or switching drivers. Separately, in an app with a file picker and a send button, pick a file and press the button: the chat shows the message with the file attached and the "from the app" mark, and the driver replies.
 
 **Acceptance Scenarios**:
 
 1. **Given** a file uploaded in an app's chat, **When** the driver copies it into the app, **Then** it is kept with the app and survives a driver switch.
-2. **Given** an app page, **When** it lists files, **Then** it sees its own files and the uploads of its own chat thread, never uploads from any other conversation.
+2. **Given** an app page, **When** it lists files, **Then** it sees its own files and the uploads of the app's conversation that is open, never uploads from any other conversation.
 3. **Given** an app file, **When** the page shares it with the driver, **Then** it appears in the app's chat as an attachment the driver can read.
-4. **Given** a file the person picked in the page, **When** the page sends it to the chat, **Then** it is added to the app's current chat thread as an upload (without becoming an app file unless the page or driver also keeps it).
+4. **Given** a file the person picked in the page, **When** the page sends it to the chat, **Then** it is added to the app's open conversation as an upload (without becoming an app file unless the page or driver also keeps it).
 5. **Given** an app page, **When** the person presses a button that sends a message (with or without attachments), **Then** the message appears in the app's chat as the person's, marked as sent from the app, and starts an ordinary turn with the driver.
 6. **Given** an app page, **When** it tries to send a message without a press or key from the person (on load, on a timer, from a background task), **Then** nothing is sent and the page is told why.
 7. **Given** an app page that sends messages faster than the per-app limit, **When** the limit is reached, **Then** further sends are refused with a reason until the limit resets.
@@ -215,14 +220,14 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **Driver lacks a requirement after a change to it** (an integration removed, a secret deleted): the app is checked again when the app opens and before background work runs; the affected functions are turned off with a reason rather than failing silently.
 - **The driver adds a requirement in a new version**: the picker and the app header show the new state; a version cannot be saved while it uses tools that the manifest's derived requirements do not list.
 - **The person loses the right to chat with the driving agent** (permission removed): the app treats it as having no driver until the person picks one they may use.
-- **Two windows or tabs open the same app**: both stay in step. Data written in one appears in the other, and only one chat thread exists.
+- **Two windows or tabs open the same app**: both stay in step. Data written in one appears in the other; each may have a different conversation open.
 - **An app version breaks the page but the data is fine**: the person can roll back from version history, which stays reachable when the page cannot load.
 - **A migration fails** (bad SQL, or it would break existing rows): it is not applied, the version that carried it is not saved, and the driver is told why in the same turn.
 - **App data grows past its limit**: the write is refused with a clear reason that the page and the driver both receive. Nothing is silently truncated.
 - **A schedule's function fails or exceeds its time limit**: the run is recorded as failed with the reason and the next run still happens. No notification storm: a repeating failure notifies once per episode.
-- **The person removes an app**: it is deleted with its versions, data, files, approvals and schedules after a confirmation that names what is lost; its chat threads remain readable as ordinary conversations of their agents.
+- **The person removes an app**: it is deleted with its versions, data, files, approvals and schedules after a confirmation that names what is lost; its conversations remain readable as ordinary conversations of their agents.
 - **A draft is left after a message was sent but before any version was saved** (the driver failed or was stopped): the draft is kept, so the conversation is not lost; it stays a dashed tile until a version exists or the person removes it.
-- **The person deletes the app's chat thread**: the app is unaffected and a new thread starts with the current driver on the next message.
+- **The person deletes one of the app's conversations**: the app is unaffected; the most recent remaining conversation opens, or a new one when none is left.
 - **Phone-width window** (the desktop's web access opened on a phone): the two-inset layout does not fit; the app takes the screen and the chat opens as a sheet over it.
 - **Web access is turned on**: the person can open their apps from a browser exactly as in the desktop window, under the same sign-in.
 
@@ -251,7 +256,9 @@ While the app is open, its chat's driver can use tools the app provides on scree
 **The app's chat**
 
 - **FR-011**: The app's chat MUST be the ordinary conversation experience (the same components and behaviour as a conversation with an agent), so that any chat behaviour present now or added later applies to it without app-specific work.
-- **FR-012**: Each app MUST have one chat thread per driver. Switching driver MUST start a new thread with the new driver and keep the previous one readable by those allowed to read that agent's conversations.
+- **FR-012**: An app MUST be able to have several conversations with its current driver. The top of the chat inset MUST show the open conversation and let the person switch between the app's conversations with the current driver or start a new one. Switching driver MUST open a new conversation with the new driver and keep the previous driver's conversations readable by those allowed to read that agent's conversations.
+- **FR-012a**: The app's data MUST be shared by all its conversations. The page MUST be told which conversation is open, and when it changes, so an app can keep state per conversation if it chooses.
+- **FR-012b**: The driving agent MUST be able to wake one of its app's conversations (spec 067's wake), when it is the app's current driver and the turn it wakes from works for the app's owner. A woken turn MUST have the app's tools and context like any turn in that conversation. Any other agent, or a turn working for another person, MUST be refused.
 - **FR-013**: When a driver's turn starts in an app's chat, the driver MUST be given the app's description, requirements, current version, available functions and database tables.
 - **FR-014**: App tools (to edit the app, read and write its data and files, and manage its functions and schedules) MUST be offered to the driver only in that app's chat and in that app's own background work. They MUST NOT be offered in other conversations, scheduled tasks, dreams, Discord or Telegram.
 
@@ -268,7 +275,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **FR-018b**: The owner MUST be able to see the app's tables and their row counts, and to download the database as a file.
 - **FR-019**: The app database and app files MUST have size limits. A write over a limit MUST be refused with a reason given to whoever made it.
 - **FR-020**: Changes to app data MUST appear in every open view of that app without a reload.
-- **FR-021**: An app MUST be able to keep files. Its page MUST be able to read its own files and the uploads of its own current chat thread, and MUST NOT be able to read any other conversation's files. The driver MUST be able to copy a chat upload into the app, and the page MUST be able to share an app file into the chat, or add a file the person picked in the page straight to the current chat thread as an upload.
+- **FR-021**: An app MUST be able to keep files. Its page MUST be able to read its own files and the uploads of its open conversation, and MUST NOT be able to read any other conversation's files. The driver MUST be able to copy a chat upload into the app, and the page MUST be able to share an app file into the chat, or add a file the person picked in the page straight to the open conversation as an upload.
 - **FR-021a**: The page MUST be able to send a message to its own app's chat, optionally with attachments, only as the direct result of a press or key from the person. The message MUST appear as the person's, visibly marked as sent from the app, and MUST start an ordinary turn with the driver. Sends MUST be rate-limited per app, and MUST be refused with a reason when there is no driver or the gesture rule or the limit is not met. A page MUST NOT be able to send to any other conversation.
 
 **Manifest, requirements and drivers**
@@ -285,7 +292,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **FR-028**: An app's functions MUST run with the current driver's tools and secrets, within time and frequency limits, and MUST be usable by the driver from the app's chat and background work. Functions are how an app reaches the outside: depending on the driver's addons, connected servers and tools, they MAY use the network and external data sources, so an app can show live outside data even though its page script cannot reach the network itself. The app MUST NOT describe itself to the person as having no network access.
 - **FR-029**: The page MUST be able to call only functions the owner has approved for it. Approval MUST be asked again for functions added to that list and, on a driver switch, for functions that use secrets or have outside effects.
 - **FR-030**: Function results and app data MUST reach any model as data, never as instructions.
-- **FR-031**: An app MUST be able to have schedules that run its functions or ask its driver to act, without any open app or conversation. Each run's outcome MUST be recorded. A repeating failure MUST notify the owner once per episode.
+- **FR-031**: An app MUST be able to have schedules that run its functions or ask its driver to act, without any open app or conversation. A schedule that asks its driver MUST post into a conversation of its own, named after the schedule and reused on every run, so it never interrupts the conversation the person is in. Each run's outcome MUST be recorded. A repeating failure MUST notify the owner once per episode.
 - **FR-032**: An app MUST be able to set a count on its rail tile.
 
 **Manifest tools for the open app**
@@ -294,7 +301,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 **Removal and limits**
 
-- **FR-034**: The owner MUST be able to remove an app after a confirmation that names what will be lost. Removal MUST delete its versions, data, files, approvals and schedules, and MUST leave its chat threads as ordinary conversations of their agents.
+- **FR-034**: The owner MUST be able to remove an app after a confirmation that names what will be lost. Removal MUST delete its versions, data, files, approvals and schedules, and MUST leave its conversations as ordinary conversations of their agents.
 - **FR-035**: Every app activity that costs model or media usage MUST be counted in usage reports and attributed to the app and its driver.
 
 ### Key Entities
@@ -303,9 +310,9 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **App version**: one saved state of the app's page, functions and manifest. Versions are ordered, and one is current.
 - **Manifest**: the app's own description of itself: entry page, database migrations, functions, page-callable functions, schedules, manifest tools and requirements.
 - **Requirement**: something a driver must have for part of an app to work: a tool category, an addon, a connected server's tools, a named secret, or a model feature. It is derived or declared.
-- **Driver**: the agent currently assigned to an app. It changes over time, and each driver has its own chat thread.
+- **Driver**: the agent currently assigned to an app. It changes over time; the app's conversations belong to the driver they were held with.
 - **App database**: the app's own SQLite database, with size limits, shared by its page, its functions and its driver; its tables change only through migrations kept with app versions.
-- **App file**: a file kept with the app, as opposed to an upload in one of its chat threads.
+- **App file**: a file kept with the app, as opposed to an upload in one of its conversations.
 - **App function**: a saved script belonging to the app that runs with the driver's tools.
 - **Page approval**: the owner's consent for the page to call a given function, kept per app and per driver.
 - **App schedule**: a recurring run of a function or a request to the driver, with a recorded outcome per run.
@@ -337,5 +344,5 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **No per-agent database addon.** A SQLite addon giving each agent its own database was considered and set aside; only apps get a database here.
 - **Every app is on the rail.** There is no hidden or archived app list in this feature: removing an app deletes it.
 - **Icons come from a fixed icon set.** Custom drawn icons (for example an agent-written SVG) are out of scope until import exists, because they would need a sanitizer.
-- **One open chat thread per app at a time**, belonging to the current driver. Previous drivers' threads are reachable from those agents' conversation lists.
+- **An app's conversation list shows the current driver's conversations only.** Previous drivers' conversations are reachable from those agents' conversation lists.
 - **Defaults chosen without asking:** the chat inset defaults to 380 px wide; database and file size limits and query time limits are fixed in planning; schedule time limits follow the detached-script limits (spec 058).

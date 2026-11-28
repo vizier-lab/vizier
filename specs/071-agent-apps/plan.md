@@ -12,11 +12,11 @@ An **app** is a person-owned, versioned thing on the rail. It is driven by an ag
 - functions, which are spec 061 scripts owned by the app;
 - schedules;
 - files;
-- a chat thread with its driver.
+- any number of conversations with its driver.
 
-The thread is an ordinary conversation on a new channel kind, `App(user, app_id)`, so the whole chat experience applies unchanged.
+Each conversation is an ordinary one on a new channel kind, `App(user, app_id)`, so the whole chat experience applies unchanged, and the driver can wake them (spec 067).
 
-The feature compiles under a new `addon-apps` flag and runs only when the desktop host sets `RuntimeOptions.apps`. The server never does (research D1).
+The feature compiles under a new `subapp` flag (ungrouped, like `telemetry`: apps are not an agent addon) and runs only when the desktop host sets `RuntimeOptions.apps`. The server never does (research D1).
 
 The engine gains:
 - an `apps` module: service, storage, requirement check, per-turn context, `AppSource` tools, schedules;
@@ -43,7 +43,7 @@ The WebUI gains:
 **Storage**: Main SQLite database, new tables `app`, `app_version`, `app_approval`, `app_schedule`, `app_schedule_run` and `rail_order` ([data-model.md](data-model.md)). Page HTML and app files go in the local blob store under `apps/{app_id}/`. Each app's own database is at `{workspace}/apps/{app_id}/app.sqlite`. There is no PostgreSQL migration, because apps never run on the server (research D3).
 
 **Testing**:
-- `cargo test -p vizier-core --features addon-apps`.
+- `cargo test -p vizier-core --features subapp`.
 - `cargo test -p vizier-core --no-default-features` (apps compiled out).
 - `cargo test -p vizier-http` with a new `tests/apps.rs`, run through both the network router and the dispatcher.
 - `cargo clippy --workspace`.
@@ -86,9 +86,9 @@ The WebUI gains:
 | III. Self-contained default | ✅ | Embedded SQLite files and the local workspace only. Nothing in apps needs a network. Outside data comes through the driver's existing opt-in addons and tools. |
 | IV. Portability | ✅ | The per-app database path goes through the workspace path helpers. Windows names are validated by the existing blob rules (`windows_segment_problem`). No OS-specific code. |
 | V. Unified errors & observability | ✅ | `crate::Result` / `VizierError`, `ServiceError` kinds mapped to the HTTP envelope, refusals returned as `status` results in tools. `tracing` only. Spans: `execute_tool` for functions, plus `vizier.app.id` and `vizier.app.version` attributes. |
-| Optional capability behind a flag | ✅ | `addon-apps` in `vizier-core` (in `full`), with the CI `changes` entry and flag list. The flag adds and removes routes and tools but never changes a shared type's shape. `RuntimeOptions.apps` exists in every build and is ignored without the flag. |
+| Optional capability behind a flag | ✅ | `subapp` in `vizier-core` (in `full`), with the CI `changes` entry and flag list, and a row in `docs/src/configuration/build-flavours.md`. The naming rule covers channels, addons, providers and gateways; apps are none of these, so `subapp` is ungrouped like `utoipa` and `telemetry` and needs no amendment. The flag adds and removes routes and tools but never changes a shared type's shape. `RuntimeOptions.apps` exists in every build and is ignored without the flag. |
 | Roles and components stay independent | ✅ | The gateway reaches the driver only through `AgentsClient` (D6). `FakeAgentsClient` answers `app_function` for gateway-side tests. |
-| Design before UI code | ✅ | Drawn and reviewed in `Vizier shell.figcraft` › `Shell · chosen`: frames B, D, E, F, H, I and the rail drag strip. Still to draw before coding: the "from <app>" bubble mark (FR-021a), the version history list, and the table and row-count view (FR-018b). They are listed as the first UI tasks. |
+| Design before UI code | ✅ | Drawn and reviewed in `Vizier shell.figcraft` › `Shell · chosen`: frames B, D, E, F, H, I, J, K and the rail drag strip (J's header supersedes the driver-only header of D, E, F and I). Still to draw before coding: the "from <app>" bubble mark (FR-021a), the version history list, and the table and row-count view (FR-018b). They are listed as the first UI tasks. |
 | E2E through dummyplug | ✅ | [quickstart.md](quickstart.md) scripts each story as dummyplug steps. |
 | Manual verification (startup / storage) | ✅ | New schema init plus the startup draft sweep, verified with `just app-dev` on a fresh and an existing workspace (quickstart §0). |
 | Migration and compat code tracked on #82 | ✅ | One shim: the one-time upload of the localStorage `vizier.rail.order` into `rail_order`. It gets a #82 checklist entry. |
@@ -120,10 +120,10 @@ specs/071-agent-apps/
 
 ```text
 crates/vizier-core/
-├── Cargo.toml                      # feature addon-apps (in full)
+├── Cargo.toml                      # feature subapp (in full)
 └── src/
     ├── runtime.rs                  # RuntimeOptions.apps; builds Apps; refuses non-SQLite
-    ├── apps/                       # cfg(feature = "addon-apps")
+    ├── apps/                       # cfg(feature = "subapp")
     │   ├── mod.rs                  # Apps service: create/draft/save version/rollback/remove/drivers
     │   ├── manifest.rs             # Manifest types + validation (functions via custom_tools::validate)
     │   ├── database.rs             # per-app SQLite: open, migrate (append-only), query/exec limits
@@ -187,7 +187,7 @@ webui/app/
 docs/src/configuration/apps.md      # new page (+ SUMMARY.md)
 ```
 
-**Structure Decision**: The existing four-crate workspace plus the WebUI and design folders. All engine code sits in one new `apps` module behind `addon-apps`. Small, listed touch points go in the channel, request, usage, turn-source, scheduler, seam and frame code. There is no new crate: apps are an engine capability like projects, not a Fleet role.
+**Structure Decision**: The existing four-crate workspace plus the WebUI and design folders. All engine code sits in one new `apps` module behind `subapp`. Small, listed touch points go in the channel, request, usage, turn-source, scheduler, seam and frame code. There is no new crate: apps are an engine capability like projects, not a Fleet role.
 
 ## Complexity Tracking
 

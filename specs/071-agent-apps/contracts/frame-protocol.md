@@ -16,10 +16,13 @@ await vizier.fn.call(name, input)                  // → output; rejects with {
 
 await vizier.chat.send(text, {files?: [fileId]})   // only right after a press or key (gesture rule)
 
-const f = await vizier.files.pick({accept?})       // opens the OS file picker; → {id, name, size, type}, uploaded to the thread
-await vizier.files.list()                          // → app files + thread uploads
-await vizier.files.keep(id)                        // thread upload → app file
-await vizier.files.share(id)                       // app file → thread attachment
+const f = await vizier.files.pick({accept?})       // opens the OS file picker; → {id, name, size, type}, uploaded to the open conversation
+await vizier.files.list()                          // → app files + the open conversation's uploads
+await vizier.files.keep(id)                        // conversation upload → app file
+await vizier.files.share(id)                       // app file → attachment in the open conversation
+
+vizier.conversation.id                            // the open conversation (topic id)
+vizier.conversation.onChange((id) => ...)          // the person switched conversation (FR-012a)
 
 vizier.tools.handle(name, async (input) => output) // answer a manifest tool
 ```
@@ -35,6 +38,7 @@ vizier.tools.handle(name, async (input) => output) // answer a manifest tool
 | frame → host | `files.list` / `files.keep` / `files.share` | `id?` | The matching route |
 | frame → host | `tools.ready` | `names: [..]` | Records which manifest tools have handlers |
 | host → frame | `db.changed` | `tables` | Relayed from the socket frame `app_data_changed` |
+| host → frame | `conversation` | `id` | The person opened another of the app's conversations; also in the boot data as `app.conversation` |
 | host → frame | `tool.call` | `id, name, input` | A manifest tool call from the driver's turn |
 | frame → host | `tool.result` | `id, ok, value \| error` | Returned to `ClientTools` as the call's outcome |
 
