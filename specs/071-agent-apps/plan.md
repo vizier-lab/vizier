@@ -130,7 +130,7 @@ crates/vizier-core/
     │   ├── requirements.rs         # pure check(manifest, AgentFacts) -> Report
     │   ├── context.rs              # for_turn -> AppTurnContext
     │   ├── source.rs               # AppSource: TurnToolSource
-    │   ├── tools.rs                # app_edit, app_query, app_functions, app_files, app_rename, app_set_badge
+    │   ├── tools.rs                # app_read, app_edit, app_query, app_functions, app_files, app_schedules, app_set_badge
     │   ├── functions.rs            # run a function (turn or page-initiated) via custom_tools::run
     │   ├── schedules.rs            # tick(now), runs, episodes
     │   ├── files.rs                # app files over BlobStore
@@ -139,6 +139,8 @@ crates/vizier-core/
     │   ├── access.rs               # owner-only rules, can_drive
     │   └── limits.rs
     ├── ui_pages/frame_source.rs    # FrameSource trait; impl for UiPages
+    ├── agents/tools/ui_kit.rs      # ui_describe_elements / ui_examples offered in App sessions too
+    ├── agents/tools/ui_pages.rs    # ui_render not offered in App sessions
     ├── schema/session.rs           # VizierChannelId::App + slug/usage/web helpers
     ├── schema/request.rs           # AppOrigin, VizierRequestContent::AppScheduled
     ├── schema/usage.rs             # UsageActivity::App
@@ -154,6 +156,8 @@ crates/vizier-core/
     ├── storage/rail.rs             # RailOrderStorage
     ├── notifications/              # app_schedule_failed, app_driver_lost
     └── transport/events.rs         # app.{id}.events pump arm
+
+crates/vizier-core/assets/app-kit/GUIDE.md   # app_edit's guide (research D7)
 
 crates/vizier-http/src/
 ├── api/v1/apps.rs                  # routes (contracts/http.md)

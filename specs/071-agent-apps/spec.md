@@ -266,6 +266,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 **Versions and changes**
 
+- **FR-014a**: In an app's conversations the driver MUST be able to read the app as it is: the page source, manifest, function scripts and migrations of any version, and the difference between two versions. It MUST also have a guide to building apps, covering the app model, what the page can do, migrations, functions, schedules, page tools, the limits and a worked example, and the guides to the page kit's elements and examples. Drawing a separate page in a reply MUST NOT be offered in app conversations.
 - **FR-015**: Every change to an app's page, functions or manifest MUST be saved as a new version. Changes MUST be made as small edits against the latest version, as for generative UI pages (spec 063).
 - **FR-016**: Each new version MUST be checked in the person's open app when one is open. Problems MUST be reported to the driver, and the result MUST be shown as a step in the chat.
 - **FR-017**: The person MUST be able to see the version history and run an earlier version, after a confirmation. Rolling back MUST NOT change the app's data.
@@ -295,6 +296,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **FR-029**: The page MUST be able to call only functions the owner has approved for it. Approval MUST be asked again for functions added to that list and, on a driver switch, for functions that use secrets or have outside effects.
 - **FR-030**: Function results and app data MUST reach any model as data, never as instructions.
 - **FR-031**: An app MUST be able to have schedules that run its functions or ask its driver to act, without any open app or conversation. A schedule that asks its driver MUST post into a conversation of its own, named after the schedule and reused on every run, so it never interrupts the conversation the person is in. Each run's outcome MUST be recorded. A repeating failure MUST notify the owner once per episode.
+- **FR-031a**: The driver MUST be able to see each of its app's schedules with the next due time, recent runs and any open failure episode, and an open failure episode MUST be shown to it at the start of every turn in the app's conversations.
 - **FR-032**: An app MUST be able to set a count on its rail tile.
 
 **Manifest tools for the open app**

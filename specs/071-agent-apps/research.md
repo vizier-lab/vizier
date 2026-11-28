@@ -41,7 +41,7 @@ The **session** is `(driver agent, App(owner, app), topic)`. Each topic is one *
 - `service/topics.rs::readable_channel`.
 - `agents/tools/sessions/mod.rs`: `wakeable_channel` refuses `app__`, because a wake must not drive an app.
 - The span kind in `agents/agent/mod.rs`.
-- `ui_pages/verify.rs:152` and `agents/tools/ui_pages.rs::offered_in`: App is allowed like Project.
+- `ui_pages/verify.rs:152`: the verify responder accepts `App` sessions, because `app_edit` checks versions in the open tab the same way. `agents/tools/ui_pages.rs::offered_in` does **not** offer `ui_render` in `App` sessions: a page drawn in a reply would be confused with the app's own page. The kit guides `ui_describe_elements` and `ui_examples` (`agents/tools/ui_kit.rs`) **are** offered there, because the app's page is built from the same kit.
 - `notifications/mod.rs`: the link is `/apps/{id}`.
 - `usage/mod.rs`: the `SlugKind::App` label.
 - `webui/app/lib/usage.ts`.
@@ -141,11 +141,13 @@ It returns `Arc<AppTurnContext>`, stored on a new `ToolContext.app` field and se
 
 `AppSource` (id `app`) offers two kinds of tools while `ctx.app` is set:
 - **The authoring tools** (category `apps`):
-  - `app_edit`: page edits, manifest changes, migrations; it saves and verifies a version;
+  - `app_read`: the page source, manifest, function scripts and migrations at a version, and a diff between two versions. Read-only. A driver that did not write the current version (after a switch, in a new conversation, after a rollback) needs it before it can write `app_edit`'s exact find strings;
+  - `app_edit`: page edits, manifest changes, migrations, and the name, icon and description (there is no separate rename tool); it saves and verifies a version;
   - `app_query`: SQL against the app database;
   - `app_functions`: list and describe;
   - `app_files`: list, keep, share;
-  - `app_rename` and `app_set_badge`.
+  - `app_schedules`: each schedule with its next due time, recent runs and any open failure episode;
+  - `app_set_badge`.
 
   Their contract is in [contracts/app-tools.md](contracts/app-tools.md).
 - **The app's own functions**, under the app's category (a sanitised app name, with a `_app` suffix on a clash, the same rule as MCP keys).
@@ -153,6 +155,19 @@ It returns `Arc<AppTurnContext>`, stored on a new `ToolContext.app` field and se
 The functions that need missing requirements are listed with `status: "unavailable"` and the reason (FR-025).
 
 The **stable** facts (app name, description, how app chat works) go in a system prompt section, `system_prompt/app.rs`, which stays the same for the whole conversation. The **volatile** facts go in a `## App state` section of `context_md`, as projects do with `## Project state`, so a change never breaks the provider prompt cache: current version, tables and row counts, requirement gaps, and whether the app is open in a tab.
+
+**The guide.** `app_edit` returns a guide through `VizierTool::guide()`, so `describe_tool_function("app_edit")` gives it, exactly as `ui_render` does in spec 063. The text lives in `crates/vizier-core/assets/app-kit/GUIDE.md` and stays short, as an index:
+- the app model: owner, driver, conversations, versions, and what persists across them;
+- the page abilities (`vizier.db`, `fn`, `chat`, `files`, `conversation`, `tools`) and their rules;
+- migrations and the append-only rule;
+- functions, `page_callable` and approvals;
+- schedules (`run` / `ask`) and page tools;
+- the limits;
+- one complete worked example (a small tracker: migration, page, a function and a schedule).
+
+The kit details stay in `ui_describe_elements` and `ui_examples`. `scripts/ui-kit-reference.test.mjs` gains a check that the guide's ability list matches `webui/app/kit/runtime.ts`, as it already does for the elements.
+
+The App state block also carries schedule health: one line per schedule with an open failure episode, so a failing schedule is noticed without asking.
 
 App tools are absent from `DREAM_TOOL_NAMES`. `offered_in` limits them to `App` sessions, never Discord or Telegram (FR-014).
 

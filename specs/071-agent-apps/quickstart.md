@@ -55,6 +55,17 @@
 | (T) | from a **dream** of Archivist, and from a scheduled task: `context` | no `apps` category (FR-014) |
 | (UI) | a `/btw` side chat and steering a busy turn inside the app chat | both work as in an agent chat (FR-011) |
 
+## 3a. Reading the app and the guide (FR-014a, FR-031a)
+
+| Step | Send | Expect |
+|---|---|---|
+| (T) | as **Scout** after a driver switch: `S(app_read(part="page"))` | the current page HTML; `S(app_edit(base_version=…, edits=[{"find":<a line from it>,"replace":"…"}]))` then saves |
+| (T) | `S(app_read(diff_from=1, version=3))` | a diff naming the migration added in v2 and the page change |
+| (T) | `{"tool":"describe_tool_function","arguments":{"name":"app_edit"}}` | a non-empty `guide` that starts with the app model |
+| (T) | in an app conversation: `context` | `SANDBOX.md` lists `ui_describe_elements` and `ui_examples`, not `ui_render` |
+| (T) | after three failed runs of schedule `tick`: `S(app_schedules(name="tick"))` and `context` | an `episode` with `failures: 3`; `## App state` names `tick` as failing |
+| (T) | `node --test scripts/ui-kit-reference.test.mjs` | passes; it fails if `GUIDE.md`'s ability list and `runtime.ts` disagree |
+
 ## 3b. Conversations and waking (Story 3, FR-012 to FR-012b)
 
 | Step | Do | Expect |
