@@ -104,9 +104,9 @@ This conversation **is the ordinary chat**: every chat feature (the activity tra
 7. **Given** an app page that keeps state per conversation, **When** the person switches conversation, **Then** the page is told the new conversation and can show that conversation's state.
 8. **Given** a scheduled task of the driving agent that works for the app's owner, **When** it wakes one of the app's conversations, **Then** a turn runs there with the app's tools and its answer lands in that conversation. **Given** any other agent, or a turn working for another person, **When** it tries the same wake, **Then** it is refused with a reason.
 9. **Given** the person is elsewhere in Vizier (or the window is in the background), **When** the driver replies in one of the app's conversations (to the person, to a wake, or to an `ask` schedule), **Then** a notification appears like any chat reply, titled with the app and the conversation, and selecting it opens the app on exactly that conversation and marks it read.
+10. **Given** the person is looking at that app conversation, **When** the reply arrives, **Then** no notification toast or unread count is added for it.
 11. **Given** an app the person has locked, **When** they ask the driver to change it, **Then** the driver has no tool to change the page, functions, schedules, page tools, migrations, name or icon, says the app is locked, and still answers questions, reads the app, works with its data and runs its functions.
 12. **Given** a locked app, **When** the person unlocks it, **Then** the driver can change it again from its next turn, and no version or data was lost either way.
-10. **Given** the person is looking at that app conversation, **When** the reply arrives, **Then** no notification toast or unread count is added for it.
 
 ---
 
