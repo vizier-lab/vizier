@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; desktop edition only (including the server the desktop app can expose); export and import are out of scope.
+**Input**: User description: "Take generative UI a step further: sub-applications, or just apps. Let an agent create any app inside Vizier, and have it appear in the sidebar rail." Refined in discussion: an app belongs to a person, not an agent; any agent the person can use may *drive* it and the driver can be switched; an app carries a manifest that says what a driver needs (addons, tools, secrets, model features); an app has its own stored assets, including its functions, and carries no memory of its own; apps sit on the rail in one list with the agents, ordered by the person; the app's chat is a separate, resizable inset on the right that is always open and is the ordinary chat, so every future chat behaviour reaches it; the driver is switched from the agent's name at the top of that chat, not from the app window; a person can also start an app from scratch from the rail's +, with a minimal empty state ("tell your agent what to build"); desktop edition only (including the server the desktop app can expose); export and import are out of scope.
 
 ## Context
 
@@ -25,30 +25,40 @@ The design was drawn first (constitution: design before code), in `Vizier shell.
 - **Frame F (chosen)**: the app with its chat as a separate inset on the right, the resize handle, and the rail as one mixed list.
 - **Rail strip beside frame G**: drag to reorder.
 - **Frame B**: adding a page from a chat to the rail.
-- **Frame D**: the driver picker with the requirement check.
+- **Frame D**: the driver picker's contents with the requirement check. Its placement is superseded: the picker opens from the agent's name at the top of the chat inset (frames F and I).
 - **Frame E**: an app whose driver was deleted.
+- **Frame H**: the rail's + opening New agent / New app.
+- **Frame I**: a new app as a draft, before anything is built.
 
 Frames A, C and G are alternatives that were not chosen.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Turn a page into an app on the rail (Priority: P1)
+### User Story 1 - Create an app (Priority: P1)
 
-A person asks their agent for something they will use again: "make me a habit tracker". The agent draws it as a page in the chat (spec 063) and says it can become an app. The page's header offers **Add to rail**. The person presses it, confirms in a small popover that says the app will keep its own data and its own conversation with that agent, and the app's tile appears on the rail.
+There are two ways in.
 
-The agent can also offer to make an app itself; the person's confirmation is still what puts it on the rail.
+**From scratch.** The person presses + on the rail and picks **New app** (the other choice is New agent). A draft app opens at once: a dashed tile at the end of the rail, the name "Untitled app", one quiet line in the app panel ("Tell Archivist what to build"), and the chat inset beside it with its composer focused. The driver defaults to the last agent the person used and can be changed from the agent's name at the top of the chat. The person describes what they want; the driver builds the first version, names the app and picks its icon, and the tile becomes an ordinary one. A draft the person leaves without sending anything is discarded.
 
-**Why this priority**: Without a way to create an app there is nothing else to test, and the confirmation is what keeps agents from filling the rail.
+**From a conversation.** A person asks their agent for something they will use again: "make me a habit tracker". The agent draws it as a page in the chat (spec 063) and says it can become an app. The page's header offers **Add to rail**. The person presses it, confirms in a small popover that says the app will keep its own data and its own conversation with that agent, and the app's tile appears on the rail. The agent can also offer to make an app itself; the person's confirmation is still what puts it on the rail.
 
-**Independent Test**: In a desktop conversation, ask for a habit tracker, press Add to rail and confirm. A new tile appears on the rail. Opening it shows the same page, now outside the conversation. Deleting the original conversation leaves the app intact.
+**Why this priority**: Without a way to create an app there is nothing else to test, and the explicit action (New app, or the confirmation) is what keeps agents from filling the rail.
+
+**Independent Test**: Press + → New app, type "a habit tracker" and send. The draft's tile becomes a named app with the driver's first version. Separately, in a desktop conversation, ask for a habit tracker, press Add to rail and confirm: a new tile appears, opening it shows the same page outside the conversation, and deleting the original conversation leaves the app intact.
 
 **Acceptance Scenarios**:
 
-1. **Given** a page drawn in a desktop conversation, **When** the person presses Add to rail and confirms, **Then** an app exists, owned by that person, driven by the agent that drew the page, with that page as its first version, and its tile is on the rail.
-2. **Given** the confirmation popover, **When** the person chooses Not now, presses Escape or presses outside it, **Then** no app is created and the page stays in the chat as before.
-3. **Given** an agent that proposes an app in a conversation, **When** the person has not confirmed, **Then** no tile appears on the rail.
-4. **Given** an app made from a conversation, **When** that conversation is deleted, **Then** the app, its versions, data and files are unaffected.
-5. **Given** the server edition (not the desktop app), **When** a person asks for an app, **Then** no Add to rail action is offered and the agent is offered no app tools.
+1. **Given** the rail, **When** the person presses +, **Then** a small menu offers New agent and New app, and closes on Escape, an outside press or a choice.
+2. **Given** the person chooses New app, **When** the draft opens, **Then** it shows a dashed tile at the end of the rail, the name "Untitled app", one line inviting the person to tell the driver what to build, and the chat inset with its composer focused and the last-used agent as driver.
+3. **Given** a draft app, **When** the person sends a first message, **Then** the driver builds the first version, gives the app a name and icon, and the tile becomes an ordinary app tile.
+4. **Given** a draft app, **When** the person leaves it without sending any message, **Then** the draft is discarded and its tile disappears.
+5. **Given** a draft app, **When** the person changes the driver before the first message, **Then** the chosen agent builds the first version.
+
+6. **Given** a page drawn in a desktop conversation, **When** the person presses Add to rail and confirms, **Then** an app exists, owned by that person, driven by the agent that drew the page, with that page as its first version, and its tile is on the rail.
+7. **Given** the confirmation popover, **When** the person chooses Not now, presses Escape or presses outside it, **Then** no app is created and the page stays in the chat as before.
+8. **Given** an agent that proposes an app in a conversation, **When** the person has not confirmed, **Then** no tile appears on the rail.
+9. **Given** an app made from a conversation, **When** that conversation is deleted, **Then** the app, its versions, data and files are unaffected.
+10. **Given** the server edition (not the desktop app), **When** a person asks for an app or presses + on the rail, **Then** no New app choice and no Add to rail action are offered, and the agent is offered no app tools.
 
 ---
 
@@ -62,7 +72,7 @@ The person clicks the app's tile. The app fills the main panel; its chat with th
 
 **Acceptance Scenarios**:
 
-1. **Given** an app on the rail, **When** the person selects its tile, **Then** the app fills the main panel, its header shows the app's name, icon, driver and version, and its chat inset is open on the right.
+1. **Given** an app on the rail, **When** the person selects its tile, **Then** the app fills the main panel, its header shows the app's name, icon and version, and its chat inset is open on the right with the driving agent's name at its top.
 2. **Given** an open app, **When** the page saves or reads its data, **Then** the change lasts across reloads and restarts and no model call is made.
 3. **Given** an open app, **When** the person drags the handle between the two insets, **Then** the chat inset changes width within its limits (chat at least 320 px, app at least 560 px). The width is remembered for that app, and a double-click on the handle restores the default.
 4. **Given** an open app, **When** its page script fails to start or keeps crashing, **Then** the app shows the same paused state and "Run anyway" as a page in a reply, and the chat inset keeps working.
@@ -92,7 +102,7 @@ This conversation **is the ordinary chat**: every chat feature (the activity tra
 
 ### User Story 4 - Switch the agent that drives the app (Priority: P2)
 
-The app header says **driven by Archivist ▾**. The person opens it and sees what the app needs (for example "time tools", "Google Calendar connection", "secret CAL_TOKEN") and every agent they can use, each marked **ready** or **missing N**. Expanding an agent shows what it lacks and offers a link to set it up on that agent. The person picks Scout. Scout becomes the driver, a new chat thread starts with Scout, and the old thread stays readable from Archivist's conversations.
+The top of the app's chat shows the driving agent: **Archivist ▾**, "drives this app". The person opens it and sees what the app needs (for example "time tools", "Google Calendar connection", "secret CAL_TOKEN") and every agent they can use, each marked **ready** or **missing N**. Expanding an agent shows what it lacks and offers a link to set it up on that agent. The person picks Scout. Scout becomes the driver, a new chat thread starts with Scout, and the old thread stays readable from Archivist's conversations.
 
 **Why this priority**: Apps that are tied to one agent cannot outlive it or move to a better-suited one, and that is the core reason they belong to the person. It comes after creating, using and changing an app, which are useful on their own.
 
@@ -100,7 +110,7 @@ The app header says **driven by Archivist ▾**. The person opens it and sees wh
 
 **Acceptance Scenarios**:
 
-1. **Given** an app, **When** the person opens the driver picker, **Then** it lists the app's requirements and every agent the person may chat with, each marked ready or with the exact missing items.
+1. **Given** an app, **When** the person opens the driver picker from the agent's name at the top of the chat inset, **Then** it lists the app's requirements and every agent the person may chat with, each marked ready or with the exact missing items.
 2. **Given** an agent missing some requirements, **When** the person makes it the driver, **Then** the switch succeeds; the functions and background work that need the missing items are turned off and say why, and everything else works.
 3. **Given** a switch to a new driver, **When** it completes, **Then** a new chat thread with the new driver starts beside the app, the previous thread is kept and readable by people allowed to read the previous agent's conversations, and the app's data and versions are unchanged.
 4. **Given** a switch to a new driver, **When** the app has approved functions that use secrets or have outside effects, **Then** those approvals are asked again before they run under the new driver.
@@ -203,6 +213,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **App data grows past its limit**: the write is refused with a clear reason that the page and the driver both receive. Nothing is silently truncated.
 - **A schedule's function fails or exceeds its time limit**: the run is recorded as failed with the reason and the next run still happens. No notification storm: a repeating failure notifies once per episode.
 - **The person removes an app**: it is deleted with its versions, data, files, approvals and schedules after a confirmation that names what is lost; its chat threads remain readable as ordinary conversations of their agents.
+- **A draft is left after a message was sent but before any version was saved** (the driver failed or was stopped): the draft is kept, so the conversation is not lost; it stays a dashed tile until a version exists or the person removes it.
 - **The person deletes the app's chat thread**: the app is unaffected and a new thread starts with the current driver on the next message.
 - **Phone-width window** (the desktop's web access opened on a phone): the two-inset layout does not fit; the app takes the screen and the chat opens as a sheet over it.
 - **Web access is turned on**: the person can open their apps from a browser exactly as in the desktop window, under the same sign-in.
@@ -215,7 +226,9 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 - **FR-001**: Apps MUST be available only in the desktop edition, including when that edition's web access is on. The server edition MUST offer no app surfaces, routes or agent tools.
 - **FR-002**: Every app MUST belong to exactly one person. Only that person MUST be able to see, open, use, change, drive-switch or remove it.
-- **FR-003**: An app MUST be created only by its owner's explicit confirmation, either from a page in a conversation or from an agent's proposal. An agent MUST NOT be able to place an app on the rail by itself.
+- **FR-003**: An app MUST be created only by an explicit action of its owner: choosing New app from the rail's +, or confirming Add to rail for a page in a conversation or an agent's proposal. An agent MUST NOT be able to place an app on the rail by itself.
+- **FR-003a**: The rail's + MUST offer New agent and New app (in the desktop edition; the server edition keeps opening New agent directly). New app MUST open a draft at once, with the person's most recently used agent as driver, a minimal empty state inviting the person to tell the driver what to build, and the chat composer focused.
+- **FR-003b**: A draft MUST become an ordinary app when its driver saves the first version, at which point the driver gives it a name and icon (both changeable by the owner later). A draft with no message sent MUST be discarded when the person leaves it.
 - **FR-004**: An app MUST be self-contained. Its pages, functions, data, files, manifest and version history MUST be stored with the app, and nothing in it MUST depend on any one agent's memory, custom tools, artifacts or conversations.
 - **FR-005**: An app MUST carry no memory of its own. What a driver needs to work on it MUST come from the app's description, manifest, current version and the shape of its data.
 
@@ -223,7 +236,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 - **FR-006**: An app's tile MUST appear in the rail's single list together with the agents, in an order the person sets by dragging (or keyboard), kept per person.
 - **FR-007**: An app's icon MUST be chosen from the WebUI's own line-icon set by name. When there is no icon or the name is unknown, the tile MUST show the app name's first letter. Icons MUST be monochrome like the rest of the WebUI.
-- **FR-008**: Opening an app MUST show it in the main panel with a header holding its icon, name, driver, version and a menu (version history, remove), and its chat as a separate inset on the right that is always open.
+- **FR-008**: Opening an app MUST show it in the main panel with a header holding its icon, name, version and a menu (version history, rename, remove), and its chat as a separate inset on the right that is always open. The top of the chat inset MUST show the driving agent and be the way to open the driver picker.
 - **FR-009**: The chat inset MUST be resizable from the gap between the insets within set limits (chat at least 320 px, app at least 560 px). The width MUST be remembered per app for that viewer, and a double-click MUST restore the default. The handle MUST be usable from the keyboard.
 - **FR-010**: At phone widths the app MUST take the screen and its chat MUST open as a sheet over it.
 
@@ -275,7 +288,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 ### Key Entities
 
-- **App**: a named, person-owned thing on the rail. It has an icon, a description, a current version, a driver (or none), a tile count, and a place in its owner's rail order.
+- **App**: a named, person-owned thing on the rail. It has an icon, a description, a current version, a driver (or none), a tile count, and a place in its owner's rail order. It is a **draft** until its first version is saved.
 - **App version**: one saved state of the app's page, functions and manifest. Versions are ordered, and one is current.
 - **Manifest**: the app's own description of itself: entry page, data collections, functions, page-callable functions, schedules, manifest tools and requirements.
 - **Requirement**: something a driver must have for part of an app to work: a tool category, an addon, a connected server's tools, a named secret, or a model feature. It is derived or declared.
@@ -291,7 +304,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 
 ### Measurable Outcomes
 
-- **SC-001**: A person can go from asking for an app to having it on the rail in at most 2 actions after the agent has drawn it (Add to rail, confirm).
+- **SC-001**: A person can go from asking for an app to having it on the rail in at most 2 actions after the agent has drawn it (Add to rail, confirm), and from the rail's + to typing into a new app's chat in at most 2 actions (+, New app).
 - **SC-002**: Saving data from an app's page (for example ticking a habit) appears saved within 200 ms and costs no model call in the usage report.
 - **SC-003**: 100% of app data and versions survive restarting the desktop app, deleting the conversation the app came from, switching driver and deleting the driving agent.
 - **SC-004**: Switching an app's driver takes at most 3 actions (open picker, choose, confirm), and afterwards the new driver completes a requested change to the app on its first attempt in at least 9 of 10 trials with the offline test provider.
@@ -309,6 +322,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 - **Manifest tools follow the client-tool rules** of spec 019 (naming, turn-ending, deferral), with the manifest as the only source of declarations.
 - **Export and import are out of scope.** The manifest and the self-contained rule (FR-004) are designed so they can be added later without reworking apps.
 - **No sharing.** An app is seen and used only by its owner. Sharing with other people is out of scope.
+- **The rail's + changes from spec 064** in the desktop edition: it opens a two-item menu instead of going straight to New agent. New agent is one click further away, which is accepted.
 - **Every app is on the rail.** There is no hidden or archived app list in this feature: removing an app deletes it.
 - **Icons come from a fixed icon set.** Custom drawn icons (for example an agent-written SVG) are out of scope until import exists, because they would need a sanitizer.
 - **One open chat thread per app at a time**, belonging to the current driver. Previous drivers' threads are reachable from those agents' conversation lists.
