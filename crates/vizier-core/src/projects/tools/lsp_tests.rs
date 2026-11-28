@@ -60,6 +60,7 @@ fn world(script: &str, extra: &[&str], mode: ProjectMode, lsp_enabled: bool) -> 
         lsp: LspHost::new(6),
     };
     let ctx = ToolContext {
+        tool_scope: None,
         session: VizierSession(
             "dp-a".into(),
             VizierChannelId::Project("alice".into(), "p".into()),

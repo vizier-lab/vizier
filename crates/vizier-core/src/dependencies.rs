@@ -115,6 +115,8 @@ pub struct VizierDependencies {
     /// Live voice calls (`specs/055-live-voice`), one per conversation; `VizierRuntime::start`
     /// runs its idle sweeper.
     pub live_voice: Arc<crate::live_voice::LiveVoiceSessions>,
+    /// Triggers (`specs/071-triggers`): the kinds, and which triggers are being worked on.
+    pub triggers: Arc<crate::triggers::TriggerHub>,
     /// The one way the gateway side reaches an agent (`specs/048-agent-service-seam`).
     ///
     /// The service layer and the HTTP adapter call this instead of reading a running agent's
@@ -372,7 +374,7 @@ impl VizierDependencies {
             detached,
             http: crate::llm::http::client(),
             catalogue,
-            integration_kinds,
+            integration_kinds: integration_kinds.clone(),
             integration_health: Default::default(),
             channel_board: Default::default(),
             sso_failures: Arc::new(Default::default()),
@@ -396,6 +398,10 @@ impl VizierDependencies {
             questions: Arc::new(crate::questions::Questions::new()),
             client_connections: crate::agents::client::ClientConnections::new(),
             live_voice: Arc::new(crate::live_voice::LiveVoiceSessions::default()),
+            triggers: Arc::new(crate::triggers::TriggerHub::new(
+                crate::triggers::TriggerKinds::with_addons(&integration_kinds, &config.triggers),
+                config.triggers.clone(),
+            )),
             agents,
         };
         // Server changes reach the inbox stream (spec 054).

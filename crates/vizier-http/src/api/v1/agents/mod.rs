@@ -39,6 +39,7 @@ pub mod projects;
 pub mod secrets;
 pub mod skills;
 pub mod task;
+pub mod triggers;
 
 use crate::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 use vizier_core::storage::session::SessionStorage;
@@ -139,6 +140,9 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/projects", projects::projects())
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())
+        .nest("/{agent_id}/triggers", triggers::triggers())
+        // Beside the nest, not inside it: a trigger may be named anything.
+        .route("/{agent_id}/trigger-summary", axum::routing::get(triggers::summary))
         .nest("/{agent_id}/dream", dream())
         .nest("/{agent_id}/integrations", integrations::integrations())
         .nest("/{agent_id}/conversations", conversations::conversations())

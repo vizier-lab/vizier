@@ -392,6 +392,7 @@ mod tests {
 
     fn ctx(session: VizierSession, dream_sources: Vec<VizierSession>) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session,
             pending_attachments: Default::default(),
             hooks: None,

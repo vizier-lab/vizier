@@ -176,6 +176,8 @@ impl VizierRuntime {
         let lock = WorkspaceLock::acquire(Path::new(&config.workspace))?;
         let deps = VizierDependencies::new(config).await.map_err(err)?;
         let gate: Arc<dyn Gate> = gate.unwrap_or_else(|| Arc::new(AlwaysYes));
+        // Triage and trigger runs start only where control is held (spec 071 FR-039).
+        deps.triggers.set_gate(gate.clone());
 
         let (events, _) = broadcast::channel(64);
         let mut subsystems = Subsystems::reporting(events.clone());

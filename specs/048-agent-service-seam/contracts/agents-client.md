@@ -46,11 +46,20 @@ pub trait AgentsClient: Send + Sync {
 
     /// Ask the agent to rebuild its integration tools, without a restart.
     async fn refresh_integrations(&self, agent_id: &str) -> Result<()>;
+
+    /// Run one monitor check in the agent's instance (spec 071, research R1). A check that cannot
+    /// reach the agent is a failed check, never an error.
+    async fn run_check(&self, agent_id: &str, check: MonitorCheck) -> CheckOutcome;
 }
 ```
 
-Every operation returns `crate::Result<T>` (`VizierError`). There is no bespoke error type
-(Principle V).
+Every operation but `run_check` returns `crate::Result<T>` (`VizierError`). There is no bespoke
+error type (Principle V).
+
+`MonitorCheck` is `trigger_slug`, `script`, `state` (what the script returned last time), `scope`
+(the tool categories its calls may use, already narrowed) and `timeout_secs`. `CheckOutcome` is
+`value` (the script's last expression), `error` and `calls` (the tools it called). The agent runs
+the script under that scope and limit; the caller waits `timeout_secs` + 5 s.
 
 **The trait is object-safe** and is held as `Arc<dyn AgentsClient>` on `VizierDependencies`, so a
 test can put a fake there without touching the engine.
@@ -62,7 +71,7 @@ test can put a fake there without touching the engine.
 | Operation | Subject | Who subscribes |
 |---|---|---|
 | `request`, `abort` | `agent.{id}.req` | The agent's owner. |
-| `update`, `delete`, `restart`, `health`, `integration_status`, `refresh_integrations` | `agent.{id}.cmd` | The agent's owner. |
+| `update`, `delete`, `restart`, `health`, `integration_status`, `refresh_integrations`, `run_check` | `agent.{id}.cmd` | The agent's owner. |
 | `create` | `agents.cmd` | The control role (in one node: the local host). The agent has no owner yet. |
 
 Rules that hold for every implementation:

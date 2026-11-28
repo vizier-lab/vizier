@@ -2,7 +2,7 @@
 // without the server telling it. The names are the dispatch keys the server reserves before any
 // MCP server or function can take them, so a match here is exact.
 //
-// BUILTIN_TOOLS mirrors the `EXPECTED` table of `every_tool_is_in_its_category` in
+// BUILTIN_TOOLS mirrors the `EVERY_TOOL` table of the category tests in
 // crates/vizier-core/src/agents/tools/mod.rs; `scripts/trail-tool-categories.test.mjs` in vizier
 // fails when the two disagree. PROJECT_TOOLS are the coding tools of a project chat
 // (crates/vizier-core/src/projects/tools/), and ADDON_TOOLS the addon ids, whose tools are
@@ -34,6 +34,7 @@ export type BuiltinCategory =
     | 'ui'
     | 'consultations'
     | 'sessions'
+    | 'triggers'
     // Not a `ToolCategory`: the sandbox's own lookups and the dream journal.
     | 'lookup'
     | 'dreams'
@@ -130,6 +131,15 @@ export const BUILTIN_TOOLS: Record<string, BuiltinCategory> = {
     webui_list_topics: 'webui',
     list_sessions: 'sessions',
     wake_session: 'sessions',
+    nothing_to_report: 'triggers',
+    list_trigger_kinds: 'triggers',
+    list_triggers: 'triggers',
+    create_trigger: 'triggers',
+    update_trigger: 'triggers',
+    delete_trigger: 'triggers',
+    test_trigger: 'triggers',
+    list_trigger_runs: 'triggers',
+    get_trigger_run_detail: 'triggers',
     shell_exec: 'shell',
     list_integration_kinds: 'integrations',
     list_integrations: 'integrations',

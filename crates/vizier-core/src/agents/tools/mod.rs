@@ -79,6 +79,8 @@ pub(crate) mod python;
 mod read_image;
 mod scheduler;
 mod scratchpad;
+pub mod scope;
+pub mod triggers;
 pub mod secrets;
 pub mod sessions;
 pub mod self_integrations;
@@ -98,6 +100,11 @@ pub mod ui_pages;
 pub mod turn_source;
 mod vector_memory;
 mod webui;
+
+/// The channel id WebUI conversations are on (`webui_send_message`'s), for code outside the tools.
+pub fn webui_channel() -> &'static str {
+    webui::WEBUI_CHANNEL
+}
 
 pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
@@ -155,10 +162,13 @@ pub enum ToolCategory {
     /// wake one, so work happens in a conversation the person is in rather than in a throwaway
     /// one. The conversation woken is always one of the calling agent's own.
     Sessions,
+    /// Triggers (`specs/071-triggers`): `nothing_to_report` in a trigger run; the tools that read
+    /// and manage triggers elsewhere.
+    Triggers,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 25] = [
+    pub const ALL: [ToolCategory; 26] = [
         Self::Memory,
         Self::Scheduling,
         Self::Agents,
@@ -184,6 +194,7 @@ impl ToolCategory {
         Self::Ui,
         Self::Consultations,
         Self::Sessions,
+        Self::Triggers,
     ];
 
     pub fn name(self) -> &'static str {
@@ -213,6 +224,7 @@ impl ToolCategory {
             Self::Ui => "ui",
             Self::Consultations => "consultations",
             Self::Sessions => "sessions",
+            Self::Triggers => "triggers",
         }
     }
 
@@ -267,6 +279,7 @@ impl ToolCategory {
             Self::Sessions => {
                 "List your own conversations and start work in one of them, so the answer lands where the person is"
             }
+            Self::Triggers => "Triggers that start a run when something happens, and how a trigger run ends",
         }
     }
 }
@@ -381,6 +394,10 @@ pub struct ToolContext {
     /// The agent's custom tools for this turn (`specs/061-agent-custom-tools`): the service while
     /// they are offered, the category snapshot, the call chain and the script router.
     pub custom: crate::custom_tools::CustomTurn,
+    /// The tool categories this turn may use (`specs/071-triggers` FR-030), copied from the
+    /// request; `None` is every tool. Applied in [`turn_catalogue`] and [`turn_categories`], and
+    /// carried onto every request the turn causes.
+    pub tool_scope: Option<Arc<Vec<String>>>,
 }
 
 impl ToolContext {
@@ -949,6 +966,13 @@ pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<Catal
             }
         }
     }
+    // A trigger run reaches only the categories its trigger allows (spec 071 FR-030).
+    if let Some(allowed) = &ctx.tool_scope {
+        // How a trigger run ends is not a capability the scope can take away.
+        entries.retain(|entry| {
+            entry.name == triggers::NOTHING_TO_REPORT || scope::admits(allowed, &entry.category, &entry.name)
+        });
+    }
     // A detached script has no turn to end (spec 058 contracts/detached-flag.md §2).
     if ctx.detached {
         entries.retain(|entry| !entry.ends_turn);
@@ -1001,6 +1025,12 @@ pub fn turn_categories(
                 categories.push(line);
             }
         }
+    }
+    // A scoped turn lists only the areas it may use (spec 071 FR-030).
+    if let Some(allowed) = &ctx.tool_scope {
+        categories.retain(|category| {
+            category.name == ToolCategory::Triggers.name() || scope::admits_category(allowed, &category.name)
+        });
     }
     categories
 }
@@ -1334,6 +1364,10 @@ impl VizierTools {
         // have" to "how have they been going".
         "list_task_runs",
         "get_task_run_detail",
+        // Trigger runs (spec 071): like task runs, the only route by which a trigger's outcome
+        // reaches memory, since `trigger__` conversations are not reflected on.
+        "list_trigger_runs",
+        "get_trigger_run_detail",
         // Skills (5)
         "create_skill",
         "update_skill",
@@ -1534,6 +1568,15 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
             })
+            .tool(triggers::NothingToReport { storage: deps.storage.clone() })
+            .tool(triggers::ListTriggerKinds { deps: deps.clone() })
+            .tool(triggers::ListTriggers { deps: deps.clone() })
+            .tool(triggers::CreateTrigger { deps: deps.clone() })
+            .tool(triggers::UpdateTrigger { deps: deps.clone() })
+            .tool(triggers::DeleteTrigger { deps: deps.clone() })
+            .tool(triggers::TestTrigger { deps: deps.clone() })
+            .tool(triggers::ListTriggerRuns { deps: deps.clone() })
+            .tool(triggers::GetTriggerRunDetail { deps: deps.clone() })
             .tool(CurrentTime)
             .tool(ConvertTime)
             .tool(ShiftTime)
@@ -1736,6 +1779,7 @@ pub(crate) mod tests_support {
     /// A plain turn's context on `session`: depth 0, nothing attached, no client.
     pub(crate) fn context(session: VizierSession) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session,
             pending_attachments: Default::default(),
             hooks: None,
@@ -1956,6 +2000,15 @@ mod tests {
             entry::<ListArtifacts>(),
             entry::<DeleteArtifact>(),
             entry::<LoadArtifactAsSessionFile>(),
+            entry::<triggers::NothingToReport>(),
+            entry::<triggers::ListTriggerKinds>(),
+            entry::<triggers::ListTriggers>(),
+            entry::<triggers::CreateTrigger>(),
+            entry::<triggers::UpdateTrigger>(),
+            entry::<triggers::DeleteTrigger>(),
+            entry::<triggers::TestTrigger>(),
+            entry::<triggers::ListTriggerRuns>(),
+            entry::<triggers::GetTriggerRunDetail>(),
             entry::<CurrentTime>(),
             entry::<ConvertTime>(),
             entry::<ShiftTime>(),
@@ -2045,10 +2098,10 @@ mod tests {
     }
 
     #[cfg(all(feature = "channel-discord", feature = "channel-telegram", feature = "addon-documents"))]
-    #[test]
-    fn every_tool_is_in_its_category() {
+    /// Every built-in tool and its category, shared by the category tests.
+    const EVERY_TOOL: &[(&str, ToolCategory)] = {
         use ToolCategory::*;
-        const EXPECTED: &[(&str, ToolCategory)] = &[
+        &[
             ("memory_search", Memory),
             ("memory_read", Memory),
             ("memory_write", Memory),
@@ -2103,6 +2156,15 @@ mod tests {
             ("list_artifacts", Files),
             ("delete_artifact", Files),
             ("load_artifact_as_session_file", Files),
+            ("nothing_to_report", Triggers),
+            ("list_trigger_kinds", Triggers),
+            ("list_triggers", Triggers),
+            ("create_trigger", Triggers),
+            ("update_trigger", Triggers),
+            ("delete_trigger", Triggers),
+            ("test_trigger", Triggers),
+            ("list_trigger_runs", Triggers),
+            ("get_trigger_run_detail", Triggers),
             ("current_time", Time),
             ("convert_time", Time),
             ("shift_time", Time),
@@ -2163,7 +2225,31 @@ mod tests {
             ("ui_render", Ui),
             ("ui_describe_elements", Ui),
             ("ui_examples", Ui),
-        ];
+        ]
+    };
+
+    #[cfg(all(feature = "channel-discord", feature = "channel-telegram", feature = "addon-documents"))]
+    #[test]
+    fn every_memory_tool_is_classified_for_the_read_only_scope() {
+        // `scope::MEMORY_READ` admits a fixed list; a new memory tool must say which it is.
+        let memory: Vec<&str> = EVERY_TOOL
+            .iter()
+            .filter(|(_, category)| *category == ToolCategory::Memory)
+            .map(|(name, _)| *name)
+            .collect();
+        for name in memory {
+            assert!(
+                scope::READ_ONLY_MEMORY_TOOLS.contains(&name) || scope::WRITING_MEMORY_TOOLS.contains(&name),
+                "{name} is a memory tool in neither list of agents/tools/scope.rs"
+            );
+        }
+    }
+
+    #[cfg(all(feature = "channel-discord", feature = "channel-telegram", feature = "addon-documents"))]
+    #[test]
+    fn every_tool_is_in_its_category() {
+        use ToolCategory::*;
+        const EXPECTED: &[(&str, ToolCategory)] = EVERY_TOOL;
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
@@ -2385,12 +2471,13 @@ mod tests {
             .iter()
             .map(|category| category.name())
             .collect();
-        // `sessions` (spec 067) is the last; `consultations` (spec 064) is the one before it.
-        assert_eq!(names.last(), Some(&"sessions"));
-        assert_eq!(names[names.len() - 2], "consultations");
-        assert_eq!(names[names.len() - 3], "ui");
-        assert_eq!(names[names.len() - 4], "custom_tools");
-        assert_eq!(names.len(), 25);
+        // `triggers` (spec 071) is the last; `sessions` (spec 067) the one before it.
+        assert_eq!(names.last(), Some(&"triggers"));
+        assert_eq!(names[names.len() - 2], "sessions");
+        assert_eq!(names[names.len() - 3], "consultations");
+        assert_eq!(names[names.len() - 4], "ui");
+        assert_eq!(names[names.len() - 5], "custom_tools");
+        assert_eq!(names.len(), 26);
         // `coding` sits before `integrations`, but no agent-wide tool uses it (its tools are
         // per-turn project contributions).
         assert_eq!(names[13], "coding");
@@ -2642,6 +2729,7 @@ mod tests {
 
     fn ctx(client: Option<Arc<crate::agents::client::ClientTools>>) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session: VizierSession("a".into(), crate::schema::VizierChannelId::System, None),
             pending_attachments: Default::default(),
             hooks: None,

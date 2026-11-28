@@ -43,6 +43,7 @@ mod sso_session;
 mod state;
 mod task;
 mod task_run;
+mod trigger;
 mod turn;
 pub(crate) mod usage;
 mod user;
@@ -462,6 +463,7 @@ impl SqlStorage {
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
+        init_trigger_schema(conn)?;
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
@@ -1185,6 +1187,98 @@ pub fn init_usage_schema(conn: &Connection) -> Result<()> {
 /// `AUTOINCREMENT` matters: `id` is the low half of the run-list page cursor and must be
 /// monotonic, which a plain `INTEGER PRIMARY KEY` is not — it can reuse a rowid freed by a
 /// delete, and the cursor would then skip or duplicate a run.
+/// The trigger tables (`specs/071-triggers/data-model.md`). `agent_trigger` holds the sealed
+/// settings and the rest of the trigger as JSON; events, runs, delivery ids, triage calls and
+/// monitor state each have their own table.
+pub fn init_trigger_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS agent_trigger (
+            id          TEXT PRIMARY KEY,
+            agent_id    TEXT NOT NULL,
+            slug        TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            is_active   INTEGER NOT NULL,
+            settings    TEXT NOT NULL,
+            data        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_trigger_slug ON agent_trigger(agent_id, slug);
+        CREATE INDEX IF NOT EXISTS idx_agent_trigger_kind ON agent_trigger(kind, is_active);
+
+        CREATE TABLE IF NOT EXISTS trigger_event (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            trigger_id     TEXT NOT NULL,
+            agent_id       TEXT NOT NULL,
+            received_at    INTEGER NOT NULL,
+            payload        TEXT,
+            status         TEXT NOT NULL,
+            reason         TEXT,
+            untriaged      INTEGER NOT NULL DEFAULT 0,
+            count          INTEGER NOT NULL DEFAULT 1,
+            attempts       INTEGER NOT NULL DEFAULT 0,
+            run_id         INTEGER,
+            summarised_at  INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_trigger_event_queue ON trigger_event(trigger_id, status, received_at, id);
+        CREATE INDEX IF NOT EXISTS idx_trigger_event_list ON trigger_event(trigger_id, received_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_trigger_event_run ON trigger_event(run_id);
+        CREATE INDEX IF NOT EXISTS idx_trigger_event_received ON trigger_event(received_at);
+
+        CREATE TABLE IF NOT EXISTS trigger_run (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            trigger_id     TEXT NOT NULL,
+            agent_id       TEXT NOT NULL,
+            trigger_slug   TEXT NOT NULL,
+            started_at     INTEGER NOT NULL,
+            finished_at    INTEGER,
+            state          TEXT NOT NULL,
+            session_key    TEXT NOT NULL,
+            delivered_at   INTEGER,
+            quiet_note     TEXT,
+            summarised_at  INTEGER,
+            owner_node     TEXT,
+            owner_token    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_trigger_run_list ON trigger_run(trigger_id, started_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_trigger_run_state ON trigger_run(state);
+        -- the overlap lock: at most one running run per trigger (FR-014)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_trigger_run_running ON trigger_run(trigger_id) WHERE state = 'running';
+
+        CREATE TABLE IF NOT EXISTS trigger_work_scope (
+            work_id   TEXT PRIMARY KEY,
+            agent_id  TEXT NOT NULL,
+            scope     TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS trigger_delivery (
+            trigger_id   TEXT NOT NULL,
+            delivery_id  TEXT NOT NULL,
+            event_id     INTEGER NOT NULL,
+            expires_at   INTEGER NOT NULL,
+            PRIMARY KEY (trigger_id, delivery_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS trigger_triage_call (
+            trigger_id  TEXT NOT NULL,
+            at          INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_trigger_triage_call ON trigger_triage_call(trigger_id, at);
+
+        CREATE TABLE IF NOT EXISTS trigger_monitor (
+            trigger_id     TEXT PRIMARY KEY,
+            state          TEXT,
+            last_check_at  INTEGER,
+            next_check_at  INTEGER,
+            last_error     TEXT,
+            failures       INTEGER NOT NULL DEFAULT 0,
+            failed_at      INTEGER
+        );
+        ",
+    )?;
+    Ok(())
+}
+
 pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "

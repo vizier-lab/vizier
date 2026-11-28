@@ -89,6 +89,7 @@ fn fixture(interactive: bool) -> Fixture {
         ..ToolRouter::empty()
     };
     let ctx = ToolContext {
+        tool_scope: None,
         session: VizierSession(
             "agent-1".into(),
             VizierChannelId::HTTP("alice".into(), "webui".into()),
@@ -192,6 +193,20 @@ async fn a_tool_that_never_ends_is_stopped_by_the_callers_timeout() {
     assert!(!report.ok);
     assert_eq!(report.tool_calls[0].name, "slow");
     assert!(!report.tool_calls[0].ok);
+}
+
+/// Spec 071 FR-030, T010: a custom tool's own script reaches no more than the turn calling it.
+#[tokio::test]
+async fn a_custom_tool_cannot_reach_outside_the_turns_scope() {
+    let mut f = fixture(true);
+    assert!(script(&f, &create("plus_one", json!({"type": "object"}), "add_one(n=1)", "")).await.ok);
+    assert!(script(&f, "plus_one()").await.ok);
+    // The turn may call custom tools, but not the category `add_one` is in.
+    f.ctx.tool_scope = Some(std::sync::Arc::new(vec!["custom".into()]));
+    let report = script(&f, "plus_one()").await;
+    assert!(!report.ok, "{report:?}");
+    assert_eq!(report.tool_calls[0].name, "plus_one");
+    assert!(report.tool_calls[0].calls.iter().all(|call| !call.ok), "{report:?}");
 }
 
 /// A script can only reach a tool by calling it, so the save check sees every custom call; the

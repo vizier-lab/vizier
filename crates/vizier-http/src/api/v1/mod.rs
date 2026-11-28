@@ -20,6 +20,7 @@ pub mod catalogue;
 pub mod connections;
 pub mod embedding;
 pub mod files;
+pub mod hooks;
 pub mod integrations;
 pub mod notifications;
 pub mod overview;
@@ -239,6 +240,21 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/files/{file_id}", get(files::download_file))
+        // Webhook triggers (spec 071): public, the trigger's own secret is the proof. The body
+        // limit is above the kind's own cap, so size is refused only after authentication.
+        .route(
+            "/hooks/{trigger_id}",
+            post(hooks::receive).layer(axum::extract::DefaultBodyLimit::max(hooks::READ_LIMIT)),
+        )
+        .route(
+            "/hooks/{trigger_id}/{secret}",
+            post(hooks::receive_with_secret).layer(axum::extract::DefaultBodyLimit::max(hooks::READ_LIMIT)),
+        )
+        .route(
+            "/trigger-kinds",
+            get(agents::triggers::kinds)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
         // A page frame: public, its ticket is the proof (spec 063 research R7a).
         .route("/ui-frames/{ticket}", get(agents::ui_pages::ui_frame))
         // Shared chat snapshots (spec 063). Creating needs a session and is capped at 5 MiB

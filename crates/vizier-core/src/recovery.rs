@@ -149,6 +149,35 @@ pub async fn recover_agent(
     recovered
 }
 
+/// Trigger runs left open by a previous owner of `control` (`specs/071-triggers` research R3): a
+/// run whose conversation has a pending turn is kept (and re-owned) for `triggers::resume`; the
+/// rest close as interrupted, their events retried once or failed (FR-049).
+async fn recover_trigger_runs(deps: &VizierDependencies, below: u64, scope: &str, recovered: &mut Recovered) {
+    use crate::storage::trigger::TriggerStorage;
+    let expired = match deps.storage.expired_trigger_runs(below).await {
+        Ok(expired) if expired.is_empty() => return,
+        Ok(expired) => expired,
+        Err(e) => {
+            failed("trigger runs", scope, &e, recovered);
+            return;
+        }
+    };
+    let pending = deps.storage.sessions_with_pending_turns().await.unwrap_or_default();
+    let keep: Vec<i64> = expired
+        .iter()
+        .filter(|run| pending.contains(&crate::triggers::run_session(run)))
+        .map(|run| run.id)
+        .collect();
+    match deps.storage.interrupt_expired_trigger_runs_except(below, &keep).await {
+        Ok(closed) if !closed.is_empty() => tracing::info!(
+            "marked {} trigger run(s) left open by a previous owner as interrupted",
+            closed.len()
+        ),
+        Ok(_) => {}
+        Err(e) => failed("trigger runs", scope, &e, recovered),
+    }
+}
+
 /// After `claim(Scope::Control, ..)` and before the scheduler's first tick.
 ///
 /// A task run whose session has a pending turn is resumed with it and closed by
@@ -159,6 +188,8 @@ pub async fn recover_control(deps: &VizierDependencies, fence: &Fence) -> Recove
     let mut recovered = Recovered { complete: true };
     let scope = fence.scope.to_string();
     let below = fence.token;
+
+    recover_trigger_runs(deps, below, &scope, &mut recovered).await;
 
     let expired = match deps.storage.expired_task_runs(below).await {
         Ok(expired) => expired,

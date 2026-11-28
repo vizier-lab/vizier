@@ -31,10 +31,14 @@ pub enum UsageActivity {
     /// A media call made outside any conversation to keep an agent's memory or skills indexed
     /// (`specs/065-media-usage-accounting` FR-003).
     Indexing,
+    /// A trigger run (`specs/071-triggers`).
+    Trigger,
+    /// A trigger's triage call (`specs/071-triggers` FR-010).
+    TriggerTriage,
 }
 
 impl UsageActivity {
-    pub const ALL: [UsageActivity; 11] = [
+    pub const ALL: [UsageActivity; 13] = [
         Self::Chat,
         Self::Project,
         Self::Workspace,
@@ -46,6 +50,8 @@ impl UsageActivity {
         Self::Other,
         Self::Consultation,
         Self::Indexing,
+        Self::Trigger,
+        Self::TriggerTriage,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -61,6 +67,8 @@ impl UsageActivity {
             Self::Other => "other",
             Self::Consultation => "consultation",
             Self::Indexing => "indexing",
+            Self::Trigger => "trigger",
+            Self::TriggerTriage => "trigger_triage",
         }
     }
 
@@ -77,6 +85,8 @@ impl UsageActivity {
             Self::Other => "Other",
             Self::Consultation => "Consultations",
             Self::Indexing => "Indexing",
+            Self::Trigger => "Triggers",
+            Self::TriggerTriage => "Trigger triage",
         }
     }
 

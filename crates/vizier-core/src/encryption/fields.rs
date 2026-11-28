@@ -571,6 +571,21 @@ fn decrypt_whole_settings(cipher: &SecretCipher, id: &str, settings: &Value) -> 
     Ok(serde_json::from_str(&json).unwrap_or(Value::String(json)))
 }
 
+// ---------------------------------------------------------------- triggers
+
+/// Seal a trigger's settings as one envelope (`specs/071-triggers` research R7). Settings are
+/// never queried in SQL, and the kind that knows which fields are secret lives above storage, so
+/// the whole object is protected and each kind masks its own fields in responses.
+pub fn protect_trigger_settings(cipher: &SecretCipher, id: &str, settings: &Value) -> Result<String> {
+    let json = serde_json::to_string(settings)?;
+    protect_value(cipher, "trigger", id, "settings", &json, ProtectMode::Write).map(|(stored, _)| stored)
+}
+
+pub fn decrypt_trigger_settings(cipher: &SecretCipher, id: &str, stored: &str) -> Result<Value> {
+    let json = decrypt_value(cipher, "trigger", id, "settings", stored)?;
+    Ok(serde_json::from_str(&json)?)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

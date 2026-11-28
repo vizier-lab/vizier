@@ -7,6 +7,7 @@ pub mod agents;
 pub mod core;
 pub mod memory;
 pub mod tasks;
+pub mod triggers;
 pub mod dream;
 pub mod detached;
 pub mod ui_pages;

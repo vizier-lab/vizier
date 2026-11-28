@@ -1177,6 +1177,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/trigger-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read"];
+        put: operations["update"];
+        post?: never;
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["run_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["replace_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/triggers/{slug}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/usage": {
         parameters: {
             query?: never;
@@ -1507,6 +1651,22 @@ export interface paths {
         get: operations["download_file"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/{trigger_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["receive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1989,6 +2149,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/trigger-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["kinds"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3903,6 +4079,12 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        Accepted: {
+            /** Format: int64 */
+            event_id: number;
+            /** @description `accepted`, `ignored`, `dropped`, `refused` or `duplicate`. */
+            outcome: components["schemas"]["AdmitOutcome"];
+        };
         /** @description The account list, with the free-text fallback only when the portal listed nothing (FR-007). */
         AccountList: {
             accounts: components["schemas"]["AccountView"][];
@@ -3931,6 +4113,11 @@ export interface components {
             /** @description Turns started in each of the 24 hours of [`Activity::hours`]. */
             turns: number[];
         };
+        /**
+         * @description How an event was received, as the webhook answers its sender (FR-023).
+         * @enum {string}
+         */
+        AdmitOutcome: "accepted" | "ignored" | "dropped" | "refused" | "duplicate";
         /** @description An agent that would lose a provider, for the delete warning. */
         AffectedAgent: {
             features: string[];
@@ -4117,6 +4304,13 @@ export interface components {
             name: string;
             /** @description The first characters of the key; empty for a key made before they were kept. */
             prefix?: string | null;
+        };
+        ApproveRequest: {
+            /** @description The triage model, when the trigger has triage: `[provider, model]`. */
+            triage_model?: [
+                string,
+                string
+            ] | null;
         };
         /** @description A permanent, agent-owned file. */
         Artifact: {
@@ -4739,6 +4933,11 @@ export interface components {
             /** @description `/share/<id>`, relative to the instance's address. */
             url_path: string;
         };
+        /** @description What creating a trigger, or replacing its secret, returns: the secret, this once (FR-020). */
+        CreatedTrigger: {
+            secret?: string | null;
+            trigger: components["schemas"]["TriggerResponse"];
+        };
         /**
          * @description A credential field a provider's connect form asks for.
          * @enum {string}
@@ -5053,6 +5252,11 @@ export interface components {
             items: components["schemas"]["EventItem"][];
             next?: string | null;
         };
+        /**
+         * @description What became of one event (FR-008).
+         * @enum {string}
+         */
+        EventStatus: "triage_pending" | "unimportant" | "waiting" | "handled" | "ignored" | "dropped" | "refused" | "failed";
         FailedTotals: {
             /**
              * Format: double
@@ -5065,7 +5269,7 @@ export interface components {
             turns: number;
         };
         /** @enum {string} */
-        FieldType: "secret" | "string" | "bool" | "string_list" | "secret_map" | "select";
+        FieldType: "secret" | "string" | "bool" | "string_list" | "secret_map" | "select" | "number" | "code" | "tool_categories";
         FileSuggestion: {
             /** @description `file` or `dir`. */
             kind: string;
@@ -5288,12 +5492,38 @@ export interface components {
             settings: Record<string, never>;
         };
         KindField: {
+            /** @description Rarely needed, so a form may keep it folded away. */
+            advanced?: boolean;
             default?: Record<string, never> | null;
+            /** @description The server fills it in, so a form never asks for it. */
+            generated?: boolean;
             key: string;
             label: string;
             options?: string[];
             required?: boolean;
             type: components["schemas"]["FieldType"];
+        };
+        /**
+         * @description What the catalogue shows for a kind; for an addon, its tile. The description also
+         *     describes an addon's tool category in the system prompt.
+         */
+        KindListing: {
+            description: string;
+            fields: components["schemas"]["KindField"][];
+            /** @description An embedded icon, served from `/integrations/kinds/{id}/icon`. */
+            icon: string;
+            name: string;
+        };
+        /** @description A kind as the create form reads it. */
+        KindResponse: {
+            /**
+             * @description What the runs of a trigger a person creates may use unless they choose; `null` is every
+             *     tool.
+             */
+            default_scope?: string[] | null;
+            id: string;
+            listing: components["schemas"]["KindListing"];
+            public: boolean;
         };
         KindRow: components["schemas"]["BreakdownRow"] & {
             kind: components["schemas"]["UsageKind"];
@@ -5615,6 +5845,17 @@ export interface components {
             release_date?: string | null;
             status: components["schemas"]["ModelStatus"];
         };
+        MonitorHealth: {
+            /** Format: date-time */
+            failed_at?: string | null;
+            /** Format: int32 */
+            failures: number;
+            /** Format: date-time */
+            last_check_at?: string | null;
+            last_error?: string | null;
+            /** Format: date-time */
+            next_check_at?: string | null;
+        };
         /** @enum {string} */
         NoLinkReason: "no_web_page" | "deleted";
         /**
@@ -5622,7 +5863,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_work" | "integration" | "chat_reply";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_work" | "integration" | "chat_reply" | "trigger_result" | "trigger_notice";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */
@@ -5684,6 +5925,11 @@ export interface components {
             /** @description Language servers for this project's chats. On unless the request says otherwise. */
             lsp_enabled?: boolean | null;
         };
+        /**
+         * @description What happens to events that arrive while a run is in progress (FR-015).
+         * @enum {string}
+         */
+        OverlapPolicy: "wait" | "drop";
         OverrideInfo: components["schemas"]["ServerOverride"] & {
             language: string;
         };
@@ -6240,6 +6486,12 @@ export interface components {
             no_change: boolean;
             /** Format: int64 */
             restored_from: number;
+        };
+        /** @description A run, its events and its conversation. */
+        RunDetail: {
+            events: components["schemas"]["TriggerEvent"][];
+            history: components["schemas"]["SessionHistory"][];
+            run: components["schemas"]["TriggerRun"];
         };
         RunsQuery: {
             /**
@@ -6818,6 +7070,169 @@ export interface components {
             title: string;
             topic_id: string;
         };
+        /** @description Optional triage by a model the person chose (FR-042). */
+        TriageConfig: {
+            /** Format: int32 */
+            calls_per_hour?: number;
+            /** @description What counts as important, in the person's words. */
+            criteria: string;
+            model?: string | null;
+            /**
+             * @description The provider and model that judge. `None` until a person approves an agent-made trigger,
+             *     which is when the model is chosen.
+             */
+            provider?: string | null;
+        };
+        Trigger: {
+            agent_id: components["schemas"]["String"];
+            /** @description Set for every trigger an agent creates, until a person approves it (FR-036). */
+            awaiting_approval?: boolean;
+            /** Format: int32 */
+            cooldown_secs?: number;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The person results and notices go to (FR-046): a user id, resolved when the trigger is
+             *     created. `None` means the agent's owner.
+             */
+            delivers_to?: string | null;
+            /** @description A conversation reference the reply also goes to (FR-046). */
+            destination?: string | null;
+            /**
+             * Format: int32
+             * @description Runs per hour; `None` is no limit (FR-016).
+             */
+            hourly_limit?: number | null;
+            /** @description Random and global: a webhook's address. */
+            id: string;
+            instruction: string;
+            is_active: boolean;
+            /** @description A trigger kind id: `webhook`, `monitor`, or an addon's. */
+            kind: string;
+            /** Format: date-time */
+            last_fired_at?: string | null;
+            /** Format: date-time */
+            last_summary_at?: string | null;
+            /** @description Why the trigger needs a person's attention, such as a removed triage model. */
+            needs_attention?: string | null;
+            overlap?: components["schemas"]["OverlapPolicy"];
+            requester: components["schemas"]["Requester"];
+            /** @description The kind's settings. Secrets are encrypted at rest and masked in every response. */
+            settings: Record<string, never>;
+            /** @description Unique on the agent. */
+            slug: string;
+            /**
+             * Format: int32
+             * @description Hours per summary; `None` is off (FR-050).
+             */
+            summary_hours?: number | null;
+            title: string;
+            /** @description The tool categories its runs may use; `None` is every tool (FR-030). */
+            tool_scope?: string[] | null;
+            triage?: components["schemas"]["TriageConfig"] | null;
+        };
+        TriggerEvent: {
+            agent_id: components["schemas"]["String"];
+            /** Format: int32 */
+            attempts: number;
+            /**
+             * Format: int64
+             * @description Events folded into this record (a collapsed drop record counts more than one).
+             */
+            count: number;
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description Redacted and capped; `None` on a collapsed drop record and after
+             *     [`PAYLOAD_RETENTION_DAYS`].
+             */
+            payload?: Record<string, never> | null;
+            /** @description The filter, the triage verdict's reason, or why it was dropped. */
+            reason?: string | null;
+            /** Format: date-time */
+            received_at: string;
+            /** Format: int64 */
+            run_id?: number | null;
+            status: components["schemas"]["EventStatus"];
+            trigger_id: string;
+            /** @description Triage failed and the event was counted as important (FR-045). */
+            untriaged: boolean;
+        };
+        /** @description The fields a person sets. On update, a field left out keeps its value. */
+        TriggerInput: {
+            /** Format: int32 */
+            cooldown_secs?: number | null;
+            destination?: string | null;
+            /**
+             * Format: int32
+             * @description `null` switches the limit off.
+             */
+            hourly_limit?: number | null;
+            instruction?: string | null;
+            is_active?: boolean | null;
+            kind?: string | null;
+            overlap?: components["schemas"]["OverlapPolicy"] | null;
+            settings?: Record<string, never> | null;
+            slug?: string | null;
+            /** Format: int32 */
+            summary_hours?: number | null;
+            title?: string | null;
+            /** @description `null` is every tool. */
+            tool_scope?: string[] | null;
+            triage?: components["schemas"]["TriageConfig"] | null;
+        };
+        /** @description A trigger as people read it: secrets masked, with what the page needs to warn. */
+        TriggerResponse: components["schemas"]["Trigger"] & {
+            /** @description The address a webhook receives requests at, relative to the server. */
+            address_path?: string | null;
+            /**
+             * @description Whether its runs may send messages or wake conversations, which the run limit cannot bound
+             *     (FR-016).
+             */
+            allows_messaging: boolean;
+            latest_run?: components["schemas"]["TriggerRun"] | null;
+            monitor?: components["schemas"]["MonitorHealth"] | null;
+            /**
+             * @description Whether it waits for a person: for approval, because something it needs is gone, or
+             *     because its checks stopped.
+             */
+            needs_person: boolean;
+            /**
+             * Format: int32
+             * @description Runs started in the last hour, which the hourly limit bounds.
+             */
+            runs_last_hour: number;
+        };
+        TriggerRun: {
+            agent_id: components["schemas"]["String"];
+            /** Format: date-time */
+            delivered_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Set when the run ended with "nothing to report" (FR-050). */
+            quiet_note?: string | null;
+            session_key: string;
+            /** Format: date-time */
+            started_at: string;
+            state: components["schemas"]["TriggerRunState"];
+            trigger_id: string;
+            /** @description The trigger's slug when the run started; the conversation is addressed by it. */
+            trigger_slug: string;
+        };
+        /**
+         * @description The state of one run.
+         * @enum {string}
+         */
+        TriggerRunState: "running" | "answered" | "no_response" | "interrupted";
+        /** @description An agent's triggers in numbers, for the page's heading and its sidebar badge. */
+        TriggerSummary: {
+            /** @description Those taking events now. */
+            active: number;
+            needs_person: number;
+            total: number;
+        };
         /** @enum {string} */
         TtsProvider: "openai" | "openrouter" | "elevenlabs" | "xai" | "hyperbolic" | "kokoro" | "dummyplug";
         TtsToolSettings: {
@@ -7007,7 +7422,7 @@ export interface components {
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
          * @enum {string}
          */
-        UsageActivity: "chat" | "project" | "workspace" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other" | "consultation" | "indexing";
+        UsageActivity: "chat" | "project" | "workspace" | "background" | "scheduled" | "dreams" | "compaction" | "vision" | "other" | "consultation" | "indexing" | "trigger" | "trigger_triage";
         /**
          * @description What kind of model call a usage record is (`specs/065-media-usage-accounting` data-model §1).
          *     Every completion is `Text`. Display order; append only.
@@ -7198,6 +7613,16 @@ export interface components {
             subagent_depth?: number;
             /** Format: date-time */
             timestamp: string;
+            /**
+             * @description The tool categories this turn, and everything it causes, may use (`specs/071-triggers`
+             *     FR-030); `None` is every tool. Never taken from a client.
+             */
+            tool_scope?: string[] | null;
+            /**
+             * @description The slug of the trigger this request is a run of (`specs/071-triggers`). Set by the
+             *     trigger service and by nothing else; cleared from client input on receipt.
+             */
+            trigger?: string | null;
             user: string;
             /**
              * @description Whether the sender is a Vizier user proven by a linked platform account
@@ -11687,6 +12112,458 @@ export interface operations {
             };
         };
     };
+    summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerSummary"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerResponse"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerInput"];
+            };
+        };
+        responses: {
+            /** @description Created. A webhook's secret is in this response only */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedTrigger"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved. A webhook's new secret is in this response only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedTrigger"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+                /** @description Continue after the item with this time (RFC 3339) and id. */
+                before: string | null;
+                before_id: number | null;
+                /** @description At most 200; 50 when left out. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerEvent"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+                /** @description Continue after the item with this time (RFC 3339) and id. */
+                before: string | null;
+                before_id: number | null;
+                /** @description At most 200; 50 when left out. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerRun"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    run_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replace_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new secret, in this response only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedTrigger"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the monitor's script returned. Nothing fires and no state is saved, but the script's tool calls really happen */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     agent_usage: {
         parameters: {
             query?: never;
@@ -12568,6 +13445,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
+            };
+        };
+    };
+    receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The trigger's address */
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorded; the run happens later */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Accepted"];
+                };
+            };
+            /** @description Unknown, inactive, or not authenticated (one body) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body is over 256 KiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not JSON, form-encoded or text */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many misses from this address */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Storage is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -13953,6 +14888,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_ServerStatus"];
+                };
+            };
+        };
+    };
+    kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KindResponse"][];
                 };
             };
         };

@@ -50,6 +50,11 @@ impl IntegrationKinds {
         self.kinds.iter().find(|kind| kind.id() == id).cloned()
     }
 
+    /// Every integration kind.
+    pub fn all(&self) -> &[Arc<dyn IntegrationKind>] {
+        &self.kinds
+    }
+
     pub fn by_family(&self, family: Option<IntegrationFamily>) -> Vec<Arc<dyn IntegrationKind>> {
         self.kinds
             .iter()

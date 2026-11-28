@@ -21,3 +21,5 @@ export const Indeterminate: Story = { args: { value: undefined, detail: "4.1 GB 
 export const Done: Story = { args: { state: "done", detail: "20.0 GB · 6 min" } };
 
 export const Failed: Story = { args: { state: "failed", value: 41, detail: "Stopped at 8.1 GB: connection reset. Try again to resume." } };
+
+export const Compact: Story = { args: { compact: true, label: "3 of 20 runs this hour", value: 15, detail: undefined } };

@@ -192,6 +192,7 @@ mod tests {
 
     fn ctx(channel: VizierChannelId, interactive: bool) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             session: VizierSession("agent-1".into(), channel, Some("t".into())),
             pending_attachments: Default::default(),
             hooks: None,

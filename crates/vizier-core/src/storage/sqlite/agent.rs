@@ -47,6 +47,16 @@ pub(crate) fn delete_agent_data(conn: &crate::storage::sql::Connection, agent_id
             params![agent_id],
         )?;
     }
+    // Its triggers and everything they recorded (`specs/071-triggers`).
+    for table in ["trigger_delivery", "trigger_triage_call", "trigger_monitor"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE trigger_id IN (SELECT id FROM agent_trigger WHERE agent_id = ?1)"),
+            params![agent_id],
+        )?;
+    }
+    for table in ["trigger_event", "trigger_run", "trigger_work_scope", "agent_trigger"] {
+        conn.execute(&format!("DELETE FROM {table} WHERE agent_id = ?1"), params![agent_id])?;
+    }
     conn.execute(
         "DELETE FROM shared_snapshot_audience WHERE share_id IN \
          (SELECT share_id FROM shared_snapshot WHERE agent_id = ?1)",

@@ -10,6 +10,8 @@ export type NotificationCategory =
     | 'background_work'
     | 'integration'
     | 'chat_reply'
+    | 'trigger_result'
+    | 'trigger_notice'
 
 export type NotificationTone = 'default' | 'failed' | 'success'
 

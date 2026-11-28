@@ -20,6 +20,7 @@ mod providers;
 mod shares;
 mod subagents;
 mod tasks;
+mod triggers;
 mod topics;
 
 pub fn all() -> Vec<Vector> {
@@ -51,6 +52,7 @@ pub fn all() -> Vec<Vector> {
     all.extend(shares::vectors());
     all.extend(subagents::vectors());
     all.extend(tasks::vectors());
+    all.extend(triggers::vectors());
     all.extend(topics::vectors());
     all
 }

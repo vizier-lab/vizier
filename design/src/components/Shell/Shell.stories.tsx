@@ -112,6 +112,7 @@ function Demo({ view, projects = false, startCollapsed = false }: { view: "home"
     view === "agent" ? (
       <ContextSidebar
         active="memory"
+        counts={{ triggers: { value: 2, label: "2 need you" } }}
         hrefFor={(p) => `#${p}`}
         agent={
           <AgentMenu

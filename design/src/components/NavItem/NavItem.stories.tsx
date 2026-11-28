@@ -20,6 +20,8 @@ export const Active: Story = { args: { active: true } };
 
 export const Live: Story = { args: { icon: "chat", label: "Chat", live: true } };
 
+export const Count: Story = { args: { icon: "zap", label: "Triggers", count: 2, countLabel: "2 need you" } };
+
 export const States: Story = {
   tags: ["!autodocs"],
   parameters: statePseudo,

@@ -6,6 +6,7 @@ pub mod project;
 pub mod reactions;
 pub mod sandbox;
 pub mod scheduled_run;
+pub mod trigger_run;
 pub mod side_chat;
 pub mod user;
 pub mod worker;

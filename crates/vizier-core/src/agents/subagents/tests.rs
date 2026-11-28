@@ -104,6 +104,7 @@ mod service {
 
     struct Fixture {
         subagents: Subagents,
+        transport: VizierTransport,
         inbox: Inbox,
         _dir: tempfile::TempDir,
     }
@@ -117,7 +118,7 @@ mod service {
         )));
         let transport = VizierTransport::new();
         let inbox = transport.register_agent("agent-1".into()).await;
-        Fixture { subagents: Subagents::new(storage, transport), inbox, _dir: dir }
+        Fixture { subagents: Subagents::new(storage, transport.clone()), transport, inbox, _dir: dir }
     }
 
     fn chat() -> VizierSession {
@@ -130,6 +131,7 @@ mod service {
 
     fn ctx(session: VizierSession, wait_secs: u64) -> ToolContext {
         ToolContext {
+            tool_scope: None,
             loaded_images: Default::default(),
             client: None,
             questions: crate::questions::QuestionsHandle::new(Default::default()),
@@ -303,7 +305,7 @@ mod service {
         // The question is delivered once, unless the main agent read it first.
         let delivered = f.subagents.claim(&chat()).await;
         assert_eq!(delivered.len(), 1);
-        assert!(delivered[0].contains("question: EU or US?"));
+        assert!(delivered[0].text.contains("question: EU or US?"));
         assert!(f.subagents.claim(&chat()).await.is_empty());
 
         let replied = f.subagents.reply(&hirer, &workers[0].id, "EU").await.unwrap().unwrap();
@@ -379,7 +381,58 @@ mod service {
         reply(&f, &workers[0], "late").await;
         let delivered = f.subagents.claim(&chat()).await;
         assert_eq!(delivered.len(), 1);
-        assert!(delivered[0].contains("result: late"));
+        assert!(delivered[0].text.contains("result: late"));
+    }
+
+    /// Spec 071 FR-030, T010: a scoped turn's workers and consultations run under its scope, a
+    /// reply never widens it, and their outcomes are delivered under it.
+    #[tokio::test]
+    async fn a_scoped_turns_workers_keep_its_scope_through_replies_and_delivery() {
+        let f = fixture().await;
+        let narrow = Some(vec!["memory_read".to_string()]);
+        let mut scoped = ctx(chat(), 1);
+        scoped.tool_scope = narrow.clone().map(Arc::new);
+
+        let workers = f.subagents.spawn(&scoped, vec!["look".into()], 600).await.unwrap();
+        assert_eq!(next_of(&f.inbox, "subagent_task").await.request.tool_scope, narrow);
+
+        // An ordinary turn replying to it does not widen it.
+        f.subagents.ask(&ctx(workers[0].worker_session(), 1), "which?").await.unwrap();
+        f.subagents.reply(&ctx(chat(), 1), &workers[0].id, "this").await.unwrap().unwrap();
+        assert_eq!(next_of(&f.inbox, "subagent_reply").await.request.tool_scope, narrow);
+
+        reply(&f, &workers[0], "done").await;
+        let delivery = Deliveries::new(vec![Arc::new(f.subagents.clone())])
+            .claim(&chat())
+            .await
+            .expect("a delivery");
+        assert_eq!(delivery.scope, narrow);
+
+        // A consultation of another agent is the same path.
+        let other = f.transport.register_agent("agent-2".into()).await;
+        let who = crate::agents::subagents::OnBehalf { user_id: "u1".into(), display: None };
+        let asked = f
+            .subagents
+            .consult(&scoped, vec![("agent-2".into(), "what changed?".into())], 600, who)
+            .await
+            .unwrap();
+        assert_eq!(next_of(&other, "subagent_task").await.request.tool_scope, narrow);
+        reply(&f, &asked[0], "nothing").await;
+        let delivery = Deliveries::new(vec![Arc::new(f.subagents.clone())])
+            .claim(&chat())
+            .await
+            .expect("a delivery");
+        assert_eq!(delivery.scope, narrow);
+
+        // And an unscoped turn's own work stays unscoped.
+        let open = f.subagents.spawn(&ctx(chat(), 1), vec!["b".into()], 600).await.unwrap();
+        assert_eq!(next_of(&f.inbox, "subagent_task").await.request.tool_scope, None);
+        reply(&f, &open[0], "done").await;
+        let delivery = Deliveries::new(vec![Arc::new(f.subagents.clone())])
+            .claim(&chat())
+            .await
+            .expect("a delivery");
+        assert_eq!(delivery.scope, None);
     }
 
     #[tokio::test]
@@ -388,7 +441,7 @@ mod service {
         let workers = f.subagents.spawn(&ctx(chat(), 1), vec!["a".into()], 600).await.unwrap();
         reply(&f, &workers[0], "the answer").await;
         let deliveries = Deliveries::new(vec![Arc::new(f.subagents.clone())]);
-        let text = deliveries.claim(&chat()).await.expect("a delivery");
+        let text = deliveries.claim(&chat()).await.expect("a delivery").text;
         assert!(text.starts_with(UPDATE_HEADING));
         assert!(text.contains("result: the answer"));
         assert_eq!(deliveries.claim(&chat()).await, None);
@@ -427,6 +480,7 @@ mod service {
 fn who_is_offered_which_subagent_tool() {
     use crate::schema::{VizierChannelId, VizierSession};
     let base = |session: VizierSession, depth: u8| ToolContext {
+        tool_scope: None,
         loaded_images: Default::default(),
         client: None,
         questions: crate::questions::QuestionsHandle::new(Default::default()),

@@ -87,6 +87,7 @@ pub mod sso_session;
 pub mod state;
 pub mod task;
 pub mod task_run;
+pub mod trigger;
 pub mod turn;
 pub mod usage;
 pub mod user;
@@ -132,6 +133,7 @@ where
         + ArtifactStorage
         + TaskStorage
         + TaskRunStorage
+        + trigger::TriggerStorage
         + DetachedScriptStorage
         + SubagentStorage
         + HistoryStorage

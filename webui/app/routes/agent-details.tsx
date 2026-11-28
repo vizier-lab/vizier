@@ -1,7 +1,7 @@
 import { AgentDetailsList, Sigil, Status, agentStatusLabel } from '@vizier/design'
 import { Navigate, useParams } from 'react-router'
 import { agentState } from '../api/endpoints/agents'
-import { canManageSecrets, canViewArtifacts } from '../lib/access'
+import { canManageSecrets, canViewArtifacts, canViewTriggers } from '../lib/access'
 import { detailsAccess, detailsHref } from '../lib/agentDetails'
 import { assetSrc } from '../lib/fileUrls'
 import { relativeTime } from '../lib/format'
@@ -28,6 +28,7 @@ export default function AgentDetails() {
     const { hidden, disabled } = detailsAccess({
         viewArtifacts: agent ? canViewArtifacts(agent) : false,
         manageSecrets: agent ? canManageSecrets(agent) : false,
+        viewTriggers: agent ? canViewTriggers(agent) : false,
         editAgent: agent ? canEditAgent(agent) : false,
     })
 

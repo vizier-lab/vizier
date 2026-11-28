@@ -762,7 +762,86 @@ async fn stale_ui_page_write_refused() {
     assert_eq!(n.b.sweep_pending_ui_verifications("x", 0).await.unwrap(), 0);
 }
 
+/// Triggers (`specs/071-triggers` T006): every write that advances events and runs is `control`'s.
+#[tokio::test]
+async fn stale_trigger_write_refused() {
+    use crate::schema::{EventStatus, OverlapPolicy, Requester, Trigger, TriggerRunState, WhenFull};
+    use crate::storage::trigger::{MonitorRecord, NewEvent, TriggerStorage, Verdict};
+
+    let n = nodes();
+    let scope = Scope::Control;
+    n.a_then_b(&scope).await;
+    let now = crate::time::now();
+    let trigger = Trigger {
+        id: "t".into(),
+        agent_id: "x".into(),
+        slug: "ci".into(),
+        kind: "webhook".into(),
+        title: "CI".into(),
+        instruction: "Tell me".into(),
+        settings: serde_json::json!({}),
+        requester: Requester::User("u".into()),
+        delivers_to: None,
+        is_active: true,
+        awaiting_approval: false,
+        needs_attention: None,
+        tool_scope: None,
+        overlap: OverlapPolicy::Wait,
+        hourly_limit: None,
+        cooldown_secs: 0,
+        triage: None,
+        destination: None,
+        summary_hours: None,
+        last_summary_at: None,
+        created_at: now,
+        last_fired_at: None,
+    };
+    n.a.create_trigger(&trigger).await.unwrap();
+    let event = |status| NewEvent {
+        trigger_id: "t".into(),
+        agent_id: "x".into(),
+        received_at: now,
+        payload: Some(serde_json::json!({})),
+        delivery_id: None,
+        status,
+        reason: None,
+        when_full: WhenFull::DropOldest,
+        monitor_state: None,
+    };
+    n.a.admit_event(event(EventStatus::Waiting)).await.unwrap();
+    let judged = n.a.admit_event(event(EventStatus::TriagePending)).await.unwrap().event_id;
+    let run = n.a.start_trigger_run(&trigger, now, "key".into()).await.unwrap().unwrap().run.id;
+    n.b_takes_over(&scope).await;
+
+    let verdict = Verdict { event_id: judged, important: false, reason: "no".into(), untriaged: false };
+    n.assert_refused(&scope, n.a.admit_event(event(EventStatus::Waiting)).await);
+    n.assert_refused(&scope, n.a.record_verdicts("t", std::slice::from_ref(&verdict), WhenFull::DropOldest).await);
+    n.assert_refused(&scope, n.a.record_triage_call("t", now).await);
+    n.assert_refused(&scope, n.a.start_trigger_run(&trigger, now, "key2".into()).await);
+    n.assert_refused(&scope, n.a.close_trigger_run(run, TriggerRunState::Answered, now, None).await);
+    n.assert_refused(&scope, n.a.claim_delivery(run, now).await);
+    n.assert_refused(&scope, n.a.interrupt_expired_trigger_runs_except(u64::MAX >> 1, &[]).await);
+    n.assert_refused(&scope, n.a.mark_summarised("t", &[judged], &[], now).await);
+    n.assert_refused(&scope, n.a.note_trigger_fired("t", now).await);
+    n.assert_refused(&scope, n.a.note_trigger_summarised("t", now).await);
+    n.assert_refused(&scope, n.a.set_trigger_attention("t", Some("gone".into())).await);
+    n.assert_refused(&scope, n.a.save_monitor_record("t", &MonitorRecord::default()).await);
+
+    let stored = n.b.get_trigger_by_id("t").await.unwrap().unwrap();
+    assert_eq!((stored.last_fired_at, stored.needs_attention), (None, None));
+    assert_eq!(n.b.list_trigger_events("t", None, 10).await.unwrap().len(), 2, "nothing more was written");
+    assert_eq!(n.b.open_trigger_runs().await.unwrap().len(), 1, "the run stays open");
+
+    n.b.record_verdicts("t", &[verdict], WhenFull::DropOldest).await.unwrap();
+    assert!(n.b.claim_delivery(run, now).await.unwrap());
+    assert!(n.b.close_trigger_run(run, TriggerRunState::Answered, now, None).await.unwrap().is_some());
+    n.b.note_trigger_fired("t", now).await.unwrap();
+    assert!(n.b.set_trigger_attention("t", Some("gone".into())).await.unwrap());
+    n.b.save_monitor_record("t", &MonitorRecord::default()).await.unwrap();
+}
+
 crate::postgres_tests!(
+    stale_trigger_write_refused,
     stale_history_save_refused,
     stale_turn_transition_refused,
     stale_client_call_write_refused,

@@ -182,6 +182,13 @@ pub enum AgentCommand {
         agent_id: String,
         resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
     },
+    /// Run one monitor check in the agent's instance, with no model call (`specs/071-triggers`
+    /// research R1). An agent that is not running answers with a failed check.
+    RunCheck {
+        agent_id: String,
+        check: crate::schema::trigger::MonitorCheck,
+        resp: tokio::sync::oneshot::Sender<crate::schema::trigger::CheckOutcome>,
+    },
 }
 
 impl AgentCommand {
@@ -195,7 +202,8 @@ impl AgentCommand {
             | Self::RefreshIntegrations { agent_id }
             | Self::IntegrationStatus { agent_id, .. }
             | Self::Restart { agent_id, .. }
-            | Self::AgentHealth { agent_id, .. } => agent_id,
+            | Self::AgentHealth { agent_id, .. }
+            | Self::RunCheck { agent_id, .. } => agent_id,
             Self::HealthCheck { .. } => "",
         }
     }

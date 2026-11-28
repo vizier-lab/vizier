@@ -17,13 +17,41 @@ use crate::{
 /// Waits between delivery pokes while the agent is not registered (being respawned).
 const POKE_BACKOFF_MS: [u64; 6] = [500, 1_000, 2_000, 4_000, 8_000, 14_000];
 
+/// One finished piece of work, as it will be told to the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Section {
+    pub text: String,
+    /// The tool scope of the turn that started the work; `None` when it had every tool.
+    pub scope: Option<Vec<String>>,
+}
+
+/// What a delivery hands the agent: the sections joined, and what a turn of its own may use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    pub text: String,
+    /// What every delivered section's scope allows (`specs/071-triggers` FR-030).
+    pub scope: Option<Vec<String>>,
+}
+
+/// The scope stored for a piece of work. A store that cannot be read fails closed.
+pub async fn stored_scope(storage: &crate::storage::VizierStorage, work_id: &str) -> Option<Vec<String>> {
+    use crate::storage::trigger::TriggerStorage;
+    match storage.work_scope(work_id).await {
+        Ok(scope) => scope,
+        Err(e) => {
+            tracing::warn!(work_id, "could not read the tool scope of finished work: {e}");
+            Some(crate::agents::tools::scope::narrow_default())
+        }
+    }
+}
+
 /// Something that finishes beside a conversation and must be handed to its agent once.
 #[async_trait::async_trait]
 pub trait DeliverySource: Send + Sync {
-    /// Take this conversation's deliverable outcomes and render each as a section of the
+    /// Take this conversation's deliverable outcomes and render them as sections of the
     /// delivery message. Whoever calls first gets them; an empty result means nothing to hand
     /// over. Failures are logged and read as nothing.
-    async fn claim(&self, session: &VizierSession) -> Vec<String>;
+    async fn claim(&self, session: &VizierSession) -> Vec<Section>;
 
     /// The agent's conversations with something deliverable (recovery pokes each once).
     async fn sessions_with_deliveries(&self, agent_id: &AgentId) -> Vec<VizierSession>;
@@ -44,12 +72,19 @@ impl Deliveries {
 
     /// Claim from every source; `None` when none had anything. Sections ready at the same
     /// moment share one message, in source order.
-    pub async fn claim(&self, session: &VizierSession) -> Option<String> {
+    pub async fn claim(&self, session: &VizierSession) -> Option<Delivery> {
         let mut sections = vec![];
         for source in self.sources.iter() {
             sections.extend(source.claim(session).await);
         }
-        (!sections.is_empty()).then(|| sections.join("\n\n"))
+        if sections.is_empty() {
+            return None;
+        }
+        let scope = sections.iter().fold(None, |scope: Option<Vec<String>>, section| {
+            crate::agents::tools::scope::intersect(scope.as_deref(), section.scope.as_deref())
+        });
+        let text = sections.into_iter().map(|s| s.text).collect::<Vec<_>>().join("\n\n");
+        Some(Delivery { text, scope })
     }
 
     /// The agent's conversations with something to deliver, each once.
@@ -112,8 +147,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl DeliverySource for Fake {
-        async fn claim(&self, _session: &VizierSession) -> Vec<String> {
+        async fn claim(&self, _session: &VizierSession) -> Vec<Section> {
             std::mem::take(&mut *self.ready.lock())
+                .into_iter()
+                .map(|text| Section {
+                    scope: text.starts_with("scoped").then(|| vec!["memory_read".into()]),
+                    text,
+                })
+                .collect()
         }
         async fn sessions_with_deliveries(&self, _agent: &AgentId) -> Vec<VizierSession> {
             self.sessions.clone()
@@ -134,7 +175,9 @@ mod tests {
     #[tokio::test]
     async fn sections_from_every_source_share_one_message_in_source_order() {
         let deliveries = Deliveries::new(vec![fake(&["script"], &[]), fake(&["w1", "w2"], &[])]);
-        assert_eq!(deliveries.claim(&session("t")).await.as_deref(), Some("script\n\nw1\n\nw2"));
+        let delivery = deliveries.claim(&session("t")).await.expect("a delivery");
+        assert_eq!(delivery.text, "script\n\nw1\n\nw2");
+        assert_eq!(delivery.scope, None, "nothing here came from a scoped turn");
         assert_eq!(deliveries.claim(&session("t")).await, None, "each claimed once");
     }
 
@@ -145,5 +188,12 @@ mod tests {
             deliveries.sessions_with_deliveries(&"a".into()).await,
             vec![session("t"), session("u"), session("v")]
         );
+    }
+
+    #[tokio::test]
+    async fn one_scoped_section_scopes_the_whole_delivery() {
+        let deliveries = Deliveries::new(vec![fake(&["script"], &[]), fake(&["scoped work"], &[])]);
+        let delivery = deliveries.claim(&session("t")).await.expect("a delivery");
+        assert_eq!(delivery.scope, Some(vec!["memory_read".to_string()]));
     }
 }

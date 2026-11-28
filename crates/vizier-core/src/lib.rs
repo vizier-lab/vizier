@@ -118,6 +118,9 @@ pub(crate) mod provider_migration;
 pub mod questions;
 pub(crate) mod scheduler;
 pub(crate) mod secrets;
+/// Triggers (`specs/071-triggers`): start an unattended run when something happens.
+#[doc(hidden)]
+pub mod triggers;
 #[doc(hidden)]
 pub mod session_files;
 #[doc(hidden)]

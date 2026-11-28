@@ -349,6 +349,7 @@ mod tests {
             reserved: Arc::new(vec![]),
         };
         let ctx = ToolContext {
+            tool_scope: None,
             session: session(),
             pending_attachments: Default::default(),
             hooks: None,

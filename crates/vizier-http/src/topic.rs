@@ -42,6 +42,10 @@ fn stamp_on_receipt(request: &mut vizier_core::schema::VizierRequest) {
     request.mid_turn = false;
     // Only a consultation request carries a chain of consulting agents (spec 064 D8).
     request.consultation_chain.clear();
+    // Only the trigger service starts a trigger run, and only it sets a tool scope (spec 071).
+    request.trigger = None;
+    request.tool_scope = None;
+    request.scheduled_task = None;
     // Only a live voice session marks a message as spoken (spec 055 FR-011); a typed one never is.
     request.spoken = false;
     // Only a platform reader says whether a sender is proven (spec 069).
