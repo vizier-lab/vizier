@@ -1,12 +1,11 @@
-import { Badge, Button, Checkbox, HighlightMatch, Icon, KeyValueList, Picker, ProviderLogo, Skeleton, type PickerSection } from '@vizier/design'
+import { Badge, Checkbox, HighlightMatch, Icon, KeyValueList, Picker, ProviderLogo, Skeleton, type PickerSection } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { type ModelSummary, type ProviderSummary } from '../../api/endpoints/catalogue'
-import { PERMISSIONS, useCan } from '../../lib/access'
 import { loadModels, logoOf, useCatalogueProviders } from '../../lib/catalogue'
 import { abbreviate } from '../../lib/format'
 import { capabilityLine } from '../../lib/models'
-import { ConnectForm } from '../providers/ConnectForm'
-import { toast } from '../../stores/toasts'
+import { isConnected } from '../../lib/mediaProviders'
+import { ProviderConnectPanel } from './ProviderConnectPanel'
 
 type Props = {
     provider: string
@@ -32,9 +31,6 @@ const price = (m: ModelSummary) => (m.cost ? `$${+m.cost.input.toFixed(2)} / $${
 const caps = (m: ModelSummary) =>
     [m.caps.tool_call && 'tools', m.caps.image_input && 'vision', m.caps.reasoning && 'reasoning'].filter(Boolean).join(' · ')
 
-/** A catalogue local provider counts as connected without any setup; it is listed as saved once something was. */
-const isConnected = (p: ProviderSummary) => p.connection.status === 'connected' && (p.connection.source != null || p.origin === 'builtin')
-
 /**
  * Provider and model for an agent, in one place. The provider list is the catalogue (connected
  * ones first, then custom, then every other), the model list is searchable and takes a typed id,
@@ -43,7 +39,6 @@ const isConnected = (p: ProviderSummary) => p.connection.status === 'connected' 
  */
 export function ModelSelect({ provider, model, onChange, providerLabel = 'Provider', modelLabel = 'Model', disabled, needsImages, compact }: Props) {
     const { providers, failed, reload } = useCatalogueProviders()
-    const canConnect = useCan(PERMISSIONS.providers)
     const [models, setModels] = useState<ModelSummary[]>()
     const [showAll, setShowAll] = useState(false)
     const [providerQuery, setProviderQuery] = useState('')
@@ -213,32 +208,7 @@ export function ModelSelect({ provider, model, onChange, providerLabel = 'Provid
                 </div>
             </div>
 
-            {connecting && (
-                <div className="flex flex-col gap-12 rounded-lg border border-dashed border-border-strong p-16">
-                    <div className="flex flex-col gap-2">
-                        <span className="type-ui-medium text-fg">Connect {connecting.name} to use it</span>
-                        <span className="type-small text-faint">
-                            {canConnect ? 'Its credentials are saved in Vizier and shared with every agent that uses this provider.' : `${connecting.name} isn’t connected yet. Ask someone who manages providers to connect it.`}
-                        </span>
-                    </div>
-                    {canConnect && (
-                        <ConnectForm
-                            key={connecting.id}
-                            provider={connecting}
-                            onCancel={() => setDismissed(connecting.id)}
-                            onDone={() => {
-                                toast.success(`${connecting.name} connected`)
-                                void reload()
-                            }}
-                        />
-                    )}
-                    {!canConnect && (
-                        <div>
-                            <Button onClick={() => setDismissed(connecting.id)}>Dismiss</Button>
-                        </div>
-                    )}
-                </div>
-            )}
+            {connecting && <ProviderConnectPanel provider={connecting} onDismiss={() => setDismissed(connecting.id)} onConnected={() => void reload()} />}
 
             {info && !compact && <ModelCard model={info} />}
             {info && compact && <p className="type-small text-faint">{capabilityLine(info)}</p>}
