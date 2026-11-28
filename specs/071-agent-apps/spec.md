@@ -102,6 +102,8 @@ This conversation **is the ordinary chat**: every chat feature (the activity tra
 6. **Given** an app, **When** the person presses + at the top of its chat inset, **Then** a new conversation with the current driver opens, the earlier ones stay in the conversation list, and the app's data is the same in all of them.
 7. **Given** an app page that keeps state per conversation, **When** the person switches conversation, **Then** the page is told the new conversation and can show that conversation's state.
 8. **Given** a scheduled task of the driving agent that works for the app's owner, **When** it wakes one of the app's conversations, **Then** a turn runs there with the app's tools and its answer lands in that conversation. **Given** any other agent, or a turn working for another person, **When** it tries the same wake, **Then** it is refused with a reason.
+9. **Given** the person is elsewhere in Vizier (or the window is in the background), **When** the driver replies in one of the app's conversations (to the person, to a wake, or to an `ask` schedule), **Then** a notification appears like any chat reply, titled with the app and the conversation, and selecting it opens the app on exactly that conversation and marks it read.
+10. **Given** the person is looking at that app conversation, **When** the reply arrives, **Then** no notification toast or unread count is added for it.
 
 ---
 
@@ -302,6 +304,7 @@ While the app is open, its chat's driver can use tools the app provides on scree
 **Removal and limits**
 
 - **FR-034**: The owner MUST be able to remove an app after a confirmation that names what will be lost. Removal MUST delete its versions, data, files, approvals and schedules, and MUST leave its conversations as ordinary conversations of their agents.
+- **FR-036**: A reply in an app conversation MUST notify the app's owner as a chat reply, whatever started the turn (the person, the page, a wake or an `ask` schedule). Its title MUST name the app and the conversation, and selecting it MUST open the app on that conversation and mark it read. While the person is viewing that conversation, no toast or unread count MUST be added. Unread replies MUST be counted on the app's rail tile and on each conversation in the app's conversation list, as for agent conversations.
 - **FR-035**: Every app activity that costs model or media usage MUST be counted in usage reports and attributed to the app and its driver.
 
 ### Key Entities

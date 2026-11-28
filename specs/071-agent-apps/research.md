@@ -225,7 +225,7 @@ The server re-validates the declarations against the current version's manifest 
 - **Chat reuse** (FR-011): `routes/chat.tsx` is split into a `ChatView({agentId, channel, topicId, header, onNavigate, chrome})` component and a thin route. The agent chat routes and the app route both mount `ChatView`. `stores/connection.ts`'s `topicKey` gains the channel, because app threads and agent chats may share a topic id space.
 - **Layout**: a new design component `SplitInsets` (two insets, a keyboard-operable separator, min sizes, a double-click reset). The chat width is persisted per app per browser (`vizier.app.chatWidth.{appId}`), a per-viewer convenience. Below `lg`, the chat is a bottom `SlideOver`.
 - **App host**: `SandboxedPage` takes a `ticket()` function and an `abilities` handler object as props, so the chat card (063) and the app view share it.
-- **Route**: `/apps/:appId`. `AppShell.routeAgent` excludes `apps`, `viewOf` returns `app`, and the chat-route regex learns `^/apps/`.
+- **Route**: `/apps/:appId` and `/apps/:appId/:topicId` (the conversation; what notification links open). `AppShell.routeAgent` excludes `apps`, `viewOf` returns `app`, and the chat-route regex learns `^/apps/`.
 - **Phone**: apps appear in `AgentSwitcherSheet` and `MobileHome` in the rail order (both sort by name today).
 - **Icons**: the manifest names an `IconName` from `design/src/icons/map.ts`. An unknown name falls back to the monogram (FR-007).
 
@@ -241,6 +241,7 @@ The server re-validates the declarations against the current version's manifest 
 
 **Decisions**:
 - **Usage**: `UsageActivity::App` (label "Apps"), place `app:{app_id}`, through `usage_activity` on the channel. A page-initiated function call is recorded under the app session (D6), so FR-035 holds without a new scope.
+- **Chat replies** (FR-036): an `App` channel has a `web_user()` (the owner), so `Notifications::chat_replied` already fires for replies in app conversations. `agents/process.rs`'s `notifies_chat` list gains `AppScheduled` (it already holds `Chat`, `ClientEvent` and spec 067's woken turns). `notifications::conversation_href` gains an `App` branch, `/apps/{app_id}/{topic}`, matching the WebUI route `/apps/:appId/:topicId`, so the store's `viewing` path check suppresses toasts on the open conversation unchanged. `service::notifications::fill_titles` titles app conversations `<app name> · <conversation title>`. Unread counts come from the existing `GET /notifications/chats`: the rail sums an app's conversations for its tile (`UnreadBadge`), and the conversation list (frame K) shows them per row with the session-row count. No new visual: the existing notification card and badges are reused, so no FigCraft pass.
 - **New notification categories**: `app_schedule_failed` (once per episode), and `app_driver_lost` for the owner when a driving agent is deleted. Both link to `/apps/{id}`.
 
 ## D16. Removal and agent deletion

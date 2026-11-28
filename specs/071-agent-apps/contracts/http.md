@@ -76,3 +76,7 @@ These are server-to-client and added to the existing set:
 - `app_badge {"app_id", "badge"}`
 
 The inbox stream also carries `app_badge` and `app_driver_changed` for rail tiles.
+
+## Notifications
+
+No new route. A reply in an app conversation is an ordinary `chat_reply` row: `href` `/apps/{app_id}/{topic}`, title `<app name> · <conversation title>` (filled on read), audience the owner. `GET /notifications/chats` lists app conversations like any other, and `POST /notifications/chats/read` with that href marks them read when opened.

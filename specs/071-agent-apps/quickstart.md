@@ -65,6 +65,15 @@
 | (T) | the same wake from Scout (not the driver) | `status: not_wakeable` |
 | (T) | an `ask` schedule fires twice | both runs land in the conversation `sched-<name>`, never in the person's open one |
 
+## 3c. Notifications (FR-036)
+
+| Step | Do | Expect |
+|---|---|---|
+| (T) | with no socket on the conversation, the driver replies in app conversation `t` | one `chat_reply` row for the owner, `href` `/apps/{id}/t`, title `Habits · <conversation>` |
+| (T) | an `ask` schedule's reply | a `chat_reply` with `href` `/apps/{id}/sched-<name>` |
+| (UI) | from Home, select that notification | the app opens on conversation `t`; the row reads as read; the rail tile's unread count drops |
+| (UI) | with conversation `t` open, a new reply arrives | no toast, no unread count |
+
 ## 4. Switch the driver (Story 4)
 
 | Step | Do | Expect |
