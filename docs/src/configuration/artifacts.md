@@ -28,6 +28,18 @@ the source conversation, deleting it, or deleting the agent therefore cannot aff
 - Artifacts have **no version history or restore**. The version counter and change log record
   what happened; only the current content is kept.
 
+## Agent tools
+
+An agent manages its own artifacts with tools in the **files** category: `promote_artifact`,
+`update_artifact`, `list_artifacts`, `load_artifact_as_session_file` and `delete_artifact` (by
+name, permanent). It sends a file with its reply in one of two ways:
+
+- `send_attachment` sends an artifact. The message shows the artifact's current content, so it
+  keeps working after the conversation's files are cleared.
+- `send_session_file` sends one of the conversation's session files as it is, without promoting
+  it. It is transient like the file: once the conversation's files are cleared the attachment no
+  longer opens.
+
 ## Clearing session files and deletion
 
 There is **no automatic garbage collection, retention period or background collector** in this
@@ -91,5 +103,6 @@ DELETE /api/v1/agents/{agent_id}/channel/{c}/topic/{t}/files   clear session fil
 ```
 
 Message attachments use `VizierAttachmentContent::Artifact { agent_id, artifact_id, available }`;
-`available` is filled at read time and never stored. Old `local`/`url`/`bytes`/`base64`
-attachments keep working as legacy data.
+`available` is filled at read time and never stored. A session file sent with `send_session_file`
+is a `local` attachment pointing at its upload, like a person's own upload. Old
+`url`/`bytes`/`base64` attachments keep working as legacy data.

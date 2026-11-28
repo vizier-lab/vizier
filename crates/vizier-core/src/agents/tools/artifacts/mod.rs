@@ -1,8 +1,8 @@
 //! Artifact tools (`specs/035-add-artifacts`, contracts/agent-tools-and-memory.md §1).
 //!
-//! `promote_artifact`, `update_artifact`, `list_artifacts` and `load_artifact_as_session_file`
-//! live in the existing **Files** category. A dream may use promote/list (and read its source
-//! sessions' files) but never update or write a session file.
+//! `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file` and
+//! `delete_artifact` live in the existing **Files** category. A dream may use promote/list (and
+//! read its source sessions' files) but never update, delete or write a session file.
 
 use std::sync::Arc;
 
@@ -322,6 +322,66 @@ impl VizierTool for LoadArtifactAsSessionFile {
             artifact_name: artifact.name,
             mime_type: artifact.mime_type,
             size: record.size,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeleteArtifactArgs {
+    #[schemars(description = "the artifact's display name")]
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DeletedArtifact {
+    pub name: String,
+    pub removed: bool,
+    /// Messages that attached it. They keep their text and show the file as no longer available.
+    pub references: usize,
+}
+
+pub struct DeleteArtifact {
+    pub artifacts: Arc<crate::artifacts::Artifacts>,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for DeleteArtifact {
+    type Input = DeleteArtifactArgs;
+    type Output = DeletedArtifact;
+
+    fn name() -> String {
+        "delete_artifact".into()
+    }
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
+
+    fn description(&self) -> String {
+        "Permanently delete one of this agent's artifacts by name, with every version of its content. Messages that attached it keep their text and show it as no longer available, and memory links to it are removed. This cannot be undone, so only delete when the person asked or the artifact is clearly obsolete."
+            .into()
+    }
+
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
+        let artifact = self
+            .artifacts
+            .storage()
+            .get_artifact_by_name(&ctx.session.0, &args.name)
+            .await
+            .map_err(|e| VizierError(e.to_string()))?
+            .ok_or_else(|| VizierError(format!("no artifact named '{}' on this agent", args.name)))?;
+        let result = self
+            .artifacts
+            .delete(&ctx.session.0, &artifact.id, Requester::Agent(ctx.session.0.clone()))
+            .await?;
+        Ok(DeletedArtifact {
+            name: artifact.name,
+            removed: result.removed,
+            references: result.references,
         })
     }
 }

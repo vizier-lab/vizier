@@ -119,9 +119,11 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "get_session_file_path" => "📍 Getting file path:".to_string(),
         "load_path_as_session_file" => "📥 Loading file:".to_string(),
         "send_attachment" => "📎 Sending attachment:".to_string(),
+        "send_session_file" => "📎 Sending file:".to_string(),
         "promote_artifact" => "⭐ Promoting artifact:".to_string(),
         "update_artifact" => "✏️ Updating artifact:".to_string(),
         "list_artifacts" => "📚 Listing artifacts".to_string(),
+        "delete_artifact" => "🗑️ Deleting artifact:".to_string(),
         "load_artifact_as_session_file" => "📥 Loading artifact:".to_string(),
         "fetch" => "🌐 Fetching:".to_string(),
         "http_client" => format!("🔗 HTTP {}:", args["method"].as_str().unwrap_or("GET")),
@@ -231,9 +233,10 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
                 args["path"].as_str().unwrap_or("?")
             )
         }
-        "read_document_file" => {
+        "read_document_file" | "send_session_file" => {
             format!("'{}'", args["filename"].as_str().unwrap_or("?"))
         }
+        "delete_artifact" => format!("'{}'", args["name"].as_str().unwrap_or("?")),
         "send_attachment" => {
             format!("'{}'", args["artifact"].as_str().unwrap_or("?"))
         }

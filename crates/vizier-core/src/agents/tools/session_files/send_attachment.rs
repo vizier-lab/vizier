@@ -90,3 +90,60 @@ impl VizierTool for SendAttachment {
         })
     }
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SendSessionFileArgs {
+    #[schemars(description = "the session file to attach, as list_session_files names it")]
+    pub filename: String,
+}
+
+pub struct SendSessionFile {
+    pub storage: Arc<VizierStorage>,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for SendSessionFile {
+    type Input = SendSessionFileArgs;
+    type Output = SendAttachmentOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
+
+    fn name() -> String {
+        "send_session_file".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Attach one of this conversation's session files to your response, as it is now, without keeping it as an artifact. The attachment goes away if the conversation's files are cleared; to keep the file, promote it with `promote_artifact` and use `send_attachment`."
+            .to_string()
+    }
+
+    async fn call(
+        &self,
+        args: Self::Input,
+        ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
+        let file = self
+            .storage
+            .get_session_file(&ctx.session, &args.filename)
+            .await
+            .map_err(|e| VizierError(e.to_string()))?
+            .ok_or_else(|| {
+                VizierError(format!(
+                    "no session file named '{}' in this conversation; list_session_files shows them",
+                    args.filename
+                ))
+            })?;
+
+        ctx.pending_attachments.lock().await.push(VizierAttachment {
+            filename: file.filename.clone(),
+            content: VizierAttachmentContent::Local(format!("/api/v1/files/{}", file.file_id)),
+        });
+
+        Ok(SendAttachmentOutput {
+            filename: file.filename,
+            status: "sent".into(),
+        })
+    }
+}
