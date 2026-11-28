@@ -16,7 +16,6 @@ fn service() -> (CustomTools, tempfile::TempDir) {
     });
     let storage = Arc::new(VizierStorage::new(SqlStorage::new(
         store,
-        Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
     )));
     (CustomTools::new(storage, None), dir)
 }

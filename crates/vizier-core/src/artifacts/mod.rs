@@ -566,7 +566,6 @@ mod tests {
         crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(crate::storage::sqlite::SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let fm = FileManager::new(dir.path(), Arc::new(LocalBlobStore::new(dir.path())));
         (

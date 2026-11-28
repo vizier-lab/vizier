@@ -156,8 +156,7 @@ pub trait MemoryStorage {
 
     async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>>;
 
-    /// Deletes a bundle's `index.md`/`log.md` (and any other non-concept file left in it).
-    /// When `force` is `false`, rejected with `Err` if the bundle still contains any concept
+    /// Deletes a bundle. When `force` is `false`, rejected with `Err` if the bundle still contains any concept
     /// document — a bundle must be emptied of concepts (via `delete_memory`) before it can be
     /// deleted itself. When `force` is `true`, every remaining concept document is deleted too
     /// (and its embedding removed via `indexer`) before the bundle itself goes — this is
@@ -186,8 +185,8 @@ pub trait MemoryStorage {
 
     // ---- version history (specs/006-memory-version-history) ----
 
-    /// Newest-first. Lazily seeds the baseline revision when the document exists on disk but
-    /// has no history yet. `bundle: None` means the agent's default bundle.
+    /// Newest-first. Lazily seeds the baseline revision when the document exists but has no
+    /// history yet. `bundle: None` means the agent's default bundle.
     async fn list_memory_revisions(
         &self,
         agent_id: String,

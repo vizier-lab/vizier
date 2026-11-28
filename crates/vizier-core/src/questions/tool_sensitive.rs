@@ -180,7 +180,6 @@ mod tests {
         crate::storage::sqlite::init_sensitive_ask_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (
             AskSensitiveInput::new(

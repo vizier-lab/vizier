@@ -5,7 +5,6 @@ use rusqlite::Connection;
 
 use crate::error::VizierError;
 use crate::storage::VizierStorageProvider;
-use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
 
 mod agent;
@@ -52,7 +51,6 @@ mod user;
 pub struct SqlStorage {
     /// Every storage method checks a connection out of here (`self.conn.lock()?`).
     pub conn: crate::storage::sql::SqlStore,
-    pub document_store: Arc<dyn DocumentStore>,
     /// Every saved or relabelled session file, for `SessionFrame::File`.
     pub session_files: tokio::sync::broadcast::Sender<(
         crate::schema::VizierSession,
@@ -68,14 +66,14 @@ pub struct SqlStorage {
     pub(crate) fences: Arc<crate::storage::fence::Fences>,
 }
 
-/// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
-/// passage coordinate table (`memory_passage`,
+/// The memory tables: the documents (`memory_node`, their bodies in `content`), their links
+/// (`memory_edge`) and the derived passage coordinate table (`memory_passage`,
 /// `specs/009-memory-semantic-chunking/data-model.md` §3), split out from `init_schema` so unit
 /// tests (`src/storage/memory_bundle.rs`) can stand up just these tables against an in-memory
 /// connection without the rest of the application schema.
 ///
-/// Everything here is derived and rebuildable from the concept documents on disk. For
-/// `memory_passage` specifically, the *absence* of rows for a document is the only marker that it
+/// `memory_node` is the source of truth for memory (specs/070-memory-in-database); edges and
+/// passages are derived from it. For `memory_passage` specifically, the *absence* of rows for a document is the only marker that it
 /// has not been chunked yet — there is no separate progress table (research Decision 8).
 pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -91,6 +89,7 @@ pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             read_count INTEGER NOT NULL DEFAULT 0,
+            content TEXT,
             PRIMARY KEY (agent_id, bundle, path)
         );
         CREATE INDEX IF NOT EXISTS idx_memory_node_agent_bundle ON memory_node(agent_id, bundle);
@@ -123,6 +122,9 @@ pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memory_passage_doc ON memory_passage(agent_id, bundle, path);
         ",
     )?;
+    // A database from before memory moved into it (spec 070). The body stays NULL until the
+    // one-time file migration fills it.
+    add_column_if_missing(conn, "memory_node", "content", "TEXT")?;
     Ok(())
 }
 
@@ -242,13 +244,9 @@ impl SqlStorage {
         Ok(conn)
     }
 
-    pub fn new(
-        conn: crate::storage::sql::SqlStore,
-        document_store: Arc<dyn DocumentStore>,
-    ) -> Self {
+    pub fn new(conn: crate::storage::sql::SqlStore) -> Self {
         Self {
             conn,
-            document_store,
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher: crate::encryption::SecretCipher::disabled(),
             secret_paths: Arc::new(crate::encryption::NoIntegrationSecretPaths),
@@ -260,13 +258,11 @@ impl SqlStorage {
     /// integration settings are classified by `secret_paths`. No schema change.
     pub fn with_secrets(
         conn: crate::storage::sql::SqlStore,
-        document_store: Arc<dyn DocumentStore>,
         cipher: crate::encryption::SecretCipher,
         secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
     ) -> Self {
         Self {
             conn,
-            document_store,
             session_files: tokio::sync::broadcast::channel(64).0,
             cipher,
             secret_paths,
@@ -275,10 +271,7 @@ impl SqlStorage {
     }
 
     pub fn bundle_store(&self) -> crate::storage::memory_bundle::BundleMemoryStore {
-        crate::storage::memory_bundle::BundleMemoryStore::new(
-            self.document_store.clone(),
-            self.conn.clone(),
-        )
+        crate::storage::memory_bundle::BundleMemoryStore::new(self.conn.clone())
     }
 
     pub(crate) fn init_schema(conn: &Connection) -> Result<()> {

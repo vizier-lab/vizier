@@ -378,7 +378,7 @@ mod tests {
             store
         });
         let dir = tempfile::tempdir().unwrap().keep();
-        SqlStorage::new(store, Arc::new(crate::storage::document::BlobDocumentStore::local(dir)))
+        SqlStorage::new(store)
     }
 
     fn share(id: &str, creator: &str, audience: Audience, people: &[&str], at: i64) -> ShareContent {

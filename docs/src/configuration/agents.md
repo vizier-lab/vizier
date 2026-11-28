@@ -119,7 +119,7 @@ Clients see a `checkpoint` response event with the handover text. Manual variant
 - The creating user is the **owner**. Owners can always view/edit/delete their agents.
 - `GET|PATCH /api/v1/agents/{id}/sharing` with `{ "add": [user_id…], "remove": [user_id…] }` shares an agent read/chat-only with other users.
 - Roles with `all_agents:view` / `all_agents:edit` / `all_agents:delete` bypass ownership; `owned_agents:delete` allows deleting own agents. The `superadmin` system role has everything.
-- `DELETE /api/v1/agents/{id}?delete_workspace=true` also removes `agents/<id>/` (memory, skills) from disk.
+- Deleting an agent (`DELETE /api/v1/agents/{id}`) also removes its memory from the database and `agents/<id>/` (skills and other files) from disk. The `delete_workspace` query parameter is still accepted and changes nothing.
 
 ## Background work
 

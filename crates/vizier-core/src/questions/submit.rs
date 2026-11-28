@@ -286,7 +286,6 @@ mod tests {
         crate::storage::sqlite::init_question_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let f = Fixture {
             storage,

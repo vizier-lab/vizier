@@ -206,7 +206,6 @@ mod tests {
         let conn = SqlStore::sqlite(conn);
         let storage = VizierStorage::new(SqlStorage::new(
             conn.clone(),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         (Arc::new(storage), conn, dir)
     }

@@ -498,7 +498,6 @@ mod tests {
         (
             SqlStorage::new(
                 store,
-                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ),
             dir,
         )

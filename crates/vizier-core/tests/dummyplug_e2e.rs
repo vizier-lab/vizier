@@ -2697,3 +2697,217 @@ async fn connect_code_links_once_and_agents_read_the_vizier_username() {
     assert!(web.contains("sender: e2e"), "{web}");
     assert!(!web.contains("verified"), "{web}");
 }
+
+// ---- Spec 070: memory in the database (quickstart steps 2 and 3) ----------------------------
+
+use vizier_core::{
+    dependencies::VizierDependencies,
+    sql_params,
+    storage::memory::MemoryStorage as _,
+};
+
+/// An agent with the offline embedder, so the memory tools are offered.
+fn memory_agent(id: &str) -> AgentConfig {
+    let mut config = agent_config(id);
+    config.embedding = Some(EmbeddingConfig {
+        provider: EmbeddingProvider::Dummyplug,
+        model: "dummyplug-embedding".into(),
+    });
+    config.indexer = Some(IndexerConfig::default());
+    config
+}
+
+async fn memory_runtime(dir: &std::path::Path) -> VizierRuntime {
+    VizierRuntime::start(RuntimeOptions {
+        config: VizierConfig::with_workspace(dir.to_path_buf()),
+        ..Default::default()
+    })
+    .await
+    .unwrap()
+}
+
+async fn document(
+    runtime: &VizierRuntime,
+    bundle: &str,
+    path: &str,
+) -> Option<vizier_core::schema::Memory> {
+    runtime
+        .deps()
+        .storage
+        .get_memory_detail("plug".into(), Some(bundle.into()), path.into())
+        .await
+        .unwrap()
+}
+
+/// A workspace as an earlier release left it (rows without bodies, memory in files) is moved
+/// into the database by a start, and the agent then works on it with its memory tools without
+/// ever touching a file again.
+#[tokio::test(flavor = "multi_thread")]
+async fn memory_moves_into_the_database_and_works_through_the_agent() {
+    let Some(dummyplug) = Dummyplug::start() else {
+        return;
+    };
+    dummyplug.ready().await;
+    let dir = tempfile::tempdir().unwrap();
+    let memory_dir = dir.path().join("agents").join("plug").join("memory");
+
+    // The agent, with its seeded identity.
+    let runtime = memory_runtime(dir.path()).await;
+    runtime
+        .deps()
+        .storage
+        .upsert_provider(&ProviderEntry {
+            id: ProviderId::DUMMYPLUG,
+            credentials: ProviderCredentials {
+                base_url: Some(dummyplug.base_url()),
+                ..Default::default()
+            },
+        })
+        .await
+        .unwrap();
+    let (resp, created) = tokio::sync::oneshot::channel();
+    runtime
+        .transport()
+        .send_agent_command(AgentCommand::Create {
+            agent_id: "plug".into(),
+            config: memory_agent("plug"),
+            resp,
+        })
+        .await
+        .unwrap();
+    match tokio::time::timeout(TURN_TIMEOUT, created).await.unwrap().unwrap() {
+        AgentCommandResult::Ok(_) => {}
+        AgentCommandResult::Error(e) => panic!("create failed: {e}"),
+    }
+    for _ in 0..100 {
+        if document(&runtime, "core", "soul").await.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(document(&runtime, "core", "soul").await.is_some(), "seeded");
+    assert!(!memory_dir.exists(), "nothing is written to files");
+
+    // Turn the workspace into an old one: bodies in files, no completion marker.
+    let file = |title: &str, body: &str| {
+        format!(
+            "---\nslug: x\ntitle: {title}\ncreated_at: 2024-01-01T10:00:00Z\n\
+             updated_at: 2024-02-02T10:00:00Z\nagent_id: plug\nbundle: default\ntags: []\n\
+             keywords: []\nrelations: []\nread_count: 2\n---\n{body}"
+        )
+    };
+    let soul_file = file("Core", "I am the identity from the old files.");
+    let note_file = file("Kettle", "The kettle is in the left cupboard.");
+    std::fs::create_dir_all(memory_dir.join("core")).unwrap();
+    std::fs::create_dir_all(memory_dir.join("default")).unwrap();
+    std::fs::write(memory_dir.join("core").join("soul.md"), &soul_file).unwrap();
+    std::fs::write(memory_dir.join("default").join("kettle.md"), &note_file).unwrap();
+    {
+        let conn = runtime.deps().sql.lock().unwrap();
+        conn.execute("UPDATE memory_node SET content = NULL", sql_params![])
+            .unwrap();
+        conn.execute("DELETE FROM memory_passage", sql_params![]).unwrap();
+        conn.execute(
+            "DELETE FROM state WHERE key = ?1",
+            sql_params![VizierDependencies::MEMORY_IN_DATABASE],
+        )
+        .unwrap();
+    }
+    runtime.shutdown().await.unwrap();
+
+    // The upgrade.
+    let runtime = memory_runtime(dir.path()).await;
+    let soul = document(&runtime, "core", "soul").await.expect("moved");
+    assert_eq!(soul.content, "I am the identity from the old files.");
+    let kettle = document(&runtime, "default", "kettle").await.expect("moved");
+    assert_eq!((kettle.title.as_str(), kettle.read_count), ("Kettle", 2));
+    assert_eq!(
+        std::fs::read_to_string(memory_dir.join("default").join("kettle.md")).unwrap(),
+        note_file,
+        "the file is left as it was"
+    );
+    // From here on no file is needed.
+    std::fs::remove_dir_all(&memory_dir).unwrap();
+
+    let session = VizierSession(
+        "plug".into(),
+        VizierChannelId::HTTP("e2e".into(), "memory".into()),
+        Some("memory".into()),
+    );
+    // The agent converts its moved corpus into passages in the background at start.
+    let mut found = String::new();
+    for _ in 0..50 {
+        found = call_tool(
+            &runtime,
+            &session,
+            "memory_search",
+            serde_json::json!({ "query": "The kettle is in the left cupboard." }),
+        )
+        .await;
+        if found.contains("left cupboard") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(found.contains("left cupboard"), "search finds a moved memory: {found}");
+
+    let wrote = call_tool(
+        &runtime,
+        &session,
+        "memory_write",
+        serde_json::json!({
+            "bundle": "notes", "path": "cats", "title": "Cats",
+            "content": "Cats like [[default/kettle]] and warm places."
+        }),
+    )
+    .await;
+    assert!(wrote.contains("\"ok\": true") || wrote.contains("\"ok\":true"), "{wrote}");
+    let read = call_tool(
+        &runtime,
+        &session,
+        "memory_read",
+        serde_json::json!({ "bundle": "notes", "path": "cats" }),
+    )
+    .await;
+    assert!(read.contains("warm places"), "{read}");
+    assert_eq!(document(&runtime, "notes", "cats").await.unwrap().read_count, 1);
+    let related = runtime
+        .deps()
+        .storage
+        .get_related_memories("plug".into(), Some("notes".into()), "cats".into())
+        .await
+        .unwrap();
+    assert_eq!(related.len(), 1, "the link resolves");
+
+    // A linked memory is not deletable, so the update drops the link first.
+    call_tool(
+        &runtime,
+        &session,
+        "memory_write",
+        serde_json::json!({
+            "bundle": "notes", "path": "cats", "title": "Cats",
+            "content": "Cats like warm places."
+        }),
+    )
+    .await;
+    assert_eq!(
+        document(&runtime, "notes", "cats").await.unwrap().content,
+        "Cats like warm places."
+    );
+    let deleted = call_tool(
+        &runtime,
+        &session,
+        "memory_delete",
+        serde_json::json!({ "bundle": "notes", "path": "cats" }),
+    )
+    .await;
+    assert!(document(&runtime, "notes", "cats").await.is_none(), "{deleted}");
+    assert!(!memory_dir.exists(), "no memory tool writes a file");
+    runtime.shutdown().await.unwrap();
+
+    // And it is all still there after another start.
+    let runtime = memory_runtime(dir.path()).await;
+    assert!(document(&runtime, "default", "kettle").await.is_some());
+    assert!(document(&runtime, "notes", "cats").await.is_none());
+    runtime.shutdown().await.unwrap();
+}

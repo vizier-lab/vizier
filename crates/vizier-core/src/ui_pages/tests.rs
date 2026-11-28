@@ -23,7 +23,7 @@ fn harness() -> Harness {
         crate::storage::sqlite::init_ui_page_schema(&conn).unwrap();
         crate::storage::sql::SqlStore::sqlite(conn)
     });
-    let storage = SqlStorage::new(store, Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())));
+    let storage = SqlStorage::new(store);
     let blobs: Arc<dyn BlobStore> = Arc::new(LocalBlobStore::new(dir.path()));
     Harness {
         pages: UiPages::new(Arc::new(VizierStorage::new(storage)), blobs.clone()),

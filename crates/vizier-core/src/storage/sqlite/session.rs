@@ -484,7 +484,6 @@ mod tests {
         });
         let storage = SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -539,7 +538,6 @@ mod tests {
         });
         let s = SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         let mut n = 0;
         let web = "http__ana__vizier-webui";

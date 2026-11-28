@@ -269,7 +269,6 @@ mod tests {
             agent_id: "dp-a".into(),
             storage: Arc::new(VizierStorage::new(SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(BlobDocumentStore::local(std::env::temp_dir())),
             ))),
             health: IntegrationHealth::default(),
             file_manager: crate::file_manager::FileManager::new(

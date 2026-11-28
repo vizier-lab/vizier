@@ -134,7 +134,6 @@ mod tests {
         SqlStorage::init_schema(&conn).unwrap();
         let storage = SqlStorage::with_secrets(
             SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             SecretCipher::from_key_for_test([7u8; 32]),
             Arc::new(NoSecretPaths),
         );
@@ -186,7 +185,6 @@ mod tests {
             SqlStorage::init_schema(&conn).unwrap();
             SqlStorage::with_secrets(
                 SqlStore::sqlite(conn),
-                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
                 SecretCipher::from_key_for_test([7u8; 32]),
                 Arc::new(NoSecretPaths),
             )

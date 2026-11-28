@@ -77,7 +77,6 @@ fn fixture(interactive: bool) -> Fixture {
     });
     let storage = Arc::new(VizierStorage::new(SqlStorage::new(
         store,
-        Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
     )));
     let service = CustomTools::new(storage, None);
     let router = ToolRouter {

@@ -147,7 +147,6 @@ mod tests {
         init_secret_schema(&conn).unwrap();
         let storage = SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (VizierStorage::new(storage), dir)
     }
@@ -305,7 +304,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let storage = VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(rusqlite::Connection::open_in_memory().unwrap()),
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         ));
         assert!(matches!(
             list(&storage, "dp-a").await,

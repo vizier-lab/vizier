@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Vizier is a Rust-based AI agent framework, a workspace of four crates (see **Workspace layout**): the engine as a library (`vizier-core`) and, on top of it, a single binary that runs multiple concurrent AI agents, each with its own tools, memory, and provider, exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded SQLite — no external DB service required. Agent memory itself lives as human-readable markdown documents on disk (organized into per-agent **bundles**, see below), read/written through a pluggable `DocumentStore` abstraction; every other entity lives in SQLite.
+Vizier is a Rust-based AI agent framework, a workspace of four crates (see **Workspace layout**): the engine as a library (`vizier-core`) and, on top of it, a single binary that runs multiple concurrent AI agents, each with its own tools, memory, and provider, exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded SQLite — no external DB service required. Agent memory lives in the database as markdown documents (organized into per-agent **bundles**, see below), exported as markdown files on demand; every other entity lives in SQLite too, and user bytes (uploads, artifacts) in the file store.
 
 ## Workspace layout
 
@@ -133,21 +133,19 @@ metadata/events/references in SQLite (`ArtifactStorage`).
   running/queued; deletes records first, then an `uploads/<file_id>/` blob only when its
   reference count is zero (`json_extract`). **No automatic GC or retention.**
 - Deletion is reference-only both ways: deleting a conversation/memory keeps the artifact;
-  deleting an artifact keeps message/memory bodies (messages read `available: false`, memory
-  links are removed with a revision).
+  deleting an artifact keeps message/memory bodies (messages read `available: false`).
 - Four permissions: `all_agents`/`owned_agents` × `view_artifacts`/`manage_artifacts`
   (`crates/vizier-core/src/artifacts/access.rs`; `manage` implies `view`, system bypasses). Reads use view,
   promote/delete use manage.
-- `artifact_reference` is a derived index written with history saves and memory writes, and
-  reconciled at agent start — never scan history JSON or memory documents at gallery read time.
-- `MemoryAttachment` is a two-variant enum (`Artifact { artifact_id, name }` |
-  `LegacySessionFile(VizierAttachment)`). `memory_write` is content-only and preserves existing
-  attachments; attach/detach are separate tools/API operations that rewrite only frontmatter, the
-  node, a revision and reference rows. Legacy session-file memory attachments and legacy
-  `Local`/`Url`/`Bytes`/`Base64` message attachments are read-only compatibility tracked in #82.
-- Dreams may read their source conversations' session files and promote/list/attach/detach
-  artifacts (`ToolContext.dream_sources`); they cannot update/delete artifacts, send attachments,
-  load one into a session, or clear files.
+- `artifact_reference` is a derived index written with history saves — never scan history JSON at
+  gallery read time.
+- Memory has **no** attachments (removed with spec 066): a memory cites an artifact with an
+  entity link (`[[artifact:name]]`) in its body, and an old `attachments:` key in a stored
+  document is ignored. Legacy `Local`/`Url`/`Bytes`/`Base64` message attachments are read-only
+  compatibility tracked in #82.
+- Dreams may read their source conversations' session files and promote/list artifacts
+  (`ToolContext.dream_sources`); they cannot update/delete artifacts, send attachments, load one
+  into a session, or clear files.
 
 ### Tools (`crates/vizier-core/src/agents/tools/mod.rs`)
 
@@ -329,7 +327,7 @@ folder it cannot read instead of dropping it, and `Skill::author` is optional wh
 
 `VizierStorageProvider` is a supertrait composing every storage concern (`IntegrationStorage`, `MemoryStorage`, `TaskStorage`, `TaskRunStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `CustomProviderStorage`, `CatalogueCacheStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`, `DetachedScriptStorage`, `UsageStorage`, `NotificationStorage`). `VizierStorage` type-erases the single `SqlStorage` implementation of those traits. `SqlStorage` runs over `storage::sql::SqlStore`; its `SqlConn`/`Dialect` boundary is implemented by SQLite and PostgreSQL, so storage behavior is shared and only SQL dialect, pooling, migrations and vector indexing differ. Do not add parallel PostgreSQL trait implementations. SQLite uses sqlite-vec; PostgreSQL requires pgvector and uses per-dimension HNSW tables.
 
-User bytes are independent from the SQL backend. `storage::blob::BlobStore` has local and S3-compatible implementations and owns uploads, artifact versions and memory markdown. `DocumentStore` adapts memory documents onto that blob store; `BundleMemoryStore` remains the single implementation of bundle/concept logic and the sole `impl MemoryStorage for SqlStorage`. Database rows hold file metadata and the derived memory graph/passage indexes, never object content. Skills remain local installed packages. The server can select either SQL backend and either file backend independently; the desktop app is fixed to SQLite + local.
+User bytes are independent from the SQL backend. `storage::blob::BlobStore` has local and S3-compatible implementations and owns uploads and artifact versions. **Memory is in the database** (`specs/070-memory-in-database/`): `memory_node.content` holds each document's body beside its metadata (a row with `NULL` content, left only by the migration, is absent to every reader), `BundleMemoryStore` remains the single implementation of bundle/concept logic and the sole `impl MemoryStorage for SqlStorage`, and no memory operation touches the blob store. A write, delete or rollback updates the row, its edges, broken flags and revision in **one transaction** (per-agent `lock_key` on PostgreSQL); passages are written after commit. Reads write nothing but `read_count`. `index.md`/`log.md` exist only in an export archive. `DocumentStore`/`BlobDocumentStore` survive only for the one-time startup migrations (`dependencies.rs`): `migrate_memory_into_database` (marker `migration.memory_in_database_v1`) copies each agent's files into rows, keeps the files and adds no revision. It **never stops startup**: when the store cannot be read, or an agent with memory rows has no files at all, it logs an error, leaves the marker unset and retries on the next start; `seed_identity` skips any existing `core/soul` row, so an unmigrated identity is never overwritten (all #82). Database rows hold file metadata, never uploaded or artifact content. Skills remain local installed packages. The server can select either SQL backend and either file backend independently; the desktop app is fixed to SQLite + local.
 
 Production opens both backends through `storage::open_store` and `storage::blob::open`. PostgreSQL URLs and S3 credentials come only from environment variables/files, never serialized config or CLI values. PostgreSQL schema changes are ordered files under `storage/sql/postgres/migrations/`; SQLite keeps its existing idempotent schema initialization and compatibility migrations. `vizier storage migrate` is the offline, resumable SQLite/local → PostgreSQL/local-or-S3 cutover; it preserves encrypted envelopes, copies vectors, verifies blobs by size and SHA-256, and is tracked for pre-1.0 removal in #82.
 
@@ -337,7 +335,7 @@ Production opens both backends through `storage::open_store` and `storage::blob:
 
 The one-time conversion of an existing corpus runs **per agent in `AgentHost::start`**, not in `dependencies.rs` — the indexer is built per agent from that agent's embedding config and does not exist where the other migrations run.
 
-**Version history** (`specs/006-memory-version-history/`): CORE history lives in the `core_revision` table behind `AgentStorage` (`set_agent_core` upserts `agent_core` and records the revision in one transaction — `agent_core` is the sole home of CORE; the legacy `AgentConfig.core` field is migrated out on startup), memory history in `memory_revision` behind `MemoryStorage` (recorded inside `BundleMemoryStore::{write_memory, delete_memory, delete_bundle, import_bundle}`). Both are recorded *inside* the write path, so every caller only supplies a `RevisionOrigin` (who/why); the two kinds are deliberately separate implementations sharing only `schema/revision.rs` value types and `storage/diff.rs`. Direct on-disk edits to memory files are not versioned.
+**Version history** (`specs/006-memory-version-history/`): CORE history lives in the `core_revision` table behind `AgentStorage` (`set_agent_core` upserts `agent_core` and records the revision in one transaction — `agent_core` is the sole home of CORE; the legacy `AgentConfig.core` field is migrated out on startup), memory history in `memory_revision` behind `MemoryStorage` (recorded inside `BundleMemoryStore::{write_memory, delete_memory, delete_bundle, import_bundle}`). Both are recorded *inside* the write path, so every caller only supplies a `RevisionOrigin` (who/why); the two kinds are deliberately separate implementations sharing only `schema/revision.rs` value types and `storage/diff.rs`. Memory cannot be edited outside vizier, so every change is versioned.
 
 **Detached scripts** (`DetachedScriptStorage`, table `detached_script`): one row per detached `execute_python` run holding its intent, redacted code, its calls so far (previews cut to 500 characters, the list to 32 KiB) and its outcome (the redacted report, cut to 32 KiB). Every write is fenced on the agent's scope, each transition out of `running` is one guarded update, and the delivery claim is one transaction. `recover_agent` marks the claimed agent's `running` rows `interrupted` (rows under an older fence only) and pokes every session with a deliverable row; `delete_session` and `delete_agent` delete theirs. The `background_job`/`background_piece` tables and `background_job` notifications are dropped by SQLite init and PostgreSQL migration `0008` (#82); a pre-058 `background_report` history request still reads as `VizierRequestContent::BackgroundReport(serde_json::Value)` (#82).
 
@@ -407,7 +405,7 @@ Every answered completion is recorded by `VizierModel::complete_until` itself: o
 
 An agent's persistent "self" is a **memory**, at the address `core/soul` (`schema::CORE_BUNDLE` / `schema::SOUL_PATH`, specs/043-unify-core-and-memory). It is read, written, listed, linked, versioned and inspected with the ordinary memory tools — there is no identity-specific tool, and the `identity` tool category is gone. `core` is a reserved bundle: it holds only `soul`, cannot be deleted (not even with `force`), and refuses an import; the document inside it is deletable and updatable like any other memory. A removed soul is rendered from the embedded template with a note naming the address, never an empty block.
 
-The document is written once at agent spawn by `BundleMemoryStore::seed_identity`, from the legacy `agent_core` row or the template, verbatim plus a provenance line, with the size cap bypassed so no upgrade is blocked. The seed runs from `start_memory_maintenance` for **every** agent — including one with no indexer, which writes through a no-op one. It is idempotent (a document present means nothing to do) and is retired with the rest of the compatibility layer before 1.0.0 (issue #82).
+The document is written once at agent spawn by `BundleMemoryStore::seed_identity`, from the legacy `agent_core` row or the template, verbatim plus a provenance line, with the size cap bypassed so no upgrade is blocked. The seed runs from `start_memory_maintenance` for **every** agent — including one with no indexer, which writes through a no-op one. It is idempotent (any row at the address means nothing to do, including a `NULL`-content row the memory migration left for a file it could not parse) and is retired with the rest of the compatibility layer before 1.0.0 (issue #82).
 
 Memory writes are bounded by `config::MemoryLimits` (8 KiB ceiling / 4 KiB soft limit; the identity document is 4 KiB / 1.5 KiB because it is paid for every turn). Both rules live in `BundleMemoryStore::write_memory_inner`, the single write path every caller funnels through, so a tool write, an HTTP write, a rollback and an import are judged identically. Over the ceiling is a refusal carrying the overage and a split pattern; over the soft limit is a success carrying a separate `warning` field. A document already above the ceiling accepts a shorter write and refuses a longer one, so the limit is not a trap.
 
@@ -463,5 +461,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information for the current feature, read
-`specs/069-platform-account-linking/plan.md`.
+`specs/070-memory-in-database/plan.md`.
 <!-- SPECKIT END -->

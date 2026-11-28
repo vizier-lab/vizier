@@ -142,6 +142,26 @@ pub(crate) fn list(
     Ok((rows, total as usize))
 }
 
+/// Every revision of a bundle as `(path, revision)`, oldest first: what an export's `log.md` is
+/// written from.
+pub(crate) fn list_bundle(
+    conn: &Connection,
+    agent_id: &str,
+    bundle: &str,
+) -> Result<Vec<(String, MemoryRevisionRow)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SELECT_COLUMNS}, path FROM memory_revision
+         WHERE agent_id = ?1 AND bundle = ?2
+         ORDER BY created_at, id"
+    ))?;
+    let rows = stmt
+        .query_map(params![agent_id, bundle], |row| {
+            Ok((row.get::<_, String>(9)?, map_row(row)?))
+        })?
+        .collect::<sql::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert(
     conn: &Connection,

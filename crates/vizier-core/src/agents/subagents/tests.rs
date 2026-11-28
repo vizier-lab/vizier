@@ -114,7 +114,6 @@ mod service {
         SqlStorage::init_schema(&conn).unwrap();
         let storage = Arc::new(VizierStorage::new(SqlStorage::new(
             crate::storage::sql::SqlStore::sqlite(conn),
-            Arc::new(crate::storage::document::BlobDocumentStore::local(dir.path().to_path_buf())),
         )));
         let transport = VizierTransport::new();
         let inbox = transport.register_agent("agent-1".into()).await;

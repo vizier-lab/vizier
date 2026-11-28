@@ -29,7 +29,6 @@ fn fixture() -> Fixture {
     agent(&conn, "dp-a");
     let storage = Arc::new(VizierStorage::new(SqlStorage::new(
         conn,
-        Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
     )));
     let transport = VizierTransport::new();
     let notifications = Notifications::new(storage.clone());

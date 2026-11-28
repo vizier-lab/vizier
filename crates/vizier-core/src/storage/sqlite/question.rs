@@ -459,7 +459,6 @@ mod tests {
         });
         let storage = SqlStorage::new(
             store,
-            Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
         );
         (storage, dir)
     }
@@ -835,7 +834,6 @@ mod tests {
             crate::storage::sqlite::init_question_schema(&conn).unwrap();
             SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             )
         };
 

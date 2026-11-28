@@ -1,11 +1,15 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.2.0 → 2.3.0
+Version change: 2.3.0 → 2.3.1
 Modified principles: none
 Added sections: none
 Removed sections: none
 Modified sections:
+  - Distribution & Technology Constraints — memory documents live in the
+    database and export as markdown (spec 070); wording only, no principle
+    changes.
+(2.3.0:)
   - Development Workflow & Quality Gates — `design/` and `webui/` are folders
     of this repository, no longer submodules: a UI change is one branch and
     one pull request, and the matching-branch rule covers only `landing` and
@@ -136,8 +140,10 @@ instead of each module reinventing its own convention.
   and S3-compatible object storage are supported only as explicit,
   additive server choices; neither may become the sole backend or a desktop
   dependency. The prior flat-file entity backend survives only as a
-  migration source; human-readable memory documents now use the shared
-  `DocumentStore`/`BlobStore` abstraction on either local or S3 storage.
+  migration source. Memory documents live in the database (either backend)
+  and export as human-readable markdown; the shared `DocumentStore`/
+  `BlobStore` abstraction holds uploads and artifacts, and old memory files
+  are read only by the one-time migration.
 - **Single-binary output**: `cargo build --release` (with the WebUI
   pre-built or `webui/node_modules` present) MUST produce one self-contained
   executable capable of serving the WebUI, running channels, and persisting
@@ -278,4 +284,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 2.3.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-25
+**Version**: 2.3.1 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-11-28

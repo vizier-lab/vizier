@@ -1647,7 +1647,6 @@ mod tests {
             .unwrap();
             let storage = VizierStorage::new(SqlStorage::new(
                 crate::storage::sql::SqlStore::sqlite(conn),
-                Arc::new(BlobDocumentStore::local(dir.path().to_path_buf())),
             ));
             (storage, dir)
         }
