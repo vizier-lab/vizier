@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.17.0-rc.1] - 2026-11-28
+
+### 🚀 Features
+
+- *(providers)* Venice for chat, Venice and Together AI for image generation
+- *(providers)* Venice reference images, with its safety filter off
+- *(share)* Shared chat snapshots, interactive offline export, and access control (#201)
+- *(usage)* Track and price image, speech, transcription and embedding calls (#217)
+- Add a base_url setting for the server's public address
+- Entity wiki links for artifacts, functions, skills, and tasks (spec 066) (#218)
+- Work in any of the agent's own conversations with the session tools (spec 067) (#219)
+- *(dream)* Call dream tools from execute_python like every other turn
+- *(catalogue)* [**breaking**] Aggregate catalogue sources with provider price lists (spec 068) (#221)
+- *(identity)* [**breaking**] Link Discord and Telegram accounts with /connect (#222)
+- *(memory)* [**breaking**] Store agent memory in the database (#223)
+
+### 🐛 Bug Fixes
+
+- *(providers)* Send qwen-edit-uncensored to Venice's edit endpoint
+- *(artifacts)* Give an attachment the artifact's extension when its name has none
+- *(app)* Stop doubling /api/v1 on desktop downloads
+- *(webui)* Give webui_create_conversation its webui category
+- *(core)* Delete everything of an agent when it is deleted
+- *(webui)* Keep a reply's prose out of an attached audio's transcript
+- *(webui)* Read a pair of dollars in prose as prose, not as math
+- *(webui)* Open the right page from entity wiki links
+- *(webui)* List read_dream_journal under memory, as core now does
+- *(artifacts)* Give a session copy of an artifact its type when the name has none
+
+### 💼 Other
+
+- [**breaking**] Drop the design and webui submodules
+- Merge the design history into design/
+- Merge the webui history into webui/
+- Wire design/ and webui/ in as folders, and check them in CI
+- *(landing)* Bump for the catalogue built from vizier's design/
+
+### 📚 Documentation
+
+- *(readme)* Add the Vizier logo to the header
+
+### 🧪 Testing
+
+- *(app)* Set base_url in the smoke test's settings patches
+- *(core)* Remove unused imports left by the memory move (#224)
+
+### ⚙️ Miscellaneous Tasks
+
+- Cache the MinIO binary and retry its build
+- *(webui)* Let an underscore mean a name the code means to discard
 ## [0.16.0] - 2026-11-21
 
 ### 🚀 Features
@@ -29,6 +79,7 @@ All notable changes to this project will be documented in this file.
 - Pin design and webui without the deck sheets' sort-order footer
 - *(app)* Key the Rust cache by the runner image version
 - Pin webui with commands and skills drawn as typed
+- Bump version to 0.16.0
 ## [0.16.0-rc.3] - 2026-11-19
 
 ### 🚀 Features
